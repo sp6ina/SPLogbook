@@ -171,3 +171,248 @@ fn linux_portable_build_script_safety() {
     assert!(!script.contains("pacman "));
     assert!(!script.contains("zypper "));
 }
+
+#[test]
+fn linux_portable_package_type_and_asset_matching() {
+    use base64::Engine;
+    use base64::engine::general_purpose::STANDARD as BASE64;
+    use ed25519_dalek::Signer;
+    use splogbook::cloud::updater::{
+        ReleaseArchitecture, ReleaseAsset, ReleasePackageType, ReleasePlatform, TrustedKey,
+        VerifiedReleaseManifest,
+    };
+
+    assert_eq!(
+        ReleasePackageType::parse("tar.gz").unwrap(),
+        ReleasePackageType::TarGz
+    );
+    assert_eq!(
+        ReleasePackageType::parse("linux-portable-tar-gz").unwrap(),
+        ReleasePackageType::TarGz
+    );
+    assert_eq!(
+        ReleasePackageType::expected_for_installation(
+            ReleasePlatform::Linux,
+            InstallationType::LinuxPortableTarGz
+        ),
+        ReleasePackageType::TarGz
+    );
+
+    let manifest_json = r#"{
+        "manifest_version": 1,
+        "key_id": "test-m3f-key",
+        "product": "SPLogbook",
+        "version": "1.3.0-alpha.1",
+        "channel": "alpha",
+        "minimum_updater_version": "1.1.0",
+        "commit": "a8541075e14de1537b7940fa3fd48b44d854151f",
+        "assets": [
+            {
+                "platform": "linux",
+                "arch": "x86_64",
+                "package_type": "linux-portable-tar-gz",
+                "filename": "SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz",
+                "size": 52428800,
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            }
+        ]
+    }"#;
+
+    let secret: [u8; 32] = rand::random();
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&secret);
+    let verifying_key = signing_key.verifying_key();
+    let sig = signing_key.sign(manifest_json.as_bytes());
+    let sig_b64 = BASE64.encode(sig.to_bytes());
+
+    let tkey = TrustedKey {
+        key_id: "test-m3f-key",
+        public_key: verifying_key.to_bytes(),
+        active: true,
+        min_version: Some("1.2.0"),
+        max_version: None,
+    };
+
+    let verified = VerifiedReleaseManifest::verify_with_keys_and_channel(
+        manifest_json.as_bytes(),
+        &sig_b64,
+        &[tkey],
+        &[],
+        &[],
+        "1.2.0",
+        splogbook::core::build_info::UpdateChannelPreference::Alpha,
+    )
+    .expect("Manifest verification");
+
+    let api_assets = vec![ReleaseAsset {
+        name: "SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz".into(),
+        browser_download_url: "https://example.com/asset.tar.gz".into(),
+        digest: Some(
+            "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".into(),
+        ),
+        size: 52428800,
+    }];
+
+    let selected = verified
+        .select_asset_for_installation_type(
+            ReleasePlatform::Linux,
+            ReleaseArchitecture::X86_64,
+            InstallationType::LinuxPortableTarGz,
+            &api_assets,
+        )
+        .expect("Select asset for Linux Portable TarGz");
+
+    assert_eq!(
+        selected.filename(),
+        "SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz"
+    );
+    assert_eq!(
+        selected.declared_sha256(),
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    );
+}
+
+#[test]
+fn linux_portable_disk_space_preflight() {
+    use splogbook::cloud::updater::preflight::{
+        DEFAULT_SAFETY_MARGIN_BYTES, DiskPreflightRequirements, TRANSACTION_METADATA_BYTES,
+    };
+
+    let req = DiskPreflightRequirements::calculate(
+        InstallationType::LinuxPortableTarGz,
+        50 * 1024 * 1024,  // 50 MiB download
+        100 * 1024 * 1024, // 100 MiB extracted
+        50 * 1024 * 1024,  // 50 MiB backup
+        None,
+    )
+    .expect("Preflight calculate");
+
+    assert_eq!(req.declared_download_size, 50 * 1024 * 1024);
+    assert_eq!(req.max_extracted_size, 100 * 1024 * 1024);
+    assert_eq!(req.backup_size, 50 * 1024 * 1024);
+    assert_eq!(req.package_manager_overhead, 0);
+    assert_eq!(req.transaction_metadata_size, TRANSACTION_METADATA_BYTES);
+    assert_eq!(req.filesystem_safety_margin, DEFAULT_SAFETY_MARGIN_BYTES);
+    assert_eq!(
+        req.total_required_bytes,
+        50 * 1024 * 1024
+            + 100 * 1024 * 1024
+            + 50 * 1024 * 1024
+            + TRANSACTION_METADATA_BYTES
+            + DEFAULT_SAFETY_MARGIN_BYTES
+    );
+}
+
+#[test]
+fn linux_portable_journaled_transactional_replacement_and_rollback() {
+    use splogbook::cloud::updater::UpdatePlan;
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let active_dir = temp.path().join("active");
+    let staging_dir = temp.path().join("staging");
+    let rollback_dir = temp.path().join("rollback");
+
+    fs::create_dir_all(&active_dir).unwrap();
+    fs::create_dir_all(&staging_dir).unwrap();
+    fs::create_dir_all(&rollback_dir).unwrap();
+
+    // 1. Aktywne pliki aplikacji i dane użytkownika
+    fs::write(active_dir.join("SPLogbook"), b"v1 binary").unwrap();
+    fs::write(active_dir.join("splogbook-updater"), b"v1 updater").unwrap();
+    fs::write(active_dir.join("default_log.db"), b"USER QSO DATABASE").unwrap();
+    fs::write(active_dir.join("station_config.json"), b"USER CONFIG").unwrap();
+
+    // 2. Pliki w stagingu (nowa wersja + próba nadpisania bazy/konfiguracji)
+    fs::write(staging_dir.join("SPLogbook"), b"v2 binary").unwrap();
+    fs::write(staging_dir.join("splogbook-updater"), b"v2 updater").unwrap();
+    fs::write(staging_dir.join("default_log.db"), b"OVERWRITE ATTEMPT").unwrap();
+    fs::write(
+        staging_dir.join("station_config.json"),
+        b"OVERWRITE ATTEMPT",
+    )
+    .unwrap();
+    fs::write(staging_dir.join("README.md"), b"New doc").unwrap();
+
+    // 3. Generowanie planu aktualizacji
+    let plan = UpdatePlan::generate(&staging_dir, &active_dir).expect("UpdatePlan generate");
+    plan.validate_safety("SPLogbook")
+        .expect("UpdatePlan validate_safety");
+
+    // Zabezpieczenie danych użytkownika: bazy i konfigi MUSZĄ być w preserve_files i NIE w replace_files
+    let active_db = active_dir.join("default_log.db");
+    let active_cfg = active_dir.join("station_config.json");
+    let preserved: Vec<_> = plan
+        .preserve_files
+        .iter()
+        .map(|(p, _)| p.as_path())
+        .collect();
+    assert!(preserved.contains(&active_db.as_path()));
+    assert!(preserved.contains(&active_cfg.as_path()));
+
+    let replaced: Vec<_> = plan
+        .replace_files
+        .iter()
+        .map(|(p, _)| p.as_path())
+        .collect();
+    assert!(replaced.contains(&Path::new("SPLogbook")));
+    assert!(replaced.contains(&Path::new("splogbook-updater")));
+    assert!(!replaced.contains(&Path::new("default_log.db")));
+    assert!(!replaced.contains(&Path::new("station_config.json")));
+
+    // 4. Kopia zapasowa (.rollback)
+    for (rel, orig) in &plan.replace_files {
+        let dest = rollback_dir.join(rel);
+        if let Some(p) = dest.parent() {
+            let _ = fs::create_dir_all(p);
+        }
+        fs::copy(orig, &dest).unwrap();
+    }
+    assert_eq!(
+        fs::read(rollback_dir.join("SPLogbook")).unwrap(),
+        b"v1 binary"
+    );
+
+    // 5. Podmiana plików (JOURNALED_TRANSACTIONAL_REPLACEMENT)
+    for (rel, orig) in &plan.replace_files {
+        let src = staging_dir.join(rel);
+        fs::copy(&src, orig).unwrap();
+    }
+    for (rel, orig) in &plan.create_files {
+        let src = staging_dir.join(rel);
+        fs::copy(&src, orig).unwrap();
+    }
+    assert_eq!(
+        fs::read(active_dir.join("SPLogbook")).unwrap(),
+        b"v2 binary"
+    );
+    assert_eq!(fs::read(active_dir.join("README.md")).unwrap(), b"New doc");
+
+    // Bazy użytkownika nietknięte
+    assert_eq!(
+        fs::read(active_dir.join("default_log.db")).unwrap(),
+        b"USER QSO DATABASE"
+    );
+
+    // 6. Symulowany Rollback (np. w razie awarii kandydata)
+    for (_rel, orig) in &plan.create_files {
+        let _ = fs::remove_file(orig);
+    }
+    for (rel, orig) in &plan.replace_files {
+        let bkp = rollback_dir.join(rel);
+        fs::copy(&bkp, orig).unwrap();
+    }
+
+    // Weryfikacja po rollbacku: przywrócone v1, usunięty README, nienaruszone dane
+    assert_eq!(
+        fs::read(active_dir.join("SPLogbook")).unwrap(),
+        b"v1 binary"
+    );
+    assert!(!active_dir.join("README.md").exists());
+    assert_eq!(
+        fs::read(active_dir.join("default_log.db")).unwrap(),
+        b"USER QSO DATABASE"
+    );
+    assert_eq!(
+        fs::read(active_dir.join("station_config.json")).unwrap(),
+        b"USER CONFIG"
+    );
+}
