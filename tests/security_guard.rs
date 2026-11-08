@@ -4026,3 +4026,71 @@ fn m3_stability_100_iterations_semver_evaluation_and_build_identity() {
         );
     }
 }
+
+#[test]
+fn m3_transactional_replacement_terminology_guard() {
+    let forbidden_patterns = [
+        "atomic_swap",
+        "atomic swap",
+        "atomic multi-file replacement",
+        "atomic multi-file",
+    ];
+
+    let files_to_scan = [
+        "tests/windows_helper_test.rs",
+        "src/cloud/updater/windows_helper.rs",
+        "src/cloud/updater/helper_protocol.rs",
+        "src/cloud/updater/transaction.rs",
+        "src/cloud/updater/platform.rs",
+    ];
+
+    for path in &files_to_scan {
+        let content = fs::read_to_string(path)
+            .unwrap_or_else(|e| panic!("Nie można odczytać pliku {path}: {e}"));
+        let lower = content.to_lowercase();
+        for pattern in &forbidden_patterns {
+            assert!(
+                !lower.contains(pattern),
+                "Wykryto niedozwoloną deklarację '{pattern}' w {path}. Aktualizator wieloplikowy wymaga semantyki transactional replacement."
+            );
+        }
+
+        // Sprawdź, czy power-loss atomic nie występuje jako fałszywa obietnica
+        for line in content.lines() {
+            let line_lower = line.to_lowercase();
+            if line_lower.contains("power-loss atomic") || line_lower.contains("power_loss_atomic")
+            {
+                assert!(
+                    line.contains("NOT_POWER_LOSS_ATOMIC") || line_lower.contains("not "),
+                    "Niedozwolona deklaracja sprzętowej atomowości w {path}: '{line}'. Dopuszczalne wyłącznie zaprzeczenie NOT_POWER_LOSS_ATOMIC."
+                );
+            }
+        }
+    }
+
+    // Upewnij się, że nowa nazwa testu istnieje w tests/windows_helper_test.rs
+    let helper_test_content =
+        fs::read_to_string("tests/windows_helper_test.rs").expect("tests/windows_helper_test.rs");
+    assert!(
+        helper_test_content.contains(
+            "windows_helper_stability_20_iterations_database_preservation_and_transactional_replacement"
+        ),
+        "Brak kanonicznej nazwy testu 'windows_helper_stability_20_iterations_database_preservation_and_transactional_replacement' w tests/windows_helper_test.rs"
+    );
+    assert!(
+        !helper_test_content.contains(
+            "windows_helper_stability_20_iterations_database_preservation_and_atomic_swap"
+        ),
+        "Stara nazwa testu 'windows_helper_stability_20_iterations_database_preservation_and_atomic_swap' nadal występuje w tests/windows_helper_test.rs"
+    );
+
+    // Potwierdź formalne tokeny architektoniczne w dokumentacji projektowej
+    let roadmap =
+        fs::read_to_string("docs/IMPROVEMENT_ROADMAP.md").expect("docs/IMPROVEMENT_ROADMAP.md");
+    assert!(
+        roadmap.contains("JOURNALED_TRANSACTIONAL_REPLACEMENT_VERIFIED")
+            && roadmap.contains("NOT_POWER_LOSS_ATOMIC")
+            && roadmap.contains("CRASH_RECOVERABLE_BY_JOURNAL"),
+        "Kanon architektoniczny docs/IMPROVEMENT_ROADMAP.md musi zawierać potwierdzenie semantyki transakcyjnej"
+    );
+}

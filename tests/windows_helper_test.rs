@@ -2010,7 +2010,7 @@ fn windows_helper_stability_50_iterations_rollback_and_identity_verification() {
 }
 
 #[test]
-fn windows_helper_stability_20_iterations_database_preservation_and_atomic_swap() {
+fn windows_helper_stability_20_iterations_database_preservation_and_transactional_replacement() {
     for i in 0..20 {
         let dir = tempdir().expect("tempdir");
         let root = dir.path();
