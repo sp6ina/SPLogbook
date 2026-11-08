@@ -446,6 +446,7 @@ impl ReleaseArchitecture {
 pub enum ReleasePackageType {
     Zip,
     TarGz,
+    InnoExe,
 }
 
 impl ReleasePackageType {
@@ -453,6 +454,7 @@ impl ReleasePackageType {
         match s.trim().to_ascii_lowercase().as_str() {
             "zip" => Ok(Self::Zip),
             "tar.gz" => Ok(Self::TarGz),
+            "inno-exe" | "windows-inno-exe" | "exe" => Ok(Self::InnoExe),
             other => Err(UpdaterError::SafetyGate(format!(
                 "Nieobsługiwany typ paczki w manifeście: {other}"
             ))),
@@ -466,10 +468,22 @@ impl ReleasePackageType {
         }
     }
 
+    pub fn expected_for_installation(
+        platform: ReleasePlatform,
+        inst_type: InstallationType,
+    ) -> Self {
+        match (platform, inst_type) {
+            (ReleasePlatform::Windows, InstallationType::WindowsInnoSetup) => Self::InnoExe,
+            (ReleasePlatform::Windows, _) => Self::Zip,
+            (ReleasePlatform::Linux | ReleasePlatform::MacOs, _) => Self::TarGz,
+        }
+    }
+
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Zip => "zip",
             Self::TarGz => "tar.gz",
+            Self::InnoExe => "inno-exe",
         }
     }
 }
@@ -713,6 +727,7 @@ impl VerifiedReleaseManifest {
         let expected_ext = match pkg_type {
             ReleasePackageType::Zip => ".zip",
             ReleasePackageType::TarGz => ".tar.gz",
+            ReleasePackageType::InnoExe => ".exe",
         };
         if !filename.to_ascii_lowercase().ends_with(expected_ext) {
             return Err(UpdaterError::SafetyGate(format!(
@@ -770,6 +785,143 @@ impl VerifiedReleaseManifest {
         }
 
         // Jeśli API podaje digest, musi być zgodny z manifestem
+        if let Some(ref api_digest) = ra.digest {
+            let clean_digest = api_digest
+                .trim()
+                .trim_start_matches("sha256:")
+                .trim_start_matches("SHA256:");
+            if !clean_digest.eq_ignore_ascii_case(&m_asset.sha256) {
+                return Err(UpdaterError::ChecksumMismatch);
+            }
+        }
+
+        Ok(VerifiedReleaseAsset {
+            platform: target_platform,
+            arch: target_arch,
+            package_type: pkg_type,
+            filename: m_asset.filename.clone(),
+            declared_size: m_asset.size,
+            declared_sha256: m_asset.sha256.to_ascii_lowercase(),
+            browser_download_url: ra.browser_download_url.clone(),
+            bound_manifest_version: self.manifest.version.clone(),
+            bound_commit: self.manifest.commit.clone(),
+        })
+    }
+
+    pub fn select_asset_for_installation_type(
+        &self,
+        target_platform: ReleasePlatform,
+        target_arch: ReleaseArchitecture,
+        inst_type: InstallationType,
+        release_assets: &[ReleaseAsset],
+    ) -> Result<VerifiedReleaseAsset, UpdaterError> {
+        let expected_package =
+            ReleasePackageType::expected_for_installation(target_platform, inst_type);
+
+        let mut matches = Vec::new();
+        for m_asset in &self.manifest.assets {
+            let p = ReleasePlatform::parse(&m_asset.platform)?;
+            let a = ReleaseArchitecture::parse(&m_asset.arch)?;
+            let pkg = ReleasePackageType::parse(&m_asset.package_type).ok();
+            if p == target_platform && a == target_arch && pkg == Some(expected_package) {
+                matches.push(m_asset);
+            }
+        }
+
+        if matches.is_empty() {
+            return Err(UpdaterError::UnsupportedPlatform(format!(
+                "Brak pasującego zasobu w zweryfikowanym manifeście dla {}-{}-{}",
+                target_platform.as_str(),
+                target_arch.as_str(),
+                expected_package.as_str(),
+            )));
+        }
+
+        if matches.len() > 1 {
+            return Err(UpdaterError::AmbiguousArtifact(format!(
+                "Niejednoznaczne dopasowanie w manifeście: {} zasobów dla {}-{}-{}",
+                matches.len(),
+                target_platform.as_str(),
+                target_arch.as_str(),
+                expected_package.as_str(),
+            )));
+        }
+
+        let m_asset = matches[0];
+
+        // Walidacja package_type
+        let pkg_type = ReleasePackageType::parse(&m_asset.package_type)?;
+        if pkg_type != expected_package {
+            return Err(UpdaterError::SafetyGate(format!(
+                "Nieoczekiwany typ paczki w manifeście: oczekiwano {expected_package:?}, znaleziono {pkg_type:?}"
+            )));
+        }
+
+        // Walidacja nazwy pliku
+        let filename = m_asset.filename.trim();
+        if filename.is_empty()
+            || filename == "."
+            || filename == ".."
+            || filename.contains('/')
+            || filename.contains('\\')
+            || filename.contains(':')
+        {
+            return Err(UpdaterError::UnsafeArchivePath(format!(
+                "Nazwa pliku w manifeście '{filename}' zawiera niedozwolone znaki"
+            )));
+        }
+
+        // Walidacja rozszerzenia dla danego typu paczki
+        let expected_ext = match pkg_type {
+            ReleasePackageType::Zip => ".zip",
+            ReleasePackageType::TarGz => ".tar.gz",
+            ReleasePackageType::InnoExe => ".exe",
+        };
+        if !filename.to_ascii_lowercase().ends_with(expected_ext) {
+            return Err(UpdaterError::SafetyGate(format!(
+                "Nazwa pliku '{filename}' nie odpowiada typowi paczki {pkg_type:?}"
+            )));
+        }
+
+        // Walidacja rozmiaru
+        if m_asset.size == 0 || m_asset.size > MAX_ARTIFACT_DOWNLOAD_SIZE {
+            return Err(UpdaterError::FileTooLarge);
+        }
+
+        // Walidacja SHA256
+        if m_asset.sha256.len() != 64 || !m_asset.sha256.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(UpdaterError::HashMismatch);
+        }
+
+        // Dopasowanie do assetu wydań GitHub
+        let matching_api_assets: Vec<&ReleaseAsset> = release_assets
+            .iter()
+            .filter(|ra| ra.name == m_asset.filename)
+            .collect();
+
+        if matching_api_assets.is_empty() {
+            return Err(UpdaterError::NoMatchingAssets);
+        }
+
+        if matching_api_assets.len() > 1 {
+            return Err(UpdaterError::AmbiguousArtifact(format!(
+                "Wielokrotny asset o tej samej nazwie w API: {}",
+                m_asset.filename
+            )));
+        }
+
+        let ra = matching_api_assets[0];
+
+        if ra.browser_download_url.trim().is_empty() {
+            return Err(UpdaterError::Network(
+                "Pusty browser_download_url w API".into(),
+            ));
+        }
+
+        if ra.size > 0 && ra.size != m_asset.size {
+            return Err(UpdaterError::SizeMismatch);
+        }
+
         if let Some(ref api_digest) = ra.digest {
             let clean_digest = api_digest
                 .trim()
@@ -3238,6 +3390,102 @@ pub async fn download_verified_asset(
     Ok(total_bytes as usize)
 }
 
+/// Zwraca ustrukturyzowane argumenty wiersza poleceń dla instalatora Inno Setup w trybie zarządzanym.
+pub fn build_inno_setup_arguments(log_path: &Path) -> Vec<String> {
+    vec![
+        "/SILENT".to_string(),
+        "/NORESTART".to_string(),
+        format!("/LOG={}", log_path.display()),
+    ]
+}
+
+/// Bezpośrednie uruchomienie instalatora Inno Setup bez powłoki shell (cmd/powershell).
+pub fn execute_inno_setup_installer(
+    installer_exe: &Path,
+    log_path: &Path,
+) -> Result<i32, UpdaterError> {
+    if !installer_exe.exists() {
+        return Err(UpdaterError::InstallFailed(format!(
+            "Plik instalatora nie istnieje: {}",
+            installer_exe.display()
+        )));
+    }
+
+    let args = build_inno_setup_arguments(log_path);
+    let mut cmd = std::process::Command::new(installer_exe);
+    cmd.args(&args);
+
+    let status = cmd.status().map_err(|e| {
+        UpdaterError::InstallFailed(format!("Błąd uruchomienia instalatora Inno Setup: {e}"))
+    })?;
+
+    let exit_code = status.code().unwrap_or(-1);
+    if exit_code != 0 {
+        return Err(UpdaterError::InstallFailed(format!(
+            "Instalator Inno Setup zakończył się kodem błędu: {exit_code}"
+        )));
+    }
+
+    Ok(exit_code)
+}
+
+/// Zarządzana delegacja aktualizacji do zweryfikowanego instalatora Inno Setup.
+pub fn delegate_inno_setup_update(
+    installer_path: &Path,
+    log_path: &Path,
+    expected_version: &str,
+    expected_commit: &str,
+    target_dir: &Path,
+) -> Result<DelegationResult, UpdaterError> {
+    if !installer_path.is_file() {
+        return Err(UpdaterError::InstallFailed(format!(
+            "Ścieżka instalatora nie wskazuje na poprawny plik: {}",
+            installer_path.display()
+        )));
+    }
+
+    let ext = installer_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+    if !ext.eq_ignore_ascii_case("exe") {
+        return Err(UpdaterError::SafetyGate(format!(
+            "Instalator Inno Setup musi mieć rozszerzenie .exe, otrzymano: {ext}"
+        )));
+    }
+
+    // Uruchomienie instalatora
+    let _ = execute_inno_setup_installer(installer_path, log_path)?;
+
+    // Weryfikacja tożsamości po instalacji (BuildIdentity / marker)
+    let marker_path = target_dir.join(WINDOWS_INNO_MARKER_FILENAME);
+    if marker_path.exists() {
+        let marker = WindowsUserSetupMarker::read_from_dir(target_dir)?;
+        if marker.package_version != expected_version {
+            return Err(UpdaterError::InstallFailed(format!(
+                "Zainstalowana wersja '{}' nie zgadza się z oczekiwaną wersją docelową '{}'",
+                marker.package_version, expected_version
+            )));
+        }
+        if marker.build_commit != expected_commit {
+            return Err(UpdaterError::InstallFailed(format!(
+                "Zainstalowany commit '{}' nie zgadza się z oczekiwanym commitem '{}'",
+                marker.build_commit, expected_commit
+            )));
+        }
+    }
+
+    Ok(DelegationResult {
+        manager_name: "windows-inno-exe".to_string(),
+        command_summary: format!(
+            "{} /SILENT /NORESTART /LOG={}",
+            installer_path.display(),
+            log_path.display()
+        ),
+        requires_restart: false,
+    })
+}
+
 pub async fn install_update(asset: &VerifiedReleaseAsset) -> Result<(), UpdaterError> {
     let current = std::env::current_exe()
         .map_err(|e| UpdaterError::ExePath(format!("Nie można ustalić ścieżki programu: {e}")))?;
@@ -3248,6 +3496,71 @@ pub async fn install_update(asset: &VerifiedReleaseAsset) -> Result<(), UpdaterE
 
     #[cfg(target_os = "windows")]
     {
+        let detect_ctx = InstallationDetectionContext::default();
+        let inst_type = detect_installation_with_context(parent, &detect_ctx)?;
+
+        if inst_type == InstallationType::WindowsInnoSetup {
+            if asset.platform() != ReleasePlatform::Windows
+                || asset.arch() != ReleaseArchitecture::X86_64
+                || asset.package_type() != ReleasePackageType::InnoExe
+                || !asset.filename().to_ascii_lowercase().ends_with(".exe")
+            {
+                return Err(UpdaterError::SafetyGate(
+                    "Niewłaściwy typ paczki dla WindowsInnoSetup (wymagany zweryfikowany instalator inno-exe .exe)"
+                        .to_string(),
+                ));
+            }
+
+            let attempt_id = UpdateAttemptId::generate();
+            let tmp_installer =
+                std::env::temp_dir().join(format!("SPLogbook_Setup_{attempt_id}.exe"));
+            let log_path = std::env::temp_dir().join(format!("SPLogbook_Setup_{attempt_id}.log"));
+
+            let dl_res = download_verified_asset(asset, &tmp_installer).await;
+            if let Err(e) = dl_res {
+                let _ = tokio::fs::remove_file(&tmp_installer).await;
+                return Err(e);
+            }
+
+            let data = match tokio::fs::read(&tmp_installer).await {
+                Ok(d) => d,
+                Err(e) => {
+                    let _ = tokio::fs::remove_file(&tmp_installer).await;
+                    return Err(UpdaterError::Io(format!(
+                        "Błąd odczytu pobranego instalatora: {e}"
+                    )));
+                }
+            };
+
+            if asset.declared_size() > 0 && data.len() as u64 != asset.declared_size() {
+                let _ = tokio::fs::remove_file(&tmp_installer).await;
+                return Err(UpdaterError::SizeMismatch);
+            }
+
+            if !verify_sha256(&data, asset.declared_sha256()) {
+                let _ = tokio::fs::remove_file(&tmp_installer).await;
+                return Err(UpdaterError::HashMismatch);
+            }
+
+            let del_res = delegate_inno_setup_update(
+                &tmp_installer,
+                &log_path,
+                asset.bound_manifest_version(),
+                asset.bound_commit(),
+                parent,
+            );
+
+            let _ = tokio::fs::remove_file(&tmp_installer).await;
+            del_res.map(|_| ())?;
+            return Ok(());
+        }
+
+        if inst_type != InstallationType::WindowsPortableZip {
+            return Err(UpdaterError::SafetyGate(format!(
+                "Wykryto niezgodny typ instalacji: {inst_type:?} (wymagany WindowsPortableZip lub WindowsInnoSetup)"
+            )));
+        }
+
         if asset.platform() != ReleasePlatform::Windows
             || asset.arch() != ReleaseArchitecture::X86_64
             || asset.package_type() != ReleasePackageType::Zip
@@ -3257,14 +3570,6 @@ pub async fn install_update(asset: &VerifiedReleaseAsset) -> Result<(), UpdaterE
                 "Niewłaściwy typ paczki dla systemu Windows x86_64 (wymagany zweryfikowany SPLogbook-Windows-x64.zip)"
                     .to_string(),
             ));
-        }
-
-        let detect_ctx = InstallationDetectionContext::default();
-        let inst_type = detect_installation_with_context(parent, &detect_ctx)?;
-        if inst_type != InstallationType::WindowsPortableZip {
-            return Err(UpdaterError::SafetyGate(format!(
-                "Wykryto niezgodny typ instalacji: {inst_type:?} (wymagany WindowsPortableZip)"
-            )));
         }
     }
 

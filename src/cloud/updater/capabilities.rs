@@ -70,7 +70,7 @@ impl InstallationCapabilities {
                 supports_uninstall: true,
                 supports_health_confirmation: false,
                 requires_delegation: true,
-                requires_elevation_by_native_installer: true,
+                requires_elevation_by_native_installer: false,
                 supports_in_app_cancellation_before_apply: true,
                 supports_sp_logbook_rollback: false,
                 supports_package_manager_monitoring: false,
@@ -165,7 +165,7 @@ mod tests {
         assert!(!inno.supports_repair);
         assert!(inno.supports_uninstall);
         assert!(inno.requires_delegation);
-        assert!(inno.requires_elevation_by_native_installer);
+        assert!(!inno.requires_elevation_by_native_installer);
 
         // DEB
         let deb = InstallationCapabilities::for_installation_type(InstallationType::LinuxDeb);
