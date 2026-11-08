@@ -82,6 +82,7 @@ pub enum UpdaterError {
     CancellationRejected(String),
     UnsafePath(String),
     RedactionFailure(String),
+    ManagedInstallerConflict(String),
 }
 
 pub mod attempt_id;
@@ -116,8 +117,8 @@ pub use helper_protocol::{
     validate_and_normalize_relative_path,
 };
 pub use installation::{
-    InstallationDetectionContext, InstallationType, ManagementMode,
-    detect_installation_with_context,
+    InstallationDetectionContext, InstallationType, ManagementMode, WINDOWS_INNO_MARKER_FILENAME,
+    WINDOWS_INNO_SETUP_APP_ID, WindowsUserSetupMarker, detect_installation_with_context,
 };
 pub use lock::{
     UPDATE_LOCK_FILENAME, UPDATE_LOCK_RECORD_VERSION, UpdateLockGuard, UpdateLockRecord,
@@ -191,7 +192,8 @@ impl UpdaterError {
             | Self::RecoveryBlocked(s)
             | Self::CancellationRejected(s)
             | Self::UnsafePath(s)
-            | Self::RedactionFailure(s) => s.as_str(),
+            | Self::RedactionFailure(s)
+            | Self::ManagedInstallerConflict(s) => s.as_str(),
             Self::UnsupportedTransactionVersion(_) => {
                 "Nieobsługiwana wersja rekordu transakcji aktualizatora."
             }

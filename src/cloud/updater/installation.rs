@@ -125,6 +125,112 @@ impl std::fmt::Display for ManagementMode {
     }
 }
 
+/// Stały identyfikator GUID aplikacji dla Windows User Setup (Inno Setup)
+pub const WINDOWS_INNO_SETUP_APP_ID: &str = "{C8E28541-7B21-4A9B-8F5C-4EF298F613C1}";
+
+/// Nazwa kanonicznego pliku markera instalacji Inno Setup
+pub const WINDOWS_INNO_MARKER_FILENAME: &str = ".splogbook-inno-marker";
+
+/// Zawartość strukturalna markera instalacji Windows User Setup
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WindowsUserSetupMarker {
+    pub marker_version: String,
+    pub installation_type: String,
+    pub management_mode: String,
+    pub package_version: String,
+    pub app_id: String,
+    pub installation_scope: String,
+    pub installation_root: String,
+    pub build_commit: String,
+    pub installer_engine: String,
+}
+
+impl WindowsUserSetupMarker {
+    pub fn new(package_version: &str, installation_root: &Path, build_commit: &str) -> Self {
+        Self {
+            marker_version: "1.0".to_string(),
+            installation_type: "WindowsInnoSetup".to_string(),
+            management_mode: "SystemManaged".to_string(),
+            package_version: package_version.to_string(),
+            app_id: WINDOWS_INNO_SETUP_APP_ID.to_string(),
+            installation_scope: "CurrentUser".to_string(),
+            installation_root: installation_root.to_string_lossy().to_string(),
+            build_commit: build_commit.to_string(),
+            installer_engine: "InnoSetup".to_string(),
+        }
+    }
+
+    /// Waliduje poprawność i spójność markera.
+    pub fn validate(&self) -> Result<(), UpdaterError> {
+        if self.marker_version.trim().is_empty() {
+            return Err(UpdaterError::InstallationDetection(
+                "Marker User Setup: pusty marker_version".into(),
+            ));
+        }
+        if self.installation_type != "WindowsInnoSetup" {
+            return Err(UpdaterError::InstallationDetection(format!(
+                "Marker User Setup: niezgodny installation_type '{}' (oczekiwano 'WindowsInnoSetup')",
+                self.installation_type
+            )));
+        }
+        if self.management_mode != "SystemManaged" {
+            return Err(UpdaterError::InstallationDetection(format!(
+                "Marker User Setup: niezgodny management_mode '{}' (oczekiwano 'SystemManaged')",
+                self.management_mode
+            )));
+        }
+        if self.app_id != WINDOWS_INNO_SETUP_APP_ID {
+            return Err(UpdaterError::InstallationDetection(format!(
+                "Marker User Setup: niezgodny app_id '{}' (oczekiwano '{}')",
+                self.app_id, WINDOWS_INNO_SETUP_APP_ID
+            )));
+        }
+        if self.installation_scope != "CurrentUser" {
+            return Err(UpdaterError::InstallationDetection(format!(
+                "Marker User Setup: niezgodny installation_scope '{}' (oczekiwano 'CurrentUser')",
+                self.installation_scope
+            )));
+        }
+        if self.installer_engine != "InnoSetup" {
+            return Err(UpdaterError::InstallationDetection(format!(
+                "Marker User Setup: niezgodny installer_engine '{}' (oczekiwano 'InnoSetup')",
+                self.installer_engine
+            )));
+        }
+        if self.package_version.trim().is_empty() {
+            return Err(UpdaterError::InstallationDetection(
+                "Marker User Setup: pusty package_version".into(),
+            ));
+        }
+        if self.build_commit.trim().is_empty() {
+            return Err(UpdaterError::InstallationDetection(
+                "Marker User Setup: pusty build_commit".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Odczytuje i waliduje marker z podanego katalogu instalacji.
+    pub fn read_from_dir(base_dir: &Path) -> Result<Self, UpdaterError> {
+        let marker_path = base_dir.join(WINDOWS_INNO_MARKER_FILENAME);
+        if !marker_path.exists() {
+            return Err(UpdaterError::InstallationDetection(format!(
+                "Brak pliku markera User Setup w {}",
+                marker_path.display()
+            )));
+        }
+        let data = std::fs::read_to_string(&marker_path)
+            .map_err(|e| UpdaterError::Io(format!("Błąd odczytu markera User Setup: {e}")))?;
+        let marker: Self = serde_json::from_str(&data).map_err(|e| {
+            UpdaterError::InstallationDetection(format!(
+                "Błąd parsowania markera User Setup JSON: {e}"
+            ))
+        })?;
+        marker.validate()?;
+        Ok(marker)
+    }
+}
+
 /// Kontekst detekcji instalacji — umożliwia wstrzykiwanie środowiska i markerów testowych
 /// bez konieczności odwoływania się do globalnego stanu OS.
 #[derive(Debug, Clone, Default)]
@@ -170,10 +276,12 @@ pub fn detect_installation_with_context(
     if ctx.has_msi_registry_entry || base_dir.join(".splogbook-msi-marker").exists() {
         detected_types.push(InstallationType::WindowsMsi);
     }
-    if ctx.has_inno_uninstall_marker
-        || base_dir.join("unins000.exe").exists()
-        || base_dir.join(".splogbook-inno-marker").exists()
-    {
+    let inno_marker_file = base_dir.join(WINDOWS_INNO_MARKER_FILENAME);
+    if inno_marker_file.exists() {
+        // Weryfikacja strukturalna markera - uszkodzony marker = błąd fail-closed
+        WindowsUserSetupMarker::read_from_dir(base_dir)?;
+        detected_types.push(InstallationType::WindowsInnoSetup);
+    } else if ctx.has_inno_uninstall_marker || base_dir.join("unins000.exe").exists() {
         detected_types.push(InstallationType::WindowsInnoSetup);
     }
     if base_dir.join(".splogbook-portable").exists() {
@@ -327,6 +435,100 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         std::fs::write(temp.path().join(".splogbook-deb-marker"), b"DEB").unwrap();
         std::fs::write(temp.path().join(".splogbook-rpm-marker"), b"RPM").unwrap();
+
+        let ctx = InstallationDetectionContext::default();
+        let res = detect_installation_with_context(temp.path(), &ctx);
+        assert!(matches!(
+            res,
+            Err(UpdaterError::ConflictingInstallationMarkers(_))
+        ));
+    }
+
+    #[test]
+    fn inno_user_setup_marker_serialization_and_validation() {
+        let temp = tempfile::tempdir().unwrap();
+        let marker = WindowsUserSetupMarker::new(
+            "1.3.0-alpha.1",
+            temp.path(),
+            "db4417e3b8acff9bb87aaf04fa5d703e5fec74bc",
+        );
+        assert!(marker.validate().is_ok());
+
+        let json = serde_json::to_string_pretty(&marker).unwrap();
+        std::fs::write(temp.path().join(WINDOWS_INNO_MARKER_FILENAME), json).unwrap();
+
+        let loaded = WindowsUserSetupMarker::read_from_dir(temp.path()).unwrap();
+        assert_eq!(loaded, marker);
+        assert_eq!(loaded.app_id, WINDOWS_INNO_SETUP_APP_ID);
+        assert_eq!(loaded.installation_scope, "CurrentUser");
+        assert_eq!(loaded.installer_engine, "InnoSetup");
+        assert_eq!(loaded.management_mode, "SystemManaged");
+        assert_eq!(loaded.installation_type, "WindowsInnoSetup");
+    }
+
+    #[test]
+    fn inno_user_setup_corrupt_marker_fails_closed() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join(WINDOWS_INNO_MARKER_FILENAME),
+            b"{ corrupt json ...",
+        )
+        .unwrap();
+
+        let ctx = InstallationDetectionContext::default();
+        let res = detect_installation_with_context(temp.path(), &ctx);
+        assert!(matches!(res, Err(UpdaterError::InstallationDetection(_))));
+    }
+
+    #[test]
+    fn inno_user_setup_detected_with_valid_marker() {
+        let temp = tempfile::tempdir().unwrap();
+        let marker = WindowsUserSetupMarker::new(
+            "1.3.0-alpha.1",
+            temp.path(),
+            "db4417e3b8acff9bb87aaf04fa5d703e5fec74bc",
+        );
+        let json = serde_json::to_string(&marker).unwrap();
+        std::fs::write(temp.path().join(WINDOWS_INNO_MARKER_FILENAME), json).unwrap();
+
+        let ctx = InstallationDetectionContext::default();
+        let detected = detect_installation_with_context(temp.path(), &ctx).unwrap();
+        assert_eq!(detected, InstallationType::WindowsInnoSetup);
+        assert!(detected.is_system_managed());
+        assert!(!detected.is_self_managed());
+    }
+
+    #[test]
+    fn inno_user_setup_conflict_with_portable_zip_fails_closed() {
+        let temp = tempfile::tempdir().unwrap();
+        let marker = WindowsUserSetupMarker::new(
+            "1.3.0-alpha.1",
+            temp.path(),
+            "db4417e3b8acff9bb87aaf04fa5d703e5fec74bc",
+        );
+        let json = serde_json::to_string(&marker).unwrap();
+        std::fs::write(temp.path().join(WINDOWS_INNO_MARKER_FILENAME), json).unwrap();
+        std::fs::write(temp.path().join(".splogbook-portable"), b"PORTABLE").unwrap();
+
+        let ctx = InstallationDetectionContext::default();
+        let res = detect_installation_with_context(temp.path(), &ctx);
+        assert!(matches!(
+            res,
+            Err(UpdaterError::ConflictingInstallationMarkers(_))
+        ));
+    }
+
+    #[test]
+    fn inno_user_setup_conflict_with_msi_fails_closed() {
+        let temp = tempfile::tempdir().unwrap();
+        let marker = WindowsUserSetupMarker::new(
+            "1.3.0-alpha.1",
+            temp.path(),
+            "db4417e3b8acff9bb87aaf04fa5d703e5fec74bc",
+        );
+        let json = serde_json::to_string(&marker).unwrap();
+        std::fs::write(temp.path().join(WINDOWS_INNO_MARKER_FILENAME), json).unwrap();
+        std::fs::write(temp.path().join(".splogbook-msi-marker"), b"MSI").unwrap();
 
         let ctx = InstallationDetectionContext::default();
         let res = detect_installation_with_context(temp.path(), &ctx);
