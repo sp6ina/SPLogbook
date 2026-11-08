@@ -2449,7 +2449,9 @@ pub fn extract_linux_portable_tar_gz_two_phase(
                 let file_name = dest_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
                 let is_executable_binary = file_name == "SPLogbook"
                     || file_name == "splogbook-updater"
-                    || file_name.ends_with(".sh");
+                    || dest_path
+                        .extension()
+                        .map_or(false, |ext| ext.eq_ignore_ascii_case("sh"));
                 let raw_mode = entry.header().mode().unwrap_or(0o644);
                 let safe_mode = if is_executable_binary || (raw_mode & 0o111) != 0 {
                     0o755
@@ -4409,7 +4411,7 @@ fn install_via_linux_portable_tar_gz(
 
     // Przejście stanu automatu do Applying z trwałym zapisem transakcji
     tx.transition_to(crate::cloud::updater::state::UpdateStateId::Applying)?;
-    tx.staging_path = staging_dir.clone();
+    tx.staging_path.clone_from(&staging_dir);
     tx.rollback_path = Some(rollback_dir.clone());
     tx.health_proof_path = Some(health_ok.clone());
     let _ = tx.save_to_dir(base_dir);
@@ -4507,46 +4509,32 @@ fn install_via_linux_portable_tar_gz(
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
     let mut verified_health = false;
 
-    while std::time::Instant::now() < deadline {
-        if health_ok.exists() {
-            if let Ok(content) = fs::read_to_string(&health_ok) {
-                if let Ok(proof) =
-                    serde_json::from_str::<crate::cloud::updater::health::HealthProof>(&content)
-                {
-                    if proof
-                        .validate(
-                            &attempt_id,
-                            &tx.release_version,
-                            tx.commit_identity.as_deref().unwrap_or(""),
-                            crate::cloud::updater::health::DEFAULT_HEALTH_PROOF_MAX_AGE_SECS,
-                        )
-                        .is_ok()
-                    {
-                        verified_health = true;
-                        break;
-                    }
-                }
+    let check_health = || -> bool {
+        if let Ok(content) = fs::read_to_string(&health_ok) {
+            if let Ok(proof) =
+                serde_json::from_str::<crate::cloud::updater::health::HealthProof>(&content)
+            {
+                return proof
+                    .validate(
+                        &attempt_id,
+                        &tx.release_version,
+                        tx.commit_identity.as_deref().unwrap_or(""),
+                        crate::cloud::updater::health::DEFAULT_HEALTH_PROOF_MAX_AGE_SECS,
+                    )
+                    .is_ok();
             }
         }
+        false
+    };
+
+    while std::time::Instant::now() < deadline {
+        if check_health() {
+            verified_health = true;
+            break;
+        }
         if let Ok(Some(_)) = child.try_wait() {
-            if health_ok.exists() {
-                if let Ok(content) = fs::read_to_string(&health_ok) {
-                    if let Ok(proof) =
-                        serde_json::from_str::<crate::cloud::updater::health::HealthProof>(&content)
-                    {
-                        if proof
-                            .validate(
-                                &attempt_id,
-                                &tx.release_version,
-                                tx.commit_identity.as_deref().unwrap_or(""),
-                                crate::cloud::updater::health::DEFAULT_HEALTH_PROOF_MAX_AGE_SECS,
-                            )
-                            .is_ok()
-                        {
-                            verified_health = true;
-                        }
-                    }
-                }
+            if check_health() {
+                verified_health = true;
             }
             break;
         }
@@ -4565,29 +4553,29 @@ fn install_via_linux_portable_tar_gz(
         let _ = tx.save_to_dir(base_dir);
 
         std::process::exit(0);
-    } else {
-        // Rollback!
-        let _ = child.kill();
-        let _ = tx.transition_to(crate::cloud::updater::state::UpdateStateId::FailedPostApply);
-        let _ = tx.transition_to(crate::cloud::updater::state::UpdateStateId::Rollback);
-        let _ = tx.save_to_dir(base_dir);
-
-        // Usuń nowo utworzone pliki
-        for (_rel, orig) in &plan.create_files {
-            let _ = fs::remove_file(orig);
-        }
-        // Przywróć podmienione pliki z rollbacku
-        for (rel, orig) in &plan.replace_files {
-            let bkp = rollback_dir.join(rel);
-            let _ = fs::copy(&bkp, orig);
-        }
-
-        let _ = tx.transition_to(crate::cloud::updater::state::UpdateStateId::RollbackVerified);
-        let _ = tx.save_to_dir(base_dir);
-
-        let _ = std::process::Command::new(current).spawn();
-        return Err(UpdaterError::HealthCheckFailed);
     }
+
+    // Rollback!
+    let _ = child.kill();
+    let _ = tx.transition_to(crate::cloud::updater::state::UpdateStateId::FailedPostApply);
+    let _ = tx.transition_to(crate::cloud::updater::state::UpdateStateId::Rollback);
+    let _ = tx.save_to_dir(base_dir);
+
+    // Usuń nowo utworzone pliki
+    for (_rel, orig) in &plan.create_files {
+        let _ = fs::remove_file(orig);
+    }
+    // Przywróć podmienione pliki z rollbacku
+    for (rel, orig) in &plan.replace_files {
+        let bkp = rollback_dir.join(rel);
+        let _ = fs::copy(&bkp, orig);
+    }
+
+    let _ = tx.transition_to(crate::cloud::updater::state::UpdateStateId::RollbackVerified);
+    let _ = tx.save_to_dir(base_dir);
+
+    let _ = std::process::Command::new(current).spawn();
+    Err(UpdaterError::HealthCheckFailed)
 }
 
 /// Generuje bezpieczny skrypt PowerShell wykonujący podmianę wyłącznie plików z zatwierdzonego planu aktualizacji.
@@ -5550,25 +5538,24 @@ mod tests {
 
     #[test]
     fn safety_gate_blocks_linux_archives() {
-        let _tar_gz = ReleaseAsset {
-            name: "SPLogbook-Linux-x86_64.tar.gz".into(),
-            browser_download_url: String::new(),
-            digest: None,
-            size: 0,
-        };
-
         #[cfg(not(target_os = "windows"))]
-        assert!(check_safety_gate(&_tar_gz).is_ok());
+        {
+            let tar_gz = ReleaseAsset {
+                name: "SPLogbook-Linux-x86_64.tar.gz".into(),
+                browser_download_url: String::new(),
+                digest: None,
+                size: 0,
+            };
+            assert!(check_safety_gate(&tar_gz).is_ok());
 
-        let _deb = ReleaseAsset {
-            name: "SPLogbook-Linux-x86_64.deb".into(),
-            browser_download_url: String::new(),
-            digest: None,
-            size: 0,
-        };
-
-        #[cfg(not(target_os = "windows"))]
-        assert!(check_safety_gate(&_deb).is_err());
+            let deb = ReleaseAsset {
+                name: "SPLogbook-Linux-x86_64.deb".into(),
+                browser_download_url: String::new(),
+                digest: None,
+                size: 0,
+            };
+            assert!(check_safety_gate(&deb).is_err());
+        }
     }
 
     #[test]
