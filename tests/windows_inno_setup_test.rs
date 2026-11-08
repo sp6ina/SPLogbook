@@ -79,9 +79,21 @@ fn inno_managed_update_never_uses_powershell() {
 #[test]
 fn inno_update_launches_verified_setup() {
     let temp = tempfile::tempdir().unwrap();
+    #[cfg(windows)]
     let fake_setup = temp.path().join("fake_setup.cmd");
-    // Utworzenie skryptu symulującego Setup zwracający kod 0
+    #[cfg(not(windows))]
+    let fake_setup = temp.path().join("fake_setup.sh");
+
+    #[cfg(windows)]
     fs::write(&fake_setup, b"@echo off\r\nexit 0\r\n").unwrap();
+    #[cfg(not(windows))]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::write(&fake_setup, b"#!/bin/sh\nexit 0\n").unwrap();
+        let mut perms = fs::metadata(&fake_setup).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&fake_setup, perms).unwrap();
+    }
 
     let log_path = temp.path().join("setup.log");
     let res = execute_inno_setup_installer(&fake_setup, &log_path);
