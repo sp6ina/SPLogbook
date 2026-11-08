@@ -298,10 +298,11 @@ Utworzenie, uzgodnienie i zweryfikowanie trzech kompletnych dokumentĂłw projek
 - **M3-D PREREQUISITES STATUS:** **COMPLETED_SOFTWARE_VERIFIED** (I18N i terminologia: COMPLETED_SOFTWARE_VERIFIED; Środowisko Inno Setup: INNO_SETUP_7_1_1_APPROVED_FOR_M3_D na mocy decyzji OWNER-M3-D-TOOLCHAIN-01 — raport STAGE_M3_D_PREREQUISITES_REMEDIATION_REPORT.md)
 - **M3-D STATUS:** **COMPLETED_SOFTWARE_VERIFIED** (Integracja Windows User Setup / Inno Setup 7.1.1, obsługa modelu SystemManaged, ochrona danych użytkownika, brak uprawnień administratora, zamknięta w STAGE-M3-D-WINDOWS-USER-SETUP-INTEGRATION-GATE)
 - **M3-E STATUS:** **COMPLETED_SOFTWARE_VERIFIED** (Integracja Windows System Setup / MSI / WiX Toolset 7.0.1, model SystemManaged, per-machine, UpgradeCode {B7D14532-6A10-4F8A-9A4B-3DE189E502B0}, ochrona danych użytkownika, msiexec delegation, zamknięta w STAGE-M3-E-WINDOWS-MSI-WIX-INTEGRATION-GATE; spójność taga v1.2.0, kanonicznych liczników testów oraz izolacja polityki wersjonowania przyszłych pakietów MSI prerelease potwierdzona w STAGE-M3-E-CLOSURE-CONSISTENCY-GATE)
+- **M3-F STATUS:** **COMPLETED_SOFTWARE_VERIFIED** (Wielodystrybucyjna integracja Linux Portable tar.gz, dynamiczny floor kernela Linux 6.12, dwufazowa bezpieczna ekstrakcja, aktualizacje Self-Managed JOURNALED_TRANSACTIONAL_REPLACEMENT, zgodność z XDG Base Directory i ochrona baz SQLite/WAL/SHM, zamknięta w STAGE-M3-F-LINUX-PORTABLE-TAR-GZ-INTEGRATION-GATE; 2698 testów zarejestrowanych, 2688 wykonanych i zaliczonych, 0 błędów, 10 ignorowanych HIL)
 - **Dalsze etapy M3 (instalatory Windows i pakiety Linux):**
   - M3-D: Integracja Windows User Setup / Inno Setup (COMPLETED_SOFTWARE_VERIFIED)
   - M3-E: Integracja Windows System Setup / MSI (COMPLETED_SOFTWARE_VERIFIED)
-  - M3-F: Integracja Linux Portable tar.gz (READY_FOR_IMPLEMENTATION)
+  - M3-F: Integracja Linux Portable tar.gz (COMPLETED_SOFTWARE_VERIFIED)
   - M3-G: Integracja Linux AppImage
   - M3-H: Integracja Linux DEB
   - M3-I: Integracja Linux RPM
@@ -337,7 +338,13 @@ Utworzenie, uzgodnienie i zweryfikowanie trzech kompletnych dokumentĂłw projek
 - **Zaleznosci:** OWNER-M3-E-TOOLCHAIN-01 (APPROVED), UPDATE-DESIGN-WIN (APPROVED), UPDATE-DESIGN-PLATFORM (APPROVED), UPDATE-CORE-PLATFORM (COMPLETED_SOFTWARE_VERIFIED)
 - **Zakres:** Integracja instalatora Windows System Setup per-machine opartego o WiX Toolset SDK 7.0.1 (`installer/windows/msi/SPLogbook.wixproj`), stały UpgradeCode `{B7D14532-6A10-4F8A-9A4B-3DE189E502B0}` (packed `0B205E981ED3B4A9A9B4A9E189E502B0`), instalacja do `ProgramFiles64Folder\SPLogbook`, `Scope="perMachine"` (kontrolowane podniesienie uprawnień przez Windows Installer UAC), architektura x64 (`Bitness="always64"`). Wdrożono bezpieczny model SystemManaged, delegację aktualizacji, naprawy i deinstalacji przez `msiexec.exe` z logowaniem i flagą `/norestart` bez powłoki shell, markery instalacyjne `.splogbook-msi-marker`, bezwzględną ochronę baz danych SQLite, plików WAL, SHM, konfiguracji i nieznanych plików użytkownika (polityki `NeverOverwrite="yes"`, brak wildcardów i RemoveFolderEx). Wzajemne wykrywanie konfliktów z Inno Setup i Portable ZIP. Zamknięty w STAGE-M3-E-WINDOWS-MSI-WIX-INTEGRATION-GATE (118 security guards passed, 18 windows msi tests passed, 6 user data safety tests passed). W STAGE-M3-E-CLOSURE-CONSISTENCY-GATE potwierdzono tożsamość taga v1.2.0 (obiekt taga `3ea8d51a...`, peeled commit `6f7d3aaa...`), kanoniczne liczniki testów (2663 registered, 2653 passed, 0 failed, 10 ignored HIL) oraz wyodrębniono propozycję decyzji wersjonowania przyszłych pakietów MSI prerelease (OWNER-M3-E-MSI-VERSIONING-01).
 
-#### UPDATE-LINUX-PACKAGES (Dalsze etapy M3: M3-F..M3-J) — Pakiety Linux (AppImage, DEB, RPM, Flatpak, tar.gz)
+#### UPDATE-LINUX-PORTABLE-TAR-GZ (M3-F) — Integracja Linux Portable tar.gz
+- **Tor:** UPDATE
+- **Status wykonawczy:** **COMPLETED_SOFTWARE_VERIFIED**
+- **Zaleznosci:** OWNER-M3-F-LINUX-BASELINE-01..OWNER-M3-F-DESKTOP-INTEGRATION-01 (APPROVED), UPDATE-DESIGN-LINUX (APPROVED), UPDATE-DESIGN-PLATFORM (APPROVED), UPDATE-CORE-PLATFORM (COMPLETED_SOFTWARE_VERIFIED)
+- **Zakres:** Integracja kanonicznego pakietu Linux x86_64 portable `SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz` o pojedynczym katalogu głównym `SPLogbook/`, identycznym SHA-256 dla wszystkich dystrybucji, markera metadanych `.splogbook-linux-portable-marker`, dwufazowej bezpiecznej ekstrakcji (`extract_linux_portable_tar_gz_two_phase` z fazą 1 read-only preflight, ochroną przed symlinkami/hardlinkami/urządzeniami/setuid/setgid/bombami), aktualizacji Self-Managed w semantyce JOURNALED_TRANSACTIONAL_REPLACEMENT (z kopią zapasową w `.rollback`, odizolowanym stagingiem, walidacją HealthProof), pełnej zgodności z XDG Base Directory (`src/core/xdg.rs`) z egzekwowaniem ścieżek bezwzględnych, ochroną baz SQLite (`serviceLOG.db`), WAL, SHM, konfiguracji i eksportów użytkownika oraz bezpiecznym skryptem budowania `scripts/build_linux_portable_tar_gz.sh`. Zamknięty w STAGE-M3-F-LINUX-PORTABLE-TAR-GZ-INTEGRATION-GATE (2698 testów zarejestrowanych, 2688 wykonanych i zaliczonych, 0 błędów, 10 ignorowanych HIL).
+
+#### UPDATE-LINUX-PACKAGES (Dalsze etapy M3: M3-G..M3-J) — Pakiety Linux (AppImage, DEB, RPM, Flatpak)
 - **Tor:** UPDATE
 - **Status wykonawczy:** PENDING (Dalsza kolejność po instalatorach Windows)
 - **Zaleznosci:** UPDATE-DESIGN-LINUX (APPROVED), UPDATE-DESIGN-PLATFORM (APPROVED), UPDATE-CORE-PLATFORM (COMPLETED_SOFTWARE_VERIFIED), decyzje OWNER-M2-04..07, 11..12 (APPROVED)
