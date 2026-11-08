@@ -295,10 +295,10 @@ Utworzenie, uzgodnienie i zweryfikowanie trzech kompletnych dokumentĂłw projek
 - **M3-B STATUS:** **COMPLETED_SOFTWARE_VERIFIED** (Implementacja natywnego pomocnika Windows splogbook-updater.exe, protokolu IPC, weryfikacji HealthProof, rollbacku i utwardzonego fallbacku PowerShell zamknieta w STAGE-M3-B-WINDOWS-HELPERS-IMPLEMENTATION-GATE oraz formalnie potwierdzona w STAGE-M3-B-CLOSURE-VERIFICATION-GATE)
 - **M3-C STATUS:** **COMPLETED_SOFTWARE_VERIFIED** (Produkcyjna integracja Windows Portable ZIP ze zweryfikowanym manifestem, UpdatePlan, natywnym helperem Windows i utwardzonym fallbackiem PowerShell zamknieta w STAGE-M3-C-WINDOWS-PORTABLE-ZIP-INTEGRATION-GATE)
 - **M3-DEV-VERSION-IDENTITY STATUS:** **COMPLETED_SOFTWARE_VERIFIED** (Eliminacja niejednoznaczności wersji, wprowadzenie wersji rozwojowej 1.3.0-alpha.1, centralnego BuildIdentity, wczesnych flag CLI --version/--build-info/--diagnostic-version, weryfikacji tożsamości HealthProof oraz ewaluacji kanałów i SemVer 2.0 zamknieta w STAGE-M3-DEV-VERSION-IDENTITY-GATE)
-- **M3-D PREREQUISITES STATUS:** **PARTIALLY_COMPLETED_ENVIRONMENT_BLOCKED** (I18N i terminologia: COMPLETED_SOFTWARE_VERIFIED; Środowisko Inno Setup: INNO_SETUP_COMPATIBLE_NEWER_REQUIRES_REVIEW dla ISCC 7.1.1 — raport STAGE_M3_D_PREREQUISITES_REMEDIATION_REPORT.md)
-- **M3-D STATUS:** **BLOCKED_BY_INNO_SETUP_ENVIRONMENT, NOT STARTED** (Integracja Windows User Setup / Inno Setup — implementacja zablokowana do czasu autoryzacji zgodności Inno Setup 7.1.1 lub udostępnienia 6.x)
+- **M3-D PREREQUISITES STATUS:** **COMPLETED_SOFTWARE_VERIFIED** (I18N i terminologia: COMPLETED_SOFTWARE_VERIFIED; Środowisko Inno Setup: INNO_SETUP_7_1_1_APPROVED_FOR_M3_D na mocy decyzji OWNER-M3-D-TOOLCHAIN-01 — raport STAGE_M3_D_PREREQUISITES_REMEDIATION_REPORT.md)
+- **M3-D STATUS:** **READY_FOR_RESUME, NOT STARTED** (Integracja Windows User Setup / Inno Setup — gotowość do rozpoczęcia STAGE-M3-D-WINDOWS-USER-SETUP-INTEGRATION-GATE)
 - **Dalsze etapy M3 (instalatory Windows i pakiety Linux):**
-  - M3-D: Integracja Windows User Setup / Inno Setup (BLOCKED_BY_INNO_SETUP_ENVIRONMENT, NOT STARTED)
+  - M3-D: Integracja Windows User Setup / Inno Setup (READY_FOR_RESUME, NOT STARTED)
   - M3-E: Integracja Windows System Setup / MSI (gdy dotyczy)
   - M3-F: Integracja Linux Portable tar.gz
   - M3-G: Integracja Linux AppImage

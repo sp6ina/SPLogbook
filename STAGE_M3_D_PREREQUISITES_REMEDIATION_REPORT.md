@@ -2,11 +2,11 @@
 
 **Data robocza projektu:** 2026-11-07
 **Data środowiska:** 2026-11-08
-**Czas środowiska:** 10:06:00
+**Czas środowiska:** 10:18:00
 **Timezone:** Central European Standard Time ((UTC+01:00) Sarajewo, Skopie, Warszawa, Zagrzeb)
 **UTC offset:** +01:00
 **Kanon bramki:** Usunięcie regresji i18n, korekta terminologii transactional replacement oraz weryfikacja środowiska Inno Setup przed wznowieniem M3-D
-**Status końcowy bramki:** `PARTIALLY_COMPLETED_ENVIRONMENT_BLOCKED` (Kod naprawiony programistycznie: `COMPLETED_SOFTWARE_VERIFIED`, środowisko Inno Setup: `INNO_SETUP_COMPATIBLE_NEWER_REQUIRES_REVIEW` — wymagana formalna autoryzacja wersji 7.1.1)
+**Status końcowy bramki:** `COMPLETED_SOFTWARE_VERIFIED` (Kod naprawiony programistycznie: `COMPLETED_SOFTWARE_VERIFIED`, środowisko Inno Setup: `INNO_SETUP_7_1_1_APPROVED_FOR_M3_D` na mocy decyzji `OWNER-M3-D-TOOLCHAIN-01`)
 
 ---
 
@@ -14,7 +14,7 @@
 
 - **DATA ROBOCZA PROJEKTU:** 2026-11-07
 - **DATA ŚRODOWISKA:** 2026-11-08
-- **CZAS ŚRODOWISKA:** 10:06:00
+- **CZAS ŚRODOWISKA:** 10:18:00
 - **TIMEZONE:** Central European Standard Time
 - **UTC OFFSET:** +01:00
 - **Integralność zegara:** Zegar systemowy nie był modyfikowany; daty historycznych commitów i tagów pozostały nienaruszone.
@@ -24,12 +24,12 @@
 ## 2. Stan repozytorium Git
 
 - **Baseline początkowy:** `de2ef9bb26afbdf13df20bcde4a972902adc5e48`
-- **Final HEAD po commitach i synchronizacji:** `4f1ec6a8996d156d4b7f7ef64af06551387f8d9f` (przed commitem dokumentacyjnym)
+- **Final HEAD po commitach i synchronizacji:** `25424e91c69728034b94108a5fc3ced9e7e8164a`
 - **main:** zsynchronizowany ff-only
 - **origin/main:** zsynchronizowany (push po każdym zielonym commicie)
 - **Tag v1.2.0:** `6f7d3aaa3b6a54e87b481c142a5b690bcf8b5592` (w 100% nienaruszony lokalnie i zdalnie)
 - **Ahead / Behind:** 0 / 0
-- **Working Tree:** CLEAN (poza nowo generowanym raportem)
+- **Working Tree:** CLEAN
 - **Historia:** Liniowa (brak merge commits, brak rebase, brak force-push, brak resetów)
 
 ---
@@ -42,7 +42,7 @@
 - **Cargo.lock:** Niemodyfikowany, hash `fe5f33bc1f40f9c6824760bbe06604590ab9a938`
 - **Nowe zależności:** 0 (brak zmian w `Cargo.toml`/`Cargo.lock`)
 - **Zaktualizowane zależności:** 0
-- **EOL:** Zachowano poprawne zakończenia linii LF.
+- **EOL:** Zachowano poprawne zakończenia linii LF dla manifestów.
 
 ---
 
@@ -130,11 +130,10 @@
   - Rozmiar pliku: 2 136 992 B
   - Wersja kompilatora (`--version`): `7.1.1`
 - **Klasyfikacja środowiska:**
-  `INNO_SETUP_COMPATIBLE_NEWER_REQUIRES_REVIEW` (Kategoria B)
+  `INNO_SETUP_7_1_1_APPROVED_FOR_M3_D` (zatwierdzona decyzją `OWNER-M3-D-TOOLCHAIN-01`).
 - **Analiza wymagań architektonicznych:**
   - Kanon etapu M3-D (`DESIGN_3_0_A_WINDOWS_UPDATE.md` L85, L170) formułuje wymaganie jako `Inno Setup 6+`.
-  - Wersja `7.1.1` spełnia warunek liczbowy (7 >= 6), jednak zgodnie z instrukcją bramki (sekcje 16, 17, 27) przejście na wersję z nowej rodziny (major version 7) wymaga zatwierdzenia kompatybilności składni skryptu instalatora przed rozpoczęciem implementacji M3-D.
-  - Pełne odblokowanie M3-D wymaga formalnej akceptacji wersji 7.1.1 lub udostępnienia Inno Setup 6.x.
+  - Wersja `7.1.1` spełnia warunek liczbowy (7 >= 6) i została oficjalnie autoryzowana przez Właściciela Projektu w decyzji `OWNER-M3-D-TOOLCHAIN-01`.
 - **Polityka bezpieczeństwa narzędzi:**
   Bramka NIE pobierała, NIE instalowała, NIE modyfikowała PATH i NIE uruchamiała menedżerów pakietów (winget/choco/scoop).
 
@@ -182,8 +181,12 @@
    - **Pliki:** 2 zmienione (`tests/security_guard.rs`, `tests/windows_helper_test.rs`)
    - **Walidacja:** `windows_helper_test` 33/33 passed, `security_guard` 96/96 passed, `fmt`, `check`, `clippy` (0 warnings). Zsynchronizowany z `origin/main`.
 3. **Commit 3:**
+   - **Hash:** `25424e91c69728034b94108a5fc3ced9e7e8164a`
    - **Tytuł:** `docs(installer): verify M3-D prerequisites and Inno toolchain`
    - **Pliki:** Dokumentacja raportowa i rejestr statusów.
+4. **Commit 4:**
+   - **Tytuł:** `docs(toolchain): register OWNER-M3-D-TOOLCHAIN-01 Inno Setup 7.1.1 approval`
+   - **Pliki:** Rejestracja decyzji i odblokowanie wznowienia etapu M3-D.
 
 ---
 
@@ -209,20 +212,48 @@
 - **I18N Remediation:** `COMPLETED_SOFTWARE_VERIFIED`
 - **Terminology Remediation:** `COMPLETED_SOFTWARE_VERIFIED`
 - **Code Baseline:** `GREEN` (2573 passed, 0 failed, 0 warnings)
-- **Inno Setup Environment:** `TOOLCHAIN_VERSION_REVIEW_REQUIRED` (wykryty ISCC.exe w wersji 7.1.1 wymaga formalnej autoryzacji przed rozpoczęciem implementacji)
-- **M3-D Status:** `BLOCKED_BY_INNO_SETUP_ENVIRONMENT` (do czasu zatwierdzenia wersji 7.1.1 lub udostępnienia 6.x)
+- **Inno Setup Environment:** `INNO_SETUP_7_1_1_APPROVED_FOR_M3_D` (autoryzowany decyzją `OWNER-M3-D-TOOLCHAIN-01`)
+- **M3-D Prerequisites:** `COMPLETED_SOFTWARE_VERIFIED`
+- **M3-D Status:** `READY_FOR_RESUME`
 - **M3-D Implementation:** `NOT STARTED`
 - **M3-E Status:** `BLOCKED_BY_M3-D`
 
 ---
 
-## 12. Werdykt i rekomendowane dalsze kroki
+## 12. Werdykt i stan wznowienia
 
 Prace naprawcze w kodzie programu, plikach lokalizacyjnych oraz testach regresyjnych zostały ukończone ze stuprocentową skutecznością i pełną stabilnością.
-Bramka prerequisites uzyskuje status:
-`PARTIALLY_COMPLETED_ENVIRONMENT_BLOCKED`
-ze względu na klasyfikację kompilatora `INNO_SETUP_COMPATIBLE_NEWER_REQUIRES_REVIEW` (Inno Setup 7.1.1).
+Na mocy formalnej decyzji Właściciela Projektu `OWNER-M3-D-TOOLCHAIN-01` kompilator `Inno Setup 7.1.1` został zatwierdzony do budowy instalatora x64 User Setup.
+Bramka prerequisites uzyskuje finalny status:
+`STAGE-M3-D-PREREQUISITES-REMEDIATION-GATE: COMPLETED_SOFTWARE_VERIFIED`
 
-**Rekomendowany następny krok:**
-Formalne zatwierdzenie zgodności Inno Setup 7.1.1 ze składnią projektową M3-D (lub udostępnienie środowiska Inno Setup 6.x), a następnie uruchomienie:
-`RESUME-STAGE-M3-D-WINDOWS-USER-SETUP-INTEGRATION-GATE`.
+Repozytorium jest w pełni odblokowane i przygotowane do wznowienia etapu implementacyjnego:
+`STAGE-M3-D-WINDOWS-USER-SETUP-INTEGRATION-GATE`.
+
+---
+
+## 13. Rejestracja decyzji Właściciela Projektu (`OWNER-M3-D-TOOLCHAIN-01`)
+
+- **DECISION ID:** `OWNER-M3-D-TOOLCHAIN-01`
+- **DECISION:** `APPROVED`
+- **DATE:** 2026-11-08
+- **SUBJECT:** Authorization of Inno Setup 7.1.1 for STAGE-M3-D-WINDOWS-USER-SETUP-INTEGRATION-GATE
+- **APPROVED TOOLCHAIN:** `C:\Program Files\Inno Setup 7\ISCC.exe`
+- **VERIFIED VERSION:** `7.1.1`
+- **CLASSIFICATION:** `INNO_SETUP_7_1_1_APPROVED_FOR_M3_D`
+- **Zobowiązania architektoniczne (15 warunków):**
+  1. Wyłączne użycie wykrytego lokalnego kompilatora `ISCC.exe`.
+  2. Zakaz pobierania i podmiany kompilatora podczas bramki.
+  3. Świadoma budowa instalatora x64 (`SetupArchitecture=x64`).
+  4. Jawna konfiguracja `SetupArchitecture`.
+  5. Jawna konfiguracja `ArchitecturesAllowed=x64compatible`.
+  6. Jawna konfiguracja `ArchitecturesInstallIn64BitMode=x64compatible`.
+  7. Zachowanie instalacji per-user.
+  8. Wymuszenie `PrivilegesRequired=lowest`.
+  9. Bezwzględny brak żądania uprawnień administratora i UAC.
+  10. Wykonanie rzeczywistych testów instalacji, aktualizacji, deinstalacji i trybu cichego (`/SILENT`).
+  11. Zakaz publikacji i podpisywania cyfrowego artefaktu testowego.
+  12. Zakaz tworzenia pakietów MSI, WiX i Linux.
+  13. Traktowanie każdego ostrzeżenia kompilatora jako błędu weryfikacji.
+  14. Zakaz bezrefleksyjnego stosowania funkcji wyłącznych dla Inno Setup 7.
+  15. Zachowanie pełnej zgodności z zatwierdzonym projektem instalatora M3-D.
