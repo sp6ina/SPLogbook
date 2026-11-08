@@ -3555,6 +3555,12 @@ pub async fn install_update(asset: &VerifiedReleaseAsset) -> Result<(), UpdaterE
             return Ok(());
         }
 
+        if inst_type == InstallationType::WindowsMsi {
+            return Err(UpdaterError::ManagedInstallerConflict(
+                "Wykryto instalację WindowsMsi. Aktualizacje zarządzane są zewnętrznie przez instalator MSI i nie mogą być nadpisywane przez User Setup ani Portable ZIP.".to_string(),
+            ));
+        }
+
         if inst_type != InstallationType::WindowsPortableZip {
             return Err(UpdaterError::SafetyGate(format!(
                 "Wykryto niezgodny typ instalacji: {inst_type:?} (wymagany WindowsPortableZip lub WindowsInnoSetup)"
