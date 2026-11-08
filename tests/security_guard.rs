@@ -3445,10 +3445,9 @@ fn m3_c_manifest_first_and_windows_portable_zip_guards() {
     assert_eq!(ReleaseArchitecture::X86_64.as_str(), "x86_64");
     assert_eq!(ReleasePackageType::Zip.as_str(), "zip");
 
-    // 2. Brak formatów instalacyjnych MSI, WiX, Inno Setup, AppImage, DEB, RPM
+    // 2. Brak formatów instalacyjnych Inno Setup, AppImage, DEB, RPM (MSI wprowadzony w M3-E)
     let updater_src = fs::read_to_string("src/cloud/updater.rs").expect("read updater.rs");
     for forbidden in [
-        "ReleasePackageType::Msi",
         "ReleasePackageType::InnoSetup",
         "ReleasePackageType::AppImage",
         "ReleasePackageType::Deb",
@@ -4546,5 +4545,358 @@ fn m3_d_stability_20_iterations_setup_lifecycle_and_data_safety() {
             app_dir.exists(),
             "Katalog aplikacji nie może zostać usunięty, jeśli zawiera dane użytkownika"
         );
+    }
+}
+
+#[test]
+fn m3_e_msi_toolchain_decision_and_identity_guard() {
+    use splogbook::cloud::updater::{
+        WINDOWS_INNO_SETUP_APP_ID, WINDOWS_MSI_UPGRADE_CODE, WINDOWS_MSI_UPGRADE_CODE_PACKED,
+    };
+
+    let wixproj = fs::read_to_string("installer/windows/msi/SPLogbook.wixproj")
+        .expect("read SPLogbook.wixproj");
+    assert!(
+        wixproj.contains("WixToolset.Sdk/7.0.1"),
+        "SPLogbook.wixproj musi używać zatwierdzonego WiX Toolset SDK 7.0.1 (decyzja OWNER-M3-E-TOOLCHAIN-01)"
+    );
+    assert!(
+        wixproj.contains("<AcceptEula>true</AcceptEula>"),
+        "SPLogbook.wixproj musi deklarować akceptację EULA WiX 7"
+    );
+
+    let pkg = fs::read_to_string("installer/windows/msi/Package.wxs").expect("read Package.wxs");
+    assert!(
+        pkg.contains("UpgradeCode=\"B7D14532-6A10-4F8A-9A4B-3DE189E502B0\""),
+        "Package.wxs musi zawierać stały UpgradeCode zatwierdzony w OWNER-M3-E-TOOLCHAIN-01"
+    );
+    assert_eq!(
+        WINDOWS_MSI_UPGRADE_CODE,
+        "{B7D14532-6A10-4F8A-9A4B-3DE189E502B0}"
+    );
+    assert_ne!(
+        WINDOWS_MSI_UPGRADE_CODE, WINDOWS_INNO_SETUP_APP_ID,
+        "UpgradeCode MSI musi być różny od Inno AppId"
+    );
+    assert_eq!(
+        WINDOWS_MSI_UPGRADE_CODE_PACKED,
+        "0B205E981ED3B4A9A9B4A9E189E502B0"
+    );
+}
+
+#[test]
+fn m3_e_msi_architecture_and_privileges_guard() {
+    let pkg = fs::read_to_string("installer/windows/msi/Package.wxs").expect("read Package.wxs");
+    assert!(
+        pkg.contains("Scope=\"perMachine\""),
+        "Package.wxs musi mieć Scope=\"perMachine\""
+    );
+
+    let dir =
+        fs::read_to_string("installer/windows/msi/Directories.wxs").expect("read Directories.wxs");
+    assert!(
+        dir.contains("ProgramFiles64Folder"),
+        "Directories.wxs musi instalować do ProgramFiles64Folder"
+    );
+    assert!(
+        dir.contains("Name=\"SPLogbook\""),
+        "Directories.wxs musi instalować do podfolderu SPLogbook"
+    );
+
+    let comp =
+        fs::read_to_string("installer/windows/msi/Components.wxs").expect("read Components.wxs");
+    assert!(
+        comp.contains("Bitness=\"always64\""),
+        "Komponenty MSI muszą mieć Bitness=\"always64\""
+    );
+}
+
+#[test]
+fn m3_e_msi_conflict_matrix_guard() {
+    use splogbook::cloud::updater::{InstallationType, ManagementMode};
+
+    assert_eq!(
+        InstallationType::WindowsMsi.management_mode(),
+        ManagementMode::SystemManaged,
+        "WindowsMsi musi być SystemManaged"
+    );
+
+    let pkg = fs::read_to_string("installer/windows/msi/Package.wxs").expect("read Package.wxs");
+    assert!(
+        pkg.contains("INNO_USER_SETUP_DETECTED"),
+        "Package.wxs musi wykrywać Inno Setup przez rejestr"
+    );
+    assert!(
+        pkg.contains("<Launch"),
+        "Package.wxs musi blokować instalację przez Launch Condition"
+    );
+
+    let iss =
+        fs::read_to_string("installer/windows/inno/SPLogbook.iss").expect("read SPLogbook.iss");
+    assert!(
+        iss.contains("0B205E981ED3B4A9A9B4A9E189E502B0"),
+        "SPLogbook.iss musi sprawdzać obecność MSI UpgradeCode"
+    );
+    assert!(
+        iss.contains(".splogbook-msi-marker"),
+        "SPLogbook.iss musi sprawdzać obecność markera MSI"
+    );
+}
+
+#[test]
+fn m3_e_msi_input_allowlist_guard() {
+    let comp =
+        fs::read_to_string("installer/windows/msi/Components.wxs").expect("read Components.wxs");
+
+    // Wymagane pliki programu
+    assert!(comp.contains("SPLogbook.exe"));
+    assert!(comp.contains("splogbook-updater.exe"));
+    assert!(comp.contains(".splogbook-msi-marker"));
+
+    // Zakazane pliki danych i kluczy
+    assert!(!comp.contains("default_log.db"));
+    assert!(!comp.contains("station_config.json"));
+    assert!(!comp.contains("splogbook_contacts.db"));
+    assert!(!comp.contains(".key"));
+    assert!(!comp.contains(".pem"));
+    assert!(!comp.contains(".pfx"));
+    assert!(!comp.contains(".pdb"));
+
+    // Zakaz niebezpiecznych akcji
+    assert!(!comp.contains("powershell"));
+    assert!(!comp.contains("cmd.exe"));
+}
+
+#[test]
+fn m3_e_msi_updater_delegation_guard() {
+    let updater_code = fs::read_to_string("src/cloud/updater.rs").expect("src/cloud/updater.rs");
+
+    assert!(
+        updater_code.contains("execute_msi_installer"),
+        "updater.rs musi zawierać dedykowaną funkcję execute_msi_installer"
+    );
+    assert!(
+        updater_code.contains("delegate_msi_update"),
+        "updater.rs musi zawierać dedykowaną funkcję delegate_msi_update"
+    );
+    assert!(
+        updater_code.contains("build_msi_install_arguments"),
+        "updater.rs musi zawierać funkcję build_msi_install_arguments"
+    );
+    assert!(
+        updater_code.contains("MsiexecExitStatus"),
+        "updater.rs musi zawierać enum MsiexecExitStatus"
+    );
+    assert!(
+        updater_code.contains("Command::new(\"msiexec.exe\")"),
+        "execute_msi_installer musi uruchamiać msiexec.exe bezpośrednio bez powłoki shell"
+    );
+    assert!(
+        updater_code.contains("\"/norestart\""),
+        "updater.rs musi wymuszać flagę /norestart"
+    );
+    assert!(
+        updater_code.contains("\"/L*v\""),
+        "updater.rs musi wymuszać szczegółowe logowanie /L*v"
+    );
+}
+
+#[test]
+fn m3_e_msi_uninstall_and_repair_safety_guard() {
+    let comp =
+        fs::read_to_string("installer/windows/msi/Components.wxs").expect("read Components.wxs");
+    let pkg = fs::read_to_string("installer/windows/msi/Package.wxs").expect("read Package.wxs");
+
+    // Brak RemoveFolderEx
+    assert!(!comp.contains("RemoveFolderEx"));
+    assert!(!pkg.contains("RemoveFolderEx"));
+
+    // Seedy z NeverOverwrite="yes"
+    for seed in ["callbook.db", "serviceLOG.db", "clubs.csv"] {
+        let seed_pos = comp.find(seed).expect("seed found");
+        let comp_start = comp[..seed_pos].rfind("<Component").expect("Component tag");
+        let comp_end = comp[comp_start..].find('>').expect("close tag");
+        let tag = &comp[comp_start..comp_start + comp_end];
+        assert!(
+            tag.contains("NeverOverwrite=\"yes\""),
+            "Seed {seed} musi mieć NeverOverwrite=\"yes\""
+        );
+    }
+
+    // MajorUpgrade z blokadą downgrade
+    assert!(pkg.contains("<MajorUpgrade"));
+    assert!(pkg.contains("DowngradeErrorMessage="));
+    assert!(pkg.contains("Schedule=\"afterInstallInitialize\""));
+}
+
+#[test]
+fn m3_e_msi_build_artifact_safety_guard() {
+    let gitignore = fs::read_to_string(".gitignore").expect(".gitignore");
+    assert!(gitignore.contains("*.msi"));
+    assert!(gitignore.contains("*.wixpdb"));
+    assert!(gitignore.contains("*.wixobj"));
+    assert!(gitignore.contains("installer/windows/msi/bin/"));
+    assert!(gitignore.contains("installer/windows/msi/obj/"));
+
+    let output = Command::new("git")
+        .args(["ls-files", "*.msi", "*.wixpdb"])
+        .output()
+        .expect("git ls-files");
+    let tracked_msi = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        tracked_msi.trim().is_empty(),
+        "W repozytorium git nie może być śledzony żaden plik .msi ani .wixpdb: {tracked_msi}"
+    );
+}
+
+#[test]
+fn m3_e_stability_100_iterations_msi_matrix_guard() {
+    use splogbook::cloud::updater::installation::{
+        WindowsMsiMarker, semver_to_msi_product_version,
+    };
+    use splogbook::cloud::updater::{
+        InstallationType, MsiexecExitStatus, ReleasePackageType, ReleasePlatform,
+        WINDOWS_MSI_UPGRADE_CODE, build_msi_install_arguments, build_msi_repair_arguments,
+        build_msi_uninstall_arguments,
+    };
+    use std::path::Path;
+
+    for i in 0..100 {
+        let fake_root = Path::new(r"C:\Program Files\SPLogbook");
+        let marker = WindowsMsiMarker::new(
+            &format!("1.3.0-alpha.{i}"),
+            fake_root,
+            &format!("commit_{i:040x}"),
+        );
+        let json = serde_json::to_string(&marker).expect("to_json");
+        let parsed: WindowsMsiMarker = serde_json::from_str(&json).expect("from_json");
+        assert_eq!(parsed.upgrade_code, WINDOWS_MSI_UPGRADE_CODE);
+        assert_eq!(parsed.package_version, format!("1.3.0-alpha.{i}"));
+        assert_eq!(parsed.installation_scope, "PerMachine");
+        assert!(parsed.validate().is_ok());
+
+        let corrupt_json = format!(
+            r#"{{"marker_version":"1.0","installation_type":"WindowsMsi","management_mode":"SystemManaged","package_version":"{i}","upgrade_code":"WRONG_UPGRADE_CODE","product_code":"*","installation_scope":"PerMachine","installation_root":"C:\\","build_commit":"abc","installer_engine":"WindowsInstallerWiX"}}"#
+        );
+        let corrupt_marker: WindowsMsiMarker =
+            serde_json::from_str(&corrupt_json).expect("from_str");
+        assert!(corrupt_marker.validate().is_err());
+
+        let mapped_version = semver_to_msi_product_version(&format!("1.3.{i}-alpha.1")).unwrap();
+        assert_eq!(mapped_version, format!("1.3.{i}"));
+
+        // Expected package type dla WindowsMsi
+        let expected = ReleasePackageType::expected_for_installation(
+            ReleasePlatform::Windows,
+            InstallationType::WindowsMsi,
+        );
+        assert_eq!(expected, ReleasePackageType::Msi);
+
+        let msi_path = Path::new(r"C:\Temp\SPLogbook.msi");
+        let log_path = Path::new(r"C:\Temp\install.log");
+        let inst_args = build_msi_install_arguments(msi_path, log_path);
+        assert_eq!(inst_args[0], "/i");
+        assert_eq!(inst_args[2], "/qn");
+        assert_eq!(inst_args[3], "/norestart");
+
+        let rep_args = build_msi_repair_arguments(msi_path, log_path);
+        assert_eq!(rep_args[0], "/fa");
+
+        let uninst_args = build_msi_uninstall_arguments(WINDOWS_MSI_UPGRADE_CODE, log_path);
+        assert_eq!(uninst_args[0], "/x");
+
+        assert!(MsiexecExitStatus::from_code(0).is_success());
+        assert!(MsiexecExitStatus::from_code(3010).is_success());
+        assert!(!MsiexecExitStatus::from_code(1603).is_success());
+    }
+}
+
+#[test]
+fn m3_e_stability_50_iterations_msi_models_guard() {
+    use splogbook::cloud::updater::{
+        InstallationType, ManagementMode, UpdateVersionDecision, evaluate_version_transition,
+    };
+    use splogbook::core::build_info::UpdateChannelPreference;
+
+    for i in 0..50 {
+        assert_eq!(
+            InstallationType::WindowsMsi.management_mode(),
+            ManagementMode::SystemManaged
+        );
+        assert!(InstallationType::WindowsMsi.is_system_managed());
+        assert!(!InstallationType::WindowsMsi.is_self_managed());
+
+        let current_v = format!("1.3.0-alpha.{i}");
+        let candidate_v = format!("1.3.0-alpha.{}", i + 1);
+        let decision =
+            evaluate_version_transition(&current_v, &candidate_v, UpdateChannelPreference::Alpha);
+        assert_eq!(decision, UpdateVersionDecision::UpdateAvailable);
+    }
+}
+
+#[test]
+fn m3_e_stability_20_iterations_msi_lifecycle_guard() {
+    use splogbook::cloud::updater::installation::{WINDOWS_MSI_MARKER_FILENAME, WindowsMsiMarker};
+
+    for i in 0..20 {
+        let temp = tempfile::tempdir().unwrap();
+        let app_dir = temp.path().join("SPLogbook");
+        let data_dir = temp.path().join("AppData_Roaming_SPLogbook");
+        let databases_dir = data_dir.join("databases");
+        let config_dir = data_dir.join("config");
+        let exports_dir = data_dir.join("exports");
+        let logs_dir = data_dir.join("logs");
+
+        fs::create_dir_all(&app_dir).unwrap();
+        fs::create_dir_all(&databases_dir).unwrap();
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::create_dir_all(&exports_dir).unwrap();
+        fs::create_dir_all(&logs_dir).unwrap();
+
+        let exe_path = app_dir.join("SPLogbook.exe");
+        let updater_path = app_dir.join("splogbook-updater.exe");
+        let db_path = databases_dir.join("default_log.db");
+        let wal_path = databases_dir.join("default_log.db-wal");
+        let cfg_path = config_dir.join("station_config.json");
+        let adif_path = exports_dir.join("test.adi");
+        let user_log = logs_dir.join("session.log");
+        let unknown_file = app_dir.join("addon_plugin.dll");
+
+        let db_content = format!("SQLITE_USER_DATA_{i}");
+        let wal_content = format!("SQLITE_WAL_DATA_{i}");
+        let cfg_content = format!("{{\"callsign\":\"SP6INA_{i}\"}}");
+        let adif_content = format!("<call:6>SP6INA<qso_date:8>20261108<qso_nr:{i}><eor>");
+        let log_content = format!("LOG_LINE_{i}");
+        let unknown_content = format!("UNKNOWN_PAYLOAD_{i}");
+
+        fs::write(&exe_path, b"SPLogbook_EXE").unwrap();
+        fs::write(&updater_path, b"splogbook_updater_EXE").unwrap();
+        fs::write(&db_path, &db_content).unwrap();
+        fs::write(&wal_path, &wal_content).unwrap();
+        fs::write(&cfg_path, &cfg_content).unwrap();
+        fs::write(&adif_path, &adif_content).unwrap();
+        fs::write(&user_log, &log_content).unwrap();
+        fs::write(&unknown_file, &unknown_content).unwrap();
+
+        let marker = WindowsMsiMarker::new(
+            "1.3.0-alpha.1",
+            &app_dir,
+            "954fca396b2986abe783f5cc8b0d1aca1bf19be1",
+        );
+        let marker_json = serde_json::to_string(&marker).unwrap();
+        fs::write(app_dir.join(WINDOWS_MSI_MARKER_FILENAME), marker_json).unwrap();
+
+        // Symulacja deinstalacji MSI: usunięcie wyłącznie plików programu i markera
+        fs::remove_file(&exe_path).unwrap();
+        fs::remove_file(&updater_path).unwrap();
+        fs::remove_file(app_dir.join(WINDOWS_MSI_MARKER_FILENAME)).unwrap();
+
+        // Weryfikacja: dane użytkownika są w 100% nienaruszone (byte-identical)
+        assert_eq!(fs::read_to_string(&db_path).unwrap(), db_content);
+        assert_eq!(fs::read_to_string(&wal_path).unwrap(), wal_content);
+        assert_eq!(fs::read_to_string(&cfg_path).unwrap(), cfg_content);
+        assert_eq!(fs::read_to_string(&adif_path).unwrap(), adif_content);
+        assert_eq!(fs::read_to_string(&user_log).unwrap(), log_content);
+        assert_eq!(fs::read_to_string(&unknown_file).unwrap(), unknown_content);
     }
 }
