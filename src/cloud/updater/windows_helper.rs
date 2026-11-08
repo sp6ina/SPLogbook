@@ -292,7 +292,7 @@ impl ProcessMonitor for SystemProcessMonitor {
 
         #[cfg(not(target_os = "windows"))]
         {
-            let proc_path = PathBuf::from(format!("/proc/{pid}"));
+            let proc_path = std::path::PathBuf::from(format!("/proc/{pid}"));
             if !proc_path.exists() {
                 return Ok(false);
             }
