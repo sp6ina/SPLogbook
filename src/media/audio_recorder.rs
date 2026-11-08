@@ -162,13 +162,15 @@ impl AudioRecorder {
                 let _ = child.wait();
             }
             IS_RECORDING.store(false, Ordering::SeqCst);
-            if let Some(temp) = LINUX_TEMP_FILE.lock().ok().and_then(|mut g| g.take()) {
-                if temp.exists() {
-                    std::fs::copy(&temp, output_path).map_err(|e| {
-                        AudioRecorderError::Io(format!("Błąd zapisu pliku WAV: {e}"))
-                    })?;
-                    let _ = std::fs::remove_file(temp);
-                }
+            if let Some(temp) = LINUX_TEMP_FILE
+                .lock()
+                .ok()
+                .and_then(|mut g| g.take())
+                .filter(|t| t.exists())
+            {
+                std::fs::copy(&temp, output_path)
+                    .map_err(|e| AudioRecorderError::Io(format!("Błąd zapisu pliku WAV: {e}")))?;
+                let _ = std::fs::remove_file(temp);
             }
             info!(
                 "Pomyślnie zapisano nagranie łączności do: {}",
@@ -253,10 +255,13 @@ impl AudioRecorder {
                 let _ = child.kill();
                 let _ = child.wait();
             }
-            if let Some(temp) = LINUX_TEMP_FILE.lock().ok().and_then(|mut g| g.take()) {
-                if temp.exists() {
-                    let _ = std::fs::remove_file(temp);
-                }
+            if let Some(temp) = LINUX_TEMP_FILE
+                .lock()
+                .ok()
+                .and_then(|mut g| g.take())
+                .filter(|t| t.exists())
+            {
+                let _ = std::fs::remove_file(temp);
             }
         }
 
