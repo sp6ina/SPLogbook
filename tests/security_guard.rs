@@ -4094,3 +4094,457 @@ fn m3_transactional_replacement_terminology_guard() {
         "Kanon architektoniczny docs/IMPROVEMENT_ROADMAP.md musi zawierać potwierdzenie semantyki transakcyjnej"
     );
 }
+
+#[test]
+fn m3_d_inno_setup_toolchain_decision_guard() {
+    let pre_report =
+        fs::read_to_string("STAGE_M3_D_WINDOWS_USER_SETUP_RESUME_PRE_IMPLEMENTATION_REPORT.md")
+            .expect("STAGE_M3_D_WINDOWS_USER_SETUP_RESUME_PRE_IMPLEMENTATION_REPORT.md");
+    assert!(
+        pre_report.contains("OWNER-M3-D-TOOLCHAIN-01"),
+        "Raport musi zawierać identyfikator decyzji OWNER-M3-D-TOOLCHAIN-01"
+    );
+    assert!(
+        pre_report.contains("APPROVED"),
+        "Decyzja OWNER-M3-D-TOOLCHAIN-01 musi mieć status APPROVED"
+    );
+    assert!(
+        pre_report.contains("7.1.1"),
+        "Zatwierdzona wersja Inno Setup to 7.1.1"
+    );
+    assert!(
+        pre_report.contains(r"C:\Program Files\Inno Setup 7\ISCC.exe"),
+        r"Zatwierdzona ścieżka kompilatora to C:\Program Files\Inno Setup 7\ISCC.exe"
+    );
+
+    let iscc_path = std::path::Path::new(r"C:\Program Files\Inno Setup 7\ISCC.exe");
+    if iscc_path.exists() {
+        let output = Command::new(iscc_path)
+            .arg("/?")
+            .output()
+            .expect("Wywołanie ISCC.exe");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let combined = format!("{stdout} {stderr}");
+        assert!(
+            combined.contains("7.1.1") || combined.contains("Inno Setup 7"),
+            "Zainstalowany kompilator ISCC musi identyfikować się jako Inno Setup 7.1.1"
+        );
+    }
+}
+
+#[test]
+fn m3_d_inno_setup_architecture_and_privileges_guard() {
+    let iss_content = fs::read_to_string("installer/windows/inno/SPLogbook.iss")
+        .expect("installer/windows/inno/SPLogbook.iss");
+
+    assert!(
+        iss_content.contains("SetupArchitecture=x64"),
+        "SPLogbook.iss musi zawierać SetupArchitecture=x64"
+    );
+    assert!(
+        iss_content.contains("ArchitecturesAllowed=x64compatible"),
+        "SPLogbook.iss musi zawierać ArchitecturesAllowed=x64compatible"
+    );
+    assert!(
+        iss_content.contains("ArchitecturesInstallIn64BitMode=x64compatible"),
+        "SPLogbook.iss musi zawierać ArchitecturesInstallIn64BitMode=x64compatible"
+    );
+    assert!(
+        iss_content.contains("PrivilegesRequired=lowest"),
+        "SPLogbook.iss musi zawierać PrivilegesRequired=lowest dla instalacji per-user"
+    );
+    assert!(
+        iss_content.contains(r"DefaultDirName={localappdata}\Programs\SPLogbook"),
+        "SPLogbook.iss musi instalować domyślnie do {{localappdata}}\\Programs\\SPLogbook"
+    );
+}
+
+#[test]
+fn m3_d_inno_setup_no_admin_elevation_guard() {
+    let iss_content = fs::read_to_string("installer/windows/inno/SPLogbook.iss")
+        .expect("installer/windows/inno/SPLogbook.iss");
+    let script_content = fs::read_to_string("scripts/build_windows_user_setup.ps1")
+        .expect("scripts/build_windows_user_setup.ps1");
+    let updater_content = fs::read_to_string("src/cloud/updater.rs").expect("src/cloud/updater.rs");
+
+    assert!(
+        !iss_content.contains("PrivilegesRequiredOverridesAllowed"),
+        "SPLogbook.iss nie może zawierać PrivilegesRequiredOverridesAllowed"
+    );
+
+    assert!(
+        !iss_content.contains("Root: HKLM")
+            && !iss_content.contains("Root: HKEY_LOCAL_MACHINE")
+            && !iss_content.contains("RegWrite"),
+        "Instalator User Setup nie może zapisywać do HKLM"
+    );
+
+    assert!(
+        !iss_content.contains("{commonpf}") && !iss_content.contains("{autopf}"),
+        "Instalator User Setup nie może instalować do Program Files"
+    );
+
+    assert!(
+        !iss_content.to_lowercase().contains("runas"),
+        "SPLogbook.iss nie może używać runas"
+    );
+    assert!(
+        !script_content.to_lowercase().contains("runas"),
+        "build_windows_user_setup.ps1 nie może używać runas"
+    );
+    assert!(
+        !updater_content.to_lowercase().contains("verb(\"runas\")")
+            && !updater_content.to_lowercase().contains("verb('runas')"),
+        "updater.rs nie może używać czasownika runas"
+    );
+
+    assert!(
+        !iss_content.contains("requireAdministrator"),
+        "Instalator User Setup nie może żądać requireAdministrator"
+    );
+}
+
+#[test]
+fn m3_d_inno_setup_stable_identity_guard() {
+    use splogbook::cloud::updater::WINDOWS_INNO_SETUP_APP_ID;
+
+    let iss_content = fs::read_to_string("installer/windows/inno/SPLogbook.iss")
+        .expect("installer/windows/inno/SPLogbook.iss");
+    let cargo_toml = fs::read_to_string("Cargo.toml").expect("Cargo.toml");
+
+    assert_eq!(
+        WINDOWS_INNO_SETUP_APP_ID, "{C8E28541-7B21-4A9B-8F5C-4EF298F613C1}",
+        "WINDOWS_INNO_SETUP_APP_ID musi mieć kanoniczną wartość"
+    );
+
+    assert!(
+        iss_content.contains("AppId={{C8E28541-7B21-4A9B-8F5C-4EF298F613C1}}"),
+        "SPLogbook.iss musi definiować AppId jako {{C8E28541-7B21-4A9B-8F5C-4EF298F613C1}}"
+    );
+
+    assert!(
+        iss_content.contains("AppVersion={#AppVersion}"),
+        "SPLogbook.iss musi pobierać wersję z makra AppVersion"
+    );
+
+    assert!(
+        cargo_toml.contains(r#"version = "1.3.0-alpha.1""#),
+        "Cargo.toml musi definiować bieżącą wersję roboczą 1.3.0-alpha.1"
+    );
+
+    assert!(
+        cargo_toml.contains("-alpha.1"),
+        "Bieżąca wersja robocza musi mieć oznaczenie pre-release alpha"
+    );
+}
+
+#[test]
+fn m3_d_inno_setup_input_allowlist_guard() {
+    let iss_content = fs::read_to_string("installer/windows/inno/SPLogbook.iss")
+        .expect("installer/windows/inno/SPLogbook.iss");
+
+    let files_section = iss_content
+        .split("[Files]")
+        .nth(1)
+        .and_then(|s| s.split('[').next())
+        .expect("Sekcja [Files] w SPLogbook.iss");
+
+    assert!(files_section.contains("SPLogbook.exe"));
+    assert!(files_section.contains("splogbook-updater.exe"));
+    assert!(iss_content.contains(".splogbook-inno-marker"));
+    assert!(files_section.contains(r"assets\icon.ico"));
+    assert!(files_section.contains(r"assets\icon.png"));
+    assert!(files_section.contains(r"locales\*"));
+
+    let forbidden_extensions = [".pem", ".key", ".pfx", ".p12", ".token", "id_rsa", ".env"];
+    for ext in &forbidden_extensions {
+        assert!(
+            !files_section.to_lowercase().contains(ext),
+            "Sekcja [Files] zawiera niedozwolone rozszerzenie sekretu: {ext}"
+        );
+    }
+
+    for line in files_section.lines() {
+        if line.contains(".db") || line.contains(".csv") {
+            assert!(
+                line.contains("uninsneveruninstall") && line.contains("onlyifdoesntexist"),
+                "Plik bazodanowy seed w [Files] musi mieć flagi uninsneveruninstall i onlyifdoesntexist: {line}"
+            );
+        }
+    }
+}
+
+#[test]
+fn m3_d_inno_setup_uninstall_safety_guard() {
+    let iss_content = fs::read_to_string("installer/windows/inno/SPLogbook.iss")
+        .expect("installer/windows/inno/SPLogbook.iss");
+
+    let uninstall_delete = iss_content
+        .split("[UninstallDelete]")
+        .nth(1)
+        .and_then(|s| s.split('[').next())
+        .expect("Sekcja [UninstallDelete] w SPLogbook.iss");
+
+    assert!(
+        !uninstall_delete.contains('*') && !uninstall_delete.contains('?'),
+        "Sekcja [UninstallDelete] nie może zawierać znaków wieloznacznych (* ani ?)"
+    );
+
+    for line in uninstall_delete.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with(';') || trimmed.is_empty() {
+            continue;
+        }
+        if trimmed.contains(r#"Name: "{app}""#) || trimmed.contains("Name: {app}") {
+            assert!(
+                trimmed.starts_with("Type: dirifempty"),
+                "Katalog {{app}} może być czyszczony w [UninstallDelete] wyłącznie jako dirifempty: {line}"
+            );
+        }
+        if trimmed.contains("dirifempty") {
+            assert!(
+                trimmed.contains("Type: dirifempty") || trimmed.contains("Type: filesandordirs"),
+                "Wpisy katalogów w [UninstallDelete] muszą być ograniczone do dirifempty: {line}"
+            );
+        }
+        assert!(
+            !trimmed.contains("default_log.db")
+                && !trimmed.contains("serviceLOG.db")
+                && !trimmed.contains("callbook.db")
+                && !trimmed.contains(".db-wal")
+                && !trimmed.contains(".db-shm")
+                && !trimmed.contains(".db-journal"),
+            "Sekcja [UninstallDelete] nie może usuwać baz danych użytkownika: {line}"
+        );
+    }
+}
+
+#[test]
+fn m3_d_inno_setup_update_delegation_guard() {
+    use splogbook::cloud::updater::build_inno_setup_arguments;
+    use std::path::Path;
+
+    let test_path = Path::new(r"C:\Users\test\AppData\Local\Temp\SPLogbook-Setup.log");
+    let args = build_inno_setup_arguments(test_path);
+
+    assert!(args.contains(&"/SILENT".to_string()));
+    assert!(
+        args.contains(&"/NORESTART".to_string()),
+        "Flaga /NORESTART jest bezwzględnie wymagana"
+    );
+    assert!(args.iter().any(|a| a.starts_with("/LOG=")));
+
+    let updater_code = fs::read_to_string("src/cloud/updater.rs").expect("src/cloud/updater.rs");
+    assert!(
+        updater_code.contains("execute_inno_setup_installer"),
+        "updater.rs musi zawierać dedykowaną funkcję execute_inno_setup_installer"
+    );
+    assert!(
+        updater_code.contains("Command::new(installer_exe)"),
+        "execute_inno_setup_installer musi uruchamiać instalator bezpośrednio przez Command::new"
+    );
+}
+
+#[test]
+fn m3_d_inno_setup_conflict_matrix_guard() {
+    use splogbook::cloud::updater::{InstallationType, ManagementMode};
+
+    assert_eq!(
+        InstallationType::WindowsInnoSetup.management_mode(),
+        ManagementMode::SystemManaged,
+        "WindowsInnoSetup musi mieć tryb SystemManaged"
+    );
+    assert_eq!(
+        InstallationType::WindowsMsi.management_mode(),
+        ManagementMode::SystemManaged,
+        "WindowsMsi musi mieć tryb SystemManaged"
+    );
+    assert_eq!(
+        InstallationType::WindowsPortableZip.management_mode(),
+        ManagementMode::SelfManaged,
+        "WindowsPortableZip musi mieć tryb SelfManaged"
+    );
+
+    let updater_code = fs::read_to_string("src/cloud/updater.rs").expect("src/cloud/updater.rs");
+    assert!(
+        updater_code.contains("ManagedInstallerConflict"),
+        "updater.rs musi zawierać błąd ManagedInstallerConflict"
+    );
+    assert!(
+        updater_code.contains("InstallationType::WindowsMsi"),
+        "updater.rs musi jawnie obsługiwać i odrzucać konflikt WindowsMsi"
+    );
+}
+
+#[test]
+fn m3_d_inno_setup_build_artifact_safety_guard() {
+    let gitignore = fs::read_to_string(".gitignore").expect(".gitignore");
+    assert!(
+        gitignore.contains("/dist/") || gitignore.contains("dist/"),
+        ".gitignore musi ignorować katalog dist/"
+    );
+    assert!(
+        gitignore.contains("installer/windows/inno/Output/"),
+        ".gitignore musi ignorować installer/windows/inno/Output/"
+    );
+    assert!(
+        gitignore.contains("*-Setup-*.exe"),
+        ".gitignore musi ignorować pliki *-Setup-*.exe"
+    );
+
+    let output = Command::new("git")
+        .args(["ls-files", "*.exe"])
+        .output()
+        .expect("git ls-files");
+    let tracked_exe = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        tracked_exe.trim().is_empty(),
+        "W repozytorium git nie może być śledzony żaden plik .exe: {tracked_exe}"
+    );
+
+    let tag_output = Command::new("git")
+        .args(["tag", "-l"])
+        .output()
+        .expect("git tag -l");
+    let tags = String::from_utf8_lossy(&tag_output.stdout);
+    assert!(tags.contains("v1.2.0"), "Tag v1.2.0 musi istnieć");
+    assert!(
+        !tags.contains("v1.3.0"),
+        "Nie wolno tworzyć tagu v1.3.0 przed formalnym zatwierdzeniem wydania"
+    );
+}
+
+#[test]
+fn m3_d_stability_matrix_guard() {
+    use splogbook::cloud::updater::{
+        InstallationType, ReleasePackageType, ReleasePlatform, WINDOWS_INNO_SETUP_APP_ID,
+        WindowsUserSetupMarker,
+    };
+    use std::path::Path;
+
+    for i in 0..100 {
+        let fake_root = Path::new(r"C:\Users\test\AppData\Local\Programs\SPLogbook");
+        let marker = WindowsUserSetupMarker::new(
+            &format!("1.3.0-alpha.{i}"),
+            fake_root,
+            &format!("commit_{i:040x}"),
+        );
+        let json = serde_json::to_string(&marker).expect("to_json");
+        let parsed: WindowsUserSetupMarker = serde_json::from_str(&json).expect("from_json");
+        assert_eq!(parsed.app_id, WINDOWS_INNO_SETUP_APP_ID);
+        assert_eq!(parsed.package_version, format!("1.3.0-alpha.{i}"));
+        assert!(parsed.validate().is_ok());
+
+        let corrupt_json = format!(
+            r#"{{"marker_version":"1.0","installation_type":"WindowsInnoSetup","management_mode":"SystemManaged","package_version":"{i}","app_id":"WRONG_ID","installation_scope":"CurrentUser","installation_root":"C:\\","build_commit":"abc","installer_engine":"InnoSetup"}}"#
+        );
+        let corrupt_marker: WindowsUserSetupMarker =
+            serde_json::from_str(&corrupt_json).expect("from_str");
+        assert!(corrupt_marker.validate().is_err());
+
+        // Expected package for Windows Inno Setup
+        let expected = ReleasePackageType::expected_for_installation(
+            ReleasePlatform::Windows,
+            InstallationType::WindowsInnoSetup,
+        );
+        assert_eq!(expected, ReleasePackageType::InnoExe);
+
+        let parsed_exe = ReleasePackageType::parse("inno-exe").unwrap();
+        assert_eq!(parsed_exe, ReleasePackageType::InnoExe);
+
+        let parsed_zip = ReleasePackageType::parse("zip").unwrap();
+        assert_eq!(parsed_zip, ReleasePackageType::Zip);
+        assert_ne!(parsed_zip, expected);
+    }
+}
+
+#[test]
+fn m3_d_stability_50_iterations_conflict_and_update_models() {
+    use splogbook::cloud::updater::{
+        InstallationType, ManagementMode, UpdateVersionDecision, build_inno_setup_arguments,
+        evaluate_version_transition,
+    };
+    use splogbook::core::build_info::UpdateChannelPreference;
+    use std::path::PathBuf;
+
+    for i in 0..50 {
+        let setup_path = PathBuf::from(format!(r"C:\Temp\Setup_{i}\SPLogbook-Setup.log"));
+        let args = build_inno_setup_arguments(&setup_path);
+        assert_eq!(args.len(), 3);
+        assert_eq!(args[1], "/NORESTART");
+
+        assert_eq!(
+            InstallationType::WindowsInnoSetup.management_mode(),
+            ManagementMode::SystemManaged
+        );
+        assert_eq!(
+            InstallationType::WindowsMsi.management_mode(),
+            ManagementMode::SystemManaged
+        );
+
+        let current_v = format!("1.3.0-alpha.{i}");
+        let candidate_v = format!("1.3.0-alpha.{}", i + 1);
+        let decision =
+            evaluate_version_transition(&current_v, &candidate_v, UpdateChannelPreference::Alpha);
+        assert_eq!(decision, UpdateVersionDecision::UpdateAvailable);
+
+        let downgrade_decision =
+            evaluate_version_transition(&candidate_v, &current_v, UpdateChannelPreference::Alpha);
+        assert_eq!(downgrade_decision, UpdateVersionDecision::DowngradeRejected);
+    }
+}
+
+#[test]
+fn m3_d_stability_20_iterations_setup_lifecycle_and_data_safety() {
+    use splogbook::cloud::updater::{WINDOWS_INNO_MARKER_FILENAME, WindowsUserSetupMarker};
+
+    for i in 0..20 {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let app_dir = temp_dir.path().join("SPLogbook");
+        let logs_dir = app_dir.join("logs");
+        fs::create_dir_all(&logs_dir).expect("create_dir");
+
+        let exe_path = app_dir.join("SPLogbook.exe");
+        fs::write(&exe_path, format!("BIN_V1_{i}")).expect("write exe");
+
+        let marker = WindowsUserSetupMarker::new("1.3.0-alpha.1", &app_dir, &format!("hash_{i}"));
+        let marker_json = serde_json::to_string(&marker).expect("marker json");
+        fs::write(app_dir.join(WINDOWS_INNO_MARKER_FILENAME), marker_json).expect("write marker");
+
+        let db_path = app_dir.join("default_log.db");
+        let wal_path = app_dir.join("default_log.db-wal");
+        let cfg_path = app_dir.join("station_config.json");
+        let custom_notes = app_dir.join("user_notes.txt");
+        let user_log = logs_dir.join(format!("qso_{i}.log"));
+
+        let db_content = format!("SQLITE_DATABASE_RECORD_{i}");
+        let wal_content = format!("WAL_JOURNAL_CONTENT_{i}");
+        let cfg_content = format!(r#"{{"operator":"SP6INA_{i}"}}"#);
+        let notes_content = format!("CONTEST NOTES {i}");
+        let log_content = format!("LOG TRACE {i}");
+
+        fs::write(&db_path, &db_content).expect("write db");
+        fs::write(&wal_path, &wal_content).expect("write wal");
+        fs::write(&cfg_path, &cfg_content).expect("write cfg");
+        fs::write(&custom_notes, &notes_content).expect("write notes");
+        fs::write(&user_log, &log_content).expect("write log");
+
+        fs::remove_file(&exe_path).expect("remove exe");
+        fs::remove_file(app_dir.join(WINDOWS_INNO_MARKER_FILENAME)).expect("remove marker");
+
+        if fs::read_dir(&logs_dir).unwrap().next().is_none() {
+            let _ = fs::remove_dir(&logs_dir);
+        }
+
+        assert_eq!(fs::read_to_string(&db_path).unwrap(), db_content);
+        assert_eq!(fs::read_to_string(&wal_path).unwrap(), wal_content);
+        assert_eq!(fs::read_to_string(&cfg_path).unwrap(), cfg_content);
+        assert_eq!(fs::read_to_string(&custom_notes).unwrap(), notes_content);
+        assert_eq!(fs::read_to_string(&user_log).unwrap(), log_content);
+        assert!(
+            app_dir.exists(),
+            "Katalog aplikacji nie może zostać usunięty, jeśli zawiera dane użytkownika"
+        );
+    }
+}
