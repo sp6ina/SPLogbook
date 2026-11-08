@@ -767,6 +767,8 @@
   "app.about_desc2": "Pełna integracja z Hamlib 4.7+, TCI, rotctld, WSJT-X, NOAA, QRZ, HamQTH, eQSL, LoTW i Club Log.",
   "app.about_diagnostics": "🩺 Diagnostyka",
   "app.diag_version": "Wersja:",
+  "app.diag_commit": "Commit:",
+  "app.diag_channel_profile": "Kanał / Profil:",
   "app.diag_platform": "Platforma:",
   "app.diag_arch": "Architektura:",
   "app.diag_theme": "Motyw:",
