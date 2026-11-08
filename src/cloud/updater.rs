@@ -4445,7 +4445,11 @@ fn install_via_linux_portable_tar_gz(
 
     // Generujemy plan aktualizacji z bezwzględną ochroną danych
     let plan = UpdatePlan::generate(&staging_dir, base_dir)?;
-    plan.validate_safety(expected_exe)?;
+    if expected_exe == "splogbook" {
+        plan.validate_safety("splogbook")?;
+    } else {
+        plan.validate_safety(expected_exe)?;
+    }
 
     // 3. Kopia Zapasowa (Rollback) - wyłącznie dla plików podmienianych z replace_files
     for (rel, orig) in &plan.replace_files {
