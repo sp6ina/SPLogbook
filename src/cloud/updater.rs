@@ -4219,20 +4219,31 @@ pub async fn install_update(asset: &VerifiedReleaseAsset) -> Result<(), UpdaterE
     #[cfg(not(target_os = "windows"))]
     let tmp_path = parent.join(format!(".SPLogbook_update_{attempt_id}.tar.gz"));
 
-    #[cfg(target_os = "windows")]
     let lock_guard = UpdateLockGuard::acquire(parent, attempt_id)?;
 
-    #[cfg(target_os = "windows")]
     let mut tx = {
         let staging_path = parent.join(".staging");
+        #[cfg(target_os = "windows")]
+        let (platform_str, package_type_str, inst_type) = (
+            "windows".to_string(),
+            "windows-portable-zip".to_string(),
+            InstallationType::WindowsPortableZip,
+        );
+        #[cfg(not(target_os = "windows"))]
+        let (platform_str, package_type_str, inst_type) = (
+            "linux".to_string(),
+            "linux-portable-tar-gz".to_string(),
+            InstallationType::LinuxPortableTarGz,
+        );
+
         let mut t = UpdateTransaction::new(
             attempt_id,
             asset.bound_manifest_version().to_string(),
             format!("v{}", asset.bound_manifest_version()),
-            "windows".to_string(),
+            platform_str,
             "x86_64".to_string(),
-            "windows-portable-zip".to_string(),
-            InstallationType::WindowsPortableZip,
+            package_type_str,
+            inst_type,
             asset.bound_commit().to_string(),
             asset.filename().to_string(),
             asset.declared_size(),
@@ -4262,34 +4273,25 @@ pub async fn install_update(asset: &VerifiedReleaseAsset) -> Result<(), UpdaterE
     let dl_result = download_verified_asset(asset, &tmp_path).await;
     if let Err(e) = dl_result {
         let _ = tokio::fs::remove_file(&tmp_path).await;
-        #[cfg(target_os = "windows")]
-        {
-            tx.failure_stage = Some(UpdateStateId::Downloading);
-            tx.sanitized_diagnostic_summary = Some(e.to_string());
-            let _ = tx.transition_to(UpdateStateId::FailedPreApply);
-            let _ = tx.save_to_dir(parent);
-        }
+        tx.failure_stage = Some(UpdateStateId::Downloading);
+        tx.sanitized_diagnostic_summary = Some(e.to_string());
+        let _ = tx.transition_to(UpdateStateId::FailedPreApply);
+        let _ = tx.save_to_dir(parent);
         return Err(e);
     }
 
-    #[cfg(target_os = "windows")]
-    {
-        tx.transition_to(UpdateStateId::VerifyingDownload)?;
-        tx.save_to_dir(parent)?;
-    }
+    tx.transition_to(UpdateStateId::VerifyingDownload)?;
+    tx.save_to_dir(parent)?;
 
     // 2. Weryfikacja rozmiaru i SHA-256 pobranego pliku lokalnego
     let data = match tokio::fs::read(&tmp_path).await {
         Ok(d) => d,
         Err(e) => {
             let _ = tokio::fs::remove_file(&tmp_path).await;
-            #[cfg(target_os = "windows")]
-            {
-                tx.failure_stage = Some(UpdateStateId::VerifyingDownload);
-                tx.sanitized_diagnostic_summary = Some(e.to_string());
-                let _ = tx.transition_to(UpdateStateId::FailedPreApply);
-                let _ = tx.save_to_dir(parent);
-            }
+            tx.failure_stage = Some(UpdateStateId::VerifyingDownload);
+            tx.sanitized_diagnostic_summary = Some(e.to_string());
+            let _ = tx.transition_to(UpdateStateId::FailedPreApply);
+            let _ = tx.save_to_dir(parent);
             return Err(UpdaterError::Io(format!(
                 "Błąd odczytu pobranego pliku: {e}"
             )));
@@ -4298,39 +4300,26 @@ pub async fn install_update(asset: &VerifiedReleaseAsset) -> Result<(), UpdaterE
 
     if asset.declared_size() > 0 && data.len() as u64 != asset.declared_size() {
         let _ = tokio::fs::remove_file(&tmp_path).await;
-        #[cfg(target_os = "windows")]
-        {
-            tx.failure_stage = Some(UpdateStateId::VerifyingDownload);
-            tx.sanitized_diagnostic_summary =
-                Some("Rozmiar pliku nie zgadza się ze zweryfikowanym manifestem".into());
-            let _ = tx.transition_to(UpdateStateId::FailedPreApply);
-            let _ = tx.save_to_dir(parent);
-        }
+        tx.failure_stage = Some(UpdateStateId::VerifyingDownload);
+        tx.sanitized_diagnostic_summary =
+            Some("Rozmiar pliku nie zgadza się ze zweryfikowanym manifestem".into());
+        let _ = tx.transition_to(UpdateStateId::FailedPreApply);
+        let _ = tx.save_to_dir(parent);
         return Err(UpdaterError::SizeMismatch);
     }
 
     if !verify_sha256(&data, asset.declared_sha256()) {
         let _ = tokio::fs::remove_file(&tmp_path).await;
-        #[cfg(target_os = "windows")]
-        {
-            tx.failure_stage = Some(UpdateStateId::VerifyingDownload);
-            tx.sanitized_diagnostic_summary =
-                Some("Suma kontrolna SHA-256 nie zgadza się ze zweryfikowanym manifestem".into());
-            let _ = tx.transition_to(UpdateStateId::FailedPreApply);
-            let _ = tx.save_to_dir(parent);
-        }
+        tx.failure_stage = Some(UpdateStateId::VerifyingDownload);
+        tx.sanitized_diagnostic_summary =
+            Some("Suma kontrolna SHA-256 nie zgadza się ze zweryfikowanym manifestem".into());
+        let _ = tx.transition_to(UpdateStateId::FailedPreApply);
+        let _ = tx.save_to_dir(parent);
         return Err(UpdaterError::HashMismatch);
     }
 
     // 3. Podmień plik wykonywalny i uruchom ponownie.
-    #[cfg(target_os = "windows")]
-    {
-        self_replace(&current, &tmp_path, asset, attempt_id, &mut tx, lock_guard)
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        self_replace(&current, &tmp_path, asset, attempt_id, &mut tx, lock_guard)
-    }
+    self_replace(&current, &tmp_path, asset, attempt_id, &mut tx, lock_guard)
 }
 
 /// Sprawdza, czy pobierany plik nie jest archiwum, co mogłoby uszkodzić instalację.
@@ -4572,7 +4561,7 @@ fn install_via_linux_portable_tar_gz(
         let _ = fs::remove_dir_all(&rollback_dir);
         let _ = fs::remove_file(&health_ok);
 
-        let _ = tx.transition_to(crate::cloud::updater::state::UpdateStateId::Completed);
+        let _ = tx.transition_to(crate::cloud::updater::state::UpdateStateId::Cleanup);
         let _ = tx.save_to_dir(base_dir);
 
         std::process::exit(0);
@@ -5592,16 +5581,17 @@ mod tests {
         };
 
         #[cfg(target_os = "windows")]
-        assert!(check_safety_gate(&zip).is_ok());
+        {
+            assert!(check_safety_gate(&zip).is_ok());
 
-        let msi = ReleaseAsset {
-            name: "SPLogbook-Windows-x64.msi".into(),
-            browser_download_url: String::new(),
-            digest: None,
-            size: 0,
-        };
-        #[cfg(target_os = "windows")]
-        assert!(check_safety_gate(&msi).is_err());
+            let msi = ReleaseAsset {
+                name: "SPLogbook-Windows-x64.msi".into(),
+                browser_download_url: String::new(),
+                digest: None,
+                size: 0,
+            };
+            assert!(check_safety_gate(&msi).is_err());
+        }
 
         #[cfg(not(target_os = "windows"))]
         assert!(check_safety_gate(&zip).is_ok());
@@ -5769,9 +5759,9 @@ mod tests {
         let win_tmp = Path::new(".SPLogbook_update_123.zip");
         assert_eq!(win_tmp.extension().and_then(|s| s.to_str()), Some("zip"));
 
-        let non_zip = Path::new(".SPLogbook_update_123.tmp");
         #[cfg(target_os = "windows")]
         {
+            let non_zip = Path::new(".SPLogbook_update_123.tmp");
             let temp_dest =
                 std::env::temp_dir().join(format!("test_win_zip_{}", rand::random::<u64>()));
             let limits = ArchiveLimits::default();
