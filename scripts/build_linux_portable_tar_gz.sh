@@ -111,14 +111,14 @@ HAMLIB_DIST="${HAMLIB_DIST:-/tmp/hamlib-dist}"
 if [[ -d "${HAMLIB_DIST}" ]]; then
     echo "Dołączanie Hamlib z ${HAMLIB_DIST}..."
     if compgen -G "${HAMLIB_DIST}/lib/*.so*" > /dev/null 2>&1; then
-        cp -a "${HAMLIB_DIST}/lib/"*.so* "${ARCHIVE_PAYLOAD_DIR}/lib/"
+        cp -L -p "${HAMLIB_DIST}/lib/"*.so* "${ARCHIVE_PAYLOAD_DIR}/lib/"
     fi
     if [[ -f "${HAMLIB_DIST}/bin/rigctld" ]]; then
-        cp -a "${HAMLIB_DIST}/bin/rigctld" "${ARCHIVE_PAYLOAD_DIR}/"
+        cp -L -p "${HAMLIB_DIST}/bin/rigctld" "${ARCHIVE_PAYLOAD_DIR}/"
         chmod +x "${ARCHIVE_PAYLOAD_DIR}/rigctld"
     fi
     if [[ -f "${HAMLIB_DIST}/bin/rotctld" ]]; then
-        cp -a "${HAMLIB_DIST}/bin/rotctld" "${ARCHIVE_PAYLOAD_DIR}/"
+        cp -L -p "${HAMLIB_DIST}/bin/rotctld" "${ARCHIVE_PAYLOAD_DIR}/"
         chmod +x "${ARCHIVE_PAYLOAD_DIR}/rotctld"
     fi
     if [[ -f "${HAMLIB_DIST}/LICENSE" ]]; then
@@ -130,6 +130,15 @@ if [[ -d "${HAMLIB_DIST}" ]]; then
     fi
 fi
 
+# Upewnienie się, że wszystkie obiekty w stagingu są plikami regularnymi (brak symlinków w tar.gz)
+find "${ARCHIVE_PAYLOAD_DIR}" -type l | while read -r link; do
+    target=$(readlink -f "${link}")
+    if [[ -f "${target}" ]]; then
+        rm -f "${link}"
+        cp -p "${target}" "${link}"
+    fi
+done
+
 if command -v patchelf >/dev/null 2>&1; then
     echo "Konfiguracja bezpiecznego RUNPATH..."
     patchelf --set-rpath '$ORIGIN/lib:$ORIGIN/../lib' "${ARCHIVE_PAYLOAD_DIR}/SPLogbook" 2>/dev/null || true
@@ -140,6 +149,11 @@ if command -v patchelf >/dev/null 2>&1; then
     if [[ -f "${ARCHIVE_PAYLOAD_DIR}/rotctld" ]]; then
         patchelf --set-rpath '$ORIGIN/lib:$ORIGIN/../lib' "${ARCHIVE_PAYLOAD_DIR}/rotctld" 2>/dev/null || true
     fi
+    for sofile in "${ARCHIVE_PAYLOAD_DIR}/lib/"*.so*; do
+        if [[ -f "${sofile}" ]]; then
+            patchelf --set-rpath '$ORIGIN' "${sofile}" 2>/dev/null || true
+        fi
+    done
 fi
 
 cat << 'EOF' > "${ARCHIVE_PAYLOAD_DIR}/README.txt"
