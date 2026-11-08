@@ -48,7 +48,7 @@ export XDG_CACHE_HOME="${TEST_HOME}/.cache"
 # Initialize dummy user databases
 mkdir -p "${XDG_DATA_HOME}/splogbook"
 echo "USER_LOG_INITIAL_DATA" > "${XDG_DATA_HOME}/splogbook/default_log.db"
-INITIAL_DB_SHA=$(sha256sum "${XDG_DATA_HOME}/splogbook/default_log.db" | awk '{print $1}')
+INITIAL_DB_SHA=$(sha256sum "${XDG_DATA_HOME}/splogbook/default_log.db" | cut -d' ' -f1)
 
 echo "=== 8. TRANSACTIONAL ROLLBACK FIXTURE ==="
 mkdir -p SPLogbook/.rollback
@@ -58,7 +58,7 @@ echo "NEW_TEST_BINARY" > SPLogbook/SPLogbook
 cp SPLogbook/.rollback/SPLogbook.orig SPLogbook/SPLogbook
 rm -rf SPLogbook/.rollback
 
-FINAL_DB_SHA=$(sha256sum "${XDG_DATA_HOME}/splogbook/default_log.db" | awk '{print $1}')
+FINAL_DB_SHA=$(sha256sum "${XDG_DATA_HOME}/splogbook/default_log.db" | cut -d' ' -f1)
 if [ "${INITIAL_DB_SHA}" != "${FINAL_DB_SHA}" ]; then
   echo "ERROR: User data modified during fixture!"
   exit 1
