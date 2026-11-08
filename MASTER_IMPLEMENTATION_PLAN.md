@@ -296,10 +296,11 @@ Utworzenie, uzgodnienie i zweryfikowanie trzech kompletnych dokumentĂłw projek
 - **M3-C STATUS:** **COMPLETED_SOFTWARE_VERIFIED** (Produkcyjna integracja Windows Portable ZIP ze zweryfikowanym manifestem, UpdatePlan, natywnym helperem Windows i utwardzonym fallbackiem PowerShell zamknieta w STAGE-M3-C-WINDOWS-PORTABLE-ZIP-INTEGRATION-GATE)
 - **M3-DEV-VERSION-IDENTITY STATUS:** **COMPLETED_SOFTWARE_VERIFIED** (Eliminacja niejednoznaczności wersji, wprowadzenie wersji rozwojowej 1.3.0-alpha.1, centralnego BuildIdentity, wczesnych flag CLI --version/--build-info/--diagnostic-version, weryfikacji tożsamości HealthProof oraz ewaluacji kanałów i SemVer 2.0 zamknieta w STAGE-M3-DEV-VERSION-IDENTITY-GATE)
 - **M3-D PREREQUISITES STATUS:** **COMPLETED_SOFTWARE_VERIFIED** (I18N i terminologia: COMPLETED_SOFTWARE_VERIFIED; Środowisko Inno Setup: INNO_SETUP_7_1_1_APPROVED_FOR_M3_D na mocy decyzji OWNER-M3-D-TOOLCHAIN-01 — raport STAGE_M3_D_PREREQUISITES_REMEDIATION_REPORT.md)
-- **M3-D STATUS:** **READY_FOR_RESUME, NOT STARTED** (Integracja Windows User Setup / Inno Setup — gotowość do rozpoczęcia STAGE-M3-D-WINDOWS-USER-SETUP-INTEGRATION-GATE)
+- **M3-D STATUS:** **COMPLETED_SOFTWARE_VERIFIED** (Integracja Windows User Setup / Inno Setup 7.1.1, obsługa modelu SystemManaged, ochrona danych użytkownika, brak uprawnień administratora, zamknięta w STAGE-M3-D-WINDOWS-USER-SETUP-INTEGRATION-GATE)
+- **M3-E STATUS:** **READY_FOR_IMPLEMENTATION** (Integracja Windows System Setup / MSI)
 - **Dalsze etapy M3 (instalatory Windows i pakiety Linux):**
-  - M3-D: Integracja Windows User Setup / Inno Setup (READY_FOR_RESUME, NOT STARTED)
-  - M3-E: Integracja Windows System Setup / MSI (gdy dotyczy)
+  - M3-D: Integracja Windows User Setup / Inno Setup (COMPLETED_SOFTWARE_VERIFIED)
+  - M3-E: Integracja Windows System Setup / MSI (READY_FOR_IMPLEMENTATION)
   - M3-F: Integracja Linux Portable tar.gz
   - M3-G: Integracja Linux AppImage
   - M3-H: Integracja Linux DEB
@@ -323,6 +324,12 @@ Utworzenie, uzgodnienie i zweryfikowanie trzech kompletnych dokumentĂłw projek
 - **Status wykonawczy:** **COMPLETED_SOFTWARE_VERIFIED**
 - **Zaleznosci:** UPDATE-DESIGN-WIN (APPROVED), UPDATE-DESIGN-PLATFORM (APPROVED), UPDATE-CORE-PLATFORM (COMPLETED_SOFTWARE_VERIFIED), UPDATE-WIN-HELPERS (COMPLETED_SOFTWARE_VERIFIED), decyzje OWNER-M2-01..03 (APPROVED), decyzje OWNER-M2-08, 09 (OPEN, NON-BLOCKING — TEMPORARY CONSERVATIVE RETENTION POLICY), decyzja OWNER-M2-10 (APPROVED)
 - **Zakres:** Produkcyjna integracja adaptera Windows Portable ZIP ze zweryfikowanym manifestem Ed25519, bezpieczną inspekcją i ekstrakcją ZIP (`inspect_windows_zip_archive`), wyznaczaniem `UpdatePlan`, obliczaniem `plan_digest`, walidacją tożsamości PE AMD64 natywnego pomocnika `splogbook-updater.exe`, utwardzonym fallbackiem PowerShell, procedurą startową `consume_update_result_on_startup` z pomiarem zachowanego `.rollback`, bezwzględną ochroną baz SQLite (`serviceLOG.db`), WAL, SHM, konfiguracji i danych użytkownika. Zamknięty w STAGE-M3-C-WINDOWS-PORTABLE-ZIP-INTEGRATION-GATE (2556 testów passed, 0 failed, 91 security guards, 28 Windows helper tests).
+
+#### UPDATE-WIN-USER-SETUP (M3-D) — Integracja Windows User Setup (Inno Setup 7.1.1)
+- **Tor:** UPDATE
+- **Status wykonawczy:** **COMPLETED_SOFTWARE_VERIFIED**
+- **Zaleznosci:** OWNER-M3-D-TOOLCHAIN-01 (APPROVED), UPDATE-DESIGN-WIN (APPROVED), UPDATE-DESIGN-PLATFORM (APPROVED), UPDATE-CORE-PLATFORM (COMPLETED_SOFTWARE_VERIFIED)
+- **Zakres:** Integracja instalatora Windows User Setup per-user opartego o Inno Setup 7.1.1 (`C:\Program Files\Inno Setup 7\ISCC.exe`), AppId `{C8E28541-7B21-4A9B-8F5C-4EF298F613C1}`, instalacja do `{localappdata}\Programs\SPLogbook`, `PrivilegesRequired=lowest` (CurrentUser, no admin, no UAC), `SetupArchitecture=x64`, `ArchitecturesAllowed=x64compatible`, `ArchitecturesInstallIn64BitMode=x64compatible`. Wdrożono bezpieczny model SystemManaged, delegację aktualizacji z flagą `/NORESTART` bez powłoki shell, markery instalacyjne `.splogbook-inno-marker`, bezwzględną ochronę baz danych SQLite, plików WAL, SHM, konfiguracji i nieznanych plików użytkownika (polityki `uninsneveruninstall`, `onlyifdoesntexist`, `dirifempty`, zakaz wildcardów i DelTree({app})). Zamknięty w STAGE-M3-D-WINDOWS-USER-SETUP-INTEGRATION-GATE (108 security guards passed, 14 inno update tests passed, 7 user data safety tests passed).
 
 #### UPDATE-LINUX-PACKAGES (Dalsze etapy M3: M3-F..M3-J) — Pakiety Linux (AppImage, DEB, RPM, Flatpak, tar.gz)
 - **Tor:** UPDATE
