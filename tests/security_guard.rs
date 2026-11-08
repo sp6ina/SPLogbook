@@ -1743,8 +1743,9 @@ fn ci_workflow_pins_actions_to_40_char_sha() {
 #[test]
 fn ci_workflow_uses_minimal_permissions() {
     let content = fs::read_to_string(".github/workflows/ci.yml").expect("read ci.yml");
+    let normalized = content.replace("\r\n", "\n");
     assert!(
-        content.contains("permissions:\n  contents: read"),
+        normalized.contains("permissions:\n  contents: read"),
         "CI workflow must declare top-level minimal permissions: contents: read"
     );
     assert!(
