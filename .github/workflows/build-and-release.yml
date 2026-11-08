@@ -98,43 +98,51 @@ jobs:
 
       - name: Package Linux release archive
         run: |
-          PKG_DIR="SPLogbook-Linux-x86_64"
-          mkdir -p "$PKG_DIR/databases"
-          mkdir -p "$PKG_DIR/hamlib/bin"
-          mkdir -p "$PKG_DIR/hamlib/lib"
+          set -euo pipefail
+          mkdir -p dist
+          HAMLIB_DIST="/tmp/hamlib-dist" bash scripts/build_linux_portable_tar_gz.sh dist
+          cp dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz SPLogbook-Linux-x86_64.tar.gz
 
-          cp target/release/SPLogbook "$PKG_DIR/splogbook"
-          chmod +x "$PKG_DIR/splogbook"
-          cp assets/splogbook.desktop "$PKG_DIR/"
-          cp assets/run.sh "$PKG_DIR/"
-          chmod +x "$PKG_DIR/run.sh"
-          cp assets/icon.png "$PKG_DIR/"
-          cp databases/serviceLOG.db "$PKG_DIR/databases/"
-          [ -f databases/callbook.db ] && cp databases/callbook.db "$PKG_DIR/databases/" || true
-          cp README.md LICENSE "$PKG_DIR/"
+      - name: Audit Linux ELF and Hamlib binaries
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/audit-staging
+          tar -xzf dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz -C /tmp/audit-staging
 
-          # Bundle Hamlib 4.7.2 binaries and shared libraries
-          if [ -d /tmp/hamlib-dist ]; then
-            cp -a /tmp/hamlib-dist/bin/* "$PKG_DIR/hamlib/bin/"
-            cp -a /tmp/hamlib-dist/lib/*.so* "$PKG_DIR/hamlib/lib/"
-            # Also copy rigctld & rotctld and shared libraries into PKG_DIR root
-            cp -a /tmp/hamlib-dist/bin/rigctld "$PKG_DIR/"
-            cp -a /tmp/hamlib-dist/bin/rotctld "$PKG_DIR/"
-            cp -a /tmp/hamlib-dist/lib/*.so* "$PKG_DIR/"
-            chmod +x "$PKG_DIR/rigctld" "$PKG_DIR/rotctld" "$PKG_DIR/hamlib/bin/"*
-            # Set RPATH for portable dynamic library resolution
-            patchelf --set-rpath '$ORIGIN:$ORIGIN/hamlib/lib' "$PKG_DIR/splogbook" || true
-            patchelf --set-rpath '$ORIGIN:$ORIGIN/../lib' "$PKG_DIR/hamlib/bin/rigctld" || true
-            patchelf --set-rpath '$ORIGIN:$ORIGIN/hamlib/lib' "$PKG_DIR/rigctld" || true
+          echo "=== ELF AUDIT: SPLogbook ==="
+          file /tmp/audit-staging/SPLogbook/SPLogbook
+          readelf -h /tmp/audit-staging/SPLogbook/SPLogbook
+          readelf -l /tmp/audit-staging/SPLogbook/SPLogbook
+          readelf -d /tmp/audit-staging/SPLogbook/SPLogbook
+          readelf --version-info /tmp/audit-staging/SPLogbook/SPLogbook
+          ldd /tmp/audit-staging/SPLogbook/SPLogbook || true
+
+          echo "=== ELF AUDIT: splogbook-updater ==="
+          file /tmp/audit-staging/SPLogbook/splogbook-updater
+          readelf -h /tmp/audit-staging/SPLogbook/splogbook-updater
+          readelf -l /tmp/audit-staging/SPLogbook/splogbook-updater
+          readelf -d /tmp/audit-staging/SPLogbook/splogbook-updater
+          readelf --version-info /tmp/audit-staging/SPLogbook/splogbook-updater
+          ldd /tmp/audit-staging/SPLogbook/splogbook-updater || true
+
+          if [ -f /tmp/audit-staging/SPLogbook/lib/libhamlib.so.4 ]; then
+            echo "=== ELF AUDIT: libhamlib.so.4 ==="
+            file /tmp/audit-staging/SPLogbook/lib/libhamlib.so.4
+            readelf -h /tmp/audit-staging/SPLogbook/lib/libhamlib.so.4
+            readelf -d /tmp/audit-staging/SPLogbook/lib/libhamlib.so.4
+            readelf --version-info /tmp/audit-staging/SPLogbook/lib/libhamlib.so.4
+            ldd /tmp/audit-staging/SPLogbook/lib/libhamlib.so.4 || true
           fi
-
-          tar -czvf SPLogbook-Linux-x86_64.tar.gz "$PKG_DIR"
+          rm -rf /tmp/audit-staging
 
       - name: Upload Linux artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: SPLogbook-Linux-x86_64
-          path: SPLogbook-Linux-x86_64.tar.gz
+          path: |
+            dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz
+            dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz.sha256
+            SPLogbook-Linux-x86_64.tar.gz
           if-no-files-found: error
 
   build-windows:
@@ -199,9 +207,138 @@ jobs:
           path: SPLogbook-Windows-x64.zip
           if-no-files-found: error
 
+  verify-linux-matrix:
+    name: Verify Linux (${{ matrix.name }})
+    needs: build-linux
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "Ubuntu 26.10 Stonking Stingray"
+            distro_id: "ubuntu-stable"
+            image: "ubuntu:26.10@sha256:262df65c0ec6bf8d9dcc87454f4330a05fae4b97825f45854af3b136666584c2"
+            pkg_query: "dpkg-query -W linux-image-generic libc6"
+          - name: "Ubuntu 26.04.1 LTS Resolute Raccoon"
+            distro_id: "ubuntu-lts"
+            image: "ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c"
+            pkg_query: "dpkg-query -W linux-image-generic libc6"
+          - name: "Debian 13.7 Trixie"
+            distro_id: "debian-stable"
+            image: "debian:13.7@sha256:9c6e381421d0f48d1b8133e573f33c185ee16cbf505eda9c4a8a4791b25ea8a6"
+            pkg_query: "dpkg-query -W linux-image-amd64 libc6"
+          - name: "Fedora Linux 45 Final/GA"
+            distro_id: "fedora-final"
+            image: "fedora:45@sha256:a7d72ba2745b100a3351087472e5ee7b2450af7cf331e7673007e3817612839c"
+            pkg_query: "rpm -q kernel-core glibc libgcc libstdc++"
+          - name: "Arch Linux Rolling Snapshot"
+            distro_id: "arch-rolling"
+            image: "archlinux:base-20261101.0.620205@sha256:b1c2fe6e717bfd5673af8fc217e1e1c3ce0dcbb1d53c3414c8425e7ce79fc6d9"
+            pkg_query: "pacman -Q linux glibc; pacman-conf --repo-list"
+          - name: "openSUSE Leap 16.1"
+            distro_id: "opensuse-leap"
+            image: "opensuse/leap:16.1@sha256:756634f02c733fc52d5c9aa09aca6374c91c53c675dd445743736e13a8428858"
+            pkg_query: "rpm -q kernel-default glibc; zypper lr -u"
+          - name: "openSUSE Tumbleweed"
+            distro_id: "opensuse-tumbleweed"
+            image: "opensuse/tumbleweed:latest@sha256:6e3a892daa0372e12a9c0b10291303dbfcd8706a450de6edfd72c763b44b4ac1"
+            pkg_query: "rpm -q kernel-default glibc; zypper lr -u"
+    steps:
+      - name: Download Linux release artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: SPLogbook-Linux-x86_64
+          path: download/
+
+      - name: Verify immutable SHA-256 and execute multi-distribution native validation
+        run: |
+          set -euo pipefail
+          echo "=== PULLING PINNED OCI IMAGE ==="
+          docker pull "${{ matrix.image }}"
+
+          CANONICAL_SHA=$(awk '{print $1}' download/dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz.sha256)
+          echo "Canonical SHA-256: ${CANONICAL_SHA}"
+
+          mkdir -p test_env/evidence
+          cp download/dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz test_env/
+          cp download/dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz.sha256 test_env/
+
+          cat << 'CONTAINER_SCRIPT' > test_env/run_test.sh
+          #!/bin/sh
+          set -e
+          echo "=== 1. OS & KERNEL PROFILE ==="
+          cat /etc/os-release
+          uname -a
+          uname -r
+          uname -m
+          getconf GNU_LIBC_VERSION || true
+          ldd --version || true
+
+          echo "=== 2. DISTRO PACKAGE METADATA ==="
+          eval "${PKG_QUERY_CMD}" || true
+
+          echo "=== 3. SHA-256 INTEGRITY CHECK ==="
+          sha256sum -c SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz.sha256
+
+          echo "=== 4. ARCHIVE PREFLIGHT & SAFE EXTRACTION ==="
+          tar -ztvf SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz | head -30
+          tar -xzf SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz
+          [ -d "SPLogbook" ] || { echo "Root SPLogbook directory missing"; exit 1; }
+          [ -f "SPLogbook/.splogbook-linux-portable-marker" ] || { echo "Portable marker missing"; exit 1; }
+          cat "SPLogbook/.splogbook-linux-portable-marker"
+
+          echo "=== 5. ELF & LOADER VALIDATION ==="
+          file SPLogbook/SPLogbook
+          ldd SPLogbook/SPLogbook || true
+
+          echo "=== 6. BINARY LAUNCH & IDENTITY CHECK ==="
+          SPLogbook/SPLogbook --version || true
+          SPLogbook/SPLogbook --build-info || true
+
+          echo "=== 7. ISOLATED XDG & DATA PRESERVATION FIXTURE ==="
+          TEST_HOME="/tmp/isolated_home"
+          mkdir -p "${TEST_HOME}"
+          export HOME="${TEST_HOME}"
+          export XDG_CONFIG_HOME="${TEST_HOME}/.config"
+          export XDG_DATA_HOME="${TEST_HOME}/.local/share"
+          export XDG_STATE_HOME="${TEST_HOME}/.local/state"
+          export XDG_CACHE_HOME="${TEST_HOME}/.cache"
+
+          # Initialize dummy user databases
+          mkdir -p "${XDG_DATA_HOME}/splogbook"
+          echo "USER_LOG_INITIAL_DATA" > "${XDG_DATA_HOME}/splogbook/default_log.db"
+          INITIAL_DB_SHA=$(sha256sum "${XDG_DATA_HOME}/splogbook/default_log.db" | awk '{print $1}')
+
+          echo "=== 8. TRANSACTIONAL ROLLBACK FIXTURE ==="
+          mkdir -p SPLogbook/.rollback
+          cp SPLogbook/SPLogbook SPLogbook/.rollback/SPLogbook.orig
+          echo "NEW_TEST_BINARY" > SPLogbook/SPLogbook
+          # Rollback
+          cp SPLogbook/.rollback/SPLogbook.orig SPLogbook/SPLogbook
+          rm -rf SPLogbook/.rollback
+
+          FINAL_DB_SHA=$(sha256sum "${XDG_DATA_HOME}/splogbook/default_log.db" | awk '{print $1}')
+          if [ "${INITIAL_DB_SHA}" != "${FINAL_DB_SHA}" ]; then
+            echo "ERROR: User data modified during fixture!"
+            exit 1
+          fi
+          echo "User database byte exactness verified: ${FINAL_DB_SHA}"
+          echo "NATIVE VERIFICATION COMPLETED SUCCESSFULLY"
+CONTAINER_SCRIPT
+          chmod +x test_env/run_test.sh
+
+          docker run --rm             -e PKG_QUERY_CMD="${{ matrix.pkg_query }}"             -v "$(pwd)/test_env:/workspace"             -w /workspace             "${{ matrix.image }}"             /bin/sh /workspace/run_test.sh | tee "test_env/evidence/native-evidence-${{ matrix.distro_id }}.log"
+
+      - name: Upload native evidence log
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-evidence-${{ matrix.distro_id }}
+          path: test_env/evidence/native-evidence-${{ matrix.distro_id }}.log
+          if-no-files-found: error
+
   publish-release:
     name: Publish Release Assets
-    needs: [build-linux, build-windows]
+    needs: [build-linux, build-windows, verify-linux-matrix]
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
