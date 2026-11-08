@@ -237,7 +237,7 @@ impl SpLogApp {
                                 ui.monospace(build_id.package_version);
                             });
                             ui.horizontal(|ui| {
-                                ui.label("Commit:");
+                                ui.label(tr(key::APP_DIAG_COMMIT, lang));
                                 ui.monospace(format!(
                                     "{} ({})",
                                     build_id.git_commit_short,
@@ -245,7 +245,7 @@ impl SpLogApp {
                                 ));
                             });
                             ui.horizontal(|ui| {
-                                ui.label("Kanał / Profil:");
+                                ui.label(tr(key::APP_DIAG_CHANNEL_PROFILE, lang));
                                 ui.monospace(format!(
                                     "{} / {}",
                                     build_id.channel.as_str(),
