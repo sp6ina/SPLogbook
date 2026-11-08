@@ -128,8 +128,151 @@ impl std::fmt::Display for ManagementMode {
 /// Stały identyfikator GUID aplikacji dla Windows User Setup (Inno Setup)
 pub const WINDOWS_INNO_SETUP_APP_ID: &str = "{C8E28541-7B21-4A9B-8F5C-4EF298F613C1}";
 
+/// Stały identyfikator UpgradeCode rodziny instalatora Windows System Setup (MSI)
+pub const WINDOWS_MSI_UPGRADE_CODE: &str = "{B7D14532-6A10-4F8A-9A4B-3DE189E502B0}";
+
+/// Spakowany GUID (Packed GUID) w formacie Darwin/Windows Installer dla WINDOWS_MSI_UPGRADE_CODE
+pub const WINDOWS_MSI_UPGRADE_CODE_PACKED: &str = "0B205E981ED3B4A9A9B4A9E189E502B0";
+
 /// Nazwa kanonicznego pliku markera instalacji Inno Setup
 pub const WINDOWS_INNO_MARKER_FILENAME: &str = ".splogbook-inno-marker";
+
+/// Nazwa kanonicznego pliku markera instalacji MSI
+pub const WINDOWS_MSI_MARKER_FILENAME: &str = ".splogbook-msi-marker";
+
+/// Zawartość strukturalna markera instalacji Windows System Setup (MSI)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WindowsMsiMarker {
+    pub marker_version: String,
+    pub installation_type: String,
+    pub management_mode: String,
+    pub package_version: String,
+    pub upgrade_code: String,
+    pub product_code: String,
+    pub installation_scope: String,
+    pub installation_root: String,
+    pub build_commit: String,
+    pub installer_engine: String,
+}
+
+impl WindowsMsiMarker {
+    pub fn new(package_version: &str, installation_root: &Path, build_commit: &str) -> Self {
+        Self {
+            marker_version: "1.0".to_string(),
+            installation_type: "WindowsMsi".to_string(),
+            management_mode: "SystemManaged".to_string(),
+            package_version: package_version.to_string(),
+            upgrade_code: WINDOWS_MSI_UPGRADE_CODE.to_string(),
+            product_code: "*".to_string(),
+            installation_scope: "PerMachine".to_string(),
+            installation_root: installation_root.to_string_lossy().to_string(),
+            build_commit: build_commit.to_string(),
+            installer_engine: "WindowsInstallerWiX".to_string(),
+        }
+    }
+
+    /// Waliduje poprawność i spójność markera MSI.
+    pub fn validate(&self) -> Result<(), UpdaterError> {
+        if self.marker_version.trim().is_empty() {
+            return Err(UpdaterError::InstallationDetection(
+                "Marker MSI: pusty marker_version".into(),
+            ));
+        }
+        if self.installation_type != "WindowsMsi" {
+            return Err(UpdaterError::InstallationDetection(format!(
+                "Marker MSI: niezgodny installation_type '{}' (oczekiwano 'WindowsMsi')",
+                self.installation_type
+            )));
+        }
+        if self.management_mode != "SystemManaged" {
+            return Err(UpdaterError::InstallationDetection(format!(
+                "Marker MSI: niezgodny management_mode '{}' (oczekiwano 'SystemManaged')",
+                self.management_mode
+            )));
+        }
+        if self.upgrade_code != WINDOWS_MSI_UPGRADE_CODE {
+            return Err(UpdaterError::InstallationDetection(format!(
+                "Marker MSI: niezgodny upgrade_code '{}' (oczekiwano '{}')",
+                self.upgrade_code, WINDOWS_MSI_UPGRADE_CODE
+            )));
+        }
+        if self.installation_scope != "PerMachine" && self.installation_scope != "AllUsers" {
+            return Err(UpdaterError::InstallationDetection(format!(
+                "Marker MSI: niezgodny installation_scope '{}' (oczekiwano 'PerMachine' lub 'AllUsers')",
+                self.installation_scope
+            )));
+        }
+        if self.installer_engine != "WindowsInstallerWiX" {
+            return Err(UpdaterError::InstallationDetection(format!(
+                "Marker MSI: niezgodny installer_engine '{}' (oczekiwano 'WindowsInstallerWiX')",
+                self.installer_engine
+            )));
+        }
+        if self.package_version.trim().is_empty() {
+            return Err(UpdaterError::InstallationDetection(
+                "Marker MSI: pusty package_version".into(),
+            ));
+        }
+        if self.build_commit.trim().is_empty() {
+            return Err(UpdaterError::InstallationDetection(
+                "Marker MSI: pusty build_commit".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Odczytuje i waliduje marker z podanego katalogu instalacji.
+    pub fn read_from_dir(base_dir: &Path) -> Result<Self, UpdaterError> {
+        let marker_path = base_dir.join(WINDOWS_MSI_MARKER_FILENAME);
+        if !marker_path.exists() {
+            return Err(UpdaterError::InstallationDetection(format!(
+                "Brak pliku markera MSI w {}",
+                marker_path.display()
+            )));
+        }
+        let data = std::fs::read_to_string(&marker_path)
+            .map_err(|e| UpdaterError::Io(format!("Błąd odczytu markera MSI: {e}")))?;
+        let marker: Self = serde_json::from_str(&data).map_err(|e| {
+            UpdaterError::InstallationDetection(format!("Błąd parsowania markera MSI JSON: {e}"))
+        })?;
+        marker.validate()?;
+        Ok(marker)
+    }
+}
+
+/// Konwertuje wersję SemVer (np. "1.3.0-alpha.1") na zgodną ze specyfikacją Windows Installer wersję ProductVersion ("1.3.0").
+pub fn semver_to_msi_product_version(semver_str: &str) -> Result<String, UpdaterError> {
+    let clean = semver_str.trim();
+    if clean.is_empty() {
+        return Err(UpdaterError::SafetyGate(
+            "Pusty ciąg wersji SemVer do mapowania MSI".to_string(),
+        ));
+    }
+    let version_part = clean.split(['-', '+']).next().unwrap_or(clean);
+    let parts: Vec<&str> = version_part.split('.').collect();
+    if parts.len() < 2 || parts.len() > 4 {
+        return Err(UpdaterError::SafetyGate(format!(
+            "Niepoprawny format wersji dla MSI ProductVersion: {clean}"
+        )));
+    }
+    for p in &parts {
+        if p.parse::<u16>().is_err() {
+            return Err(UpdaterError::SafetyGate(format!(
+                "Niepoprawny człon liczbowy wersji MSI: '{p}' w {clean}"
+            )));
+        }
+    }
+    if parts.len() == 2 {
+        Ok(format!("{}.{}.0", parts[0], parts[1]))
+    } else if parts.len() == 3 {
+        Ok(format!("{}.{}.{}", parts[0], parts[1], parts[2]))
+    } else {
+        Ok(format!(
+            "{}.{}.{}.{}",
+            parts[0], parts[1], parts[2], parts[3]
+        ))
+    }
+}
 
 /// Zawartość strukturalna markera instalacji Windows User Setup
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -273,7 +416,12 @@ pub fn detect_installation_with_context(
     if ctx.has_rpm_manifest || base_dir.join(".splogbook-rpm-marker").exists() {
         detected_types.push(InstallationType::LinuxRpm);
     }
-    if ctx.has_msi_registry_entry || base_dir.join(".splogbook-msi-marker").exists() {
+    let msi_marker_file = base_dir.join(WINDOWS_MSI_MARKER_FILENAME);
+    if msi_marker_file.exists() {
+        // Weryfikacja strukturalna markera MSI - uszkodzony marker = błąd fail-closed
+        WindowsMsiMarker::read_from_dir(base_dir)?;
+        detected_types.push(InstallationType::WindowsMsi);
+    } else if ctx.has_msi_registry_entry {
         detected_types.push(InstallationType::WindowsMsi);
     }
     let inno_marker_file = base_dir.join(WINDOWS_INNO_MARKER_FILENAME);
@@ -528,7 +676,103 @@ mod tests {
         );
         let json = serde_json::to_string(&marker).unwrap();
         std::fs::write(temp.path().join(WINDOWS_INNO_MARKER_FILENAME), json).unwrap();
-        std::fs::write(temp.path().join(".splogbook-msi-marker"), b"MSI").unwrap();
+
+        let msi_marker = WindowsMsiMarker::new(
+            "1.3.0-alpha.1",
+            temp.path(),
+            "db4417e3b8acff9bb87aaf04fa5d703e5fec74bc",
+        );
+        let msi_json = serde_json::to_string(&msi_marker).unwrap();
+        std::fs::write(temp.path().join(WINDOWS_MSI_MARKER_FILENAME), msi_json).unwrap();
+
+        let ctx = InstallationDetectionContext::default();
+        let res = detect_installation_with_context(temp.path(), &ctx);
+        assert!(matches!(
+            res,
+            Err(UpdaterError::ConflictingInstallationMarkers(_))
+        ));
+    }
+
+    #[test]
+    fn msi_upgrade_code_is_stable_and_distinct_from_inno() {
+        assert_eq!(
+            WINDOWS_MSI_UPGRADE_CODE,
+            "{B7D14532-6A10-4F8A-9A4B-3DE189E502B0}"
+        );
+        assert_ne!(WINDOWS_MSI_UPGRADE_CODE, WINDOWS_INNO_SETUP_APP_ID);
+        assert_eq!(
+            WINDOWS_MSI_UPGRADE_CODE_PACKED,
+            "0B205E981ED3B4A9A9B4A9E189E502B0"
+        );
+    }
+
+    #[test]
+    fn msi_marker_serialization_and_validation() {
+        let temp = tempfile::tempdir().unwrap();
+        let marker = WindowsMsiMarker::new(
+            "1.3.0-alpha.1",
+            temp.path(),
+            "954fca396b2986abe783f5cc8b0d1aca1bf19be1",
+        );
+        assert_eq!(marker.installation_type, "WindowsMsi");
+        assert_eq!(marker.management_mode, "SystemManaged");
+        assert_eq!(marker.upgrade_code, WINDOWS_MSI_UPGRADE_CODE);
+        assert_eq!(marker.product_code, "*");
+        assert_eq!(marker.installation_scope, "PerMachine");
+        assert_eq!(marker.installer_engine, "WindowsInstallerWiX");
+
+        let json = serde_json::to_string_pretty(&marker).unwrap();
+        std::fs::write(temp.path().join(WINDOWS_MSI_MARKER_FILENAME), json).unwrap();
+
+        let loaded = WindowsMsiMarker::read_from_dir(temp.path()).unwrap();
+        assert_eq!(loaded, marker);
+    }
+
+    #[test]
+    fn msi_product_version_mapping() {
+        assert_eq!(
+            semver_to_msi_product_version("1.3.0-alpha.1").unwrap(),
+            "1.3.0"
+        );
+        assert_eq!(semver_to_msi_product_version("1.2.0").unwrap(), "1.2.0");
+        assert_eq!(
+            semver_to_msi_product_version("2.0.0-rc.3+build.42").unwrap(),
+            "2.0.0"
+        );
+        assert_eq!(semver_to_msi_product_version("10.5").unwrap(), "10.5.0");
+        assert!(semver_to_msi_product_version("").is_err());
+        assert!(semver_to_msi_product_version("invalid").is_err());
+    }
+
+    #[test]
+    fn windows_msi_detected_with_valid_marker() {
+        let temp = tempfile::tempdir().unwrap();
+        let marker = WindowsMsiMarker::new(
+            "1.3.0-alpha.1",
+            temp.path(),
+            "954fca396b2986abe783f5cc8b0d1aca1bf19be1",
+        );
+        let json = serde_json::to_string(&marker).unwrap();
+        std::fs::write(temp.path().join(WINDOWS_MSI_MARKER_FILENAME), json).unwrap();
+
+        let ctx = InstallationDetectionContext::default();
+        let detected = detect_installation_with_context(temp.path(), &ctx).unwrap();
+        assert_eq!(detected, InstallationType::WindowsMsi);
+        assert!(detected.is_system_managed());
+        assert!(!detected.is_self_managed());
+    }
+
+    #[test]
+    fn windows_msi_conflict_with_portable_fails_closed() {
+        let temp = tempfile::tempdir().unwrap();
+        let marker = WindowsMsiMarker::new(
+            "1.3.0-alpha.1",
+            temp.path(),
+            "954fca396b2986abe783f5cc8b0d1aca1bf19be1",
+        );
+        let json = serde_json::to_string(&marker).unwrap();
+        std::fs::write(temp.path().join(WINDOWS_MSI_MARKER_FILENAME), json).unwrap();
+        std::fs::write(temp.path().join(".splogbook-portable"), b"PORTABLE").unwrap();
 
         let ctx = InstallationDetectionContext::default();
         let res = detect_installation_with_context(temp.path(), &ctx);
