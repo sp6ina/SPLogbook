@@ -552,24 +552,24 @@ Pre-compiled release packages are available directly from the [Releases](https:/
 2. Extract the archive to any desired directory (e.g. `C:\Radio\SPLogbook\`).
 3. Double-click **`SPLogbook.exe`** to launch.
 
-### 🐧 GNU/Linux (x86_64)
-1. Download **`SPLogbook-Linux-x86_64.tar.gz`** from the latest release.
+### 🐧 GNU/Linux (x86_64 Portable tar.gz)
+1. Download **`SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz`** from the latest release.
 2. Extract the archive and enter the directory:
    ```bash
-   tar -xvf SPLogbook-Linux-x86_64.tar.gz
-   cd SPLogbook-Linux-x86_64
+   tar -xzf SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz
+   cd SPLogbook
    ```
 3. Grant access to your serial ports (for CAT & Winkeyer interfaces):
    ```bash
    sudo usermod -aG dialout $USER   # Ubuntu / Debian / Mint
    # or
-   sudo usermod -aG uucp $USER      # Arch Linux / Manjaro
+   sudo usermod -aG uucp $USER      # Arch Linux / openSUSE
    ```
-4. Run the portable launcher:
+4. Run the standalone binary:
    ```bash
-   ./run.sh
+   ./SPLogbook
    ```
-   *(Optional)* Copy `assets/splogbook.desktop` to `~/.local/share/applications/` to integrate with your desktop application launcher.
+   *(Optional)* Copy `share/applications/splogbook.desktop` to `~/.local/share/applications/` to integrate with your FreeDesktop application launcher without root privileges. User data is strictly preserved in standard XDG Base Directories (`$XDG_DATA_HOME/splogbook` and `$XDG_CONFIG_HOME/splogbook`).
 
 ---
 
