@@ -30,7 +30,7 @@
 > - **CURRENT DEVELOPMENT:** `1.3.0-alpha.1` (active development branch, unreleased)
 > - **PUBLIC RELEASE STATUS:** `NOT PUBLISHED`
 > - **STAGE M3-D STATUS:** `STAGE-M3-D-WINDOWS-USER-SETUP-INTEGRATION-GATE: COMPLETED_SOFTWARE_VERIFIED`
-> - **STAGE M3-E STATUS:** `STAGE-M3-E-WINDOWS-MSI-INTEGRATION-GATE: READY_FOR_IMPLEMENTATION`
+> - **STAGE M3-E STATUS:** `STAGE-M3-E-WINDOWS-MSI-WIX-INTEGRATION-GATE: COMPLETED_SOFTWARE_VERIFIED`
 
 **SPLogbook** is an advanced, high-performance amateur radio logging software and station automation console engineered from the ground up in **Rust**. Built with an immediate-mode user interface powered by `egui`/`eframe`, SPLogbook delivers instant sub-millisecond responsiveness, zero-garbage-collection pauses, complete memory safety, and cross-platform native performance across both **Windows 10/11 (64-bit)** and **GNU/Linux (x86_64, X11 & Wayland)** environments.
 
