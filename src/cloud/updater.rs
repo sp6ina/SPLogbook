@@ -2451,7 +2451,7 @@ pub fn extract_linux_portable_tar_gz_two_phase(
                     || file_name == "splogbook-updater"
                     || dest_path
                         .extension()
-                        .map_or(false, |ext| ext.eq_ignore_ascii_case("sh"));
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("sh"));
                 let raw_mode = entry.header().mode().unwrap_or(0o644);
                 let safe_mode = if is_executable_binary || (raw_mode & 0o111) != 0 {
                     0o755
@@ -4510,21 +4510,21 @@ fn install_via_linux_portable_tar_gz(
     let mut verified_health = false;
 
     let check_health = || -> bool {
-        if let Ok(content) = fs::read_to_string(&health_ok) {
-            if let Ok(proof) =
-                serde_json::from_str::<crate::cloud::updater::health::HealthProof>(&content)
-            {
-                return proof
+        fs::read_to_string(&health_ok)
+            .ok()
+            .and_then(|content| {
+                serde_json::from_str::<crate::cloud::updater::health::HealthProof>(&content).ok()
+            })
+            .is_some_and(|proof| {
+                proof
                     .validate(
                         &attempt_id,
                         &tx.release_version,
                         tx.commit_identity.as_deref().unwrap_or(""),
                         crate::cloud::updater::health::DEFAULT_HEALTH_PROOF_MAX_AGE_SECS,
                     )
-                    .is_ok();
-            }
-        }
-        false
+                    .is_ok()
+            })
     };
 
     while std::time::Instant::now() < deadline {
