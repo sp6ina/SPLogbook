@@ -17,27 +17,34 @@ zamknięciu każdej bramki i **zastępuje wszystkie historyczne liczniki** w inn
 | Edition / MSRV | `2024` / `rust 1.99.0` |
 | Toolchain w środowisku | `cargo 1.99.0`, `rustc 1.99.0` |
 | Release publiczny | **NIE OPUBLIKOWANO** (brak tagu `v1.3.0*`, brak GitHub Release) |
+| `rusqlite` / `libsqlite3-sys` | **0.41.1** / **0.39.1** (bundled SQLite **3.54.1**, feature `bundled` + `backup`) |
+| `cargo audit` | **0 podatności** (świeża baza, bez `--ignore`), 7 dozwolonych warningów |
 | Gałąź robocza | `repair/full-system-remediation` → fast-forward do `main` |
 
 ## 2. Git po zamknięciu bramki QA
 
 | Pole | Wartość |
 |---|---|
-| HEAD (`repair/full-system-remediation`) | commit dokumentacyjny bramki QA (4. commit gałęzi; `git log -1`) |
-| main | `f73a703c40f4462b48bed241aafc47fe15486bd0` (**bez zmian — brak ff**) |
-| origin/main | `f73a703c40f4462b48bed241aafc47fe15486bd0` (**bez push**) |
-| ahead / behind (`origin/main...main`) | `0 / 0` (main nietknięty) |
-| ahead / behind (`origin/main...repair/...`) | `4 / 0` (commity lokalne, niepushowane) |
+| HEAD | commit dokumentacyjny domknięcia bramki zależności (ostatni commit `main`; `git log -1`) |
+| main | = HEAD (fast-forward z `repair/full-system-remediation`) |
+| origin/main | = HEAD (push ff-only po zielonym `cargo audit`) |
+| ahead / behind | `0 / 0` |
 | Working tree | `CLEAN` |
 | Aktywna operacja Git | brak |
-| Push / ff na main | **WSTRZYMANE** — bloker RUSTSEC-2026-0459 |
 
 Commity bramki QA:
 
 1. `418720b` — `test(qa): make native installer E2E explicit and hermetic`
 2. `72263fc` — `test(qa): remove wall-clock assumptions from concurrency tests`
 3. `f35330e` — `ci(qa): enforce deterministic hermetic baseline`
-4. commit dokumentacyjny — `docs(agent): add DeepSeek Harness project handoff` (HEAD bramki)
+4. `8e00b5d` — `docs(agent): add DeepSeek Harness project handoff`
+5. `551e74f` — `docs(qa): register dependency advisory decision proposal`
+
+Commity bramki zależności:
+
+6. raport wstępny `STAGE_DEPENDENCY_SECURITY_UPDATE_PRE_IMPLEMENTATION_REPORT.md`
+7. `fix(deps): update rusqlite to 0.41.1 with patched bundled SQLite`
+8. raport końcowy + aktualizacja stanu i następnej bramki
 
 ## 3. Baseline (ostatni pełny pomiar: 2026-11-09)
 
@@ -55,7 +62,7 @@ cargo +stable test --workspace --all-targets -j 2
 | HIL wykonane | **0** |
 | PTT / RF | **0 / 0** |
 | Doc-testy | 0 (brak zarejestrowanych) |
-| `cargo audit` (świeża baza) | **FAILED — 1 podatność: RUSTSEC-2026-0459 (`libsqlite3-sys 0.38.2`), ujawniona 2026-11-09T09:49Z** |
+| `cargo audit` (świeża baza) | **PASSED — 0 podatności**, 7 dozwolonych warningów; bez `--ignore` |
 | `security_guard` | **120 / 120** |
 | `inno_user_data_safety_test` | **8 / 8** (E2E jawnie niewykonany bez opt-in) |
 | `msi_user_data_safety_test` | **6 / 6** |
@@ -77,7 +84,8 @@ Względem bazy `f73a703` (2 698 / 2 688 / 10) licznik wzrósł o **2** nowe test
 | M3-D Windows User Setup | `COMPLETED_SOFTWARE_VERIFIED` (bez otwarcia; brak dowodu regresji) |
 | M3-E Windows MSI | `COMPLETED_SOFTWARE_VERIFIED` |
 | M3-F Linux portable tar.gz | `COMPLETED_NATIVE_LINUX_EVIDENCE_VERIFIED` **wobec polityki obowiązującej przy zamknięciu**; wobec intencji OWNER z 2026-11-09 — `REOPENED_BY_POLICY` (do bramki polityki) |
-| **QA baseline determinism + hermeticity** | **`BLOCKED_BY_NEW_DEPENDENCY_ADVISORY`** — testy zielone (2 690/2 690), blokuje `RUSTSEC-2026-0459` (2026-11-09) |
+| **QA baseline determinism + hermeticity** | **`COMPLETED_DETERMINISTIC_HERMETIC_BASELINE_VERIFIED`** (2026-11-09; chwilowy bloker zależności usunięty) |
+| **Dependency security update** | **`COMPLETED_DEPENDENCY_SECURITY_UPDATE_VERIFIED`** — `rusqlite 0.41.1` / `libsqlite3-sys 0.39.1` (SQLite 3.54.1), 0 podatności |
 | M3-F Linux support policy alignment | `NOT_STARTED` — **następna bramka** |
 | M3-G AppImage | **`BLOCKED`** |
 | M3-H/J (DEB/RPM/Flatpak) | `NOT_STARTED` |
@@ -85,11 +93,8 @@ Względem bazy `f73a703` (2 698 / 2 688 / 10) licznik wzrósł o **2** nowe test
 
 ## 5. Otwarte decyzje OWNER
 
-- **BLOKER: `RUSTSEC-2026-0459`** — nowa advisory (dodana do RustSec 2026-11-09T09:49Z) w niezmienionej
-  zależności `libsqlite3-sys 0.38.2` (`rusqlite 0.40.2`, `bundled`). Wymaga decyzji:
-  (A) bramka aktualizacji `rusqlite 0.41` / `libsqlite3-sys 0.39` — rekomendowane,
-  (B) formalna akceptacja ryzyka + jawny `--ignore` w dedykowanej bramce bezpieczeństwa,
-  (C) rezygnacja z `bundled` na system SQLite. **Nie wolno ignorować w tej bramce.**
+- ~~`RUSTSEC-2026-0459`~~ — **ROZWIĄZANE** 2026-11-09 przez `STAGE-DEPENDENCY-SECURITY-UPDATE-GATE`
+  (`rusqlite 0.41.1`, `libsqlite3-sys 0.39.1`, SQLite 3.54.1; `bundled` zachowany; bez `--ignore`).
 - `OWNER-M2-08`, `OWNER-M2-09`, `OWNER-M2-11`, `OWNER-M2-12`, `OWNER-M2-14` — otwarte, nieblokujące.
 - `OWNER-M2-10` — spór dokumentacyjny (plan: APPROVED, DESIGN: OPEN), kod zaimplementowany.
 - `OWNER-M3-E-MSI-VERSIONING-01` — `OPEN`; blokuje MSI dla `1.3.0-alpha.2` (Windows Installer 1638).
@@ -121,9 +126,7 @@ Względem bazy `f73a703` (2 698 / 2 688 / 10) licznik wzrósł o **2** nowe test
 
 ## 8. Następna bramka
 
-1. **`STAGE-DEPENDENCY-SECURITY-UPDATE-GATE`** — zamknięcie `RUSTSEC-2026-0459` (decyzja OWNER;
-   rekomendowane `rusqlite 0.41` / `libsqlite3-sys 0.39`, `Cargo.lock`, pełny baseline).
-   **Blokuje wszystko dalej, w tym push.**
-2. `STAGE-M3-F-LINUX-SUPPORT-POLICY-ALIGNMENT-GATE` — po odblokowaniu QA.
+**`STAGE-M3-F-LINUX-SUPPORT-POLICY-ALIGNMENT-GATE`** — `NOT STARTED`.
+Wymaga wcześniejszej decyzji OWNER o jądrach 6.18 vs minimum 7.2 (szczegóły w `docs/NEXT_WORK_GATE.md`).
 
 **M3-G pozostaje zablokowane.**

@@ -69,7 +69,15 @@
 - Nie zmieniaj testu tylko po to, by uzyskać zielony wynik. Nie osłabiaj asercji bezpieczeństwa.
 - Nie zmieniaj `src/` produkcyjnie, `Cargo.toml`, `Cargo.lock` bez osobnej, uzasadnionej bramki.
 
-## 7. Raportowanie
+## 7. Zależności i bezpieczeństwo dostawcze
+
+- Aktualizacje zależności wyłącznie w dedykowanej bramce bezpieczeństwa, nigdy „przy okazji”.
+- `rusqlite` musi pozostać z feature `bundled` (systemowe SQLite jest zabronione).
+- **Zakaz `cargo audit --ignore`** bez formalnej decyzji OWNER; nowa podatność = STOP i raport.
+- Lockfile zmieniaj wyłącznie przez cargo (`cargo update -p <pkg> --precise <ver>`), nigdy ręcznie.
+- Push dopiero po zielonym `cargo audit` i pełnym baseline.
+
+## 8. Raportowanie
 
 Każda bramka kończy się raportem: data/środowisko, Git przed/po, lista commitów, zmienione pliki,
 dokładne komendy i liczniki, findings z `file:line`, ryzyka rezydualne i **jedna** następna bramka.

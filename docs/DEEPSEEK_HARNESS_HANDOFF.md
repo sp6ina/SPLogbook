@@ -142,17 +142,17 @@ git -c core.fsmonitor=false -c core.untrackedCache=false status --porcelain=v1
 
 ## 9. Stan bramki QA i następny krok
 
-- Bramka QA: **`BLOCKED_BY_NEW_DEPENDENCY_ADVISORY`** — testy zielone (2 690/2 690, 0 failed,
-  10 HIL, 3 pełne przebiegi, 20 iteracji bez flaky), ale `cargo audit` wykrył nową advisory
-  **RUSTSEC-2026-0459** (`libsqlite3-sys 0.38.2`, dodaną do RustSec 2026-11-09T09:49Z).
-  Naprawa wymaga zmiany `Cargo.lock` — zakazanej w bramce QA; maskowanie jest zabronione.
-  Commity pozostają **lokalne** (bez ff na `main`, bez push).
-- Najbliższa akcja: decyzja OWNER i bramka **`STAGE-DEPENDENCY-SECURITY-UPDATE-GATE`**
-  (rekomendowane `rusqlite 0.41` / `libsqlite3-sys 0.39`).
-- Następna bramka merytoryczna: **`STAGE-M3-F-LINUX-SUPPORT-POLICY-ALIGNMENT-GATE`** — `NOT STARTED`.
+- Bramka QA: **`COMPLETED_DETERMINISTIC_HERMETIC_BASELINE_VERIFIED`** — 2 690/2 690, 0 failed,
+  10 HIL, 3 pełne przebiegi (w tym pod obciążeniem) + 20 iteracji bez flaky.
+- Bramka zależności: **`COMPLETED_DEPENDENCY_SECURITY_UPDATE_VERIFIED`** — `rusqlite 0.41.1`,
+  `libsqlite3-sys 0.39.1` (SQLite **3.54.1**), `bundled` zachowany, bez `--ignore`;
+  `cargo audit` **0 podatności**.
+- Następna bramka: **`STAGE-M3-F-LINUX-SUPPORT-POLICY-ALIGNMENT-GATE`** — `NOT STARTED`
+  (wymaga decyzji OWNER o jądrach 6.18 vs 7.2).
 - M3-G (AppImage): **`BLOCKED`**.
 
-Raport końcowy: `STAGE_QA_BASELINE_DETERMINISM_AND_HERMETICITY_REPORT.md` (§24A).
+Raporty: `STAGE_QA_BASELINE_DETERMINISM_AND_HERMETICITY_REPORT.md`,
+`STAGE_DEPENDENCY_SECURITY_UPDATE_REPORT.md`.
 
 ## 10. Linki
 

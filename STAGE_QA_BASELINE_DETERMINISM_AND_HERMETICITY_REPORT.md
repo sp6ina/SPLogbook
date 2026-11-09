@@ -9,9 +9,12 @@
 **MODEL:** DeepSeek-V4.1-Flash-1017
 **MIGRATION SOURCE:** Antigravity
 **Priorytet:** P0
-**Status bramki:** **`BLOCKED_BY_NEW_DEPENDENCY_ADVISORY`**
+**Status bramki:** **`COMPLETED_DETERMINISTIC_HERMETIC_BASELINE_VERIFIED`**
+**Uwaga:** bramka była chwilowo `BLOCKED_BY_NEW_DEPENDENCY_ADVISORY` (RUSTSEC-2026-0459);
+bloker został usunięty przez `STAGE-DEPENDENCY-SECURITY-UPDATE-GATE` (raport
+`STAGE_DEPENDENCY_SECURITY_UPDATE_REPORT.md`).
 **Baseline testowy:** `GREEN` (2 690 / 2 690, 0 failed)
-**Baseline bezpieczeństwa zależności:** `RED` — 1 nowa advisory (RUSTSEC-2026-0459), patrz §24A
+**Baseline bezpieczeństwa zależności:** `GREEN` — `cargo audit` 0 podatności (bez `--ignore`)
 
 ---
 
@@ -295,18 +298,17 @@ commit nie został zmodyfikowany. Commity liniowe, bez merge/rebase.
 
 ## 22. Synchronizacja Git
 
-**NIE WYKONANO — bramka zablokowana przez RUSTSEC-2026-0459.**
+Bloker zależności został usunięty (`STAGE-DEPENDENCY-SECURITY-UPDATE-GATE`), `cargo audit` jest
+zielony (0 podatności), więc synchronizacja zostaje wykonana:
 
-Zgodnie z zasadą „dopiero po zielonym wyniku push”:
+- `repair/full-system-remediation` → `main` przez `git merge --ff-only`,
+- `main` → `origin/main` przez `git push origin main`,
+- wynik końcowy: `HEAD == main == origin/main`, `AHEAD/BEHIND 0/0`, working tree `CLEAN`,
+- `v1.2.0` nietknięty.
 
-- `repair/full-system-remediation` pozostaje **4 commity przed `main`** (3 commity kodu + commit dokumentacyjny),
-- `main` = `origin/main` = `f73a703c40f4462b48bed241aafc47fe15486bd0` (bez zmian),
-- **brak** ff na `main`, **brak** push, **brak** merge/rebase,
-- working tree na gałęzi roboczej: `CLEAN`,
-- `v1.2.0`: nietknięty.
-
-Po decyzji OWNER (A/B/C, §24A) i zielonym `cargo audit` wystarczy:
-`git switch main && git merge --ff-only repair/full-system-remediation && git push origin main`.
+Commity bramki QA (`418720b`, `72263fc`, `f35330e`, `8e00b5d`, `551e74f`) oraz bramki zależności
+(raport wstępny, aktualizacja `rusqlite`, raport końcowy i dokumenty domknięcia) wchodzą liniowo,
+bez merge commitów.
 
 ## 23. Dokumenty handoff
 
@@ -328,9 +330,13 @@ oraz raport przejęcia i oba raporty QA.
 | R-06 | `HKCU` zapis instalatora pozostaje poza katalogiem testowym na medium IL | usuwany przez deinstalator; E2E tylko opt-in |
 | **R-07** | **Nowa advisory RUSTSEC-2026-0459 w niezmienionej zależności (`libsqlite3-sys 0.38.2`)** | **BLOKUJE zamknięcie bramki i push**; wymaga decyzji OWNER (patrz §24A) |
 
-## 24A. BLOKER: nowa advisory zależności (RUSTSEC-2026-0459)
+## 24A. BLOKER (ROZWIĄZANY): nowa advisory zależności (RUSTSEC-2026-0459)
 
-`cargo audit` (świeża baza, 1 429 advisory) zwraca **1 podatność**:
+**STATUS: `RESOLVED_BY_DEPENDENCY_UPDATE` (2026-11-09).** `STAGE-DEPENDENCY-SECURITY-UPDATE-GATE`
+podniósł `rusqlite` do 0.41.1 i `libsqlite3-sys` do 0.39.1 (SQLite 3.54.1) — bez `--ignore`,
+z zachowanym `bundled`. Poniżej zachowany zapis pierwotnego blokera.
+
+`cargo audit` (świeża baza, 1 429 advisory) zwracał **1 podatność**:
 
 | Pole | Wartość |
 |---|---|
@@ -370,27 +376,19 @@ Do czasu decyzji bramka QA pozostaje **`BLOCKED_BY_NEW_DEPENDENCY_ADVISORY`**, a
 
 ## 25. Następna bramka
 
-W kolejności:
-
-1. **`STAGE-DEPENDENCY-SECURITY-UPDATE-GATE`** — decyzja OWNER i zamknięcie RUSTSEC-2026-0459
-   (rekomendowane: `rusqlite 0.41` / `libsqlite3-sys 0.39`, pełny re-test, `Cargo.lock`).
-   **Blokuje cokolwiek dalej.**
-2. **`STAGE-M3-F-LINUX-SUPPORT-POLICY-ALIGNMENT-GATE`** — `NOT STARTED` (po odblokowaniu QA).
-
+**`STAGE-M3-F-LINUX-SUPPORT-POLICY-ALIGNMENT-GATE`** — `NOT STARTED`.
 M3-G (AppImage): **`BLOCKED`**.
 
 ## 26. Werdykt
 
-**`BLOCKED_BY_NEW_DEPENDENCY_ADVISORY`**
+**`COMPLETED_DETERMINISTIC_HERMETIC_BASELINE_VERIFIED`**
 
-Część testowa bramki jest wykonana i zielona: 2 690/2 690 wykonanych testów, 0 failures, 10 ignorowanych
-HIL, trzy pełne przebiegi (w tym pod obciążeniem 12 min 27 s) i 20 iteracji celowanych bez flaky.
-Standardowy baseline nie wykonuje lokalnego instalatora; `dist/` nie wpływa na wynik; natywny E2E jest
-jawnym opt-in i fail-closed; przyczyna pierwotnego failure to ograniczenie sandboxu (D), nie regresja
-M3-D; `src/` produkcyjnie nietknięte.
+Baseline jest zielony, deterministyczny i hermetyczny: 2 690/2 690 wykonanych testów, 0 failures,
+10 ignorowanych HIL, trzy pełne przebiegi (w tym pod obciążeniem 12 min 27 s) i 20 iteracji
+celowanych bez flaky. Standardowy baseline nie wykonuje lokalnego instalatora; `dist/` nie wpływa
+na wynik; natywny E2E jest jawnym opt-in i fail-closed; przyczyna pierwotnego failure to
+ograniczenie sandboxu (D), nie regresja M3-D; `src/` produkcyjnie nietknięte.
 
-Bramka **nie może** otrzymać statusu `COMPLETED_DETERMINISTIC_HERMETIC_BASELINE_VERIFIED`, ponieważ
-kryterium nr 24 („0 nowych podatności”) nie jest spełnione: `cargo audit` wykrył nową advisory
-RUSTSEC-2026-0459 w niezmienionej zależności. Naprawa jest zakazana w tej bramce, a maskowanie
-zabronione. Wymagana jest decyzja OWNER (§24A); commity pozostają lokalne i gotowe do ff + push
-natychmiast po zamknięciu advisory.
+Chwilowy bloker `RUSTSEC-2026-0459` został usunięty przez dedykowaną bramkę aktualizacji
+(`rusqlite 0.41.1`, `libsqlite3-sys 0.39.1`, SQLite 3.54.1, bez `--ignore`, `bundled` zachowany),
+a `cargo audit` na świeżej bazie zwraca 0 podatności.
