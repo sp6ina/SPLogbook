@@ -109,8 +109,9 @@ git -c core.fsmonitor=false -c core.untrackedCache=false status --porcelain=v1
 
 | ID | Severity | Treść | Status |
 |---|---|---|---|
-| F-01 | P1 | Repozytorium koduje zastąpioną politykę Linux (6.12, Debian, Leap) | do bramki polityki Linux |
-| F-02/F-03/F-04 | P1 | „Natywna” weryfikacja w kontenerze nie dowodzi jądra; `\|\| true` maskuje błędy; sprzeczne twierdzenia ABI | do bramki polityki Linux |
+| F-01 | P1 | Repozytorium koduje zastąpioną politykę Linux (6.12, Debian, Leap) | **ROZWIĄZANE** 2026-11-09 — polityka 7.0 / glibc 2.43, 4 dystrybucje |
+| F-02/F-04 | P1 | „Natywna” weryfikacja w kontenerze nie dowodzi jądra; sprzeczne twierdzenia ABI | **ROZWIĄZANE** 2026-11-09 (dowody oznaczone jako legacy, Debian/Leap niewspierane) |
+| F-03 | P1 | `\|\| true` maskuje błędy w `verify_linux_container.sh` | **OPEN** — wymaga CI-hardening przed M3-G |
 | F-05 | P2 | MSI/Setup nie są budowane/publikowane przez CI | przyszła bramka release |
 | F-07 | P2 | XDG vs portable DB — precedence | przyszła bramka |
 | F-14 | P0 (sprzętowo zablokowane) | Panika po załączeniu PTT przy `max_test_duration_ms` 1-9 | obowiązkowe przed HIL |
@@ -126,7 +127,8 @@ git -c core.fsmonitor=false -c core.untrackedCache=false status --porcelain=v1
 3. Nie używaj `Start-Process` w sandboxie DSH do uruchamiania instalatora (ShellExecute
    zawiesza proces); użyj `CreateProcess` (`UseShellExecute=$false`) jak w testach.
 4. Nie traktuj `uname -r` w kontenerze jako dowodu jądra dystrybucji.
-5. Nie „naprawiaj” snapshotu Linux przy okazji — to osobna bramka.
+5. Nie „naprawiaj” snapshotu Linux przy okazji — polityka jest już zapisana; zmieniaj ją tylko
+   nową bramką i jawną decyzją OWNER.
 6. Nie twórz tagów ani release bez bramki; nie ruszaj `v1.2.0`.
 7. Nie otwieraj produkcyjnej bazy/konfiguracji; nie używaj produkcyjnego `HOME`/`APPDATA`.
 8. Nie zmieniaj `src/` produkcyjnie bez dowodu regresji i osobnej bramki.
@@ -147,9 +149,12 @@ git -c core.fsmonitor=false -c core.untrackedCache=false status --porcelain=v1
 - Bramka zależności: **`COMPLETED_DEPENDENCY_SECURITY_UPDATE_VERIFIED`** — `rusqlite 0.41.1`,
   `libsqlite3-sys 0.39.1` (SQLite **3.54.1**), `bundled` zachowany, bez `--ignore`;
   `cargo audit` **0 podatności**.
-- Następna bramka: **`STAGE-M3-F-LINUX-SUPPORT-POLICY-ALIGNMENT-GATE`** — `NOT STARTED`
-  (wymaga decyzji OWNER o jądrach 6.18 vs 7.2).
-- M3-G (AppImage): **`BLOCKED`**.
+- Bramka polityki Linux: **`COMPLETED_POLICY_ALIGNMENT_VERIFIED`** — minimum **Linux 7.0** /
+  **glibc 2.43** (`OWNER-M3-F-KERNEL-POLICY-OPTION-A`), 4 wspierane dystrybucje; Debian 13.7
+  (glibc 2.41) i Leap 16.1 (glibc 2.40) niewspierane.
+- Następna bramka: **`STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE`** — `NOT STARTED`
+  (wymaga osobnego GO OWNER; najpierw CI-hardening F-03).
+- M3-G (AppImage): **`NOT_STARTED`** — nie rozpoczęto.
 
 Raporty: `STAGE_QA_BASELINE_DETERMINISM_AND_HERMETICITY_REPORT.md`,
 `STAGE_DEPENDENCY_SECURITY_UPDATE_REPORT.md`.

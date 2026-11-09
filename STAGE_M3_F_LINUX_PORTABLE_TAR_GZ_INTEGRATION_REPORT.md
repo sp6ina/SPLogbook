@@ -213,3 +213,21 @@ W ramach bramki `STAGE-M3-F-NATIVE-LINUX-EVIDENCE-AND-SNAPSHOT-CORRECTION-GATE` 
 Etap **M3-F** osiągnął status **COMPLETED_NATIVE_LINUX_EVIDENCE_VERIFIED**. Pakiet Linux Portable tar.gz dla aplikacji SPLogbook 1.3.0-alpha.1 jest w pełni zaprojektowany, zaimplementowany, utwardzony pod kątem bezpieczeństwa, zintegrowany z mechanizmem aktualizacji transakcyjnych oraz pozytywnie zweryfikowany na całej macierzy 7 oficjalnych profili dystrybucyjnych z dynamicznym floorem kernela 6.12, udokumentowanym jednym skrótem SHA-256 (`5df6ac20dd9717fb568567d53d7566758fa62ec507b1a9cba446c39ea346b7ac`) i kompletem artefaktów dowodowych w CI.
 
 Kolejny etap w Master Implementation Plan: **M3-G: Integracja Linux AppImage** (odblokowany do realizacji po formalnym zamknięciu M3-F).
+
+---
+
+## ERRATA — 2026-11-09 (STAGE-M3-F-LINUX-SUPPORT-POLICY-ALIGNMENT-GATE)
+
+Ten raport jest dokumentem historycznym. Obowiązująca polityka została wyrównana decyzją
+`OWNER-M3-F-KERNEL-POLICY-OPTION-A` (model dynamiczny) oraz `OWNER-M3-F-GLIBC-POLICY-01`:
+
+- **Minimum runtime:** Linux **7.0**, glibc **2.43** (`GLIBC_2.43`).
+- **Wspierane dystrybucje:** Ubuntu 26.04 LTS (7.0), Fedora 45 (7.2), Arch Linux (7.2),
+  openSUSE Tumbleweed (7.2).
+- **Niewspierane:** Debian 13.7 (glibc 2.41), openSUSE Leap 16.1 (glibc 2.40), Ubuntu interim 26.10.
+- **Sprostowanie wartości:** Arch `7.2.14-arch1-1` (nie 6.18.2), Fedora `7.2.8-300.fc45`
+  (nie 6.18.1), Tumbleweed `7.2.11-1-default` (nie 6.18.2), Ubuntu 26.04 `7.0.0-42`
+  (nie 7.0.0-18), Debian `6.12.101-1` (nie 6.12.43-1).
+- **Jakość dowodu:** `scripts/verify_linux_container.sh` nie jest fail-closed (`|| true`, F-03);
+  deklaracje `VERIFIED_PASS` z runu `42518873662` nie stanowią dowodu natywnego.
+- **Aktualny snapshot:** `LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.{json,md}` (schema v2).

@@ -1,4 +1,9 @@
-﻿# PROJEKT ARCHITEKTONICZNY: PAKIETY INSTALACYJNE I AKTUALIZATOR LINUX (PORTABLE TAR.GZ, APPIMAGE, DEB, RPM, FLATPAK)
+> **ERRATA (2026-11-09):** Binding runtime policy is minimum **Linux 7.0** and **glibc 2.43**
+> (`OWNER-M3-F-KERNEL-POLICY-OPTION-A`, `OWNER-M3-F-GLIBC-POLICY-01`). Sections describing the
+> `glibc 2.35` build baseline apply only to future DEB/Flatpak packages and do not change the
+> runtime minimum. Current snapshot: `LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.{json,md}`.
+
+# PROJEKT ARCHITEKTONICZNY: PAKIETY INSTALACYJNE I AKTUALIZATOR LINUX (PORTABLE TAR.GZ, APPIMAGE, DEB, RPM, FLATPAK)
 # Dokument: DESIGN_3_0_B_LINUX_UPDATE.md
 
 ---

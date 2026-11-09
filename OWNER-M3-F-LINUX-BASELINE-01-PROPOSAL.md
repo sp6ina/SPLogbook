@@ -1,3 +1,8 @@
+> **STATUS (2026-11-09):** propozycja `SUPERSEDED` przez `OWNER-M3-F-KERNEL-POLICY-OPTION-A`
+> (dynamiczne minimum **Linux 7.0**) i `OWNER-M3-F-GLIBC-POLICY-01` (**glibc 2.43**).
+> Wspierane są 4 dystrybucje: Ubuntu 26.04 LTS, Fedora 45, Arch Linux, openSUSE Tumbleweed;
+> Debian 13.7 i openSUSE Leap 16.1 nie są wspierane.
+
 # Decyzja Architektoniczna: Rolling Latest-Stable Linux Distribution Support Policy
 # Identyfikator: OWNER-M3-F-LINUX-BASELINE-01
 

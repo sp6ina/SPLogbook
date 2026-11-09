@@ -1,3 +1,11 @@
+> **ERRATA POLITYKI (2026-11-09, STAGE-M3-F-LINUX-SUPPORT-POLICY-ALIGNMENT-GATE):** ten dokument jest
+> analizą historyczną. Obowiązująca polityka Linux: `OWNER-M3-F-KERNEL-POLICY-OPTION-A` (minimum
+> dynamiczne **Linux 7.0**) + `OWNER-M3-F-GLIBC-POLICY-01` (**glibc 2.43**), 4 wspierane dystrybucje
+> (Ubuntu 26.04 LTS, Fedora 45, Arch Linux, openSUSE Tumbleweed). Debian 13.7 i Leap 16.1 są
+> **niewspierane**. Twierdzenia o stałym 7.2, o konieczności ponownego otwarcia bramki albo o Ubuntu
+> 26.10 jako profilu wspieranym są nieaktualne. Aktualny snapshot:
+> `LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.{json,md}`.
+
 # DEEPSEEK HARNESS — PROJECT INGESTION AND HANDOFF REPORT
 # SPLogbook — Antigravity → DeepSeek Harness
 

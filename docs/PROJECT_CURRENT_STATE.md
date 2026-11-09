@@ -18,33 +18,28 @@ zamknięciu każdej bramki i **zastępuje wszystkie historyczne liczniki** w inn
 | Toolchain w środowisku | `cargo 1.99.0`, `rustc 1.99.0` |
 | Release publiczny | **NIE OPUBLIKOWANO** (brak tagu `v1.3.0*`, brak GitHub Release) |
 | `rusqlite` / `libsqlite3-sys` | **0.41.1** / **0.39.1** (bundled SQLite **3.54.1**, feature `bundled` + `backup`) |
-| `cargo audit` | **0 podatności** (świeża baza, bez `--ignore`), 7 dozwolonych warningów |
+| `cargo audit` | **0 podatności** (ostatni pomiar bramki zależności, bez `--ignore`) |
+| **Minimum Linux** | **kernel 7.0, glibc 2.43** (`OWNER-M3-F-KERNEL-POLICY-OPTION-A`, `OWNER-M3-F-GLIBC-POLICY-01`) |
+| **Wspierane dystrybucje** | Ubuntu 26.04 LTS, Fedora 45, Arch Linux, openSUSE Tumbleweed |
 | Gałąź robocza | `repair/full-system-remediation` → fast-forward do `main` |
 
-## 2. Git po zamknięciu bramki QA
+## 2. Git po zamknięciu bramki polityki Linux
 
 | Pole | Wartość |
 |---|---|
-| HEAD | commit dokumentacyjny domknięcia bramki zależności (ostatni commit `main`; `git log -1`) |
+| HEAD | commit dokumentacyjny domknięcia tej bramki (ostatni commit `main`; `git log -1`) |
 | main | = HEAD (fast-forward z `repair/full-system-remediation`) |
-| origin/main | = HEAD (push ff-only po zielonym `cargo audit`) |
+| origin/main | = HEAD (push ff-only po zielonym baseline) |
 | ahead / behind | `0 / 0` |
 | Working tree | `CLEAN` |
 | Aktywna operacja Git | brak |
 
-Commity bramki QA:
+Commity bramki polityki Linux:
 
-1. `418720b` — `test(qa): make native installer E2E explicit and hermetic`
-2. `72263fc` — `test(qa): remove wall-clock assumptions from concurrency tests`
-3. `f35330e` — `ci(qa): enforce deterministic hermetic baseline`
-4. `8e00b5d` — `docs(agent): add DeepSeek Harness project handoff`
-5. `551e74f` — `docs(qa): register dependency advisory decision proposal`
-
-Commity bramki zależności:
-
-6. raport wstępny `STAGE_DEPENDENCY_SECURITY_UPDATE_PRE_IMPLEMENTATION_REPORT.md`
-7. `fix(deps): update rusqlite to 0.41.1 with patched bundled SQLite`
-8. raport końcowy + aktualizacja stanu i następnej bramki
+1. `docs(linux): record M3-F support policy baseline` — raport wstępny + snapshot v2
+2. `ci(linux): align supported distribution matrix` — macierz CI + skrypt budowania + fixture
+3. `test(linux): enforce documented support policy` — strażnicy i testy
+4. `docs(project): close M3-F Linux support policy gate` — dokumenty stanu + raport końcowy
 
 ## 3. Baseline (ostatni pełny pomiar: 2026-11-09)
 
@@ -62,14 +57,11 @@ cargo +stable test --workspace --all-targets -j 2
 | HIL wykonane | **0** |
 | PTT / RF | **0 / 0** |
 | Doc-testy | 0 (brak zarejestrowanych) |
-| `cargo audit` (świeża baza) | **PASSED — 0 podatności**, 7 dozwolonych warningów; bez `--ignore` |
 | `security_guard` | **120 / 120** |
 | `inno_user_data_safety_test` | **8 / 8** (E2E jawnie niewykonany bez opt-in) |
 | `msi_user_data_safety_test` | **6 / 6** |
 
-Względem bazy `f73a703` (2 698 / 2 688 / 10) licznik wzrósł o **2** nowe testy:
-`inno_native_e2e_contract_is_fail_closed` oraz
-`qa_native_installer_tests_are_hermetic_and_fail_closed`.
+Baseline nie zależy od `dist/`; natywny E2E instalatora pozostaje jawnym opt-in.
 
 ## 4. Stan bramek
 
@@ -83,36 +75,34 @@ Względem bazy `f73a703` (2 698 / 2 688 / 10) licznik wzrósł o **2** nowe test
 | M3-DEV version identity | `COMPLETED_SOFTWARE_VERIFIED` |
 | M3-D Windows User Setup | `COMPLETED_SOFTWARE_VERIFIED` (bez otwarcia; brak dowodu regresji) |
 | M3-E Windows MSI | `COMPLETED_SOFTWARE_VERIFIED` |
-| M3-F Linux portable tar.gz | `COMPLETED_NATIVE_LINUX_EVIDENCE_VERIFIED` **wobec polityki obowiązującej przy zamknięciu**; wobec intencji OWNER z 2026-11-09 — `REOPENED_BY_POLICY` (do bramki polityki) |
-| **QA baseline determinism + hermeticity** | **`COMPLETED_DETERMINISTIC_HERMETIC_BASELINE_VERIFIED`** (2026-11-09; chwilowy bloker zależności usunięty) |
-| **Dependency security update** | **`COMPLETED_DEPENDENCY_SECURITY_UPDATE_VERIFIED`** — `rusqlite 0.41.1` / `libsqlite3-sys 0.39.1` (SQLite 3.54.1), 0 podatności |
-| M3-F Linux support policy alignment | `NOT_STARTED` — **następna bramka** |
-| M3-G AppImage | **`BLOCKED`** |
+| M3-F Linux portable tar.gz | `COMPLETED_SOFTWARE_VERIFIED` (implementacja i dowody z runu `42518873662`; jakość dowodu: legacy, nie fail-closed) |
+| QA baseline determinism + hermeticity | **`COMPLETED_DETERMINISTIC_HERMETIC_BASELINE_VERIFIED`** |
+| Dependency security update | **`COMPLETED_DEPENDENCY_SECURITY_UPDATE_VERIFIED`** |
+| **M3-F Linux support policy alignment** | **`COMPLETED_POLICY_ALIGNMENT_VERIFIED`** — 7.0 / 2.43, 4 dystrybucje, Debian/Leap niewspierane |
+| M3-G AppImage | **`NOT_STARTED`** (nie rozpoczęto; wymaga osobnego GO) |
 | M3-H/J (DEB/RPM/Flatpak) | `NOT_STARTED` |
 | NATIVE-7B (fizyczny HIL) | `BLOCKED` (10 testów `#[ignore]`, 0 wykonanych) |
 
 ## 5. Otwarte decyzje OWNER
 
-- ~~`RUSTSEC-2026-0459`~~ — **ROZWIĄZANE** 2026-11-09 przez `STAGE-DEPENDENCY-SECURITY-UPDATE-GATE`
-  (`rusqlite 0.41.1`, `libsqlite3-sys 0.39.1`, SQLite 3.54.1; `bundled` zachowany; bez `--ignore`).
+- ~~`RUSTSEC-2026-0459`~~ — **ROZWIĄZANE** 2026-11-09 (`rusqlite 0.41.1`, `libsqlite3-sys 0.39.1`).
+- ~~Polityka Linux (kernel, dystrybucje, glibc)~~ — **ZAPISANA** 2026-11-09:
+  `OWNER-M3-F-KERNEL-POLICY-OPTION-A` (dynamiczne minimum 7.0) oraz
+  `OWNER-M3-F-GLIBC-POLICY-01` (2.43). Decyzja zastępuje sztywne 7.2.
 - `OWNER-M2-08`, `OWNER-M2-09`, `OWNER-M2-11`, `OWNER-M2-12`, `OWNER-M2-14` — otwarte, nieblokujące.
 - `OWNER-M2-10` — spór dokumentacyjny (plan: APPROVED, DESIGN: OPEN), kod zaimplementowany.
 - `OWNER-M3-E-MSI-VERSIONING-01` — `OPEN`; blokuje MSI dla `1.3.0-alpha.2` (Windows Installer 1638).
-- **Polityka Linux 2026-11-09** (kernel 7.2 fixed, glibc 2.43, bez Debian 13.7 i Leap,
-  Ubuntu 26.04 LTS warunkowe) — `OWNER_INTENT_NOT_YET_IN_REPO`; wymaga
-  `STAGE-M3-F-LINUX-SUPPORT-POLICY-ALIGNMENT-GATE`.
-- Pytanie blokujące tę bramkę: snapshot rejestruje jądra Fedora 45 / Arch / Tumbleweed jako
-  **6.18**, czyli poniżej wymaganego 7.2 — OWNER musi rozstrzygnąć, czy dane są nieaktualne,
-  czy minimum 7.2 wymaga rewizji, czy lista profili zawęża się do Ubuntu 26.10.
+- Otwarte ryzyko techniczne (nie decyzja): fixture natywnej weryfikacji Linux nie jest fail-closed
+  (F-03); wymaga osobnego zadania CI-hardening przed publikacją M3-G.
 
 ## 6. Co NIE jest zrobione
 
 - AppImage / DEB / RPM / Flatpak — brak implementacji.
 - MSI i Setup nie są budowane ani publikowane przez CI (F-05).
+- Natywna weryfikacja Linux nie jest fail-closed (F-03); brak nowego przebiegu na 4-profilowej macierzy.
 - Fizyczny HIL (NATIVE-7B) — niewykonany, sprzęt niedostępny.
 - F-14 (P0, panika po PTT) — nadal otwarte, obowiązkowe przed HIL.
 - F-19/F-20/F-21/F-16/F-15/F-17 — otwarte; wymagają bramki danych/RF.
-- Polityka Linux — niezapisana w repozytorium.
 
 ## 7. Ograniczenia środowiska (znane, udokumentowane)
 
@@ -123,10 +113,9 @@ Względem bazy `f73a703` (2 698 / 2 688 / 10) licznik wzrósł o **2** nowe test
   wymaga kliknięcia „Uruchom”; na CI prompt nie występuje.
 - `Start-Process` w sandboxie DSH może zawisnąć na tym prompcie; testy używają `CreateProcess`.
 - `git status` bez `-c core.untrackedCache=false` potrafi zgłosić fantomowy `scratch/`.
+- Brak lokalnego środowiska Linux/Docker — weryfikacja natywna dystrybucji wymaga CI.
 
 ## 8. Następna bramka
 
-**`STAGE-M3-F-LINUX-SUPPORT-POLICY-ALIGNMENT-GATE`** — `NOT STARTED`.
-Wymaga wcześniejszej decyzji OWNER o jądrach 6.18 vs minimum 7.2 (szczegóły w `docs/NEXT_WORK_GATE.md`).
-
-**M3-G pozostaje zablokowane.**
+**`STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE`** — `NOT_STARTED`; wymaga osobnego promptu OWNER.
+Wejście: minimum **Linux 7.0 / glibc 2.43**, cztery wspierane dystrybucje, jeden kanoniczny artefakt.

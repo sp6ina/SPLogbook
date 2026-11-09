@@ -135,7 +135,7 @@ Oficjalne źródła pierwszej strony (data pobrania: 2026-11-09):
 Rozdzielenie kategorii: powyżej podano **kernel stabilnego repozytorium**. Kanały
 `updates-testing` (Fedora 7.2.9), `Rawhide`, backports i RC **nie** wyznaczają minimum.
 Kernel obrazu instalacyjnego Ubuntu 26.04.1 może być starszy w linii 7.0 niż 7.0.0-42 — linia
-kernela jest ta sama; dla polityki liczy się linia, nie numer EasyAntiCheat patcha.
+kernela jest ta sama; dla polityki liczy się linia, nie numer patcha punktowego.
 
 ## L. Potwierdzone sprzeczności
 

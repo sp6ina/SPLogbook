@@ -5,12 +5,13 @@
 ## 1. Przeznaczenie i Zakres
 Katalog `installer/linux/portable/` zawiera definicje, szablony oraz specyfikację pakietu przenośnego `SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz`.
 
-Pakiet jest przeznaczony do uruchamiania w przestrzeni użytkownika bez uprawnień administracyjnych (root/sudo) na wielodystrybucyjnej macierzy Linux x86_64:
-- Ubuntu stable / LTS
-- Debian stable
-- Fedora Final/GA
-- Arch Linux rolling snapshot
-- openSUSE Leap / Tumbleweed snapshot
+Pakiet jest przeznaczony do uruchamiania w przestrzeni użytkownika bez uprawnień administracyjnych (root/sudo) na wspieranej macierzy Linux x86_64 (**kernel >= 7.0, glibc >= 2.43**):
+- Ubuntu 26.04 LTS
+- Fedora Linux 45
+- Arch Linux rolling (wyłącznie oficjalne repozytoria)
+- openSUSE Tumbleweed (snapshot oficjalny)
+
+Debian 13.7 (glibc 2.41) i openSUSE Leap 16.1 (glibc 2.40) **nie są wspierane** — nie spełniają wymagania ABI `GLIBC_2.43`. Pełna polityka: `LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.md`.
 
 ---
 

@@ -528,7 +528,7 @@ curl -X GET "http://127.0.0.1:8420/api/v1/lookup/DL1ABC?band=20m&mode=CW" \
 
 - **Operating Systems:**
   - **Windows:** Windows 10 (64-bit) or Windows 11 (64-bit).
-  - **GNU/Linux:** Any modern 64-bit distribution (Ubuntu 20.04+, Debian 11+, Fedora 36+, Arch Linux, openSUSE). Full native support for both **X11** and **Wayland** display servers.
+  - **GNU/Linux (officially supported):** Ubuntu 26.04 LTS, Fedora Linux 45, Arch Linux, openSUSE Tumbleweed — **Linux kernel 7.0+**, **glibc 2.43+**, x86_64. Full native support for both **X11** and **Wayland** display servers. Debian 13 and older (glibc < 2.43) are **not** supported. Details: `LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.md`.
 - **Architecture:** x86_64.
 - **Processor:** Any modern dual-core CPU ($\ge 1.6\text{ GHz}$).
 - **Memory (RAM):** 2 GB minimum (4 GB recommended).
@@ -583,14 +583,14 @@ Ensure you have the Rust toolchain (version $\ge 1.99.0$) installed.
 git clone https://github.com/sp6ina/SPLogbook.git
 cd SPLogbook
 
-# 2. Run automated test suite (2279 active tests passed, 2289 registered)
+# 2. Run automated test suite (2690 active tests passed, 2700 registered, 10 HIL skipped)
 cargo test --workspace --all-targets
 
 # 3. Build optimized release binary with Link-Time Optimization (LTO)
 cargo build --release
 ```
 
-### On GNU/Linux (Ubuntu / Debian / Mint)
+### On GNU/Linux (apt-based distributions — building from source)
 ```bash
 # 1. Install development dependencies
 sudo apt update && sudo apt install -y \

@@ -48,14 +48,20 @@
 21. **Kontener nie jest dowodem kernela dystrybucji** (współdzieli jądro hosta); `uname -r` w OCI
     nie jest dowodem natywnym.
 
-## 5. Polityka Linux (wiążąca intencja OWNER, jeszcze nie w repozytorium)
+## 5. Polityka Linux (zapisana w repozytorium)
 
-22. Minimum kernela właściciela: **Linux 7.2** (`OWNER_APPROVED_FIXED_MINIMUM`).
-23. Minimum glibc właściciela: **2.43**; maksymalny wymagany symbol `GLIBC_2.43`.
-24. Polityka Linux **nie jest jeszcze zapisana w repozytorium** (repo nadal koduje 6.12 / Debian /
-    Leap). Wymaga osobnej bramki `STAGE-M3-F-LINUX-SUPPORT-POLICY-ALIGNMENT-GATE`
-    **po** zamknięciu QA. Nie „poprawiaj” snapshotu przy okazji innych prac.
-25. **M3-G (AppImage) pozostaje ZABLOKOWANE** do zamknięcia bramki QA i bramki wyrównania polityki.
+22. Minimum kernela: **Linux 7.0** — decyzja `OWNER-M3-F-KERNEL-POLICY-OPTION-A` (model
+    dynamiczny: najstarsza domyślna linia kernela wśród oficjalnie wspieranych dystrybucji;
+    obecnie wyznacza ją Ubuntu 26.04 LTS). Decyzja zastępuje zarówno dynamiczny floor `6.12`,
+    jak i sztywne `7.2` (`OWNER_APPROVED_FIXED_MINIMUM`).
+23. Minimum glibc: **2.43**; maksymalny wymagany symbol `GLIBC_2.43`
+    (`OWNER-M3-F-GLIBC-POLICY-01`).
+24. Wspierane dystrybucje: **Ubuntu 26.04 LTS, Fedora 45, Arch Linux, openSUSE Tumbleweed**.
+    Debian 13.7 (glibc 2.41) i openSUSE Leap 16.1 (glibc 2.40) są **niewspierane** — nie spełniają
+    wymagania ABI; Ubuntu interim (26.10) jest poza zakresem. Snapshot:
+    `LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.{json,md}`. Politykę wolno zmienić wyłącznie nową,
+    jawną decyzją OWNER i osobną bramką.
+25. **M3-G (AppImage) pozostaje ZABLOKOWANE / `NOT_STARTED`** — wymaga osobnej bramki.
 
 ## 6. Zasady testów i instalatorów
 

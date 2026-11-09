@@ -195,3 +195,21 @@ Wszystkie testy jednostkowe, integracyjne oraz strażnicy bezpieczeństwa zosta�
    **`COMPLETED_NATIVE_LINUX_EVIDENCE_VERIFIED`**
 2. **Kolejny krok w planie wdrożenia:**
    Bramka **STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE** zostaje **ODBLOKOWANA** do realizacji w ramach kolejnej iteracji zgodnie z Master Implementation Plan.
+
+---
+
+## ERRATA — 2026-11-09 (STAGE-M3-F-LINUX-SUPPORT-POLICY-ALIGNMENT-GATE)
+
+Ten raport jest dokumentem historycznym. Obowiązująca polityka została wyrównana decyzją
+`OWNER-M3-F-KERNEL-POLICY-OPTION-A` (model dynamiczny) oraz `OWNER-M3-F-GLIBC-POLICY-01`:
+
+- **Minimum runtime:** Linux **7.0**, glibc **2.43** (`GLIBC_2.43`).
+- **Wspierane dystrybucje:** Ubuntu 26.04 LTS (7.0), Fedora 45 (7.2), Arch Linux (7.2),
+  openSUSE Tumbleweed (7.2).
+- **Niewspierane:** Debian 13.7 (glibc 2.41), openSUSE Leap 16.1 (glibc 2.40), Ubuntu interim 26.10.
+- **Sprostowanie wartości:** Arch `7.2.14-arch1-1` (nie 6.18.2), Fedora `7.2.8-300.fc45`
+  (nie 6.18.1), Tumbleweed `7.2.11-1-default` (nie 6.18.2), Ubuntu 26.04 `7.0.0-42`
+  (nie 7.0.0-18), Debian `6.12.101-1` (nie 6.12.43-1).
+- **Jakość dowodu:** `scripts/verify_linux_container.sh` nie jest fail-closed (`|| true`, F-03);
+  deklaracje `VERIFIED_PASS` z runu `42518873662` nie stanowią dowodu natywnego.
+- **Aktualny snapshot:** `LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.{json,md}` (schema v2).
