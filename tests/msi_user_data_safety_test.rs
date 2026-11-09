@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Testy ochrony danych użytkownika i bezpieczeństwa cyklu życia Windows MSI (M3-E)
+//
+// Bramka QA 2026-11-09: kontrola lokalnego artefaktu MSI jest JAWNYM OPT-IN.
+// Standardowy baseline nie zależy od zawartości ignorowanego katalogu `dist/`.
 
 use std::fs;
-use std::path::PathBuf;
 
-fn get_msi_package_path() -> Option<PathBuf> {
-    let p = PathBuf::from("dist/SPLogbook-Windows-x64-MSI-1.3.0-alpha.1.msi");
-    if p.exists() { Some(p) } else { None }
-}
+#[path = "support/native_artifact.rs"]
+mod native_artifact;
+
+use native_artifact::ArtifactDecision;
 
 #[test]
 fn msi_seed_databases_installed_with_never_overwrite() {
@@ -150,9 +152,41 @@ fn msi_user_data_preservation_byte_identical() {
 
 #[test]
 fn msi_built_artifact_verification_if_present() {
-    if let Some(msi_path) = get_msi_package_path() {
-        assert!(msi_path.exists());
-        let meta = fs::metadata(&msi_path).expect("msi metadata");
-        assert!(meta.len() > 1_000_000, "Rozmiar MSI musi być > 1 MB");
-    }
+    let resolved = native_artifact::resolve_artifact(
+        |key| std::env::var(key).ok(),
+        native_artifact::MSI_OPT_IN_ENV,
+        native_artifact::MSI_PATH_ENV,
+        native_artifact::MSI_SHA256_ENV,
+        "msi",
+        native_artifact::MSI_FILENAME_PREFIX,
+        env!("CARGO_PKG_VERSION"),
+    );
+
+    let artifact = match resolved {
+        Ok(ArtifactDecision::NotRequested) => {
+            eprintln!(
+                "NATIVE MSI ARTIFACT CHECK NOT REQUESTED: ustaw {}=1 oraz {}=<ścieżka absolutna>, \
+                 aby zweryfikować lokalny artefakt MSI",
+                native_artifact::MSI_OPT_IN_ENV,
+                native_artifact::MSI_PATH_ENV
+            );
+            return;
+        }
+        Ok(ArtifactDecision::Requested(artifact)) => artifact,
+        Err(error) => panic!("NATIVE MSI ARTIFACT CHECK FAIL-CLOSED: {error}"),
+    };
+
+    let digest = native_artifact::verify_sha256(&artifact)
+        .unwrap_or_else(|error| panic!("NATIVE MSI ARTIFACT CHECK FAIL-CLOSED: {error}"));
+    let metadata = fs::metadata(&artifact.path).expect("msi metadata");
+    assert!(
+        metadata.len() > 1_000_000,
+        "Rozmiar MSI musi być > 1 MB, otrzymano {} B",
+        metadata.len()
+    );
+    eprintln!(
+        "NATIVE MSI ARTIFACT CHECK PASSED: artifact={} sha256={digest} size={}",
+        artifact.path.display(),
+        metadata.len()
+    );
 }
