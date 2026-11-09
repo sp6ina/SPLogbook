@@ -390,38 +390,78 @@ mod tests {
     fn concurrent_lock_stress_has_single_winner() {
         let temp = tempfile::tempdir().unwrap();
         let temp_path = Arc::new(temp.path().to_path_buf());
-        let winners = Arc::new(AtomicUsize::new(0));
-        let contenders = Arc::new(AtomicUsize::new(0));
         let num_threads = 20;
+
+        // Niezmiennik bezpieczeństwa: co najwyżej JEDEN równoczesny posiadacz.
+        // Liczba przejęć w całej historii nie jest ograniczona — blokada jest
+        // zwalniana, więc kolejny wątek może ją legalnie przejąć.
+        let holders = Arc::new(AtomicUsize::new(0));
+        let max_simultaneous_holders = Arc::new(AtomicUsize::new(0));
+        let acquisitions = Arc::new(AtomicUsize::new(0));
+        let rejections = Arc::new(AtomicUsize::new(0));
+        let start = Arc::new(std::sync::Barrier::new(num_threads));
 
         let mut handles = Vec::new();
         for _ in 0..num_threads {
             let t_path = Arc::clone(&temp_path);
-            let t_winners = Arc::clone(&winners);
-            let t_contenders = Arc::clone(&contenders);
+            let t_holders = Arc::clone(&holders);
+            let t_max = Arc::clone(&max_simultaneous_holders);
+            let t_acquisitions = Arc::clone(&acquisitions);
+            let t_rejections = Arc::clone(&rejections);
+            let t_start = Arc::clone(&start);
 
             handles.push(thread::spawn(move || {
+                // Deterministyczny punkt startowy: wszystkie wątki startują razem.
+                t_start.wait();
+
                 let attempt = UpdateAttemptId::generate();
                 match UpdateLockGuard::acquire(&t_path, attempt) {
-                    Ok(_guard) => {
-                        t_winners.fetch_add(1, Ordering::SeqCst);
-                        // Trzymaj blokadę przez krótki czas, aby wymusić rywalizację
-                        thread::sleep(std::time::Duration::from_millis(50));
+                    Ok(guard) => {
+                        let concurrent = t_holders.fetch_add(1, Ordering::SeqCst) + 1;
+                        t_max.fetch_max(concurrent, Ordering::SeqCst);
+                        t_acquisitions.fetch_add(1, Ordering::SeqCst);
+
+                        // Krótkie przytrzymanie zwiększa szansę na rywalizację.
+                        // Nie jest kryterium poprawnego wyniku.
+                        thread::sleep(std::time::Duration::from_millis(20));
+
+                        assert_eq!(
+                            t_holders.fetch_sub(1, Ordering::SeqCst),
+                            1,
+                            "naruszenie niezmiennika: dwóch równoczesnych posiadaczy blokady"
+                        );
+                        drop(guard);
                     }
                     Err(UpdaterError::LockContended(_)) => {
-                        t_contenders.fetch_add(1, Ordering::SeqCst);
+                        t_rejections.fetch_add(1, Ordering::SeqCst);
                     }
-                    Err(e) => panic!("Nieoczekiwany błąd rywalizacji blokady: {e:?}"),
+                    Err(error) => panic!("Nieoczekiwany błąd rywalizacji blokady: {error:?}"),
                 }
             }));
         }
 
-        for h in handles {
-            h.join().unwrap();
+        for handle in handles {
+            handle.join().unwrap();
         }
 
-        // Dokładnie jeden wątek musiał wygrać blokadę
-        assert_eq!(winners.load(Ordering::SeqCst), 1);
-        assert_eq!(contenders.load(Ordering::SeqCst), num_threads - 1);
+        assert_eq!(
+            max_simultaneous_holders.load(Ordering::SeqCst),
+            1,
+            "MAX_SIMULTANEOUS_HOLDERS musi wynosić dokładnie 1"
+        );
+        assert!(
+            acquisitions.load(Ordering::SeqCst) >= 1,
+            "co najmniej jeden wątek musi przejąć blokadę"
+        );
+        assert_eq!(
+            acquisitions.load(Ordering::SeqCst) + rejections.load(Ordering::SeqCst),
+            num_threads,
+            "każdy wątek musi zakończyć się przejęciem albo odrzuceniem"
+        );
+        assert_eq!(
+            holders.load(Ordering::SeqCst),
+            0,
+            "po zakończeniu wszystkich wątków żaden posiadacz nie może pozostać"
+        );
     }
 }

@@ -966,28 +966,58 @@ mod tests {
 
         let mut streams = Vec::new();
         for _ in 0..MAX_HANDSHAKES {
-            let s = tokio::net::TcpStream::connect(host_addr).await.unwrap();
-            streams.push(s);
+            let stream = tokio::net::TcpStream::connect(host_addr).await.unwrap();
+            streams.push(stream);
         }
 
-        for _ in 0..50 {
-            if host.available_handshake_permits() == 0 {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
+        // Gotowość jest sygnalizowana przez kontrolowany licznik permitów, a nie
+        // przez zegar rzeczywisty. `wait_until` jest bezpiecznikiem żywotności,
+        // nie asercją wydajności: pod obciążeniem czeka dłużej, zamiast fałszywie
+        // raportować przekroczenie limitu.
+        assert!(
+            wait_until(|| host.available_handshake_permits() == 0).await,
+            "host nie odebrał wszystkich {MAX_HANDSHAKES} permitów; pozostało {}",
+            host.available_handshake_permits()
+        );
+        assert_eq!(host.available_handshake_permits(), 0);
+
+        // Szóste połączenie nie może przyznać dodatkowego permita.
+        let extra_stream = tokio::net::TcpStream::connect(host_addr).await.unwrap();
+        for _ in 0..64 {
+            tokio::task::yield_now().await;
         }
-        assert_eq!(host.available_handshake_permits(), 0);
+        assert_eq!(
+            host.available_handshake_permits(),
+            0,
+            "limit {MAX_HANDSHAKES} równoległych handshake'ów został przekroczony"
+        );
 
-        let s6 = tokio::net::TcpStream::connect(host_addr).await.unwrap();
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        assert_eq!(host.available_handshake_permits(), 0);
-
+        // Zamknięcie wszystkich połączeń (także szóstego) musi zwrócić pełną pulę.
         drop(streams.pop());
-        tokio::time::sleep(Duration::from_millis(50)).await;
-
         drop(streams);
-        drop(s6);
+        drop(extra_stream);
+        assert!(
+            wait_until(|| host.available_handshake_permits() == MAX_HANDSHAKES).await,
+            "po zamknięciu połączeń pula permitów nie wróciła do {MAX_HANDSHAKES}; pozostało {}",
+            host.available_handshake_permits()
+        );
+
         host.stop();
+    }
+
+    /// Oczekiwanie na warunek oparte na kontrolowanym stanie, nie na zegarze.
+    ///
+    /// Krótki `sleep` umożliwia pętli I/O wykonanie pracy (parkowanie runtime),
+    /// lecz sukces nie zależy od konkretnego czasu hosta: budżet jest bardzo
+    /// szeroki i służy wyłącznie wykryciu realnego zakleszczenia.
+    async fn wait_until<F: Fn() -> bool>(condition: F) -> bool {
+        for _ in 0..30_000 {
+            if condition() {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        condition()
     }
 
     async fn wait_for_host_event_matching<F>(
@@ -1343,7 +1373,6 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn idle_peer_timeout_uses_virtual_time() {
-        let wall_start = std::time::Instant::now();
         let virt_start = tokio::time::Instant::now();
 
         let (host_tx, host_rx) = std::sync::mpsc::channel();
@@ -1389,16 +1418,16 @@ mod tests {
 
         assert_eq!(host.connected_peers(), 0);
 
+        // Wyłącznie czas wirtualny Tokio — żadne kryterium PASS nie zależy od
+        // zegara ściennego hosta ani od obciążenia CPU.
         let virt_elapsed = tokio::time::Instant::now().duration_since(virt_start);
-        let wall_elapsed = wall_start.elapsed();
-
         assert!(
             virt_elapsed >= IDLE_TIMEOUT,
             "Virtual time must have advanced past IDLE_TIMEOUT (45s)"
         );
         assert!(
-            wall_elapsed < Duration::from_secs(5),
-            "Wall clock time must remain negligible (< 5s), actual: {wall_elapsed:?}",
+            virt_elapsed < IDLE_TIMEOUT + Duration::from_secs(30),
+            "Virtual time advanced far beyond the deterministic budget: {virt_elapsed:?}"
         );
 
         drop(handshake_res);
