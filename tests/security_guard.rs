@@ -5170,12 +5170,17 @@ fn m3_f_owner_decisions_and_support_policy_guard() {
         );
     }
 
-    // Fixture weryfikacji natywnej musi jawnie deklarować, że nie jest fail-closed (F-03).
+    // Fixture weryfikacji natywnej jest fail-closed od bramki F-03.
     let verify_script = fs::read_to_string("scripts/verify_linux_container.sh")
         .expect("scripts/verify_linux_container.sh");
     assert!(
-        verify_script.contains("LEGACY NON-FAIL-CLOSED"),
-        "Skrypt weryfikacji musi jawnie oznaczać brak fail-closed (F-03)"
+        !verify_script.contains("LEGACY NON-FAIL-CLOSED"),
+        "Skrypt weryfikacji nie może już deklarować legacy non-fail-closed (F-03)"
+    );
+    assert!(
+        verify_script.contains("NATIVE VERIFICATION COMPLETED SUCCESSFULLY")
+            && verify_script.contains("set -eu"),
+        "Skrypt weryfikacji musi być fail-closed i kończyć się komunikatem sukcesu"
     );
 
     // Weryfikacja szablonu .desktop
@@ -5444,5 +5449,230 @@ fn qa_native_installer_tests_are_hermetic_and_fail_closed() {
     assert!(
         ci.contains("2700") && ci.contains("2690") && ci.contains("10 ignored"),
         "CI musi dokumentować kanoniczne liczniki bazowe (2700/2690/10)"
+    );
+}
+
+// ============================================================================
+// STAGE-M3-F-F03-FAIL-CLOSED-CI-VERIFICATION-GATE (2026-11-09)
+// Strażnik fail-closed natywnej weryfikacji Linux (F-03): brak maskowania
+// progów krytycznych, jawna kontrola GLIBC_2.43, instalacja bibliotek runtime
+// przed weryfikatorem, dokładnie 4 profile, test negatywny w CI oraz
+// publikacja release wyłącznie dla tagu.
+// ============================================================================
+
+#[test]
+fn m3_f_f03_fail_closed_verification_guard() {
+    let script = fs::read_to_string("scripts/verify_linux_container.sh")
+        .expect("scripts/verify_linux_container.sh");
+    let installer = fs::read_to_string("scripts/install_linux_runtime_deps.sh")
+        .expect("scripts/install_linux_runtime_deps.sh");
+    let workflow = fs::read_to_string(".github/workflows/build-and-release.yml")
+        .expect(".github/workflows/build-and-release.yml");
+
+    // 1. Rygorystyczny tryb powłoki i brak markera legacy.
+    assert!(
+        script.contains("set -eu"),
+        "weryfikator musi używać rygorystycznego trybu `set -eu`"
+    );
+    assert!(
+        !script.contains("LEGACY NON-FAIL-CLOSED"),
+        "weryfikator nie może już deklarować legacy non-fail-closed (F-03)"
+    );
+
+    // 2. Żaden próg krytyczny nie jest maskowany `|| true`; każde pozostałe
+    //    `|| true` musi być jawnie oznaczone jako diagnostyka niekrytyczna.
+    for line in script.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with('#') {
+            continue;
+        }
+        let is_ldd_target = trimmed.contains("ldd")
+            && trimmed.contains("SPLogbook/SPLogbook")
+            && !trimmed.contains("ldd --version");
+        let is_version = trimmed.contains("--version") && trimmed.contains("SPLogbook/SPLogbook");
+        let is_build_info =
+            trimmed.contains("--build-info") && trimmed.contains("SPLogbook/SPLogbook");
+        if is_ldd_target || is_version || is_build_info {
+            assert!(
+                !trimmed.contains("|| true"),
+                "krytyczna kontrola F-03 nie może być maskowana `|| true`: {trimmed}"
+            );
+        }
+        if trimmed.contains("|| true") {
+            assert!(
+                trimmed.contains("NON-CRITICAL"),
+                "każde pozostałe `|| true` musi być jawnie oznaczone NON-CRITICAL: {trimmed}"
+            );
+        }
+    }
+
+    // 3. Komunikat sukcesu występuje dokładnie raz i jest ostatnią instrukcją.
+    let success = "NATIVE VERIFICATION COMPLETED SUCCESSFULLY";
+    let success_occurrences = script
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#') && line.contains(success))
+        .count();
+    assert_eq!(
+        success_occurrences, 1,
+        "komunikat sukcesu musi wystąpić dokładnie raz w kodzie wykonawczym"
+    );
+    let last_instruction = script
+        .lines()
+        .rfind(|line| !line.trim().is_empty())
+        .expect("skrypt nie może być pusty")
+        .trim();
+    assert_eq!(
+        last_instruction, "echo \"NATIVE VERIFICATION COMPLETED SUCCESSFULLY\"",
+        "komunikat sukcesu musi być ostatnią instrukcją skryptu (po wszystkich kontrolach)"
+    );
+
+    // 4. `not found` i błąd loadera są jawnie odrzucane.
+    assert!(
+        script.contains("\"not found\""),
+        "weryfikator musi jawnie odrzucać wynik ldd zawierający `not found`"
+    );
+    assert!(
+        script.contains("error while loading shared libraries"),
+        "weryfikator musi jawnie odrzucać błąd loadera"
+    );
+    assert!(
+        script.contains("ldd exited with code"),
+        "weryfikator musi kontrolować niezerowy kod wyjścia ldd"
+    );
+
+    // 5. Jawna polityka GLIBC_2.43 z semantycznym porównaniem wersji.
+    assert!(
+        script.contains("GLIBC_POLICY_MAX=\"2.43\""),
+        "weryfikator musi jawnie kodować politykę GLIBC_2.43"
+    );
+    assert!(
+        script.contains("sort -V") && script.contains("version_le"),
+        "weryfikator musi porównywać wersje semantycznie (nie naiwnie tekstowo)"
+    );
+    assert!(
+        script.contains("newer than the GLIBC_"),
+        "weryfikator musi kończyć się FAIL przy symbolu nowszym niż polityka"
+    );
+
+    // 6. Instalator runtime: oficjalne menedżery, pełna lista sonamów, fail-closed.
+    for soname in [
+        "libasound.so.2",
+        "libX11.so.6",
+        "libXcursor.so.1",
+        "libXrandr.so.2",
+        "libXi.so.6",
+        "libxkbcommon.so.0",
+        "libxkbcommon-x11.so.0",
+        "libGL.so.1",
+        "libfontconfig.so.1",
+        "libwayland-client.so.0",
+        "libwayland-cursor.so.0",
+        "libwayland-egl.so.1",
+        "libgtk-3.so.0",
+        "libusb-1.0.so.0",
+        "libudev.so.1",
+    ] {
+        assert!(
+            installer.contains(soname),
+            "instalator runtime musi wymagać sonamu {soname}"
+        );
+    }
+    for manager in [
+        "apt-get install",
+        "dnf install",
+        "pacman -Sy",
+        "zypper --non-interactive install",
+    ] {
+        assert!(
+            installer.contains(manager),
+            "instalator runtime musi używać oficjalnego menedżera: {manager}"
+        );
+    }
+    assert!(
+        installer.contains("ldconfig -p"),
+        "instalator runtime musi weryfikować sonamy przez ldconfig -p"
+    );
+    assert!(
+        installer.contains("[ -z \"${MISSING}\" ] || fail"),
+        "instalator runtime musi być fail-closed przy brakującym sonamie"
+    );
+
+    // 7. Workflow: dokładnie 4 przypięte profile, instalacja przed weryfikatorem,
+    //    przekazanie dokładnego SHA commita.
+    assert_eq!(
+        workflow.matches("distro_id: \"").count(),
+        4,
+        "macierz CI musi zawierać dokładnie 4 profile"
+    );
+    assert_eq!(
+        workflow.matches("image: \"").count(),
+        4,
+        "każdy profil musi mieć jawnie przypięty obraz OCI"
+    );
+    for digest in [
+        "ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c",
+        "fedora:45@sha256:a7d72ba2745b100a3351087472e5ee7b2450af7cf331e7673007e3817612839c",
+        "archlinux:base-20261101.0.620205@sha256:b1c2fe6e717bfd5673af8fc217e1e1c3ce0dcbb1d53c3414c8425e7ce79fc6d9",
+        "opensuse/tumbleweed:latest@sha256:6e3a892daa0372e12a9c0b10291303dbfcd8706a450de6edfd72c763b44b4ac1",
+    ] {
+        assert!(
+            workflow.contains(digest),
+            "workflow musi przypinać obraz przez digest: {digest}"
+        );
+    }
+    let run_command = "/bin/sh -c 'set -e; /bin/sh /workspace/install_runtime_deps.sh; exec /bin/sh /workspace/run_test.sh'";
+    assert!(
+        workflow.contains(run_command),
+        "weryfikator musi być uruchamiany po instalacji bibliotek runtime"
+    );
+    let install_at = run_command.find("install_runtime_deps.sh").unwrap();
+    let verify_at = run_command.find("run_test.sh").unwrap();
+    assert!(
+        install_at < verify_at,
+        "instalacja bibliotek musi poprzedzać uruchomienie weryfikatora"
+    );
+    assert!(
+        workflow.contains("-e EXPECTED_BUILD_COMMIT=\"${{ github.sha }}\""),
+        "workflow musi przekazywać dokładny SHA commita do kontroli --build-info"
+    );
+
+    // 8. Test negatywny w CI: brak biblioteki => niezerowy kod i brak sukcesu.
+    assert!(
+        workflow.contains("verify-linux-negative"),
+        "workflow musi zawierać job negatywny fail-closed"
+    );
+    assert!(
+        workflow.contains("fail-closed negative fixture unexpectedly succeeded"),
+        "job negatywny musi odrzucić nieoczekiwany sukces"
+    );
+    assert!(
+        workflow.contains("success message was emitted despite the missing runtime library"),
+        "job negatywny musi odrzucić emisję komunikatu sukcesu przy błędzie"
+    );
+    assert!(
+        workflow.contains("expected 'not found' ldd evidence"),
+        "job negatywny musi wymagać dowodu `not found`"
+    );
+
+    // 9. Publikacja release pozostaje zablokowana bez właściwego tagu.
+    let publish = workflow
+        .split("publish-release:")
+        .nth(1)
+        .expect("job publish-release musi istnieć");
+    assert!(
+        publish.contains("if: startsWith(github.ref, 'refs/tags/v')"),
+        "Publish Release Assets musi być warunkowany tagiem v*"
+    );
+    assert!(
+        publish.contains(
+            "startsWith(github.ref, 'refs/tags/v') && github.event.inputs.dry_run != 'true'"
+        ),
+        "Create GitHub Release musi wymagać tagu v* i braku dry-run"
+    );
+    assert!(
+        publish.contains(
+            "needs: [build-linux, build-windows, verify-linux-matrix, verify-linux-negative]"
+        ),
+        "Publish Release Assets musi zależeć od wszystkich jobów weryfikacyjnych"
     );
 }
