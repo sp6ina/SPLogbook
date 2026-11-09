@@ -232,7 +232,7 @@ jobs:
           - name: "Arch Linux Rolling Snapshot"
             distro_id: "arch-rolling"
             image: "archlinux:base-20261101.0.620205@sha256:b1c2fe6e717bfd5673af8fc217e1e1c3ce0dcbb1d53c3414c8425e7ce79fc6d9"
-            pkg_query: "pacman -Q linux glibc; pacman-conf --repo-list"
+            pkg_query: "pacman -Q glibc; pacman-conf --repo-list"
           - name: "openSUSE Tumbleweed"
             distro_id: "opensuse-tumbleweed"
             image: "opensuse/tumbleweed:latest@sha256:6e3a892daa0372e12a9c0b10291303dbfcd8706a450de6edfd72c763b44b4ac1"

@@ -147,7 +147,7 @@ case "${LDD_OUT}" in
 esac
 printf '%s\n' "${LDD_OUT}" | grep -q '=> /' \
     || fail "ldd did not resolve any shared library path"
-pass "ldd resolved every direct dependency (no 'not found')"
+pass "ldd resolved every direct dependency (all shared libraries mapped)"
 
 echo "=== 5.2. REQUIRED RUNTIME SONAMES ==="
 LDCONFIG_CACHE="$(ldconfig -p)" || fail "ldconfig -p failed"
