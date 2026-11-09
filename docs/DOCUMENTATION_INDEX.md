@@ -66,8 +66,10 @@ Legenda statusu: `CURRENT` — aktualny; `PARTIAL` — częściowo nieaktualny (
 | `STAGE_M3_D_*` | M3-D | `EVIDENCE` — §6.3 deklaruje E2E z `/NOICONS` (parametr niedziałający przy `DisableProgramGroupPage=yes`); nie wpływa na ważność implementacji |
 | `STAGE_M3_E_*` | M3-E | `EVIDENCE` |
 | `STAGE_M3_DEV_VERSION_*` | M3-DEV | `EVIDENCE` |
-| `STAGE_M3_F_LINUX_PORTABLE_TAR_GZ_*` | M3-F | `EVIDENCE` — polityka dystrybucji `SUPERSEDED` |
-| `STAGE_M3_F_NATIVE_LINUX_EVIDENCE_AND_SNAPSHOT_CORRECTION_*` | M3-F native | `EVIDENCE` — dowód userspace/CI, nie dowód jądra |
+| `STAGE_M3_F_LINUX_PORTABLE_TAR_GZ_*` | M3-F | `EVIDENCE` — polityka dystrybucji `SUPERSEDED` (errata 2026-11-09) |
+| `STAGE_M3_F_NATIVE_LINUX_EVIDENCE_AND_SNAPSHOT_CORRECTION_*` | M3-F native | `EVIDENCE` — dowód userspace/CI, nie dowód jądra (errata 2026-11-09) |
+| `STAGE_M3_F_LINUX_SUPPORT_POLICY_ALIGNMENT_PRE_IMPLEMENTATION_REPORT.md` | M3-F policy | `EVIDENCE` — raport wstępny |
+| `STAGE_M3_F_LINUX_SUPPORT_POLICY_ALIGNMENT_REPORT.md` | M3-F policy | `EVIDENCE` — `COMPLETED_POLICY_ALIGNMENT_VERIFIED` |
 | `STAGE_QA_BASELINE_DETERMINISM_AND_HERMETICITY_PRE_IMPLEMENTATION_REPORT.md` | QA baseline | `EVIDENCE` |
 | `STAGE_QA_BASELINE_DETERMINISM_AND_HERMETICITY_REPORT.md` | QA baseline | `EVIDENCE` — `COMPLETED_DETERMINISTIC_HERMETIC_BASELINE_VERIFIED` |
 | `STAGE_QA_DEPENDENCY_ADVISORY_DECISION_PROPOSAL.md` | propozycja decyzji OWNER dla RUSTSEC-2026-0459 | `EVIDENCE` — rozstrzygnięta decyzją `OWNER-DEP-SECURITY-01` |
@@ -79,8 +81,8 @@ Legenda statusu: `CURRENT` — aktualny; `PARTIAL` — częściowo nieaktualny (
 
 | Ścieżka | Status |
 |---|---|
-| `OWNER-M3-F-LINUX-BASELINE-01-PROPOSAL.md` | `SUPERSEDED` przez politykę OWNER z 2026-11-09 (kernel 7.2, glibc 2.43, bez Debian/Leap) |
-| `STAGE_M3_F_OWNER_DECISIONS_PROPOSAL.md` | `SUPERSEDED` w części macierzy dystrybucji |
+| `OWNER-M3-F-LINUX-BASELINE-01-PROPOSAL.md` | `SUPERSEDED` przez politykę OWNER z 2026-11-09: `OWNER-M3-F-KERNEL-POLICY-OPTION-A` (dynamiczne minimum **7.0**) + `OWNER-M3-F-GLIBC-POLICY-01` (**2.43**), bez Debian/Leap |
+| `STAGE_M3_F_OWNER_DECISIONS_PROPOSAL.md` | `SUPERSEDED` w części macierzy dystrybucji i modelu kernela |
 | `STAGE_M3_E_MSI_PRERELEASE_VERSIONING_DECISION_PROPOSAL.md` | `OPEN` — blokuje MSI dla `1.3.0-alpha.2` |
 | `STAGE_M3_E_WIX_TOOLCHAIN_DECISION_PROPOSAL.md` | `APPROVED` (`OWNER-M3-E-TOOLCHAIN-01`) |
 

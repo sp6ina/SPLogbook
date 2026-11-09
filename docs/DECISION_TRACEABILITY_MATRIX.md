@@ -35,8 +35,10 @@ której **nie ma jeszcze w repozytorium**.
 
 | ID | Decyzja | Realizacja | Test | Commit | Status |
 |---|---|---|---|---|---|
-| OWNER-M3-F-LINUX-BASELINE-01 | Macierz 7 dystrybucji (Debian, Leap, …) | snapshot + skrypt + CI matrix | `linux_multi_distribution_compatibility_test` | `e5ac2d1`, `28d95cd` | `SUPERSEDED` (2026-11-09) |
-| OWNER-M3-F-KERNEL-POLICY-01 | Dynamiczny floor kernela = 6.12 | `scripts/build_linux_portable_tar_gz.sh:179` + snapshot | test dynamicznego floor | `e5ac2d1` | `SUPERSEDED` → fixed **7.2** |
+| OWNER-M3-F-LINUX-BASELINE-01 | Macierz 7 dystrybucji (Debian, Leap, …) | zastąpiona macierzą 4 wspieranych dystrybucji | `linux_multi_distribution_compatibility_test` | `e5ac2d1`, `28d95cd` | `SUPERSEDED` (2026-11-09) |
+| OWNER-M3-F-KERNEL-POLICY-01 | Dynamiczny floor kernela = 6.12 | `scripts/build_linux_portable_tar_gz.sh:179` + snapshot | test dynamicznego floor | `e5ac2d1` | `SUPERSEDED` → OPTION A (dynamiczny **7.0**) |
+| OWNER-M3-F-KERNEL-POLICY-OPTION-A | Minimum = najstarsza domyślna linia kernela wspieranych dystrybucji = **7.0**; bez sztywnego 7.2; kanały niestabilne nie wyznaczają minimum | snapshot v2 + `RESOLVED_MIN_KERNEL="7.0"` + macierz CI | `security_guard::m3_f_owner_decisions_and_support_policy_guard`, `linux_multi_distribution_compatibility_test` | bramka 2026-11-09 | `IMPLEMENTED` |
+| OWNER-M3-F-GLIBC-POLICY-01 | Minimum glibc **2.43**, maksymalny symbol `GLIBC_2.43`, bez bundled glibc | snapshot v2 + strażnik | jw. | bramka 2026-11-09 | `IMPLEMENTED` |
 | OWNER-M3-F-ARCHITECTURE-01 | Wyłącznie x86_64 | marker + manifest | testy manifestu | `e5ac2d1` | `IMPLEMENTED` |
 | OWNER-M3-F-LIBRARY-POLICY-01 | Najnowsze stabilne zależności + przecięcie ABI | `Cargo.toml` | `cargo audit` | — | `IMPLEMENTED` |
 | OWNER-M3-F-DYNAMIC-LIBRARIES-01 | Bundled `libhamlib.so.4`, RUNPATH `$ORIGIN` | skrypt budowania | audyt ELF w CI | `a983e62` | `IMPLEMENTED` |
@@ -49,23 +51,24 @@ której **nie ma jeszcze w repozytorium**.
 | OWNER-M3-F-TEST-MATRIX-01 | Pętle stabilności 100/50/20 | testy | 3 testy pętli | `fffe429` | `IMPLEMENTED` |
 | OWNER-M3-F-GIT-WORKFLOW-01 | Historia liniowa, ff-only, niezmienny tag | proces | weryfikacja w raportach | — | `IMPLEMENTED` (potwierdzone) |
 | OWNER-M3-F-SCRIPT-STANDARDS-01 | `set -euo pipefail`, deterministyczny tar | skrypt | guard | `13609fd` | `IMPLEMENTED` |
-| OWNER-M3-F-ABI-BASELINE-01 | Budowa pod glibc 2.35, forward compatible | — | — | — | `CONTRADICTED` przez minimum 2.43 (F-01) |
+| OWNER-M3-F-ABI-BASELINE-01 | Budowa pod glibc 2.35, forward compatible | — | — | — | `SUPERSEDED` przez minimum 2.43 (`OWNER-M3-F-GLIBC-POLICY-01`) |
 
-## 4. Intencja OWNER z 2026-11-09 (NIE MA JEJ W REPOZYTORIUM)
+## 4. Polityka Linux zapisana w repozytorium (2026-11-09)
 
-| Element | Wartość OWNER | Stan repozytorium | Status |
+| Element | Wartość | Stan repozytorium | Status |
 |---|---|---|---|
-| Minimalny kernel | **Linux 7.2**, `OWNER_APPROVED_FIXED_MINIMUM` | 6.12 dynamiczny | `OWNER_INTENT_NOT_YET_IN_REPO` |
-| Minimalny glibc | **2.43** | 2.35 baseline w DESIGN | `OWNER_INTENT_NOT_YET_IN_REPO` |
+| Minimalny kernel | **Linux 7.0**, model dynamiczny (`OWNER-M3-F-KERNEL-POLICY-OPTION-A`) | 7.0 w snapshot/skrypcie/CI | `ZAPISANE` |
+| Minimalny glibc | **2.43** | 2.43 w snapshot/AGENTS | `ZAPISANE` |
 | Maksymalny wymagany symbol glibc | `GLIBC_2.43` | `GLIBC_2.43` w snapshot | zgodne |
-| Debian 13.7 (konfiguracja standardowa) | **NIE WSPIERANY** | wspierany w snapshot/CI | `CONTRADICTED` |
-| openSUSE Leap | **NIE WSPIERANY** | wspierany w snapshot/CI | `CONTRADICTED` |
-| Ubuntu 26.04 LTS | **WARUNKOWY** (kernel ≥ 7.2, glibc ≥ 2.43, oficjalne źródło jądra, test natywny, bez nieoficjalnych repo) | wspierany bezwarunkowo | `OWNER_INTENT_NOT_YET_IN_REPO` |
-| Profile bezpośrednio wspierane | Ubuntu 26.10, Fedora 45 GA, Arch, Tumbleweed | 7 profili z Debian/Leap | `OWNER_INTENT_NOT_YET_IN_REPO` |
+| Debian 13.7 (konfiguracja standardowa) | **NIE WSPIERANY** (glibc 2.41) | `evaluated_not_supported`, brak w CI | `ZGODNE` |
+| openSUSE Leap 16.1 | **NIE WSPIERANY** (glibc 2.40) | `evaluated_not_supported`, brak w CI | `ZGODNE` |
+| Ubuntu 26.04 LTS | **WSPIERANY** (kernel 7.0, glibc 2.43) — wyznacza minimum | wspierany w snapshot/CI | `ZGODNE` |
+| Profile bezpośrednio wspierane | Ubuntu 26.04 LTS, Fedora 45, Arch, Tumbleweed | 4 profile | `ZGODNE` |
+| Ubuntu interim 26.10 | **POZA ZAKRESEM** (polityka obejmuje tylko LTS) | usunięty z CI/snapshotu | `ZGODNE` |
 | Rebuild do glibc 2.41 / bundled glibc | **NIE** | brak bundled glibc | zgodne |
 
-**Konsekwencja:** M3-F nie może być uznane za zamknięte wobec intencji OWNER; wymagana bramka
-`STAGE-M3-F-LINUX-SUPPORT-POLICY-ALIGNMENT-GATE` po zamknięciu QA. M3-G pozostaje `BLOCKED`.
+**Konsekwencja:** M3-F jest domknięte politycznie (`COMPLETED_POLICY_ALIGNMENT_VERIFIED`).
+M3-G pozostaje `NOT_STARTED` (wymaga osobnego GO OWNER).
 
 ## 5. Decyzje bramki QA 2026-11-09
 
