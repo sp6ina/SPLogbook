@@ -114,7 +114,7 @@ git -c core.fsmonitor=false -c core.untrackedCache=false status --porcelain=v1
 |---|---|---|---|
 | F-01 | P1 | Repozytorium koduje zastąpioną politykę Linux (6.12, Debian, Leap) | **ROZWIĄZANE** 2026-11-09 — polityka 7.0 / glibc 2.43, 4 dystrybucje |
 | F-02/F-04 | P1 | „Natywna” weryfikacja w kontenerze nie dowodzi jądra; sprzeczne twierdzenia ABI | **ROZWIĄZANE** 2026-11-09 (dowody oznaczone jako legacy, Debian/Leap niewspierane) |
-| F-03 | P1 | `\|\| true` maskuje błędy w `verify_linux_container.sh` | **OPEN** — wymaga CI-hardening przed M3-G; formalna bramka `STAGE-M3-F-F03-FAIL-CLOSED-CI-VERIFICATION-GATE` (`OPEN`, `NOT_STARTED`, wymaga GO OWNER) |
+| F-03 | P1 | `\|\| true` maskuje błędy w `verify_linux_container.sh` | **ZAMKNIĘTE** 2026-11-09 — `STAGE-M3-F-F03-FAIL-CLOSED-CI-VERIFICATION-GATE` = `COMPLETED_FAIL_CLOSED_CI_VERIFICATION_VERIFIED`; run `42685105375` (commit `abdb767`, 4/4 profile, zero `not found`, GLIBC ≤ 2.43) + job negatywny (brak biblioteki → exit 1) |
 | F-05 | P2 | MSI/Setup nie są budowane/publikowane przez CI | przyszła bramka release |
 | F-07 | P2 | XDG vs portable DB — precedence | przyszła bramka |
 | F-14 | P0 (sprzętowo zablokowane) | Panika po załączeniu PTT przy `max_test_duration_ms` 1-9 | obowiązkowe przed HIL |
@@ -159,10 +159,12 @@ git -c core.fsmonitor=false -c core.untrackedCache=false status --porcelain=v1
   (2026-11-09, **jedna sesja**, commit + push ff-only) — klasyfikacja drzewa tracked/untracked/
   ignored/strict, sprostowanie 7 profili (run `42518873662`), potwierdzony fałszywy PASS na
   4 profilach (run `42638736785`) i formalne zdefiniowanie bramki F-03.
-- Następna bramka (jedyna wykonywalna): **`STAGE-M3-F-F03-FAIL-CLOSED-CI-VERIFICATION-GATE`** —
-  `OPEN` / `NOT_STARTED`, wymaga osobnego GO OWNER.
-- M3-G (AppImage): **`BLOCKED` / `NOT_STARTED`** — **nie rozpoczęto**; wymaga zamknięcia F-03
-  i osobnego GO OWNER.
+- Bramka F-03: **`COMPLETED_FAIL_CLOSED_CI_VERIFICATION_VERIFIED`** (2026-11-09, jedna sesja) —
+  fail-closed weryfikator, biblioteki runtime w 4 obrazach OCI, jawna kontrola `GLIBC_2.43`,
+  test negatywny; run `42685105375` na commicie `abdb767`, 4/4 profile `success`, zero `not found`.
+- Następna bramka (jedyna wykonywalna): **`STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE`** —
+  `NOT_STARTED` / `READY_FOR_OWNER_GO`, wymaga osobnego GO OWNER.
+- M3-G (AppImage): **`READY_FOR_OWNER_GO`** — **nie rozpoczęto**; implementacja wymaga GO OWNER.
 
 Raporty: `STAGE_QA_BASELINE_DETERMINISM_AND_HERMETICITY_REPORT.md`,
 `STAGE_DEPENDENCY_SECURITY_UPDATE_REPORT.md`,

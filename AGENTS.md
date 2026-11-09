@@ -69,17 +69,19 @@
     wymagania ABI; Ubuntu interim (26.10) jest poza zakresem. Snapshot:
     `LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.{json,md}`. Politykę wolno zmienić wyłącznie nową,
     jawną decyzją OWNER i osobną bramką.
-25. **M3-G (AppImage) pozostaje ZABLOKOWANE / `NOT_STARTED`** — wymaga osobnej bramki.
-26. **F-03 (P1, `OPEN`) — natywna weryfikacja Linux nie jest fail-closed.** W
-    `scripts/verify_linux_container.sh` progi `ldd` (`:46`) oraz uruchomienia binarki
-    `--version` (`:49`) i `--build-info` (`:50`) są maskowane `|| true`, więc niezaładowany ELF
-    (np. brak `libasound.so.2`) nie zatrzymuje skryptu, a `:80` wypisuje
-    `NATIVE VERIFICATION COMPLETED SUCCESSFULLY` przy nieuruchomionej binarce — job CI bywa
-    `success`. **Nie deklaruj natywnego PASS dla Linux na podstawie tego fixture** (potwierdzone
-    na 4 profilach runu `42638736785`). Integralność archiwum (`sha256sum -c`, `tar -xzf`,
-    marker) jest fail-closed i to nie jest F-03. Domknięcie: bramka
-    `STAGE-M3-F-F03-FAIL-CLOSED-CI-VERIFICATION-GATE` (`OPEN`, `NOT_STARTED`); zmiana skryptu,
-    workflowów i obrazów OCI wyłącznie w tej bramce, po GO OWNER.
+25. **M3-G (AppImage) pozostaje `NOT_STARTED`** — po zamknięciu F-03 jego status to
+    `READY_FOR_OWNER_GO`; implementacja wymaga osobnej bramki i jawnego GO OWNER.
+26. **F-03 (P1) — ZAMKNIĘTE 2026-11-09** (`STAGE-M3-F-F03-FAIL-CLOSED-CI-VERIFICATION-GATE`,
+    `COMPLETED_FAIL_CLOSED_CI_VERIFICATION_VERIFIED`). Weryfikator
+    `scripts/verify_linux_container.sh` jest fail-closed: ELF, `ldd`, `--version`, `--build-info`
+    i ABI `GLIBC_2.43` są asercjami, a `NATIVE VERIFICATION COMPLETED SUCCESSFULLY` jest
+    wypisywany wyłącznie po wszystkich kontrolach. Biblioteki runtime są instalowane z
+    oficjalnego menedżera pakietów w każdym z 4 przypiętych obrazów OCI **przed** weryfikacją
+    (`scripts/install_linux_runtime_deps.sh`). Dowód: run `42685105375` na commicie `abdb767`,
+    4/4 profile `success`, zero `not found` w logach, `--version` i `--build-info` exit 0,
+    wymagany GLIBC ≤ 2.43, oraz job negatywny (brak biblioteki → exit 1, bez komunikatu
+    sukcesu). **Nie deklaruj natywnego PASS bez tych dowodów.** M3-G pozostaje `NOT_STARTED`
+    i wymaga osobnego GO OWNER.
 
 ## 6. Zasady testów i instalatorów
 
@@ -90,6 +92,10 @@
 - Przy opt-in: brak artefaktu, zła wersja, niezerowy exit code, brak logu lub brak dowodu
   instalacji/deinstalacji = **FAIL-CLOSED**. Nigdy nie ignoruj exit code, nigdy `|| true`,
   nigdy pusty `return` jako ukryty skip.
+- Weryfikacja natywna Linux jest **fail-closed**. Maskowanie `ldd`, `--version` lub
+  `--build-info` przez `|| true` jest zabronione; strażnik
+  `m3_f_f03_fail_closed_verification_guard` musi pozostać zielony, a każdy profil musi
+  instalować biblioteki runtime przed uruchomieniem weryfikatora.
 - Nie zmieniaj testu tylko po to, by uzyskać zielony wynik. Nie osłabiaj asercji bezpieczeństwa.
 - Nie zmieniaj `src/` produkcyjnie, `Cargo.toml`, `Cargo.lock` bez osobnej, uzasadnionej bramki.
 

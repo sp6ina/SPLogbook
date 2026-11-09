@@ -13,8 +13,9 @@
 - **Rust Target:** `x86_64-unknown-linux-gnu`
 - **Wersja Rust (artefakt):** `1.99.1`
 - **Nazwa kanonicznego artefaktu:** `SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz`
-- **Rozmiar artefaktu:** `19479546` bajtów
-- **SHA-256 artefaktu:** `5df6ac20dd9717fb568567d53d7566758fa62ec507b1a9cba446c39ea346b7ac`
+- **Rozmiar artefaktu:** `19500951` bajtów
+- **SHA-256 artefaktu:** `9b31fd2437b89a80d58784338f4702bbe175d84907824d635a9a4caa9002127c`
+- **Commit budujący artefakt:** `abdb767d41bd07da1304c1c8f5d8993726a6575a`
 - **Liczba elementów archiwum:** `17`
 - **Pakiet Hamlib:** Hamlib 4.7.2 (`libhamlib.so.4`), RUNPATH `$ORIGIN/lib:$ORIGIN/../lib`
 - **Środowisko budowania:** Ubuntu 26.04.1 LTS, runner `ubuntu-latest` (**nieprzypięty** — ryzyko rezydualne)
@@ -104,15 +105,26 @@ repozytoriach.
 
 ## 7. Status Dowodów Natywnych
 
-Run CI `42518873662` obejmował **poprzednią, 7-profilową macierz**. Skrypt
-`scripts/verify_linux_container.sh` maskował błędy ładowania ELF przez `|| true`, więc deklaracje
-`VERIFIED_PASS` z tego runu **nie są dowodem fail-closed** (F-03). Dodatkowo snapshot deklarował
-`GLIBC_2.43` i jednocześnie PASS na Debian/Leap z glibc 2.41/2.40 — twierdzenia wykluczające się
-(F-04).
+**Status:** `FAIL_CLOSED_VERIFIED` (run `42685105375`, commit `abdb767`, 2026-11-09).
 
-- **Status dowodów:** `LEGACY_NON_FAIL_CLOSED_NOT_REVERIFIED`
-- **Wymagane:** nowy fail-closed run CI na 4-profilowej macierzy po pushu bramki.
-- **Nie deklaruje się** natywnego PASS dla nowej macierzy w tej bramce.
+Kanoniczny artefakt `SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz`
+(SHA-256 `9b31fd2437b89a80d58784338f4702bbe175d84907824d635a9a4caa9002127c`,
+`19500951` B, 17 wpisów) został zweryfikowany w 4 przypiętych obrazach OCI:
+
+| Profil | Biblioteki runtime | `not found` | `--version` | `--build-info` | GLIBC max | Wynik |
+|---|---|---|---|---|---|---|
+| Ubuntu 26.04.1 LTS | zainstalowane (apt) | **0** | exit 0 | exit 0, `abdb767…` | `GLIBC_2.43` ≤ 2.43 (dostępne 2.43) | PASS |
+| Fedora 45 | zainstalowane (dnf) | **0** | exit 0 | exit 0, `abdb767…` | `GLIBC_2.43` ≤ 2.43 (dostępne 2.44) | PASS |
+| Arch Linux | zainstalowane (pacman) | **0** | exit 0 | exit 0, `abdb767…` | `GLIBC_2.43` ≤ 2.43 (dostępne 2.44) | PASS |
+| openSUSE Tumbleweed | zainstalowane (zypper) | **0** | exit 0 | exit 0, `abdb767…` | `GLIBC_2.43` ≤ 2.43 (dostępne 2.44) | PASS |
+
+**Test negatywny:** goły obraz `ubuntu:26.04` bez bibliotek runtime →
+`libasound.so.2 => not found`, `FAIL: ldd reports an unresolved shared library`, **exit 1**,
+brak komunikatu sukcesu. `Publish Release Assets` = `skipped`; brak nowego tagu i release.
+
+Runy `42518873662` (7 profili) i `42638736785` (4 profile) są **historycznym dowodem legacy
+non-fail-closed** (wszystkie profile: `libasound.so.2 => not found` przy komunikacie sukcesu)
+i nie stanowią dowodu natywnego PASS.
 
 ---
 

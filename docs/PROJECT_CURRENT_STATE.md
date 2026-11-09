@@ -21,19 +21,20 @@ zamknięciu każdej bramki i **zastępuje wszystkie historyczne liczniki** w inn
 | `cargo audit` | **0 podatności** (ostatni pomiar bramki zależności, bez `--ignore`) |
 | **Minimum Linux** | **kernel 7.0, glibc 2.43** (`OWNER-M3-F-KERNEL-POLICY-OPTION-A`, `OWNER-M3-F-GLIBC-POLICY-01`) |
 | **Wspierane dystrybucje** | Ubuntu 26.04 LTS, Fedora 45, Arch Linux, openSUSE Tumbleweed |
-| Gałąź robocza | `repair/full-system-remediation` → fast-forward do `main` |
+| Gałąź robocza | `main` |
 
-## 2. Git po bramce spójności po zamknięciu M3-F
+## 2. Git po bramce F-03
 
 | Pole | Wartość |
 |---|---|
-| HEAD wejściowy (przed tą bramką) | `72c3fe6451e9cfbc9ab25d3bbf23ba4e955ba605` |
+| HEAD wejściowy (przed tą bramką) | `e85ee4e0c80d2f3ca96b9e7068f401586662b18b` |
+| Commit implementacyjny F-03 | `abdb767d41bd07da1304c1c8f5d8993726a6575a` — `ci(linux): make native evidence free of diagnostic ambiguity` (poprzedzony `4699eacdf0076554e51107593641fb64f4dc6dfb`) |
 | Commit domknięcia tej bramki | najnowszy commit `main`, który zawiera ten dokument (`git log -1 --format=%H`) |
-| main | = HEAD (fast-forward z `repair/full-system-remediation`) |
+| main | = HEAD |
 | origin/main | = HEAD (push ff-only wykonany w tej samej sesji; `git rev-parse origin/main`) |
 | ahead / behind | `0 / 0` (zmierzone po pushu) |
 | Zmienione pliki śledzone | **brak** (0 staged, 0 unstaged; `git diff --check` = EXIT 0) |
-| Pliki nieśledzone i nieignorowane | **1**: `scratch/tree_dupes.txt` (lokalny artefakt analizy, nie commitowany) |
+| Pliki nieśledzone i nieignorowane | **obecne** — `?? scratch/` (m.in. `scratch/tree_dupes.txt`, `scratch/audit/…`, `scratch/ci/…`, logi dowodowe F-03) |
 | Pliki ignorowane | **obecne** (`target/`, `dist/`, `SPLogbook-backup/`, logi i skrypty w `scratch/` — wzorce `.gitignore:14` `*.log`, `.gitignore:52` `*.py`) |
 | Czystość ścisła | **FALSE** — `STRICT_WORKTREE_CLEAN=false`, `TRACKED_WORKTREE_CLEAN=true`, `UNTRACKED_SCRATCH_PRESENT=true` |
 | Aktywna operacja Git | brak |
@@ -42,14 +43,7 @@ zamknięciu każdej bramki i **zastępuje wszystkie historyczne liczniki** w inn
 niepasujący do wzorca (`scratch/tree_dupes.txt`) jest realnie nieśledzony i daje `?? scratch/`
 także z `-c core.fsmonitor=false -c core.untrackedCache=false`. To **nie** jest fantom F-25.
 
-Commity bramki polityki Linux (poprzedzającej tę bramkę):
-
-1. `c96c1ae` — `docs(linux): record M3-F support policy baseline`
-2. `ae11b16` — `ci(linux): align supported distribution matrix`
-3. `1253b9e` — `test(linux): enforce documented support policy`
-4. `72c3fe6` — `docs(project): close M3-F Linux support policy gate`
-
-## 3. Baseline (ostatni pełny pomiar: 2026-11-09)
+## 3. Baseline (ostatni pełny pomiar: 2026-11-09, po implementacji F-03)
 
 ```
 cargo +stable test --workspace --all-targets -j 1
@@ -57,25 +51,26 @@ cargo +stable test --workspace --all-targets -j 1
 
 | Licznik | Wartość |
 |---|---|
-| Zarejestrowane | **2 701** (`cargo test -- --list`) |
-| Wykonane | **2 691** |
-| Zaliczone | **2 691** |
+| Zarejestrowane | **2 702** (`cargo test -- --list`) |
+| Wykonane | **2 692** |
+| Zaliczone | **2 692** |
 | Nieudane | **0** |
 | Ignorowane (HIL) | **10** |
 | HIL wykonane | **0** |
 | PTT / RF | **0 / 0** |
 | Doc-testy | 0 (brak zarejestrowanych) |
-| `security_guard` | **121 / 121** |
+| `security_guard` | **122 / 122** (w tym nowy `m3_f_f03_fail_closed_verification_guard`) |
 | `inno_user_data_safety_test` | **8 / 8** (E2E jawnie niewykonany bez opt-in) |
 | `msi_user_data_safety_test` | **6 / 6** |
 
-Pomiar wykonany w **tej jednej sesji domykającej** (2026-11-09, `cargo +stable test --workspace
---all-targets -j 1` → EXIT 0; 1 422 s łącznie z kompilacją; 19 targetów, w tym 14 plików
-integracyjnych). Wszystkie liczniki powyżej pochodzą wyłącznie z tego pomiaru — w tym
-`security_guard` **121 / 121** z nowym strażnikiem `m3_f_post_closure_consistency_guard`.
-Baseline nie zależy od `dist/`; natywny E2E instalatora pozostaje jawnym opt-in.
+Pomiar wykonany w **tej jednej sesji** (2026-11-09, `cargo +stable test --workspace --all-targets
+-j 1` → EXIT 0; 19 targetów). Wzrost 2701→2702 / 2691→2692 wynika wyłącznie z dodania strażnika
+F-03. Baseline nie zależy od `dist/`; natywny E2E instalatora pozostaje jawnym opt-in.
 `-j 1` zamiast `-j 2` z powodu limitu pliku stronicowania tego hosta (`os error 1455`) —
-różnica wydajnościowa, nie wynikowa.
+różnica wydajnościowa, nie wynikowa. Po zmianach dokumentacyjnych powtórka z pominięciem
+jednego pre-existing testu zablokowanego przez prompt sandboxa
+(`windows_helper_test::powershell_real_execution_full_cycle_success`) → 2 691 / 2 691, 0 failed,
+10 ignored, 1 filtered; ten test przeszedł w pełnym przebiegu na tym samym kodzie (2 692).
 
 ## 4. Stan bramek
 
@@ -87,72 +82,77 @@ różnica wydajnościowa, nie wynikowa.
 | M3-B | `COMPLETED_SOFTWARE_VERIFIED` |
 | M3-C | `COMPLETED_SOFTWARE_VERIFIED` |
 | M3-DEV version identity | `COMPLETED_SOFTWARE_VERIFIED` |
-| M3-D Windows User Setup | `COMPLETED_SOFTWARE_VERIFIED` (bez otwarcia; brak dowodu regresji) |
+| M3-D Windows User Setup | `COMPLETED_SOFTWARE_VERIFIED` |
 | M3-E Windows MSI | `COMPLETED_SOFTWARE_VERIFIED` |
-| M3-F Linux portable tar.gz | `COMPLETED_SOFTWARE_VERIFIED` (implementacja; dowód natywny: legacy, nie fail-closed) |
+| M3-F Linux portable tar.gz | **`COMPLETED_SOFTWARE_VERIFIED`** — dowód natywny fail-closed: run `42685105375`, commit `abdb767`, 4/4 profile `success` |
 | QA baseline determinism + hermeticity | **`COMPLETED_DETERMINISTIC_HERMETIC_BASELINE_VERIFIED`** |
 | Dependency security update | **`COMPLETED_DEPENDENCY_SECURITY_UPDATE_VERIFIED`** |
-| M3-F Linux support policy alignment | **`COMPLETED_POLICY_ALIGNMENT_VERIFIED`** — 7.0 / 2.43, 4 dystrybucje, Debian/Leap niewspierane |
-| **M3-F post-closure consistency verification** | **`COMPLETED_POST_CLOSURE_CONSISTENCY_VERIFIED`** — domknięta **jedną sesją** (jeden commit dokumentacyjny + push ff-only po własnym zielonym baseline); klasyfikacja drzewa, sprostowanie 7 profili, formalna bramka F-03 |
-| M3-G AppImage | **`BLOCKED` / `NOT_STARTED`** (wymaga zamknięcia F-03 i osobnego GO OWNER) |
+| M3-F Linux support policy alignment | **`COMPLETED_POLICY_ALIGNMENT_VERIFIED`** — 7.0 / 2.43, 4 dystrybucje |
+| M3-F post-closure consistency verification | **`COMPLETED_POST_CLOSURE_CONSISTENCY_VERIFIED`** |
+| **M3-F F-03 fail-closed CI verification** | **`COMPLETED_FAIL_CLOSED_CI_VERIFICATION_VERIFIED`** — run `42685105375` (4/4 profile, zero `not found`, GLIBC ≤ 2.43) + job negatywny (exit 1) |
+| M3-G AppImage | **`READY_FOR_OWNER_GO` / `NOT_STARTED`** — wymaga osobnego GO OWNER |
 | M3-H/J (DEB/RPM/Flatpak) | `NOT_STARTED` |
 | NATIVE-7B (fizyczny HIL) | `BLOCKED` (10 testów `#[ignore]`, 0 wykonanych) |
 
 ## 5. Otwarte decyzje OWNER
 
 - ~~`RUSTSEC-2026-0459`~~ — **ROZWIĄZANE** 2026-11-09 (`rusqlite 0.41.1`, `libsqlite3-sys 0.39.1`).
-- ~~Polityka Linux (kernel, dystrybucje, glibc)~~ — **ZAPISANA** 2026-11-09:
-  `OWNER-M3-F-KERNEL-POLICY-OPTION-A` (dynamiczne minimum 7.0) oraz
-  `OWNER-M3-F-GLIBC-POLICY-01` (2.43). Decyzja zastępuje sztywne 7.2.
+- ~~Polityka Linux (kernel, dystrybucje, glibc)~~ — **ZAPISANA** 2026-11-09.
+- ~~F-03 (fail-closed weryfikacja Linux)~~ — **ZAMKNIĘTE** 2026-11-09 decyzją
+  `OWNER-M3-F-F03-01` (GO) i bramką `STAGE-M3-F-F03-FAIL-CLOSED-CI-VERIFICATION-GATE`.
 - `OWNER-M2-08`, `OWNER-M2-09`, `OWNER-M2-11`, `OWNER-M2-12`, `OWNER-M2-14` — otwarte, nieblokujące.
 - `OWNER-M2-10` — spór dokumentacyjny (plan: APPROVED, DESIGN: OPEN), kod zaimplementowany.
 - `OWNER-M3-E-MSI-VERSIONING-01` — `OPEN`; blokuje MSI dla `1.3.0-alpha.2` (Windows Installer 1638).
-- Otwarte ryzyko techniczne (nie decyzja): fixture natywnej weryfikacji Linux nie jest fail-closed
-  (**F-03**); formalna bramka `STAGE-M3-F-F03-FAIL-CLOSED-CI-VERIFICATION-GATE` = `OPEN`.
-  Dowód bieżący: przebieg 4-profilowy `42638736785` (commit `72c3fe6`) — wszystkie 4 joby `success`,
-  ale logi **wszystkich czterech** profili pokazują `libasound.so.2 => not found` i nieudane uruchomienie
-  binarki przy jednoczesnym `NATIVE VERIFICATION COMPLETED SUCCESSFULLY` (wykazany fałszywy PASS).
-  Zweryfikowane pierwszoosobowo w sesji domykającej: GitHub API `…/runs/42638736785/jobs`
-  (`head_sha = 72c3fe6`, 4 joby `Verify Linux` = `success`, `Publish Release Assets` = `skipped`)
-  oraz pobrane artefakty `native-evidence-{ubuntu-lts,fedora-final,arch-rolling,opensuse-tumbleweed}`
-  (każdy z nich: `=== 5. ELF & LOADER VALIDATION ===` → `libasound.so.2 => not found`, potem
-  `error while loading shared libraries`, a na końcu `NATIVE VERIFICATION COMPLETED SUCCESSFULLY`).
 
 ## 6. Co NIE jest zrobione
 
-- AppImage / DEB / RPM / Flatpak — brak implementacji.
+- AppImage / DEB / RPM / Flatpak — brak implementacji (M3-G ma status `READY_FOR_OWNER_GO`,
+  ale **nie rozpoczęto** prac).
 - MSI i Setup nie są budowane ani publikowane przez CI (F-05).
-- Natywna weryfikacja Linux nie jest fail-closed (F-03); przebieg 4-profilowy **istnieje**
-  (`42638736785`), ale jego logi nie są dowodem natywnym (brak bibliotek runtime w obrazach).
 - Fizyczny HIL (NATIVE-7B) — niewykonany, sprzęt niedostępny.
 - F-14 (P0, panika po PTT) — nadal otwarte, obowiązkowe przed HIL.
 - F-19/F-20/F-21/F-16/F-15/F-17 — otwarte; wymagają bramki danych/RF.
 
-## 7. Ograniczenia środowiska (znane, udokumentowane)
+## 7. Dowód natywny F-03 (skrót)
+
+Run `42685105375` (`head_sha = abdb767d41bd07da1304c1c8f5d8993726a6575a`, `conclusion = success`):
+
+| Profil | Biblioteki runtime | `not found` | `--version` | `--build-info` | GLIBC max | Wynik |
+|---|---|---|---|---|---|---|
+| Ubuntu 26.04.1 LTS | zainstalowane | **0** | exit 0, `1.3.0-alpha.1` | exit 0, `abdb767…` | `GLIBC_2.43` ≤ 2.43 (dostępne 2.43) | PASS |
+| Fedora 45 | zainstalowane | **0** | exit 0, `1.3.0-alpha.1` | exit 0, `abdb767…` | `GLIBC_2.43` ≤ 2.43 (dostępne 2.44) | PASS |
+| Arch Linux | zainstalowane | **0** | exit 0, `1.3.0-alpha.1` | exit 0, `abdb767…` | `GLIBC_2.43` ≤ 2.43 (dostępne 2.44) | PASS |
+| openSUSE Tumbleweed | zainstalowane | **0** | exit 0, `1.3.0-alpha.1` | exit 0, `abdb767…` | `GLIBC_2.43` ≤ 2.43 (dostępne 2.44) | PASS |
+
+Test negatywny: goły obraz `ubuntu:26.04` bez bibliotek runtime → `libasound.so.2 => not found`,
+`FAIL: ldd reports an unresolved shared library`, **exit code 1**, brak komunikatu sukcesu.
+`Publish Release Assets` = `skipped`; brak nowego tagu i release.
+
+## 8. Ograniczenia środowiska (znane, udokumentowane)
 
 - Sandbox DSH: **Low Mandatory Integrity Level** → zapis do `HKCU` i Menu Start = `0x80070005`.
   Natywny E2E instalatora jest w tym środowisku jawnie niewykonany (opt-in), a nie „zielony”.
 - Windows pokazuje prompt „Otwieranie pliku — ostrzeżenie o zabezpieczeniach” dla niepodpisanych
-  binariów uruchamianych przez `ShellExecute` (fallback PowerShell). W sesji interaktywnej
-  wymaga kliknięcia „Uruchom”; na CI prompt nie występuje.
+  binariów uruchamianych przez `ShellExecute` (fallback PowerShell).
 - `Start-Process` w sandboxie DSH może zawisnąć na tym prompcie; testy używają `CreateProcess`.
 - `git status` klasyfikuje stan poprawnie; `scratch/` daje `?? scratch/` dopóki zawiera plik
-  niepasujący do wzorca `*.log`/`*.py` — to nie fantom cache (F-25 skorygowane 2026-11-09).
+  niepasujący do wzorca `*.log`/`*.py` — to nie fantom cache.
 - Brak lokalnego środowiska Linux/Docker — weryfikacja natywna dystrybucji wymaga CI.
 - Limit pliku stronicowania hosta (`os error 1455`) uniemożliwia stabilny `-j 2`; baseline
   wykonuje się `-j 1`.
+- 2026-11-09 18:12–18:43Z: awaria GitHub Actions (`major_outage`, potwierdzona status page).
+  Runy na commicie wejściowym `e85ee4e` (`42673055954` CI — 0 jobów; `42673056245` — brak joba
+  Windows) są **skutkiem awarii infrastruktury**, nie defektem repozytorium. Runy bramki F-03
+  (`42685105375`, `42685105448`) wykonały się w pełni po ustąpieniu awarii.
 
-## 8. Następna bramka
+## 9. Następna bramka
 
-NEXT_GATE: **`STAGE-M3-F-F03-FAIL-CLOSED-CI-VERIFICATION-GATE`**
+NEXT_GATE: **`STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE`**
 NEXT_GATE_STATUS: `NOT_STARTED`
 NEXT_GATE_OWNER_GO: `REQUIRED`
-M3_G_STATUS: `BLOCKED_BY_F03`
+F03_STATUS: `CLOSED`
+M3_G_STATUS: `READY_FOR_OWNER_GO`
 
-Jedyna następna bramka **wykonywalna** to **`STAGE-M3-F-F03-FAIL-CLOSED-CI-VERIFICATION-GATE`**
-(`OPEN`, `NOT_STARTED`, wymaga jawnego GO OWNER) — domyka F-03 (fail-closed weryfikacja Linux)
-i dopiero po jej zamknięciu odblokowuje M3-G. Zakres i kryteria akceptacji: `docs/NEXT_WORK_GATE.md`.
-
-**`STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE`** pozostaje **`BLOCKED` / `NOT_STARTED`**: wymaga
-zamkniętej bramki F-03 **oraz** osobnego promptu OWNER. Wejście po odblokowaniu: minimum
-**Linux 7.0 / glibc 2.43**, cztery wspierane dystrybucje, jeden kanoniczny artefakt.
+**`STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE`** pozostaje **`NOT_STARTED`**: wymaga osobnego
+promptu/GO OWNER. Wejście: minimum **Linux 7.0 / glibc 2.43**, cztery wspierane dystrybucje,
+jeden kanoniczny artefakt, fail-closed weryfikator natywny z runu `42685105375`.

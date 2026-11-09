@@ -52,6 +52,7 @@ której **nie ma jeszcze w repozytorium**.
 | OWNER-M3-F-GIT-WORKFLOW-01 | Historia liniowa, ff-only, niezmienny tag | proces | weryfikacja w raportach | — | `IMPLEMENTED` (potwierdzone) |
 | OWNER-M3-F-SCRIPT-STANDARDS-01 | `set -euo pipefail`, deterministyczny tar | skrypt | guard | `13609fd` | `IMPLEMENTED` |
 | OWNER-M3-F-ABI-BASELINE-01 | Budowa pod glibc 2.35, forward compatible | — | — | — | `SUPERSEDED` przez minimum 2.43 (`OWNER-M3-F-GLIBC-POLICY-01`) |
+| `OWNER-M3-F-F03-01` | **GO** dla `STAGE-M3-F-F03-FAIL-CLOSED-CI-VERIFICATION-GATE`: usunięcie fałszywego PASS, biblioteki runtime w 4 obrazach OCI, fail-closed `ldd`/`--version`/`--build-info`, jawna kontrola `GLIBC_2.43`, test negatywny | `scripts/verify_linux_container.sh`, `scripts/install_linux_runtime_deps.sh`, `.github/workflows/build-and-release.yml` | `m3_f_f03_fail_closed_verification_guard`; run `42685105375` | `4699eac`, `abdb767` | `IMPLEMENTED` |
 
 ## 4. Polityka Linux zapisana w repozytorium (2026-11-09)
 
@@ -67,9 +68,9 @@ której **nie ma jeszcze w repozytorium**.
 | Ubuntu interim 26.10 | **POZA ZAKRESEM** (polityka obejmuje tylko LTS) | usunięty z CI/snapshotu | `ZGODNE` |
 | Rebuild do glibc 2.41 / bundled glibc | **NIE** | brak bundled glibc | zgodne |
 
-**Konsekwencja:** M3-F jest domknięte politycznie (`COMPLETED_POLICY_ALIGNMENT_VERIFIED`).
-M3-G pozostaje `BLOCKED` / `NOT_STARTED`: wymaga **najpierw** zamknięcia
-`STAGE-M3-F-F03-FAIL-CLOSED-CI-VERIFICATION-GATE` (`OPEN`), a następnie osobnego GO OWNER.
+**Konsekwencja:** M3-F jest domknięte politycznie (`COMPLETED_POLICY_ALIGNMENT_VERIFIED`) oraz
+natywnie (`COMPLETED_FAIL_CLOSED_CI_VERIFICATION_VERIFIED`, run `42685105375`). M3-G ma status
+`READY_FOR_OWNER_GO` / `NOT_STARTED`: implementacja wymaga osobnego GO OWNER.
 
 ## 5. Decyzje bramki QA 2026-11-09
 
@@ -125,3 +126,21 @@ etapów M3 i nie otwiera M3-G.
 | `OWNER-M3-F-PCV-05` | `KEEP M3-G BLOCKED` | M3-G `BLOCKED` / `NOT_STARTED` w `NEXT_WORK_GATE.md`, `PROJECT_CURRENT_STATE.md` §4/§8, `AGENTS.md` §5 pkt 25, handoff | sekcje 4 i 7 tej macierzy | `IMPLEMENTED` |
 | `OWNER-M3-F-PCV-06` | `AUTHORIZE ONE FINAL DOCUMENTATION/TEST COMMIT AFTER INDEPENDENT GREEN VERIFICATION` | **jeden** commit dokumentacyjny po własnym zielonym baseline (fmt, check, clippy `-D warnings`, pełny test, doc) | raport końcowy §8 i §10 | `IMPLEMENTED` |
 | `OWNER-M3-F-PCV-07` | `AUTHORIZE FF-ONLY PUSH TO MAIN AFTER ALL CLOSURE CRITERIA PASS` | `git push origin main` (bez force) po spełnieniu kryteriów; po pushu `HEAD == main == origin/main`, ahead/behind `0/0` | raport końcowy §10 | `IMPLEMENTED` |
+
+## 9. Bramka F-03 — decyzja OWNER i ustalenia (2026-11-09)
+
+Bramka: `STAGE-M3-F-F03-FAIL-CLOSED-CI-VERIFICATION-GATE` —
+**`COMPLETED_FAIL_CLOSED_CI_VERIFICATION_VERIFIED`**. Wykonana jako **jedna sesja**; dowód:
+run `42685105375` na commicie `abdb767`, 4/4 profile `success`, job negatywny `success`,
+`Publish Release Assets` = `skipped`.
+
+| ID | Ustalenie | Dowód | Status |
+|---|---|---|---|
+| `OWNER-M3-F-F03-01` | `GO` — implementacja fail-closed i zamknięcie F-03 (decyzja OWNER z promptu bramki) | `docs/NEXT_WORK_GATE.md`, ten wiersz, commit `4699eac`/`abdb767` | `IMPLEMENTED` |
+| `FIND-F03-01` | Fałszywy PASS potwierdzony: run `42638736785` (commit `72c3fe6`) — 4/4 joby `success`, ale we wszystkich logach `libasound.so.2 => not found` i `error while loading shared libraries` przy jednoczesnym `NATIVE VERIFICATION COMPLETED SUCCESSFULLY` | artefakty `native-evidence-*` runu `42638736785`; `scratch/evidence_r42638736785/*` | `CONFIRMED` |
+| `FIND-F03-02` | Krytyczne maskowanie `|| true` usunięte wyłącznie z `ldd`, `--version`, `--build-info`; pozostałe `|| true` są jawnie oznaczone `NON-CRITICAL` (getconf, `ldd --version`, `PKG_QUERY_CMD`) | `scripts/verify_linux_container.sh`; `m3_f_f03_fail_closed_verification_guard` | `FIXED` |
+| `FIND-F03-03` | Biblioteki runtime instalowane w każdym z 4 obrazów przez oficjalny menedżer pakietów przed weryfikacją; 15 sonamów weryfikowanych przez `ldconfig -p`; nazwy potwierdzone w obrazach (m.in. Ubuntu `libusb-1.0-0`, nie `-t64`) | `scripts/install_linux_runtime_deps.sh`; logi instalacji w runie `42685105375` | `FIXED` |
+| `FIND-F03-04` | ABI: maksymalny wymagany symbol `GLIBC_2.43` (binarka), polityka `GLIBC_2.43`; dostępne glibc 2.43 (Ubuntu) / 2.44 (Fedora, Arch, Tumbleweed); porównanie semantyczne | logi `Maximum required GLIBC symbol` + `PASS: GLIBC policy satisfied` w 4 profilach | `VERIFIED` |
+| `FIND-F03-05` | Test negatywny: goły `ubuntu:26.04` bez bibliotek runtime → `libasound.so.2 => not found`, `FAIL`, **exit 1**, brak komunikatu sukcesu | job `Verify Linux (negative fixture, fail-closed proof)`, log `native-evidence-negative-fixture` | `VERIFIED` |
+| `FIND-F03-06` | Publikacja zablokowana: `Publish Release Assets` = `skipped` przy pushu na `main`; brak nowego tagu i release; `v1.2.0` nietknięty | GitHub API jobs/releases/tags; `git rev-parse` | `VERIFIED` |
+| `FIND-F03-07` | Anomalia runów na commicie wejściowym `e85ee4e` (CI `42673055954` — 0 jobów; Build and Release `42673056245` — brak joba Windows) to skutek awarii GitHub Actions `major_outage` 18:12–18:43Z, nie defekt repozytorium | `githubstatus.com` summary; API jobs; runy bramki F-03 wykonane w pełni | `EXPLAINED` |
