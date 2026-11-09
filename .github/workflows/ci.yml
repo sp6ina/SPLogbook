@@ -70,8 +70,8 @@ jobs:
       - name: Run clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-      # Kanoniczne liczniki bazowe (pomiar 2026-11-09, commit f73a703):
-      #   2698 registered / 2688 executed / 2687 passed / 1 failed / 10 ignored (HIL).
+      # Kanoniczne liczniki bazowe (pomiar 2026-11-09, bramka polityki Linux):
+      #   2700 registered / 2690 executed / 2690 passed / 0 failed / 10 ignored (HIL).
       # Bramka QA 2026-11-09: standardowy baseline NIE wykonuje lokalnego instalatora
       # i NIE zależy od katalogu dist/. Natywny E2E jest jawnym opt-in (patrz AGENTS.md)
       # i nie jest włączany w tym jobie. Ten krok pilnuje hermetyczności kontraktu testów.

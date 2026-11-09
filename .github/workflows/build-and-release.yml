@@ -216,31 +216,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # OWNER-M3-F-KERNEL-POLICY-OPTION-A / OWNER-M3-F-GLIBC-POLICY-01
+        # Supported runtime matrix: Linux >= 7.0 and glibc >= 2.43.
+        # Debian 13.7 (glibc 2.41) and openSUSE Leap 16.1 (glibc 2.40) are NOT
+        # supported; Ubuntu 26.10 is an interim release outside the LTS scope.
         include:
-          - name: "Ubuntu 26.10 Stonking Stingray"
-            distro_id: "ubuntu-stable"
-            image: "ubuntu:26.10@sha256:262df65c0ec6bf8d9dcc87454f4330a05fae4b97825f45854af3b136666584c2"
-            pkg_query: "dpkg-query -W linux-image-generic libc6"
           - name: "Ubuntu 26.04.1 LTS Resolute Raccoon"
             distro_id: "ubuntu-lts"
             image: "ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c"
             pkg_query: "dpkg-query -W linux-image-generic libc6"
-          - name: "Debian 13.7 Trixie"
-            distro_id: "debian-stable"
-            image: "debian:13.7@sha256:9c6e381421d0f48d1b8133e573f33c185ee16cbf505eda9c4a8a4791b25ea8a6"
-            pkg_query: "dpkg-query -W linux-image-amd64 libc6"
           - name: "Fedora Linux 45 Final/GA"
             distro_id: "fedora-final"
             image: "fedora:45@sha256:a7d72ba2745b100a3351087472e5ee7b2450af7cf331e7673007e3817612839c"
-            pkg_query: "rpm -q kernel-core glibc libgcc libstdc++"
+            pkg_query: "rpm -q kernel glibc libgcc libstdc++"
           - name: "Arch Linux Rolling Snapshot"
             distro_id: "arch-rolling"
             image: "archlinux:base-20261101.0.620205@sha256:b1c2fe6e717bfd5673af8fc217e1e1c3ce0dcbb1d53c3414c8425e7ce79fc6d9"
             pkg_query: "pacman -Q linux glibc; pacman-conf --repo-list"
-          - name: "openSUSE Leap 16.1"
-            distro_id: "opensuse-leap"
-            image: "opensuse/leap:16.1@sha256:756634f02c733fc52d5c9aa09aca6374c91c53c675dd445743736e13a8428858"
-            pkg_query: "rpm -q kernel-default glibc; zypper lr -u"
           - name: "openSUSE Tumbleweed"
             distro_id: "opensuse-tumbleweed"
             image: "opensuse/tumbleweed:latest@sha256:6e3a892daa0372e12a9c0b10291303dbfcd8706a450de6edfd72c763b44b4ac1"

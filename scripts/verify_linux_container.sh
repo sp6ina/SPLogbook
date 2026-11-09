@@ -1,5 +1,18 @@
 #!/bin/sh
 set -e
+#
+# LEGACY NON-FAIL-CLOSED FIXTURE (finding F-03).
+#
+# The ELF/launch probes below intentionally tolerate failures (`|| true`) because
+# the pinned base OCI images do not ship the runtime libraries the artifact needs
+# (e.g. libasound.so.2, libusb-1.0.so.0). A non-zero exit here therefore does NOT
+# prove a native PASS, and it must not be reported as one.
+#
+# Making this fixture fail-closed requires installing the runtime dependencies in
+# every distribution image first; that is a separate CI-hardening task, not part
+# of STAGE-M3-F-LINUX-SUPPORT-POLICY-ALIGNMENT-GATE.
+#
+echo "WARNING: LEGACY NON-FAIL-CLOSED VERIFICATION FIXTURE (F-03) - output is not native PASS evidence"
 
 echo "=== 1. OS & KERNEL PROFILE ==="
 if [ -f /etc/os-release ]; then
