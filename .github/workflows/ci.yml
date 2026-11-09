@@ -70,6 +70,14 @@ jobs:
       - name: Run clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+      # Kanoniczne liczniki bazowe (pomiar 2026-11-09, commit f73a703):
+      #   2698 registered / 2688 executed / 2687 passed / 1 failed / 10 ignored (HIL).
+      # Bramka QA 2026-11-09: standardowy baseline NIE wykonuje lokalnego instalatora
+      # i NIE zależy od katalogu dist/. Natywny E2E jest jawnym opt-in (patrz AGENTS.md)
+      # i nie jest włączany w tym jobie. Ten krok pilnuje hermetyczności kontraktu testów.
+      - name: Verify hermetic native-installer contract (F-24)
+        run: cargo test --test security_guard qa_native_installer_tests_are_hermetic_and_fail_closed
+
       - name: Run workspace tests
         run: cargo test --workspace --all-targets
 
