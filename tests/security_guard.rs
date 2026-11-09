@@ -5264,8 +5264,10 @@ fn m3_f_post_closure_consistency_guard() {
         "NEXT_WORK_GATE musi wskazywać M3-G jako jedyną następną bramkę"
     );
     assert!(
-        next_gate.contains("BLOCKED"),
-        "NEXT_WORK_GATE musi jawnie blokować M3-G do zamknięcia F-03"
+        next_gate.contains("NEXT_GATE_STATUS: `NOT_STARTED`")
+            && next_gate.contains("M3_G_STATUS: `READY_FOR_OWNER_GO`")
+            && next_gate.contains("NEXT_GATE_OWNER_GO: `REQUIRED`"),
+        "NEXT_WORK_GATE musi wskazywać M3-G jako READY_FOR_OWNER_GO z wymaganym GO"
     );
 
     // 5. Raport M3-F i indeks muszą odnotować tę bramkę.
@@ -5278,14 +5280,18 @@ fn m3_f_post_closure_consistency_guard() {
         "Indeks dokumentacji musi zawierać raport bramki spójności"
     );
 
-    // 6. Trwałe reguły bramki: F-03 jawnie OPEN w kontrakcie i stanie, decyzje OWNER zapisane.
+    // 6. Trwałe reguły bramki: F-03 jawnie CLOSED w kontrakcie i stanie, decyzje OWNER zapisane.
     assert!(
         agents.contains("F-03"),
         "AGENTS.md musi jawnie opisywać F-03 (zakaz deklarowania natywnego PASS)"
     );
     assert!(
-        state.contains("F-03") && state.contains("`OPEN`"),
-        "PROJECT_CURRENT_STATE musi utrzymywać F-03 jako OPEN"
+        state.contains("F-03") && state.contains("`CLOSED`"),
+        "PROJECT_CURRENT_STATE musi utrzymywać F-03 jako CLOSED"
+    );
+    assert!(
+        state.contains("M3_G_STATUS") && state.contains("READY_FOR_OWNER_GO"),
+        "PROJECT_CURRENT_STATE musi wskazywać M3-G jako READY_FOR_OWNER_GO"
     );
     assert!(
         master.contains("F-03"),
@@ -5674,5 +5680,56 @@ fn m3_f_f03_fail_closed_verification_guard() {
             "needs: [build-linux, build-windows, verify-linux-matrix, verify-linux-negative]"
         ),
         "Publish Release Assets musi zależeć od wszystkich jobów weryfikacyjnych"
+    );
+
+    // 10. Dokumentacja domyka F-03, a M3-G pozostaje tylko READY_FOR_OWNER_GO.
+    let state =
+        fs::read_to_string("docs/PROJECT_CURRENT_STATE.md").expect("docs/PROJECT_CURRENT_STATE.md");
+    let next_gate = fs::read_to_string("docs/NEXT_WORK_GATE.md").expect("docs/NEXT_WORK_GATE.md");
+    let handoff = fs::read_to_string("docs/DEEPSEEK_HARNESS_HANDOFF.md")
+        .expect("docs/DEEPSEEK_HARNESS_HANDOFF.md");
+    let matrix = fs::read_to_string("docs/DECISION_TRACEABILITY_MATRIX.md")
+        .expect("docs/DECISION_TRACEABILITY_MATRIX.md");
+    let index =
+        fs::read_to_string("docs/DOCUMENTATION_INDEX.md").expect("docs/DOCUMENTATION_INDEX.md");
+    let snapshot = fs::read_to_string("LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.json")
+        .expect("LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.json");
+
+    assert!(
+        state.contains("COMPLETED_FAIL_CLOSED_CI_VERIFICATION_VERIFIED"),
+        "PROJECT_CURRENT_STATE musi zamykać F-03 statusem COMPLETED_FAIL_CLOSED_CI_VERIFICATION_VERIFIED"
+    );
+    assert!(
+        next_gate.contains("STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE")
+            && next_gate.contains("NEXT_GATE_STATUS: `NOT_STARTED`")
+            && next_gate.contains("M3_G_STATUS: `READY_FOR_OWNER_GO`")
+            && next_gate.contains("F03_STATUS: `CLOSED`"),
+        "NEXT_WORK_GATE musi wskazywać M3-G jako READY_FOR_OWNER_GO, a F-03 jako CLOSED"
+    );
+    assert!(
+        handoff.contains("F-03") && handoff.contains("ZAMKNIĘTE"),
+        "handoff musi odnotować zamknięcie F-03"
+    );
+    assert!(
+        matrix.contains("OWNER-M3-F-F03-01"),
+        "macierz decyzji musi zapisywać OWNER-M3-F-F03-01"
+    );
+    assert!(
+        index.contains("STAGE_M3_F_F03_FAIL_CLOSED_CI_VERIFICATION_REPORT.md"),
+        "indeks dokumentacji musi zawierać raport końcowy F-03"
+    );
+    let snapshot_json: serde_json::Value =
+        serde_json::from_str(&snapshot).expect("snapshot JSON musi być poprawny");
+    assert_eq!(
+        snapshot_json["native_evidence"]["status"], "FAIL_CLOSED_VERIFIED",
+        "snapshot musi deklarować FAIL_CLOSED_VERIFIED"
+    );
+    assert_eq!(
+        snapshot_json["native_evidence"]["ci_run_id"], "42685105375",
+        "snapshot musi wskazywać run 42685105375"
+    );
+    assert_eq!(
+        snapshot_json["native_evidence"]["negative_fixture"]["observed_exit_code"], 1,
+        "snapshot musi zapisywać exit code 1 testu negatywnego"
     );
 }
