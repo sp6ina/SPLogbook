@@ -176,7 +176,10 @@ Aktualizacje programu nie naruszają Twoich danych łączności.
 EOF
 
 # 9. Generowanie kanonicznego markera instalacji
-RESOLVED_MIN_KERNEL="6.12"
+# OWNER-M3-F-KERNEL-POLICY-OPTION-A: minimum = najstarsza domyślna linia kernela
+# wspieranych dystrybucji (Ubuntu 26.04 LTS) = 7.0. Wartość jest przeliczana przy
+# każdym wydaniu; nie wolno podnosić jej bez dowodu technicznego.
+RESOLVED_MIN_KERNEL="7.0"
 MARKER_PATH="${ARCHIVE_PAYLOAD_DIR}/.splogbook-linux-portable-marker"
 cat << EOF > "${MARKER_PATH}"
 {
