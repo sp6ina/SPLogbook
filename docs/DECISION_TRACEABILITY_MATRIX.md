@@ -77,3 +77,11 @@ której **nie ma jeszcze w repozytorium**.
 | QA-F23-01 | Usunięcie zależności od wall-clock w 3 testach | `src/sync/mod.rs` (testy), `src/cloud/updater/lock.rs` (testy) | te same testy + 20 iteracji | `IMPLEMENTED` |
 | QA-F23-02 | Niezmiennik „max 1 jednoczesny posiadacz” blokady | `src/cloud/updater/lock.rs` (test) | `concurrent_lock_stress_has_single_winner` | `IMPLEMENTED` |
 | QA-CI-01 | Standardowy job nie wymaga instalatora, uruchamia strażnik hermetyczności | `.github/workflows/ci.yml` | strażnik + pełny suite | `IMPLEMENTED` |
+
+## 6. Decyzja o aktualizacji bezpieczeństwa zależności (2026-11-09)
+
+| ID | Decyzja | Realizacja | Dowód | Status |
+|---|---|---|---|---|
+| `OWNER-DEP-SECURITY-01` | `REMEDIATION: LATEST_STABLE_SAFE_COMPATIBLE_DEPENDENCY_UPDATE`; bez `--ignore`; bez systemowego SQLite; `bundled` wymagany | `Cargo.toml` (`rusqlite 0.41`), `Cargo.lock` (`rusqlite 0.41.1`, `libsqlite3-sys 0.39.1`, SQLite 3.54.1) | pełny suite 2 690/2 690; `cargo audit` 0 podatności | `IMPLEMENTED` |
+| `OWNER-DEP-SECURITY-02` | Aktualizacja tylko celowa (`cargo update -p rusqlite --precise`), bez ogólnego `cargo update` | 103 zależności bez zmian | `cargo update` output + `Cargo.lock` diff | `IMPLEMENTED` |
+| `OWNER-DEP-SECURITY-03` | Push wyłącznie po zielonym `cargo audit` | ff-only + push po audycie | `git rev-list --left-right --count origin/main...main` = `0 0` | `IMPLEMENTED` |
