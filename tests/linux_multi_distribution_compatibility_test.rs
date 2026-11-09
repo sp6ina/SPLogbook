@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 Mariusz Woźniak (SP6INA)
-// Testy wielodystrybucyjnej zgodności, dynamicznego flooru kernela i stabilności Linux Portable (M3-F)
+// Copyright (C) 2026 Mariusz WoĹşniak (SP6INA)
+// Testy wielodystrybucyjnej zgodnoĹ›ci, dynamicznego flooru kernela i stabilnoĹ›ci Linux Portable (M3-F)
 
 use sha2::{Digest, Sha256};
 use splogbook::cloud::updater::installation::{
@@ -20,7 +20,7 @@ use splogbook::core::xdg::detect_legacy_portable_user_data;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Reprezentacja profilu dystrybucji z obowiązkowej macierzy M3-F.
+/// Reprezentacja profilu dystrybucji z obowiÄ…zkowej macierzy M3-F.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct DistroProfile {
     pub name: &'static str,
@@ -32,31 +32,13 @@ struct DistroProfile {
     pub package_manager: &'static str,
 }
 
-const MANDATORY_DISTRO_PROFILES: [DistroProfile; 7] = [
-    DistroProfile {
-        name: "Ubuntu stable",
-        profile_kind: "ubuntu-stable",
-        version: "26.10",
-        default_kernel_major_minor: (7, 3),
-        default_glibc_version: "2.44",
-        init_system: "systemd",
-        package_manager: "apt",
-    },
+const MANDATORY_DISTRO_PROFILES: [DistroProfile; 4] = [
     DistroProfile {
         name: "Ubuntu LTS",
         profile_kind: "ubuntu-lts",
-        version: "26.04 LTS",
+        version: "26.04.1 LTS",
         default_kernel_major_minor: (7, 0),
         default_glibc_version: "2.43",
-        init_system: "systemd",
-        package_manager: "apt",
-    },
-    DistroProfile {
-        name: "Debian stable",
-        profile_kind: "debian-stable",
-        version: "13.7 (Trixie)",
-        default_kernel_major_minor: (6, 12),
-        default_glibc_version: "2.40",
         init_system: "systemd",
         package_manager: "apt",
     },
@@ -64,7 +46,7 @@ const MANDATORY_DISTRO_PROFILES: [DistroProfile; 7] = [
         name: "Fedora Final",
         profile_kind: "fedora-final",
         version: "45",
-        default_kernel_major_minor: (6, 18),
+        default_kernel_major_minor: (7, 2),
         default_glibc_version: "2.44",
         init_system: "systemd",
         package_manager: "dnf",
@@ -72,26 +54,17 @@ const MANDATORY_DISTRO_PROFILES: [DistroProfile; 7] = [
     DistroProfile {
         name: "Arch Linux official rolling",
         profile_kind: "arch-rolling",
-        version: "snapshot-2026.11.01",
-        default_kernel_major_minor: (6, 18),
+        version: "core/linux 7.2.14.arch1-1",
+        default_kernel_major_minor: (7, 2),
         default_glibc_version: "2.44",
         init_system: "systemd",
         package_manager: "pacman",
     },
     DistroProfile {
-        name: "openSUSE Leap",
-        profile_kind: "opensuse-leap",
-        version: "16.1",
-        default_kernel_major_minor: (6, 12),
-        default_glibc_version: "2.40",
-        init_system: "systemd",
-        package_manager: "zypper",
-    },
-    DistroProfile {
         name: "openSUSE Tumbleweed",
         profile_kind: "opensuse-tumbleweed",
-        version: "snapshot-20261103",
-        default_kernel_major_minor: (6, 18),
+        version: "snapshot-20261021",
+        default_kernel_major_minor: (7, 2),
         default_glibc_version: "2.44",
         init_system: "systemd",
         package_manager: "zypper",
@@ -139,26 +112,26 @@ fn sha256_of_bytes(data: &[u8]) -> String {
 
 #[test]
 fn test_mandatory_multi_distribution_matrix_completeness_and_dynamic_floor() {
-    // 1. Sprawdzenie kompletności macierzy: dokładnie 7 wymaganych profili
+    // 1. Sprawdzenie kompletności macierzy: dokładnie 4 wspierane profile
     assert_eq!(
         MANDATORY_DISTRO_PROFILES.len(),
-        7,
-        "Obowiązkowa macierz dystrybucji musi liczyć dokładnie 7 profili"
+        4,
+        "Wspierana macierz dystrybucji musi liczyć dokładnie 4 profile"
     );
 
-    // 2. Dynamiczne wyznaczenie progu kernela (Dynamic Distribution-Derived Kernel Compatibility Floor)
+    // 2. Dynamiczne wyznaczenie progu kernela (OWNER-M3-F-KERNEL-POLICY-OPTION-A)
     let floor = calculate_dynamic_kernel_floor(&MANDATORY_DISTRO_PROFILES);
     assert_eq!(
         floor,
-        (6, 12),
-        "Dynamiczny próg kernela wyznaczony z minimum macierzy musi wynosić Linux 6.12 (Debian 13.7 oraz openSUSE Leap 16.1)"
+        (7, 0),
+        "Dynamiczny próg kernela wyznaczony z minimum macierzy musi wynosić Linux 7.0 (Ubuntu 26.04 LTS)"
     );
 
     // 3. Weryfikacja każdego profilu
     for p in &MANDATORY_DISTRO_PROFILES {
         assert!(
             p.default_kernel_major_minor >= floor,
-            "Kernel profilu {} ({}.{}) nie może być niższy niż próg {}.{}",
+            "Kernel profilu {} ({}.{}) nie moĹĽe byÄ‡ niĹĽszy niĹĽ prĂłg {}.{}",
             p.name,
             p.default_kernel_major_minor.0,
             p.default_kernel_major_minor.1,
@@ -175,7 +148,7 @@ fn test_canonical_artifact_single_identity_across_all_distributions() {
         "1.3.0-alpha.1",
         Path::new("/home/user/SPLogbook"),
         "a8541075e14de1537b7940fa3fd48b44d854151f",
-        "6.12",
+        "7.0",
         "1.85.0",
     ))
     .unwrap();
@@ -217,7 +190,7 @@ fn test_canonical_artifact_single_identity_across_all_distributions() {
 
     let limits = ArchiveLimits::default();
 
-    // Weryfikacja tego samego artefaktu dla każdego z 7 profili dystrybucyjnych
+    // Weryfikacja tego samego artefaktu dla każdego z 4 wspieranych profili dystrybucyjnych
     for profile in &MANDATORY_DISTRO_PROFILES {
         let inspection = preflight_linux_portable_tar_gz(&archive_path, &limits)
             .unwrap_or_else(|e| panic!("Preflight failed for profile {}: {e:?}", profile.name));
@@ -230,14 +203,14 @@ fn test_canonical_artifact_single_identity_across_all_distributions() {
         assert_eq!(
             sha256_of_bytes(&fs::read(&archive_path).unwrap()),
             canonical_sha256,
-            "Suma kontrolna SHA-256 artefaktu musi być w 100% identyczna dla każdego profilu ({})",
+            "Suma kontrolna SHA-256 artefaktu musi byÄ‡ w 100% identyczna dla kaĹĽdego profilu ({})",
             profile.name
         );
     }
 }
 
 // ==============================================================================
-// BATERIA TESTÓW STABILNOŚCI (STABILITY BATTERY)
+// BATERIA TESTĂ“W STABILNOĹšCI (STABILITY BATTERY)
 // ==============================================================================
 
 #[test]
@@ -248,36 +221,36 @@ fn test_m3_f_stability_100_iterations_fast_unit_tests() {
     assert_eq!(limits.max_single_size, 150 * 1024 * 1024);
 
     for i in 0..100 {
-        // 1. Normalizacja i weryfikacja ścieżek
+        // 1. Normalizacja i weryfikacja Ĺ›cieĹĽek
         let raw = Path::new("SPLogbook/bin/sub/tool");
         let validated = validate_archive_relative_path(raw)
-            .unwrap_or_else(|e| panic!("Iteracja {i}: błąd walidacji ścieżki: {e:?}"));
+            .unwrap_or_else(|e| panic!("Iteracja {i}: bĹ‚Ä…d walidacji Ĺ›cieĹĽki: {e:?}"));
         assert_eq!(validated, PathBuf::from("SPLogbook/bin/sub/tool"));
 
-        // 2. Walidacja odrzucenia ścieżki ze znakami zakazanymi
+        // 2. Walidacja odrzucenia Ĺ›cieĹĽki ze znakami zakazanymi
         assert!(validate_archive_relative_path(Path::new("../escape")).is_err());
         assert!(validate_archive_relative_path(Path::new("/abs/path")).is_err());
         assert!(validate_archive_relative_path(Path::new("C:\\windows")).is_err());
 
-        // 3. Sprawdzanie struktury markera dla każdego profilu
+        // 3. Sprawdzanie struktury markera dla kaĹĽdego profilu
         let distro = &MANDATORY_DISTRO_PROFILES[i % MANDATORY_DISTRO_PROFILES.len()];
         let marker = LinuxPortableMarker::new(
             "1.3.0-alpha.1",
             Path::new("/home/test/app"),
             "a8541075e14de1537b7940fa3fd48b44d854151f",
-            "6.12",
+            "7.0",
             "1.85.0",
         );
         assert!(marker.validate().is_ok());
         assert_eq!(marker.target_os, "linux");
         assert_eq!(marker.target_arch, "x86_64");
-        assert_eq!(marker.resolved_minimum_kernel, "6.12");
+        assert_eq!(marker.resolved_minimum_kernel, "7.0");
 
         // 4. Test detekcji starszych danych
         let legacy = detect_legacy_portable_user_data(Path::new("/tmp/nonexistent"));
         assert!(legacy.is_empty());
 
-        // 5. Wyliczanie preflightu pojemności dyskowej
+        // 5. Wyliczanie preflightu pojemnoĹ›ci dyskowej
         let req = DiskPreflightRequirements::calculate(
             InstallationType::LinuxPortableTarGz,
             30 * 1024 * 1024 + (i as u64 * 1024),
@@ -285,11 +258,11 @@ fn test_m3_f_stability_100_iterations_fast_unit_tests() {
             30 * 1024 * 1024,
             None,
         )
-        .unwrap_or_else(|e| panic!("Iteracja {i}: błąd preflightu dyskowego: {e:?}"));
+        .unwrap_or_else(|e| panic!("Iteracja {i}: bĹ‚Ä…d preflightu dyskowego: {e:?}"));
         assert_eq!(req.filesystem_safety_margin, DEFAULT_SAFETY_MARGIN_BYTES);
         assert_eq!(req.package_manager_overhead, 0);
 
-        // 6. Sprawdzenie integralności definicji profilu
+        // 6. Sprawdzenie integralnoĹ›ci definicji profilu
         assert!(!distro.version.is_empty());
         assert!(distro.default_kernel_major_minor.0 >= 6);
     }
@@ -302,7 +275,7 @@ fn test_m3_f_stability_50_iterations_medium_integration_tests() {
         "1.3.0-alpha.1",
         Path::new("/opt/SPLogbook"),
         "a8541075e14de1537b7940fa3fd48b44d854151f",
-        "6.12",
+        "7.0",
         "1.85.0",
     ))
     .unwrap();
@@ -340,11 +313,11 @@ fn test_m3_f_stability_50_iterations_medium_integration_tests() {
         fs::write(&archive_path, tar_bytes).unwrap();
 
         let extracted = extract_linux_portable_tar_gz_two_phase(&archive_path, &staging, &limits)
-            .unwrap_or_else(|e| panic!("Iteracja {i}: błąd ekstrakcji: {e:?}"));
+            .unwrap_or_else(|e| panic!("Iteracja {i}: bĹ‚Ä…d ekstrakcji: {e:?}"));
         assert_eq!(extracted.entry_count, 4);
         assert!(staging.join("SPLogbook/SPLogbook").is_file());
 
-        // 2. Test odrzucenia archiwum złośliwego (np. ze ścieżką ../evil)
+        // 2. Test odrzucenia archiwum zĹ‚oĹ›liwego (np. ze Ĺ›cieĹĽkÄ… ../evil)
         let evil_bytes = helper_create_tar_gz(&[
             ("SPLogbook/", &[], tar::EntryType::Directory, 0o755),
             (
@@ -366,7 +339,7 @@ fn test_m3_f_stability_50_iterations_medium_integration_tests() {
         let evil_res = preflight_linux_portable_tar_gz(&evil_path, &limits);
         assert!(
             evil_res.is_err(),
-            "Iteracja {i}: złośliwe archiwum musi zostać odrzucone"
+            "Iteracja {i}: zĹ‚oĹ›liwe archiwum musi zostaÄ‡ odrzucone"
         );
 
         // 3. Test silnika decyzji recovery dla Linux Portable
@@ -392,7 +365,7 @@ fn test_m3_f_stability_20_iterations_full_lifecycle_and_data_preservation() {
         "1.3.0-alpha.1",
         Path::new("/home/radio/SPLogbook"),
         "a8541075e14de1537b7940fa3fd48b44d854151f",
-        "6.12",
+        "7.0",
         "1.85.0",
     ))
     .unwrap();
@@ -408,7 +381,7 @@ fn test_m3_f_stability_20_iterations_full_lifecycle_and_data_preservation() {
         fs::create_dir_all(&staging_dir).unwrap();
         fs::create_dir_all(&rollback_dir).unwrap();
 
-        // Aktywne pliki: binaria i dane użytkownika
+        // Aktywne pliki: binaria i dane uĹĽytkownika
         let db_file = app_dir.join("default_log.db");
         let cfg_file = app_dir.join("station_config.json");
         let wal_file = app_dir.join("default_log.db-wal");
@@ -460,9 +433,9 @@ fn test_m3_f_stability_20_iterations_full_lifecycle_and_data_preservation() {
 
         // 1. Ekstrakcja
         extract_linux_portable_tar_gz_two_phase(&archive_path, &staging_dir, &limits)
-            .unwrap_or_else(|e| panic!("Iteracja {i}: błąd ekstrakcji dwufazowej: {e:?}"));
+            .unwrap_or_else(|e| panic!("Iteracja {i}: bĹ‚Ä…d ekstrakcji dwufazowej: {e:?}"));
 
-        // 2. Generowanie planu aktualizacji ze spłaszczeniem korzenia
+        // 2. Generowanie planu aktualizacji ze spĹ‚aszczeniem korzenia
         let unpacked_root = staging_dir.join("SPLogbook");
         let plan = UpdatePlan::generate(&unpacked_root, &app_dir).unwrap();
         plan.validate_safety("SPLogbook").unwrap();
@@ -476,7 +449,7 @@ fn test_m3_f_stability_20_iterations_full_lifecycle_and_data_preservation() {
             fs::copy(orig, &dest).unwrap();
         }
 
-        // 4. Podmiana plików (JOURNALED_TRANSACTIONAL_REPLACEMENT)
+        // 4. Podmiana plikĂłw (JOURNALED_TRANSACTIONAL_REPLACEMENT)
         for (rel, orig) in &plan.replace_files {
             let src = unpacked_root.join(rel);
             fs::copy(&src, orig).unwrap();
@@ -510,7 +483,7 @@ fn test_m3_f_stability_20_iterations_full_lifecycle_and_data_preservation() {
             fs::copy(&bkp, orig).unwrap();
         }
 
-        // Weryfikacja po rollbacku: oryginalny program przywrócony, BAZY WCIĄŻ W 100% IDENTYCZNE
+        // Weryfikacja po rollbacku: oryginalny program przywrĂłcony, BAZY WCIÄ„Ĺ» W 100% IDENTYCZNE
         assert_eq!(fs::read(&bin_file).unwrap(), b"OLD_BINARY_V1");
         assert_eq!(
             sha256_of_bytes(&fs::read(&db_file).unwrap()),

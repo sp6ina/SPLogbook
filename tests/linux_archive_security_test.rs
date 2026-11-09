@@ -43,7 +43,7 @@ fn helper_create_valid_marker_json() -> String {
         "1.3.0-alpha.1",
         Path::new("/opt/SPLogbook"),
         "a8541075e14de1537b7940fa3fd48b44d854151f",
-        "6.12",
+        "7.0",
         "1.85.0",
     );
     serde_json::to_string_pretty(&marker).expect("Serialization failed")

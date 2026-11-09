@@ -19,7 +19,7 @@ fn linux_portable_marker_creation_and_validation() {
         "1.3.0-alpha.1",
         &app_dir,
         "a8541075e14de1537b7940fa3fd48b44d854151f",
-        "6.12",
+        "7.0",
         "1.99.0",
     );
 
@@ -31,7 +31,7 @@ fn linux_portable_marker_creation_and_validation() {
     assert_eq!(marker.target_arch, "x86_64");
     assert_eq!(marker.libc_family, "glibc");
     assert_eq!(marker.archive_format, "tar.gz");
-    assert_eq!(marker.resolved_minimum_kernel, "6.12");
+    assert_eq!(marker.resolved_minimum_kernel, "7.0");
     assert_eq!(marker.build_rust_version, "1.99.0");
     assert_eq!(marker.created_by, "splogbook-packaging-m3-f");
 
@@ -65,7 +65,7 @@ fn linux_portable_marker_corrupt_fields_fail_closed() {
         "1.3.0-alpha.1",
         &app_dir,
         "a8541075e14de1537b7940fa3fd48b44d854151f",
-        "6.12",
+        "7.0",
         "1.99.0",
     );
     bad_marker.installation_type = "WindowsPortableZip".to_string();
