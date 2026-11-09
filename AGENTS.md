@@ -16,7 +16,15 @@
 3. Jeśli `schannel` zawodzi (`SEC_E_NO_CREDENTIALS`), używaj **per-command** `-c http.sslBackend=openssl`;
    nie zmieniaj globalnej konfiguracji Git.
 4. Stan drzewa ustalaj przez `git -c core.fsmonitor=false -c core.untrackedCache=false status --porcelain=v1`
-   lub `git ls-files -o --exclude-standard` (zwykłe `git status` potrafi zgłosić fantomowy `scratch/`).
+   **oraz** `git ls-files -o --exclude-standard` i rozróżniaj cztery stany: (a) zmiany śledzone,
+   (b) pliki nieśledzone, (c) pliki ignorowane, (d) czystość ścisła. `scratch/` jest katalogiem
+   lokalnym i jest ignorowany **tylko wzorcami plików** (`.gitignore:14` `*.log`, `.gitignore:52`
+   `*.py`) — plik niepasujący do wzorca jest realnie nieśledzony i daje `?? scratch/` w każdym
+   trybie, także z `-c core.fsmonitor=false -c core.untrackedCache=false` (stan zmierzony
+   2026-11-09: `scratch/tree_dupes.txt` → `?? scratch/`). F-25 (nieświeży cache)
+   wyjaśnia wyłącznie historyczny fantom i **nie zastępuje** weryfikacji `git ls-files -o`.
+   Nie nazywaj stanu `CLEAN` bez podania definicji; `CLEAN` bez kwalifikatora oznacza czystość
+   ścisłą (brak zmian śledzonych, nieśledzonych i ignorowanych).
 5. Punktem odniesienia jest **`origin/main` po fetch**. Kod z `origin/main` jest źródłem stanu faktycznego.
 6. Synchronizacja wyłącznie **fast-forward** (`git merge --ff-only`, `git pull --ff-only`).
 7. **Zakaz rebase.**
@@ -62,6 +70,16 @@
     `LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.{json,md}`. Politykę wolno zmienić wyłącznie nową,
     jawną decyzją OWNER i osobną bramką.
 25. **M3-G (AppImage) pozostaje ZABLOKOWANE / `NOT_STARTED`** — wymaga osobnej bramki.
+26. **F-03 (P1, `OPEN`) — natywna weryfikacja Linux nie jest fail-closed.** W
+    `scripts/verify_linux_container.sh` progi `ldd` (`:46`) oraz uruchomienia binarki
+    `--version` (`:49`) i `--build-info` (`:50`) są maskowane `|| true`, więc niezaładowany ELF
+    (np. brak `libasound.so.2`) nie zatrzymuje skryptu, a `:80` wypisuje
+    `NATIVE VERIFICATION COMPLETED SUCCESSFULLY` przy nieuruchomionej binarce — job CI bywa
+    `success`. **Nie deklaruj natywnego PASS dla Linux na podstawie tego fixture** (potwierdzone
+    na 4 profilach runu `42638736785`). Integralność archiwum (`sha256sum -c`, `tar -xzf`,
+    marker) jest fail-closed i to nie jest F-03. Domknięcie: bramka
+    `STAGE-M3-F-F03-FAIL-CLOSED-CI-VERIFICATION-GATE` (`OPEN`, `NOT_STARTED`); zmiana skryptu,
+    workflowów i obrazów OCI wyłącznie w tej bramce, po GO OWNER.
 
 ## 6. Zasady testów i instalatorów
 
@@ -84,6 +102,12 @@
 - Push dopiero po zielonym `cargo audit` i pełnym baseline.
 
 ## 8. Raportowanie
+
+- Pracę **zapisującą** nad repozytorium prowadzi **dokładnie jedna sesja** (jedno worktree, jedno
+  `target/`, jeden zestaw raportów). Równoległa druga sesja musi zostać zatrzymana **przed**
+  testami, commitem i pushem; brak potwierdzenia zatrzymania = `BLOCKED`, bez wyjątków.
+  Nie uruchamiaj dwóch poleceń Cargo korzystających z tego samego `target/` (na tym hoście
+  obowiązuje `-j 1` — limit pliku stronicowania, `os error 1455`).
 
 Każda bramka kończy się raportem: data/środowisko, Git przed/po, lista commitów, zmienione pliki,
 dokładne komendy i liczniki, findings z `file:line`, ryzyka rezydualne i **jedna** następna bramka.

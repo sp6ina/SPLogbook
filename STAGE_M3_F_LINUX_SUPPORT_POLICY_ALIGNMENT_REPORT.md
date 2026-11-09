@@ -318,3 +318,53 @@ CI-hardeningu F-03. Nie rozpoczynać automatycznie.
 ## 36. Ostateczny status bramki
 
 **`COMPLETED_POLICY_ALIGNMENT_VERIFIED`**
+
+---
+
+## 37. ERRATA (2026-11-09, `STAGE-M3-F-POST-CLOSURE-CONSISTENCY-VERIFICATION-GATE`)
+
+Errata **nie zmienia** statusu bramki (`COMPLETED_POLICY_ALIGNMENT_VERIFIED`) ani żadnej wartości
+polityki (7.0 / 2.43 / 4 dystrybucje). Prostuje trzy opisy, które po pomiarze okazały się
+nieprecyzyjne lub nieaktualne. Źródło: `STAGE_M3_F_POST_CLOSURE_CONSISTENCY_VERIFICATION_REPORT.md`.
+
+### 37.1. Klasyfikacja drzewa roboczego (§3, §6)
+
+Zapis „Working tree: **CLEAN**” był **nieprecyzyjny**. Poprawna klasyfikacja wymaga czterech
+wymiarów (definicja w `AGENTS.md` §2 pkt 4):
+
+| Wymiar | Wartość przy pomiarze bramki |
+|---|---|
+| Zmiany śledzone | brak (`TRACKED_WORKTREE_CLEAN=true`) |
+| Pliki nieśledzone i nieignorowane | obecne (`UNTRACKED_SCRATCH_PRESENT=true`) |
+| Pliki ignorowane | obecne (`target/`, `dist/`, logi w `scratch/`) |
+| Czystość ścisła | **FALSE** (`STRICT_WORKTREE_CLEAN=false`) |
+
+`scratch/` nie jest ignorowany jako katalog — ignorowane są wyłącznie wzorce plików
+(`.gitignore:14` `*.log`, `.gitignore:52` `*.py`). To **nie** jest fantom cache (F-25 skorygowane).
+
+### 37.2. Chronologia pushu i znacznik czasu (§1)
+
+- **Czas raportu:** `2026-11-09T15:35+01:00` — bez zmian.
+- Znacznik `15:51:32+01:00` z promptu to **koniec sesji po pushu**, a nie czas raportu.
+- Push commita `72c3fe6` uruchomił runy `42638736785` (Build and Release) i `42638736856` (CI);
+  joby runu `42638736785` utworzono `2026-11-09T14:51:16Z` = `15:51:16+01:00` (zweryfikowane
+  pierwszoosobowo GitHub API `created_at`, sesja domykająca 2026-11-09).
+
+### 37.3. Klasyfikacja dowodu natywnego (§34 pkt 2)
+
+- Zdanie „brak natywnego re-runu nowej 4-profilowej macierzy” było prawdziwe tylko w chwili
+  pisania raportu. **Przebieg 4-profilowy istnieje:** run `42638736785`, commit `72c3fe6`,
+  joby `Verify Linux (Ubuntu 26.04.1 LTS)`, `(Fedora 45)`, `(Arch)` i `(openSUSE Tumbleweed)` —
+  wszystkie `success`.
+- **Jakość dowodu pozostaje legacy / nie fail-closed (F-03):** artefakty
+  `native-evidence-ubuntu-lts`, `native-evidence-fedora-final`, `native-evidence-arch-rolling`
+  i `native-evidence-opensuse-tumbleweed` zawierają na **wszystkich czterech** profilach
+  `libasound.so.2 => not found` oraz `error while loading shared libraries`, po czym skrypt
+  wypisuje `NATIVE VERIFICATION COMPLETED SUCCESSFULLY`, a job kończy się `success`.
+  Binarka nie została uruchomiona ani razu — to **wykazany fałszywy PASS**, nie hipoteza.
+- Run `42518873662` (commit `2e40a64`) dotyczył **7 profili**, nie 4 — sprostowane także
+  w `MASTER_IMPLEMENTATION_PLAN.md`.
+- `uname -r` w logu (`7.0.0-1019-azure`) to jądro hosta OCI, nie jądro dystrybucji.
+
+**Status F-03 po erracie:** `OPEN`; formalna bramka
+`STAGE-M3-F-F03-FAIL-CLOSED-CI-VERIFICATION-GATE` (`OPEN`, `NOT_STARTED`) poprzedza M3-G.

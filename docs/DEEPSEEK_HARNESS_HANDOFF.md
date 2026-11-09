@@ -81,7 +81,10 @@ dowody per-moduł zapisano w raporcie DSH-SPLOGBOOK-INGEST-001 (§4, §12, §16)
   `scratch/qa_gate/native_e2e_diag4/logs/setup_diag.log` (plik ignorowany przez Git).
 - Trzy testy czasowe (F-23) — poprawione wyłącznie w modułach `#[cfg(test)]`.
 
-## 5. Baseline (obowiązkowy, `-j 2`)
+## 5. Baseline (obowiązkowy, `-j 1` na tym hoście)
+
+> `-j 1` obowiązuje na tym hoście z powodu limitu pliku stronicowania (`os error 1455` przy `-j 2`).
+> Na maszynie o większym pagefile dopuszczalne `-j 2`; wynik musi być identyczny.
 
 ```
 cargo +stable metadata --no-deps --format-version 1
@@ -111,14 +114,14 @@ git -c core.fsmonitor=false -c core.untrackedCache=false status --porcelain=v1
 |---|---|---|---|
 | F-01 | P1 | Repozytorium koduje zastąpioną politykę Linux (6.12, Debian, Leap) | **ROZWIĄZANE** 2026-11-09 — polityka 7.0 / glibc 2.43, 4 dystrybucje |
 | F-02/F-04 | P1 | „Natywna” weryfikacja w kontenerze nie dowodzi jądra; sprzeczne twierdzenia ABI | **ROZWIĄZANE** 2026-11-09 (dowody oznaczone jako legacy, Debian/Leap niewspierane) |
-| F-03 | P1 | `\|\| true` maskuje błędy w `verify_linux_container.sh` | **OPEN** — wymaga CI-hardening przed M3-G |
+| F-03 | P1 | `\|\| true` maskuje błędy w `verify_linux_container.sh` | **OPEN** — wymaga CI-hardening przed M3-G; formalna bramka `STAGE-M3-F-F03-FAIL-CLOSED-CI-VERIFICATION-GATE` (`OPEN`, `NOT_STARTED`, wymaga GO OWNER) |
 | F-05 | P2 | MSI/Setup nie są budowane/publikowane przez CI | przyszła bramka release |
 | F-07 | P2 | XDG vs portable DB — precedence | przyszła bramka |
 | F-14 | P0 (sprzętowo zablokowane) | Panika po załączeniu PTT przy `max_test_duration_ms` 1-9 | obowiązkowe przed HIL |
 | F-15…F-21 | P1/P2 | HIL self-cert, GUI panic, PTT F7, SOTA/POTA, LoTW scope, Cabrillo cap | bramka danych/RF |
 | F-23 | P2 | 3 testy zależne od wall-clock | **NAPRAWIONE** w tej bramce |
 | F-24 | P1 | Niehermetyczny E2E instalatora | **NAPRAWIONE** w tej bramce |
-| F-25 | P3 | Phantom `?? scratch/` przez fsmonitor/untracked cache | obejście: `-c` per-command |
+| F-25 | P3 | `?? scratch/` — **skorygowane 2026-11-09**: `scratch/` jest ignorowany tylko wzorcami plików (`.gitignore:14` `*.log`, `.gitignore:52` `*.py`); plik niepasujący do wzorca (np. `scratch/tree_dupes.txt`) jest realnie nieśledzony i daje `?? scratch/` także z `-c` per-command. Nie nazywaj tego fantomem; weryfikuj `git ls-files -o --exclude-standard` | obejście: rozróżniaj tracked / untracked / ignored / strict |
 
 ## 7. Czego NIE powtarzać
 
@@ -152,12 +155,18 @@ git -c core.fsmonitor=false -c core.untrackedCache=false status --porcelain=v1
 - Bramka polityki Linux: **`COMPLETED_POLICY_ALIGNMENT_VERIFIED`** — minimum **Linux 7.0** /
   **glibc 2.43** (`OWNER-M3-F-KERNEL-POLICY-OPTION-A`), 4 wspierane dystrybucje; Debian 13.7
   (glibc 2.41) i Leap 16.1 (glibc 2.40) niewspierane.
-- Następna bramka: **`STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE`** — `NOT STARTED`
-  (wymaga osobnego GO OWNER; najpierw CI-hardening F-03).
-- M3-G (AppImage): **`NOT_STARTED`** — nie rozpoczęto.
+- Bramka spójności po zamknięciu M3-F: **`COMPLETED_POST_CLOSURE_CONSISTENCY_VERIFIED`**
+  (2026-11-09, **jedna sesja**, commit + push ff-only) — klasyfikacja drzewa tracked/untracked/
+  ignored/strict, sprostowanie 7 profili (run `42518873662`), potwierdzony fałszywy PASS na
+  4 profilach (run `42638736785`) i formalne zdefiniowanie bramki F-03.
+- Następna bramka (jedyna wykonywalna): **`STAGE-M3-F-F03-FAIL-CLOSED-CI-VERIFICATION-GATE`** —
+  `OPEN` / `NOT_STARTED`, wymaga osobnego GO OWNER.
+- M3-G (AppImage): **`BLOCKED` / `NOT_STARTED`** — **nie rozpoczęto**; wymaga zamknięcia F-03
+  i osobnego GO OWNER.
 
 Raporty: `STAGE_QA_BASELINE_DETERMINISM_AND_HERMETICITY_REPORT.md`,
-`STAGE_DEPENDENCY_SECURITY_UPDATE_REPORT.md`.
+`STAGE_DEPENDENCY_SECURITY_UPDATE_REPORT.md`,
+`STAGE_M3_F_POST_CLOSURE_CONSISTENCY_VERIFICATION_REPORT.md`.
 
 ## 10. Linki
 
