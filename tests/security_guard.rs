@@ -5063,3 +5063,156 @@ fn m3_f_owner_decisions_and_support_policy_guard() {
     assert!(desktop_content.contains("Categories=HamRadio;Utility;"));
     assert!(desktop_content.contains("Terminal=false"));
 }
+
+// ============================================================================
+// STAGE-QA-BASELINE-DETERMINISM-AND-HERMETICITY-GATE (2026-11-09)
+// Strażnik hermetyczności natywnych testów instalatorów (F-24).
+// Wymaga wyłącznie plików źródłowych — NIE wymaga lokalnego instalatora.
+// ============================================================================
+
+fn qa_code_lines(source: &str) -> impl Iterator<Item = &str> {
+    source.lines().filter(|line| {
+        let trimmed = line.trim_start();
+        !trimmed.starts_with("//") && !trimmed.starts_with("/*") && !trimmed.starts_with('*')
+    })
+}
+
+#[test]
+fn qa_native_installer_tests_are_hermetic_and_fail_closed() {
+    let inno = fs::read_to_string("tests/inno_user_data_safety_test.rs")
+        .expect("tests/inno_user_data_safety_test.rs");
+    let msi = fs::read_to_string("tests/msi_user_data_safety_test.rs")
+        .expect("tests/msi_user_data_safety_test.rs");
+    let support = fs::read_to_string("tests/support/native_artifact.rs")
+        .expect("tests/support/native_artifact.rs");
+    let ci = fs::read_to_string(".github/workflows/ci.yml").expect(".github/workflows/ci.yml");
+
+    // 1-2. Standardowy baseline nie może zależeć od `dist/` ani używać globów.
+    for (name, source) in [
+        ("inno_user_data_safety_test.rs", &inno),
+        ("msi_user_data_safety_test.rs", &msi),
+    ] {
+        for line in qa_code_lines(source) {
+            assert!(
+                !line.contains("dist/") && !line.contains("dist\\"),
+                "{name}: kod nie może odwoływać się do katalogu dist/: {line}"
+            );
+            assert!(
+                !line.contains("glob("),
+                "{name}: zabroniony glob przy wyborze artefaktu: {line}"
+            );
+            assert!(
+                !line.contains("|| true"),
+                "{name}: zabronione maskowanie błędów `|| true`: {line}"
+            );
+            assert!(
+                !line.contains("C:\\Users") && !line.contains("AppData\\\\Roaming"),
+                "{name}: zabroniona ścieżka produkcyjnego profilu użytkownika: {line}"
+            );
+        }
+        assert!(
+            !source
+                .lines()
+                .any(|line| line.trim_start().starts_with("#[ignore")),
+            "{name}: nie wolno używać #[ignore] (kanoniczna liczba HIL = 10)"
+        );
+        assert!(
+            !source.to_lowercase().contains("hil"),
+            "{name}: test instalatora nie może uruchamiać HIL"
+        );
+    }
+
+    // 3-4. Opt-in i jawna ścieżka artefaktu w module wspólnym.
+    for required in [
+        "SPLOG_RUN_INNO_E2E",
+        "SPLOG_INNO_INSTALLER_PATH",
+        "SPLOG_RUN_MSI_E2E",
+        "SPLOG_MSI_INSTALLER_PATH",
+        "is_absolute",
+        "is_symlink",
+        "canonical_name",
+        "sha256_hex",
+        "expected_sha256",
+        "run_with_timeout",
+        "log_tail",
+    ] {
+        assert!(
+            support.contains(required),
+            "tests/support/native_artifact.rs musi zawierać kontrakt: {required}"
+        );
+    }
+
+    // 5. Fail-closed: brak opt-in = jawny fixture-skip; błąd = panika.
+    for required in [
+        "NATIVE INSTALLER E2E NOT REQUESTED",
+        "NATIVE INSTALLER E2E FAIL-CLOSED",
+        "verify_sha256",
+        "run_with_timeout",
+    ] {
+        assert!(
+            inno.contains(required),
+            "inno_user_data_safety_test.rs musi zawierać: {required}"
+        );
+    }
+    for required in [
+        "NATIVE MSI ARTIFACT CHECK NOT REQUESTED",
+        "NATIVE MSI ARTIFACT CHECK FAIL-CLOSED",
+    ] {
+        assert!(
+            msi.contains(required),
+            "msi_user_data_safety_test.rs musi zawierać: {required}"
+        );
+    }
+
+    // 6. Izolacja środowiska wykonania i log instalatora.
+    for required in [
+        "tempfile::tempdir",
+        "/VERYSILENT",
+        "/SUPPRESSMSGBOXES",
+        "/NORESTART",
+        "/LOG=",
+        "/DIR=",
+        "USERPROFILE",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "install_code",
+        "uninstall_code",
+    ] {
+        assert!(
+            inno.contains(required),
+            "inno E2E musi izolować środowisko i weryfikować exit code: {required}"
+        );
+    }
+
+    // 7-8. Kanoniczna liczba ignored HIL = 10, bez nowych ignored w tests/.
+    let mut ignored = 0_usize;
+    for entry in fs::read_dir("tests").expect("tests dir") {
+        let path = entry.expect("tests entry").path();
+        if path.extension().and_then(|value| value.to_str()) != Some("rs") {
+            continue;
+        }
+        let source = fs::read_to_string(&path).expect("read test source");
+        ignored += source
+            .lines()
+            .filter(|line| line.trim_start().starts_with("#[ignore"))
+            .count();
+    }
+    assert_eq!(
+        ignored, 10,
+        "kanoniczna liczba ignored testów HIL musi pozostać równa 10"
+    );
+
+    // 9. Standardowy job CI nie ustawia opt-in i uruchamia strażnika.
+    assert!(
+        !ci.contains("SPLOG_RUN_"),
+        ".github/workflows/ci.yml nie może ustawiać zmiennych opt-in natywnego E2E"
+    );
+    assert!(
+        ci.contains("qa_native_installer_tests_are_hermetic_and_fail_closed"),
+        "CI musi uruchamiać strażnik hermetyczności"
+    );
+    assert!(
+        ci.contains("2698") && ci.contains("2688") && ci.contains("10 ignored"),
+        "CI musi dokumentować kanoniczne liczniki bazowe (2698/2688/10)"
+    );
+}
