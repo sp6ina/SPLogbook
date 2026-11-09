@@ -4958,23 +4958,46 @@ fn m3_f_owner_decisions_and_support_policy_guard() {
 
     assert_eq!(
         json["snapshot_schema"],
-        "splogbook-linux-support-snapshot-v1"
+        "splogbook-linux-support-snapshot-v2"
     );
     assert_eq!(json["product_version"], "1.3.0-alpha.1");
     assert_eq!(json["architecture"], "x86_64");
     assert_eq!(json["rust_target"], "x86_64-unknown-linux-gnu");
-    assert_eq!(json["resolved_minimum_kernel"], "6.12");
+    assert_eq!(json["snapshot_date"], "2026-11-09");
+    assert_eq!(json["resolved_minimum_kernel"], "7.0");
+
+    // OWNER-M3-F-KERNEL-POLICY-OPTION-A: minimum dynamiczne, nie sztywne 7.2.
+    assert_eq!(
+        json["kernel_policy"]["decision_id"],
+        "OWNER-M3-F-KERNEL-POLICY-OPTION-A"
+    );
+    assert_eq!(
+        json["kernel_policy"]["model"],
+        "dynamic-distribution-derived-floor"
+    );
+    assert_eq!(json["kernel_policy"]["minimum_kernel"], "7.0");
+
+    // OWNER-M3-F-GLIBC-POLICY-01: minimum glibc 2.43.
+    assert_eq!(json["glibc_policy"]["minimum_glibc"], "2.43");
+    assert_eq!(
+        json["glibc_policy"]["maximum_required_glibc_symbol"],
+        "GLIBC_2.43"
+    );
+    assert_eq!(json["glibc_policy"]["bundled_glibc"], false);
 
     let profiles = json["profiles"]
         .as_array()
         .expect("profiles must be an array");
+    assert_eq!(
+        profiles.len(),
+        4,
+        "Wspierana macierz musi liczyć dokładnie 4 profile"
+    );
+
     let expected_ids = [
-        "ubuntu-stable",
         "ubuntu-lts",
-        "debian-stable",
         "fedora-final",
         "arch-rolling",
-        "opensuse-leap",
         "opensuse-tumbleweed",
     ];
     for expected_id in expected_ids {
@@ -4983,6 +5006,66 @@ fn m3_f_owner_decisions_and_support_policy_guard() {
             "Brak profilu {expected_id} w Linux Support Snapshot"
         );
     }
+
+    // Debian i Leap są ewidencjonowane jako niewspierane (glibc < 2.43).
+    for unsupported_id in ["debian-stable", "opensuse-leap"] {
+        assert!(
+            !profiles
+                .iter()
+                .any(|p| p["distribution_id"] == unsupported_id),
+            "Profil {unsupported_id} nie może być w macierzy wspieranej"
+        );
+    }
+    let evaluated = json["evaluated_not_supported"]
+        .as_array()
+        .expect("evaluated_not_supported must be an array");
+    let debian = evaluated
+        .iter()
+        .find(|p| p["distribution_id"] == "debian-stable")
+        .expect("debian-stable musi być w evaluated_not_supported");
+    assert_eq!(debian["status"], "NOT_SUPPORTED");
+    assert_eq!(debian["glibc_version"], "2.41");
+    assert!(
+        evaluated
+            .iter()
+            .any(|p| p["distribution_id"] == "opensuse-leap"),
+        "opensuse-leap musi być w evaluated_not_supported"
+    );
+
+    // Dynamiczny floor wyliczony z danych profili musi równać się zadeklarowanemu minimum.
+    fn kernel_line(value: &serde_json::Value) -> (u32, u32) {
+        let text = value.as_str().expect("kernel_line musi być stringiem");
+        let mut parts = text.split('.');
+        let major = parts
+            .next()
+            .and_then(|p| p.parse::<u32>().ok())
+            .expect("major kernela");
+        let minor = parts
+            .next()
+            .and_then(|p| p.parse::<u32>().ok())
+            .expect("minor kernela");
+        (major, minor)
+    }
+    let computed_floor = profiles
+        .iter()
+        .map(|p| kernel_line(&p["kernel_line"]))
+        .min()
+        .expect("co najmniej jeden profil");
+    assert_eq!(
+        computed_floor,
+        kernel_line(&json["resolved_minimum_kernel"]),
+        "Zadeklarowane minimum musi być najstarszą linią kernela wśród wspieranych profili"
+    );
+    let floor_distros: Vec<&str> = profiles
+        .iter()
+        .filter(|p| kernel_line(&p["kernel_line"]) == computed_floor)
+        .map(|p| p["distribution_id"].as_str().expect("distribution_id"))
+        .collect();
+    assert_eq!(
+        floor_distros,
+        vec!["ubuntu-lts"],
+        "Minimum 7.0 wyznacza wyłącznie Ubuntu 26.04 LTS"
+    );
 
     // Walidacja profilu Arch
     let arch_profile = profiles
@@ -4993,6 +5076,7 @@ fn m3_f_owner_decisions_and_support_policy_guard() {
     assert_eq!(arch_profile["official_repositories_only"], true);
     assert_eq!(arch_profile["aur_used"], false);
     assert_eq!(arch_profile["testing_repositories_used"], false);
+    assert_eq!(arch_profile["kernel_line"], "7.2");
 
     // Walidacja profilu Tumbleweed
     let tw_profile = profiles
@@ -5003,14 +5087,15 @@ fn m3_f_owner_decisions_and_support_policy_guard() {
     assert_eq!(tw_profile["official_repositories_only"], true);
     assert_eq!(tw_profile["factory_used"], false);
     assert_eq!(tw_profile["development_repositories_used"], false);
+    assert_eq!(tw_profile["kernel_line"], "7.2");
 
-    // Walidacja profilu Leap
-    let leap_profile = profiles
+    // Walidacja profilu Ubuntu LTS (wyznacza minimum)
+    let ubuntu_profile = profiles
         .iter()
-        .find(|p| p["distribution_id"] == "opensuse-leap")
-        .expect("opensuse-leap profile");
-    assert_eq!(leap_profile["release_model"], "classic");
-    assert_eq!(leap_profile["release_status"], "final-supported");
+        .find(|p| p["distribution_id"] == "ubuntu-lts")
+        .expect("ubuntu-lts profile");
+    assert_eq!(ubuntu_profile["kernel_line"], "7.0");
+    assert_eq!(ubuntu_profile["glibc_version"], "2.43");
 
     // Brak śledzenia archiwów tar.gz w git
     let output = Command::new("git")
@@ -5053,6 +5138,44 @@ fn m3_f_owner_decisions_and_support_policy_guard() {
     assert!(
         !build_script.contains("pkexec "),
         "Skrypt budowania nie może zawierać pkexec"
+    );
+    assert!(
+        build_script.contains("RESOLVED_MIN_KERNEL=\"7.0\""),
+        "Skrypt budowania musi zapisywać minimum kernela 7.0 (OWNER-M3-F-KERNEL-POLICY-OPTION-A)"
+    );
+    assert!(
+        !build_script.contains("RESOLVED_MIN_KERNEL=\"6.12\"")
+            && !build_script.contains("RESOLVED_MIN_KERNEL=\"7.2\""),
+        "Skrypt budowania nie może kodować zastąpionych minimów 6.12 ani 7.2"
+    );
+
+    // Macierz CI musi odpowiadać wspieranej macierzy (4 profile, bez Debian/Leap/26.10).
+    let release_workflow = fs::read_to_string(".github/workflows/build-and-release.yml")
+        .expect(".github/workflows/build-and-release.yml");
+    for supported in [
+        "ubuntu-lts",
+        "fedora-final",
+        "arch-rolling",
+        "opensuse-tumbleweed",
+    ] {
+        assert!(
+            release_workflow.contains(&format!("distro_id: \"{supported}\"")),
+            "Macierz CI musi zawierać wspierany profil {supported}"
+        );
+    }
+    for unsupported in ["debian-stable", "opensuse-leap", "ubuntu-stable"] {
+        assert!(
+            !release_workflow.contains(&format!("distro_id: \"{unsupported}\"")),
+            "Macierz CI nie może zawierać niewspieranego profilu {unsupported}"
+        );
+    }
+
+    // Fixture weryfikacji natywnej musi jawnie deklarować, że nie jest fail-closed (F-03).
+    let verify_script = fs::read_to_string("scripts/verify_linux_container.sh")
+        .expect("scripts/verify_linux_container.sh");
+    assert!(
+        verify_script.contains("LEGACY NON-FAIL-CLOSED"),
+        "Skrypt weryfikacji musi jawnie oznaczać brak fail-closed (F-03)"
     );
 
     // Weryfikacja szablonu .desktop
@@ -5212,7 +5335,7 @@ fn qa_native_installer_tests_are_hermetic_and_fail_closed() {
         "CI musi uruchamiać strażnik hermetyczności"
     );
     assert!(
-        ci.contains("2698") && ci.contains("2688") && ci.contains("10 ignored"),
-        "CI musi dokumentować kanoniczne liczniki bazowe (2698/2688/10)"
+        ci.contains("2700") && ci.contains("2690") && ci.contains("10 ignored"),
+        "CI musi dokumentować kanoniczne liczniki bazowe (2700/2690/10)"
     );
 }
