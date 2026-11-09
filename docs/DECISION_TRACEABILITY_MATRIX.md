@@ -68,7 +68,8 @@ której **nie ma jeszcze w repozytorium**.
 | Rebuild do glibc 2.41 / bundled glibc | **NIE** | brak bundled glibc | zgodne |
 
 **Konsekwencja:** M3-F jest domknięte politycznie (`COMPLETED_POLICY_ALIGNMENT_VERIFIED`).
-M3-G pozostaje `NOT_STARTED` (wymaga osobnego GO OWNER).
+M3-G pozostaje `BLOCKED` / `NOT_STARTED`: wymaga **najpierw** zamknięcia
+`STAGE-M3-F-F03-FAIL-CLOSED-CI-VERIFICATION-GATE` (`OPEN`), a następnie osobnego GO OWNER.
 
 ## 5. Decyzje bramki QA 2026-11-09
 
@@ -88,3 +89,39 @@ M3-G pozostaje `NOT_STARTED` (wymaga osobnego GO OWNER).
 | `OWNER-DEP-SECURITY-01` | `REMEDIATION: LATEST_STABLE_SAFE_COMPATIBLE_DEPENDENCY_UPDATE`; bez `--ignore`; bez systemowego SQLite; `bundled` wymagany | `Cargo.toml` (`rusqlite 0.41`), `Cargo.lock` (`rusqlite 0.41.1`, `libsqlite3-sys 0.39.1`, SQLite 3.54.1) | pełny suite 2 690/2 690; `cargo audit` 0 podatności | `IMPLEMENTED` |
 | `OWNER-DEP-SECURITY-02` | Aktualizacja tylko celowa (`cargo update -p rusqlite --precise`), bez ogólnego `cargo update` | 103 zależności bez zmian | `cargo update` output + `Cargo.lock` diff | `IMPLEMENTED` |
 | `OWNER-DEP-SECURITY-03` | Push wyłącznie po zielonym `cargo audit` | ff-only + push po audycie | `git rev-list --left-right --count origin/main...main` = `0 0` | `IMPLEMENTED` |
+
+## 7. Ustalenia bramki spójności po zamknięciu M3-F (2026-11-09)
+
+Bramka: `STAGE-M3-F-POST-CLOSURE-CONSISTENCY-VERIFICATION-GATE` —
+`COMPLETED_POST_CLOSURE_CONSISTENCY_VERIFIED` (domknięta **jedną sesją**: jeden commit
+dokumentacyjny + push ff-only po własnym zielonym baseline). Zakres: dokumentacja + strażnik;
+**bez zmian** `src/`, `Cargo.toml`, `Cargo.lock`, workflowów i skryptów.
+
+> Identyfikatory ustaleń mają prefiks `FIND-`, aby **nie kolidowały** z decyzjami OWNER
+> `OWNER-M3-F-PCV-01…07` z sekcji 8.
+
+| ID | Ustalenie | Dowód | Status |
+|---|---|---|---|
+| `FIND-PCV-01` | `scratch/` nie jest ignorowany jako katalog — ignorowane są tylko wzorce plików (`*.log`, `*.py`); `scratch/tree_dupes.txt` jest realnie nieśledzony | `git check-ignore` EXIT 1 (katalog i plik); `git ls-files -o --exclude-standard` | `CORRECTED` |
+| `FIND-PCV-02` | Stan drzewa wymaga czterech wymiarów: tracked / untracked / ignored / strict | `AGENTS.md` §2 pkt 4 | `CORRECTED` |
+| `FIND-PCV-03` | Run `42518873662` dotyczył **7 profili** i commita `2e40a64`, nie 4 profili | GitHub API `…/runs/42518873662/jobs` → 10 jobów, w tym **7** `Verify Linux` (Ubuntu 26.04.1, Fedora 45, Arch, Tumbleweed, Leap 16.1, Debian 13.7, Ubuntu 26.10) | `CORRECTED` |
+| `FIND-PCV-04` | Przebieg 4-profilowy **istnieje**: run `42638736785` (commit `72c3fe6`), 4/4 joby `success` | GitHub API `…/runs/42638736785/jobs` → `head_sha = 72c3fe6…`, `created_at = 2026-11-09T14:51:16Z`, 4 joby `Verify Linux` = `success`, `Publish Release Assets` = `skipped` | `VERIFIED` |
+| `FIND-PCV-05` | Logi natywne runu `42638736785` **nie są dowodem PASS**: na **wszystkich czterech** profilach `libasound.so.2 => not found`, binarka nie startuje, a skrypt kończy `NATIVE VERIFICATION COMPLETED SUCCESSFULLY` przy `success` joba | pobrane artefakty `native-evidence-{ubuntu-lts,fedora-final,arch-rolling,opensuse-tumbleweed}` — 4/4 z `libasound.so.2 => not found` i `error while loading shared libraries` | `OPEN` (F-03) |
+| `FIND-PCV-06` | F-03 ma formalną bramkę `STAGE-M3-F-F03-FAIL-CLOSED-CI-VERIFICATION-GATE` (`OPEN`, `NOT_STARTED`), poprzedzającą M3-G | `docs/NEXT_WORK_GATE.md` §„Następna bramka (jedyna wykonywalna)” | `DEFINED` |
+| `FIND-PCV-07` | Run `42518873662` nie jest dowodem jądra dystrybucji (`uname -r` = jądro hosta OCI) | log Ubuntu: `7.0.0-1019-azure` | `CONFIRMED` |
+| `FIND-PCV-08` | Chronologia pushu M3-F jest odtwarzalna: push `72c3fe6` → joby runu utworzone `2026-11-09T14:51:16Z` = `15:51:16+01:00`; znacznik `15:51:32+01:00` to koniec sesji, nie „czas raportu” | GitHub API `created_at`; `STAGE_M3_F_LINUX_SUPPORT_POLICY_ALIGNMENT_REPORT.md` §1 i §37.2 | `CORRECTED` |
+
+**Konsekwencja:** M3-G pozostaje `BLOCKED` do zamknięcia F-03. Ta bramka nie zmienia kolejności
+etapów M3 i nie otwiera M3-G.
+
+## 8. Decyzje OWNER bramki spójności po zamknięciu M3-F (2026-11-09)
+
+| ID | Decyzja OWNER | Realizacja w repozytorium | Dowód | Status |
+|---|---|---|---|---|
+| `OWNER-M3-F-PCV-01` | `APPROVE SINGLE-SESSION CLOSURE` — domknięcie bramki przez **dokładnie jedną** sesję | zasada jednej sesji zapisana w `AGENTS.md` §8; ta bramka wykonana jako jedna sesja | `AGENTS.md` §8; raport końcowy tej bramki | `IMPLEMENTED` |
+| `OWNER-M3-F-PCV-02` | `STOP THE SECOND PARALLEL SESSION` — druga sesja zatrzymana **przed** testami, edycją, commitem i pushem | brak procesów `cargo`/`rustc`/`git`/`bash`/`sh`; dwa odczyty metadanych bez zmian; brak blokady `target/` | raport końcowy §5–§6 (dwa pomiary + odczyt stabilności) | `IMPLEMENTED` |
+| `OWNER-M3-F-PCV-03` | `PRESERVE THE CURRENT WORKTREE` — bez resetu, czyszczenia i stashowania | brak `git reset --hard`, `git clean`, `git restore`, `git stash`; 2 istniejące stashy nietknięte | `git stash list` bez zmian; diff bramki | `IMPLEMENTED` |
+| `OWNER-M3-F-PCV-04` | `DO NOT START F-03 IMPLEMENTATION YET` | brak zmian `scripts/verify_linux_container.sh`, workflowów i obrazów OCI; `\|\| true` (linie 46, 49, 50) **nietknięte** | `git diff --name-status` tej bramki | `IMPLEMENTED` |
+| `OWNER-M3-F-PCV-05` | `KEEP M3-G BLOCKED` | M3-G `BLOCKED` / `NOT_STARTED` w `NEXT_WORK_GATE.md`, `PROJECT_CURRENT_STATE.md` §4/§8, `AGENTS.md` §5 pkt 25, handoff | sekcje 4 i 7 tej macierzy | `IMPLEMENTED` |
+| `OWNER-M3-F-PCV-06` | `AUTHORIZE ONE FINAL DOCUMENTATION/TEST COMMIT AFTER INDEPENDENT GREEN VERIFICATION` | **jeden** commit dokumentacyjny po własnym zielonym baseline (fmt, check, clippy `-D warnings`, pełny test, doc) | raport końcowy §8 i §10 | `IMPLEMENTED` |
+| `OWNER-M3-F-PCV-07` | `AUTHORIZE FF-ONLY PUSH TO MAIN AFTER ALL CLOSURE CRITERIA PASS` | `git push origin main` (bez force) po spełnieniu kryteriów; po pushu `HEAD == main == origin/main`, ahead/behind `0/0` | raport końcowy §10 | `IMPLEMENTED` |

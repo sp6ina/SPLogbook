@@ -5188,6 +5188,113 @@ fn m3_f_owner_decisions_and_support_policy_guard() {
 }
 
 // ============================================================================
+// STAGE-M3-F-POST-CLOSURE-CONSISTENCY-VERIFICATION-GATE (2026-11-09)
+// Strażnik spójności po zamknięciu M3-F: precyzyjna klasyfikacja drzewa
+// (tracked / untracked / ignored / strict), klasyfikacja dowodu natywnego
+// oraz formalna bramka F-03 (fail-closed weryfikacja Linux).
+// ============================================================================
+
+#[test]
+fn m3_f_post_closure_consistency_guard() {
+    let agents = fs::read_to_string("AGENTS.md").expect("AGENTS.md");
+    let state =
+        fs::read_to_string("docs/PROJECT_CURRENT_STATE.md").expect("docs/PROJECT_CURRENT_STATE.md");
+    let next_gate = fs::read_to_string("docs/NEXT_WORK_GATE.md").expect("docs/NEXT_WORK_GATE.md");
+    let master =
+        fs::read_to_string("MASTER_IMPLEMENTATION_PLAN.md").expect("MASTER_IMPLEMENTATION_PLAN.md");
+    let policy_report = fs::read_to_string("STAGE_M3_F_LINUX_SUPPORT_POLICY_ALIGNMENT_REPORT.md")
+        .expect("STAGE_M3_F_LINUX_SUPPORT_POLICY_ALIGNMENT_REPORT.md");
+    let matrix = fs::read_to_string("docs/DECISION_TRACEABILITY_MATRIX.md")
+        .expect("docs/DECISION_TRACEABILITY_MATRIX.md");
+    let index =
+        fs::read_to_string("docs/DOCUMENTATION_INDEX.md").expect("docs/DOCUMENTATION_INDEX.md");
+
+    // 1. Stan drzewa musi być opisany jawnie (tracked / untracked / ignored / strict).
+    for (name, source) in [
+        ("AGENTS.md", &agents),
+        ("docs/PROJECT_CURRENT_STATE.md", &state),
+        (
+            "STAGE_M3_F_LINUX_SUPPORT_POLICY_ALIGNMENT_REPORT.md",
+            &policy_report,
+        ),
+    ] {
+        assert!(
+            source.contains("STRICT_WORKTREE_CLEAN") || source.contains("czystość ścisła"),
+            "{name}: brak jawnej definicji czystości (tracked / untracked / ignored / strict)"
+        );
+    }
+    assert!(
+        !state.contains("| Working tree | `CLEAN` |"),
+        "PROJECT_CURRENT_STATE: nieprecyzyjne `CLEAN` bez definicji jest zabronione"
+    );
+
+    // 2. scratch/ jest ignorowany tylko wzorcami plików — nie nazywaj go fantomem.
+    assert!(
+        agents.contains("scratch/tree_dupes.txt"),
+        "AGENTS.md musi nazywać realny nieśledzony plik w scratch/ (F-25 to nie fantom)"
+    );
+    assert!(
+        state.contains("UNTRACKED_SCRATCH_PRESENT"),
+        "PROJECT_CURRENT_STATE musi jawnie klasyfikować nieśledzony scratch/"
+    );
+
+    // 3. Dowód natywny: run 42518873662 dotyczył 7 profili, nie 4.
+    assert!(
+        !master.contains("4 profile w GitHub Actions Run ID 42518873662"),
+        "MASTER_IMPLEMENTATION_PLAN: run 42518873662 dotyczył 7 profili, nie 4"
+    );
+
+    // 4. Formalna bramka F-03 jest zdefiniowana, a M3-G pozostaje zablokowane.
+    for (name, source) in [
+        ("docs/NEXT_WORK_GATE.md", &next_gate),
+        ("docs/DECISION_TRACEABILITY_MATRIX.md", &matrix),
+    ] {
+        assert!(
+            source.contains("STAGE-M3-F-F03-FAIL-CLOSED-CI-VERIFICATION-GATE"),
+            "{name}: brak formalnego identyfikatora bramki F-03"
+        );
+    }
+    assert!(
+        next_gate.contains("STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE"),
+        "NEXT_WORK_GATE musi wskazywać M3-G jako jedyną następną bramkę"
+    );
+    assert!(
+        next_gate.contains("BLOCKED"),
+        "NEXT_WORK_GATE musi jawnie blokować M3-G do zamknięcia F-03"
+    );
+
+    // 5. Raport M3-F i indeks muszą odnotować tę bramkę.
+    assert!(
+        policy_report.contains("ERRATA"),
+        "Raport M3-F policy musi zawierać errata spójności po zamknięciu"
+    );
+    assert!(
+        index.contains("STAGE_M3_F_POST_CLOSURE_CONSISTENCY_VERIFICATION_REPORT.md"),
+        "Indeks dokumentacji musi zawierać raport bramki spójności"
+    );
+
+    // 6. Trwałe reguły bramki: F-03 jawnie OPEN w kontrakcie i stanie, decyzje OWNER zapisane.
+    assert!(
+        agents.contains("F-03"),
+        "AGENTS.md musi jawnie opisywać F-03 (zakaz deklarowania natywnego PASS)"
+    );
+    assert!(
+        state.contains("F-03") && state.contains("`OPEN`"),
+        "PROJECT_CURRENT_STATE musi utrzymywać F-03 jako OPEN"
+    );
+    assert!(
+        master.contains("F-03"),
+        "MASTER_IMPLEMENTATION_PLAN musi jawnie oznaczać F-03"
+    );
+    for owner_id in ["OWNER-M3-F-PCV-01", "OWNER-M3-F-PCV-07"] {
+        assert!(
+            matrix.contains(owner_id),
+            "DECISION_TRACEABILITY_MATRIX musi zapisywać decyzję {owner_id}"
+        );
+    }
+}
+
+// ============================================================================
 // STAGE-QA-BASELINE-DETERMINISM-AND-HERMETICITY-GATE (2026-11-09)
 // Strażnik hermetyczności natywnych testów instalatorów (F-24).
 // Wymaga wyłącznie plików źródłowych — NIE wymaga lokalnego instalatora.
