@@ -57,6 +57,7 @@ install_ubuntu() {
         file \
         binutils \
         desktop-file-utils \
+        findutils \
         libasound2t64 \
         libx11-6 \
         libxcursor1 \
@@ -79,6 +80,7 @@ install_fedora() {
         file \
         binutils \
         desktop-file-utils \
+        findutils \
         alsa-lib \
         libX11 \
         libXcursor \
@@ -101,6 +103,7 @@ install_arch() {
         file \
         binutils \
         desktop-file-utils \
+        findutils \
         alsa-lib \
         libx11 \
         libxcursor \
@@ -122,6 +125,7 @@ install_opensuse() {
         file \
         binutils \
         desktop-file-utils \
+        findutils \
         libasound2 \
         libX11-6 \
         libXcursor1 \
