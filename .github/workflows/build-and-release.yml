@@ -48,6 +48,7 @@ jobs:
             libusb-1.0-0-dev \
             libudev-dev \
             patchelf \
+            desktop-file-utils \
             xvfb
 
       - name: Set up Rust toolchain
@@ -144,6 +145,68 @@ jobs:
             dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz
             dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz.sha256
             SPLogbook-Linux-x86_64.tar.gz
+          if-no-files-found: error
+
+      # ------------------------------------------------------------------
+      # STAGE-M3-G: resolve the LATEST official continuous appimagetool build
+      # exactly once, verify its published SHA-256 against the local one, pin
+      # it for the whole gate, and build the AppImage with that exact file.
+      # The same pinned runtime is passed explicitly with --runtime-file.
+      # ------------------------------------------------------------------
+      - name: Resolve, verify and pin the official AppImage toolchain
+        run: |
+          set -euo pipefail
+          bash scripts/install_appimage_toolchain.sh | tee dist/appimage-toolchain-resolve.log
+
+      - name: Build the AppImage with the pinned continuous appimagetool
+        env:
+          EXPECTED_BUILD_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          bash scripts/build_linux_appimage.sh \
+            dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz \
+            dist | tee dist/appimage-build.log
+
+      - name: Smoke-verify the AppImage (structure, identity, marker)
+        env:
+          EXPECTED_BUILD_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          APPIMAGE="dist/SPLogbook-Linux-x86_64.AppImage"
+          test -s "${APPIMAGE}"
+          test -x "${APPIMAGE}"
+          ( cd dist && sha256sum -c SPLogbook-Linux-x86_64.AppImage.sha256 )
+          MAGIC=$(od -An -tx1 -j8 -N3 "${APPIMAGE}" | tr -d ' \n')
+          test "${MAGIC}" = "414902"
+          file -b "${APPIMAGE}"
+          WORK=$(mktemp -d)
+          ( cd "${WORK}" && APPIMAGE_EXTRACT_AND_RUN=0 "${GITHUB_WORKSPACE}/${APPIMAGE}" --appimage-extract >/dev/null )
+          ROOT="${WORK}/squashfs-root"
+          test -x "${ROOT}/AppRun"
+          test -x "${ROOT}/usr/bin/SPLogbook"
+          test -x "${ROOT}/usr/bin/splogbook-updater"
+          test -f "${ROOT}/usr/lib/libhamlib.so.4"
+          test -f "${ROOT}/usr/share/splogbook/.splogbook-appimage-marker"
+          grep -q "\"build_commit\": \"${EXPECTED_BUILD_COMMIT}\"" "${ROOT}/usr/share/splogbook/.splogbook-appimage-marker"
+          grep -q '"installation_type": "LinuxAppImage"' "${ROOT}/usr/share/splogbook/.splogbook-appimage-marker"
+          grep -q '"artifact_format": "AppImage"' "${ROOT}/usr/share/splogbook/.splogbook-appimage-marker"
+          grep -q '"resolved_minimum_kernel": "7.0"' "${ROOT}/usr/share/splogbook/.splogbook-appimage-marker"
+          grep -q '"maximum_glibc": "2.43"' "${ROOT}/usr/share/splogbook/.splogbook-appimage-marker"
+          grep -q '"appimagetool_channel": "continuous"' "${ROOT}/usr/share/splogbook/.splogbook-appimage-marker"
+          desktop-file-validate "${ROOT}/splogbook.desktop"
+          test "$(find "${ROOT}" -type l | wc -l)" -eq 0
+          test "$(find "${ROOT}/usr/lib" -maxdepth 1 -type f ! -name 'libhamlib.so.4' | wc -l)" -eq 0
+          echo "APPIMAGE SMOKE VERIFICATION PASSED"
+
+      - name: Upload AppImage CI artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: SPLogbook-Linux-x86_64-appimage
+          path: |
+            dist/SPLogbook-Linux-x86_64.AppImage
+            dist/SPLogbook-Linux-x86_64.AppImage.sha256
+            dist/appimage-toolchain/appimage-toolchain.json
+            dist/appimage-toolchain-resolve.log
           if-no-files-found: error
 
   build-windows:
@@ -294,6 +357,78 @@ jobs:
           path: test_env/evidence/native-evidence-${{ matrix.distro_id }}.log
           if-no-files-found: error
 
+      # ------------------------------------------------------------------
+      # STAGE-M3-G: every supported profile verifies the SAME AppImage that was
+      # built once in build-linux. No profile rebuilds the image.
+      # ------------------------------------------------------------------
+      - name: Download AppImage CI artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: SPLogbook-Linux-x86_64-appimage
+          path: appimage/
+
+      - name: Verify the same AppImage in the ${{ matrix.distro_id }} profile
+        run: |
+          set -euo pipefail
+          APPIMAGE="appimage/SPLogbook-Linux-x86_64.AppImage"
+          test -s "${APPIMAGE}"
+          python3 - <<'PY' > appimage-env.sh
+          import json
+
+          with open("appimage/appimage-toolchain.json", encoding="utf-8") as handle:
+              data = json.load(handle)
+          tool = data["appimagetool"]
+          runtime = data["runtime"]
+          print(f"export EXPECTED_APPIMAGETOOL_SHA256='{tool['published_sha256']}'")
+          print(f"export EXPECTED_APPIMAGETOOL_COMMIT='{tool['source_commit']}'")
+          print(f"export EXPECTED_RUNTIME_SHA256='{runtime['published_sha256']}'")
+          print(f"export EXPECTED_RUNTIME_COMMIT='{runtime['source_commit']}'")
+          PY
+          # shellcheck disable=SC1091
+          . ./appimage-env.sh
+          EXPECTED_DESKTOP_SHA256=$(sha256sum installer/linux/portable/templates/splogbook.desktop | awk '{print $1}')
+          EXPECTED_ICON_SHA256=$(sha256sum assets/icon.png | awk '{print $1}')
+          export EXPECTED_DESKTOP_SHA256 EXPECTED_ICON_SHA256
+
+          rm -rf appimage_env
+          mkdir -p appimage_env/evidence
+          cp "${APPIMAGE}" appimage_env/
+          cp appimage/SPLogbook-Linux-x86_64.AppImage.sha256 appimage_env/
+          cp scripts/verify_appimage.sh appimage_env/
+          cp scripts/install_linux_runtime_deps.sh appimage_env/
+          chmod +x appimage_env/verify_appimage.sh appimage_env/install_linux_runtime_deps.sh
+
+          docker run --rm \
+            -e EXPECTED_BUILD_COMMIT="${{ github.sha }}" \
+            -e EXPECTED_DESKTOP_SHA256="${EXPECTED_DESKTOP_SHA256}" \
+            -e EXPECTED_ICON_SHA256="${EXPECTED_ICON_SHA256}" \
+            -e EXPECTED_APPIMAGETOOL_SHA256="${EXPECTED_APPIMAGETOOL_SHA256}" \
+            -e EXPECTED_APPIMAGETOOL_COMMIT="${EXPECTED_APPIMAGETOOL_COMMIT}" \
+            -e EXPECTED_RUNTIME_SHA256="${EXPECTED_RUNTIME_SHA256}" \
+            -e EXPECTED_RUNTIME_COMMIT="${EXPECTED_RUNTIME_COMMIT}" \
+            -v "$(pwd)/appimage_env:/workspace" \
+            -w /workspace \
+            "${{ matrix.image }}" \
+            /bin/sh -c 'set -e; /bin/sh /workspace/install_linux_runtime_deps.sh; exec /bin/sh /workspace/verify_appimage.sh' \
+            2>&1 | tee "appimage_env/evidence/appimage-evidence-${{ matrix.distro_id }}.log"
+
+          EVIDENCE="appimage_env/evidence/appimage-evidence-${{ matrix.distro_id }}.log"
+          test -s "${EVIDENCE}"
+          grep -q "APPIMAGE VERIFICATION COMPLETED SUCCESSFULLY" "${EVIDENCE}"
+          grep -q "PASS: --version and --build-info" "${EVIDENCE}"
+          grep -q "PASS: GLIBC policy satisfied" "${EVIDENCE}"
+          grep -q "PASS: AppImage marker verified" "${EVIDENCE}"
+          grep -q "PASS: desktop files are byte-identical" "${EVIDENCE}"
+          grep -q "PASS: XDG isolation, health check and AppDir immutability verified" "${EVIDENCE}"
+
+      - name: Upload AppImage native evidence log
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: appimage-evidence-${{ matrix.distro_id }}
+          path: appimage_env/evidence/appimage-evidence-${{ matrix.distro_id }}.log
+          if-no-files-found: error
+
   verify-linux-negative:
     name: Verify Linux (negative fixture, fail-closed proof)
     needs: build-linux
@@ -362,6 +497,160 @@ jobs:
           name: native-evidence-negative-fixture
           path: negative_fixture/evidence/negative-fixture.log
           if-no-files-found: error
+
+  # --------------------------------------------------------------------
+  # STAGE-M3-G: negative fixtures. The job succeeds ONLY because every
+  # mutated AppImage / AppDir was rejected with a non-zero exit code and
+  # without the success message.
+  # --------------------------------------------------------------------
+  verify-appimage-negative-fixtures:
+    name: Verify AppImage (negative fixtures, fail-closed proof)
+    needs: build-linux
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download AppImage CI artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: SPLogbook-Linux-x86_64-appimage
+          path: appimage/
+
+      - name: Prove that every mutated AppImage fixture fails closed
+        run: |
+          set -euo pipefail
+          IMAGE="ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c"
+          docker pull "${IMAGE}"
+
+          python3 - <<'PY' > appimage-env.sh
+          import json
+
+          with open("appimage/appimage-toolchain.json", encoding="utf-8") as handle:
+              data = json.load(handle)
+          tool = data["appimagetool"]
+          runtime = data["runtime"]
+          print(f"export EXPECTED_APPIMAGETOOL_SHA256='{tool['published_sha256']}'")
+          print(f"export EXPECTED_APPIMAGETOOL_COMMIT='{tool['source_commit']}'")
+          print(f"export EXPECTED_RUNTIME_SHA256='{runtime['published_sha256']}'")
+          print(f"export EXPECTED_RUNTIME_COMMIT='{runtime['source_commit']}'")
+          PY
+          # shellcheck disable=SC1091
+          . ./appimage-env.sh
+          EXPECTED_DESKTOP_SHA256=$(sha256sum installer/linux/portable/templates/splogbook.desktop | awk '{print $1}')
+          EXPECTED_ICON_SHA256=$(sha256sum assets/icon.png | awk '{print $1}')
+          export EXPECTED_DESKTOP_SHA256 EXPECTED_ICON_SHA256
+
+          rm -rf negative_env
+          mkdir -p negative_env/evidence
+          cp appimage/SPLogbook-Linux-x86_64.AppImage negative_env/
+          cp appimage/SPLogbook-Linux-x86_64.AppImage.sha256 negative_env/
+          cp scripts/verify_appimage.sh negative_env/
+          cp scripts/verify_appimage_negative_fixture.sh negative_env/
+          cp scripts/install_linux_runtime_deps.sh negative_env/
+          chmod +x negative_env/verify_appimage.sh negative_env/verify_appimage_negative_fixture.sh negative_env/install_linux_runtime_deps.sh
+
+          docker run --rm \
+            -e EXPECTED_BUILD_COMMIT="${{ github.sha }}" \
+            -e EXPECTED_DESKTOP_SHA256="${EXPECTED_DESKTOP_SHA256}" \
+            -e EXPECTED_ICON_SHA256="${EXPECTED_ICON_SHA256}" \
+            -e EXPECTED_APPIMAGETOOL_SHA256="${EXPECTED_APPIMAGETOOL_SHA256}" \
+            -e EXPECTED_APPIMAGETOOL_COMMIT="${EXPECTED_APPIMAGETOOL_COMMIT}" \
+            -e EXPECTED_RUNTIME_SHA256="${EXPECTED_RUNTIME_SHA256}" \
+            -e EXPECTED_RUNTIME_COMMIT="${EXPECTED_RUNTIME_COMMIT}" \
+            -v "$(pwd)/negative_env:/workspace" \
+            -w /workspace \
+            "${IMAGE}" \
+            /bin/sh -c 'set -e; /bin/sh /workspace/install_linux_runtime_deps.sh; exec /bin/sh /workspace/verify_appimage_negative_fixture.sh' \
+            2>&1 | tee negative_env/evidence/negative-fixtures.log
+
+          grep -q "NEGATIVE FIXTURES REJECTED AS EXPECTED: 12/12" negative_env/evidence/negative-fixtures.log
+          if grep -q "APPIMAGE VERIFICATION COMPLETED SUCCESSFULLY" negative_env/evidence/negative-fixtures.log; then
+            echo "::error::the success message leaked into the negative fixture evidence"
+            exit 1
+          fi
+
+      - name: Upload negative fixture evidence log
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: appimage-evidence-negative-fixtures
+          path: negative_env/evidence/negative-fixtures.log
+          if-no-files-found: error
+
+  # --------------------------------------------------------------------
+  # STAGE-M3-G: real FUSE runtime evidence. Extraction is NOT FUSE.
+  # When /dev/fuse is present the mount MUST succeed; when the runner
+  # genuinely has no /dev/fuse the status is recorded as UNAVAILABLE and
+  # is never reported as PASS.
+  # --------------------------------------------------------------------
+  verify-appimage-fuse:
+    name: Verify AppImage (real FUSE mount evidence)
+    needs: build-linux
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download AppImage CI artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: SPLogbook-Linux-x86_64-appimage
+          path: appimage/
+
+      - name: Execute the AppImage through a real FUSE mount
+        run: |
+          set -euo pipefail
+          cp appimage/SPLogbook-Linux-x86_64.AppImage .
+          cp appimage/SPLogbook-Linux-x86_64.AppImage.sha256 .
+          chmod +x SPLogbook-Linux-x86_64.AppImage
+          sha256sum -c SPLogbook-Linux-x86_64.AppImage.sha256
+          BEFORE_SHA=$(sha256sum SPLogbook-Linux-x86_64.AppImage | awk '{print $1}')
+
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            file binutils coreutils libfuse2t64 libfuse3-3 desktop-file-utils \
+            libasound2t64 libx11-6 libxcursor1 libxrandr2 libxi6 libxkbcommon0 \
+            libxkbcommon-x11-0 libgl1 libfontconfig1 libwayland-client0 \
+            libwayland-cursor0 libwayland-egl1 libgtk-3-0t64 libusb-1.0-0 libudev1
+
+          if [ ! -e /dev/fuse ]; then
+            echo "FUSE_STATUS=UNAVAILABLE_IN_CI"
+            echo "FUSE_RUNTIME_VERIFIED=false"
+            echo "::notice::/dev/fuse is not available on this runner; real FUSE evidence is classified as unavailable, never as PASS"
+            exit 0
+          fi
+          echo "FUSE_DEVICE_PRESENT=true"
+
+          ./SPLogbook-Linux-x86_64.AppImage --version | tee fuse-version.txt
+          test "$(cat fuse-version.txt)" = "SPLogbook 1.3.0-alpha.1"
+          ./SPLogbook-Linux-x86_64.AppImage --build-info | tee fuse-build-info.txt
+          grep -q "^Commit: ${{ github.sha }}$" fuse-build-info.txt
+          HEALTH_PROOF=$(mktemp)
+          ./SPLogbook-Linux-x86_64.AppImage --check-health-startup --health-proof-path "${HEALTH_PROOF}"
+          test -s "${HEALTH_PROOF}"
+          sha256sum -c SPLogbook-Linux-x86_64.AppImage.sha256
+          AFTER_SHA=$(sha256sum SPLogbook-Linux-x86_64.AppImage | awk '{print $1}')
+          test "${BEFORE_SHA}" = "${AFTER_SHA}"
+          echo "FUSE_STATUS=VERIFIED"
+          echo "FUSE_RUNTIME_VERIFIED=true"
+          echo "REAL FUSE MOUNT EXECUTION VERIFIED"
+
+      - name: Upload FUSE evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: appimage-evidence-fuse
+          path: |
+            fuse-version.txt
+            fuse-build-info.txt
+          if-no-files-found: warn
 
   publish-release:
     name: Publish Release Assets

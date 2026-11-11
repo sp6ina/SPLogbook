@@ -6,9 +6,10 @@
 
 ## 1. Data projektu
 
-1. Aktualna data projektu: **2026-11-09** (data hosta zgodna; potwierdzona 2026-11-09).
-   Daty projektu **nie wolno cofać**. Jeśli host wskazuje datę późniejszą — przyjmij ją
-   i zapisz aktualizację osi czasu. Nie zmieniaj zegara systemowego ani dat commitów.
+1. Aktualna data projektu: **2026-11-11** (data hosta zgodna; potwierdzona 2026-11-11).
+   Data 2026-11-09 pozostaje **historyczną** datą wcześniejszych bramek. Daty projektu **nie wolno cofać**.
+   Jeśli host wskazuje datę późniejszą — przyjmij ją i zapisz aktualizację osi czasu.
+   Nie zmieniaj zegara systemowego ani dat commitów.
 
 ## 2. Git — zawsze najpierw fetch
 
@@ -69,8 +70,10 @@
     wymagania ABI; Ubuntu interim (26.10) jest poza zakresem. Snapshot:
     `LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.{json,md}`. Politykę wolno zmienić wyłącznie nową,
     jawną decyzją OWNER i osobną bramką.
-25. **M3-G (AppImage) pozostaje `NOT_STARTED`** — po zamknięciu F-03 jego status to
-    `READY_FOR_OWNER_GO`; implementacja wymaga osobnej bramki i jawnego GO OWNER.
+25. **M3-G (AppImage) jest `IN_PROGRESS`** od 2026-11-11 (GO OWNER: `OWNER-M3-G-01`,
+    `OWNER-M3-G-05`, `OWNER-M3-G-08`, `OWNER-M3-G-09`). Bramka nie jest zamknięta do czasu
+    pełnych, zielonych dowodów CI (4/4 profile, job negatywny, FUSE). Publikacja release,
+    nowy tag i `publish-release` pozostają poza zakresem.
 26. **F-03 (P1) — ZAMKNIĘTE 2026-11-09** (`STAGE-M3-F-F03-FAIL-CLOSED-CI-VERIFICATION-GATE`,
     `COMPLETED_FAIL_CLOSED_CI_VERIFICATION_VERIFIED`). Weryfikator
     `scripts/verify_linux_container.sh` jest fail-closed: ELF, `ldd`, `--version`, `--build-info`
@@ -80,8 +83,8 @@
     (`scripts/install_linux_runtime_deps.sh`). Dowód: run `42685105375` na commicie `abdb767`,
     4/4 profile `success`, zero `not found` w logach, `--version` i `--build-info` exit 0,
     wymagany GLIBC ≤ 2.43, oraz job negatywny (brak biblioteki → exit 1, bez komunikatu
-    sukcesu). **Nie deklaruj natywnego PASS bez tych dowodów.** M3-G pozostaje `NOT_STARTED`
-    i wymaga osobnego GO OWNER.
+    sukcesu). **Nie deklaruj natywnego PASS bez tych dowodów.** M3-G jest `IN_PROGRESS`
+    (GO OWNER 2026-11-11); F-03 pozostaje `CLOSED` i nie może zostać otwarte ponownie.
 
 ## 6. Zasady testów i instalatorów
 

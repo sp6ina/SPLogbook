@@ -163,8 +163,8 @@ git -c core.fsmonitor=false -c core.untrackedCache=false status --porcelain=v1
   fail-closed weryfikator, biblioteki runtime w 4 obrazach OCI, jawna kontrola `GLIBC_2.43`,
   test negatywny; run `42685105375` na commicie `abdb767`, 4/4 profile `success`, zero `not found`.
 - Następna bramka (jedyna wykonywalna): **`STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE`** —
-  `NOT_STARTED` / `READY_FOR_OWNER_GO`, wymaga osobnego GO OWNER.
-- M3-G (AppImage): **`READY_FOR_OWNER_GO`** — **nie rozpoczęto**; implementacja wymaga GO OWNER.
+  `IN_PROGRESS` od 2026-11-11 (GO OWNER udzielone); bramka nie jest zamknięta do pełnych dowodów CI.
+- M3-G (AppImage): **`IN_PROGRESS`** — implementacja, weryfikacja i domknięcie w toku.
 
 Raporty: `STAGE_QA_BASELINE_DETERMINISM_AND_HERMETICITY_REPORT.md`,
 `STAGE_DEPENDENCY_SECURITY_UPDATE_REPORT.md`,

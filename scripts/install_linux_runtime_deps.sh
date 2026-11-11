@@ -1,4 +1,4 @@
-#!/bin/sh
+﻿#!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 #
@@ -56,6 +56,7 @@ install_ubuntu() {
     apt-get install -y --no-install-recommends \
         file \
         binutils \
+        desktop-file-utils \
         libasound2t64 \
         libx11-6 \
         libxcursor1 \
@@ -77,6 +78,7 @@ install_fedora() {
     dnf install -y --setopt=install_weak_deps=False \
         file \
         binutils \
+        desktop-file-utils \
         alsa-lib \
         libX11 \
         libXcursor \
@@ -98,6 +100,7 @@ install_arch() {
     pacman -Sy --noconfirm --needed \
         file \
         binutils \
+        desktop-file-utils \
         alsa-lib \
         libx11 \
         libxcursor \
@@ -118,6 +121,7 @@ install_opensuse() {
     zypper --non-interactive install --no-recommends --auto-agree-with-licenses \
         file \
         binutils \
+        desktop-file-utils \
         libasound2 \
         libX11-6 \
         libXcursor1 \

@@ -23,6 +23,10 @@ readme.me
 *.zip
 *.tar.gz
 
+# AppImage artifacts and AppImage toolchain downloads (never committed)
+*.AppImage
+*.AppImage.sha256
+
 # Editor & OS files
 .idea/
 .vscode/

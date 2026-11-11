@@ -5264,10 +5264,13 @@ fn m3_f_post_closure_consistency_guard() {
         "NEXT_WORK_GATE musi wskazywać M3-G jako jedyną następną bramkę"
     );
     assert!(
-        next_gate.contains("NEXT_GATE_STATUS: `NOT_STARTED`")
-            && next_gate.contains("M3_G_STATUS: `READY_FOR_OWNER_GO`")
-            && next_gate.contains("NEXT_GATE_OWNER_GO: `REQUIRED`"),
-        "NEXT_WORK_GATE musi wskazywać M3-G jako READY_FOR_OWNER_GO z wymaganym GO"
+        next_gate.contains("F03_STATUS: `CLOSED`"),
+        "NEXT_WORK_GATE musi utrzymywać F-03 jako CLOSED"
+    );
+    assert!(
+        next_gate.contains("M3_G_STATUS: `IN_PROGRESS`")
+            || next_gate.contains("M3_G_STATUS: `CLOSED`"),
+        "NEXT_WORK_GATE musi odzwierciedlać rozpoczętą lub zamkniętą bramkę M3-G"
     );
 
     // 5. Raport M3-F i indeks muszą odnotować tę bramkę.
@@ -5701,10 +5704,8 @@ fn m3_f_f03_fail_closed_verification_guard() {
     );
     assert!(
         next_gate.contains("STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE")
-            && next_gate.contains("NEXT_GATE_STATUS: `NOT_STARTED`")
-            && next_gate.contains("M3_G_STATUS: `READY_FOR_OWNER_GO`")
             && next_gate.contains("F03_STATUS: `CLOSED`"),
-        "NEXT_WORK_GATE musi wskazywać M3-G jako READY_FOR_OWNER_GO, a F-03 jako CLOSED"
+        "NEXT_WORK_GATE musi zachowywać F-03 jako CLOSED i wskazywać bramkę M3-G"
     );
     assert!(
         handoff.contains("F-03") && handoff.contains("ZAMKNIĘTE"),
@@ -5731,5 +5732,277 @@ fn m3_f_f03_fail_closed_verification_guard() {
     assert_eq!(
         snapshot_json["native_evidence"]["negative_fixture"]["observed_exit_code"], 1,
         "snapshot musi zapisywać exit code 1 testu negatywnego"
+    );
+}
+
+// ============================================================================
+// STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE (2026-11-11)
+// Strażnik trwałych kontraktów pakunku AppImage: oficjalne źródło i kanał
+// continuous appimagetool, weryfikacja opublikowanego i lokalnego SHA-256,
+// przypięcie jednego toolchainu na całą bramkę, jawny type-2 runtime,
+// AppRun bez eskalacji i bez LD_LIBRARY_PATH, polityka GLIBC_2.43, bundlowanie
+// wyłącznie libhamlib.so.4, cztery profile, testy negatywne, brak publikacji
+// release oraz utrzymane fail-closed F-03.
+//
+// Strażnik NIE wymaga konkretnego commita Continuous — konkretny commit i
+// SHA-256 są dowodem bieżącej bramki, nie wiecznym pinem projektu.
+// ============================================================================
+
+#[test]
+fn m3_g_appimage_integration_guard() {
+    let install = fs::read_to_string("scripts/install_appimage_toolchain.sh")
+        .expect("install_appimage_toolchain.sh");
+    let build =
+        fs::read_to_string("scripts/build_linux_appimage.sh").expect("build_linux_appimage.sh");
+    let verify = fs::read_to_string("scripts/verify_appimage.sh").expect("verify_appimage.sh");
+    let fixtures = fs::read_to_string("scripts/verify_appimage_negative_fixture.sh")
+        .expect("negative fixture script");
+    let apprun = fs::read_to_string("installer/linux/appimage/AppRun").expect("AppRun");
+    let workflow = fs::read_to_string(".github/workflows/build-and-release.yml")
+        .expect("build-and-release.yml");
+    let gitignore = fs::read_to_string(".gitignore").expect(".gitignore");
+    let f03 =
+        fs::read_to_string("scripts/verify_linux_container.sh").expect("verify_linux_container.sh");
+    let readme = fs::read_to_string("installer/linux/appimage/README.md").expect("appimage README");
+
+    // 1. Wyłącznie oficjalne repozytorium i kanał continuous; brak AppImageKit.
+    assert!(
+        install.contains("APPIMAGETOOL_REPO=\"AppImage/appimagetool\""),
+        "appimagetool musi pochodzić z oficjalnego AppImage/appimagetool"
+    );
+    assert!(
+        install.contains("APPIMAGETOOL_TAG=\"continuous\""),
+        "kanał continuous musi być rozwiązany jawnie"
+    );
+    assert!(
+        install.contains("releases/tags/${APPIMAGETOOL_TAG}"),
+        "metadane muszą być czytane z oficjalnego endpointu tagu"
+    );
+    assert!(
+        !install.contains("AppImageKit"),
+        "zakaz używania starego repozytorium AppImageKit"
+    );
+
+    // 2. Odczyt oficjalnego SHA-256, lokalna kontrola i porównanie digestów.
+    assert!(
+        install.contains("sha256sum"),
+        "resolver musi liczyć lokalny SHA-256"
+    );
+    assert!(
+        install.contains("TOOL_CHECKSUM_MISMATCH"),
+        "resolver musi odrzucać niezgodność lokalnego i opublikowanego SHA-256"
+    );
+    assert!(
+        install.contains("CONTINUOUS_RELEASE_RACE"),
+        "resolver musi wykrywać zmianę assetu między resolution a pobraniem"
+    );
+    assert!(
+        install.contains("APPIMAGETOOL_RELEASE_ID") && install.contains("RELEASE_PUBLISHED"),
+        "resolver musi zapisywać release/build identifier oraz czas publikacji"
+    );
+
+    // 3. Brak fallbacku do 1.9.1, brak `curl | sh` i brak nieweryfikowanego latest.
+    for line in install
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+    {
+        assert!(
+            !(line.contains("1.9.1")),
+            "zakaz fallbacku do appimagetool 1.9.1: {line}"
+        );
+        assert!(
+            !(line.contains("curl") && line.contains("| sh")),
+            "zakaz `curl | sh`: {line}"
+        );
+        assert!(
+            !(line.contains("curl") && line.contains("| bash")),
+            "zakaz `curl | bash`: {line}"
+        );
+    }
+    assert!(
+        !install.contains("http://"),
+        "wyłącznie HTTPS dla oficjalnych źródeł"
+    );
+
+    // 4. Jeden toolchain na całą bramkę: jedno rozwiązanie, jedna budowa.
+    assert_eq!(
+        workflow.matches("install_appimage_toolchain.sh").count(),
+        1,
+        "toolchain musi być rozwiązany dokładnie raz w całym workflow"
+    );
+    assert_eq!(
+        workflow.matches("build_linux_appimage.sh").count(),
+        1,
+        "AppImage musi być zbudowany dokładnie raz w całym workflow"
+    );
+    assert!(
+        build.contains("appimage-toolchain.json"),
+        "budowa musi korzystać z przypiętych metadanych toolchainu"
+    );
+    assert!(
+        build.contains("appimagetool on disk does not match the pinned SHA-256"),
+        "budowa musi ponownie weryfikować SHA-256 przypiętego appimagetool"
+    );
+
+    // 5. Runtime przypięty i przekazany jawnie.
+    assert!(
+        install.contains("RUNTIME_REPO=\"AppImage/type2-runtime\""),
+        "runtime musi pochodzić z oficjalnego AppImage/type2-runtime"
+    );
+    assert!(
+        install.contains("runtime-x86_64"),
+        "runtime musi być assetem x86_64"
+    );
+    assert!(
+        build.contains("--runtime-file"),
+        "runtime musi być przekazany jawnie przez --runtime-file"
+    );
+    assert!(
+        build.contains("runtime on disk does not match the pinned SHA-256"),
+        "budowa musi ponownie weryfikować SHA-256 przypiętego runtime"
+    );
+
+    // 6. AppRun: POSIX sh, exec, przekazanie argumentów, brak eskalacji i LD_LIBRARY_PATH.
+    assert!(apprun.contains("#!/bin/sh"), "AppRun musi używać /bin/sh");
+    assert!(apprun.contains("set -eu"), "AppRun musi używać set -eu");
+    assert!(
+        apprun.contains("exec \"${APPDIR}/usr/bin/SPLogbook\" \"$@\""),
+        "AppRun musi przekazywać wszystkie argumenty przez exec"
+    );
+    for line in apprun
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+    {
+        for forbidden in ["sudo", "pkexec", "doas", "LD_LIBRARY_PATH"] {
+            assert!(
+                !line.contains(forbidden),
+                "AppRun nie może zawierać {forbidden}: {line}"
+            );
+        }
+    }
+
+    // 7. Polityka GLIBC_2.43 jest niezmieniona i porównywana semantycznie.
+    assert!(
+        verify.contains("GLIBC_POLICY_MAX=\"2.43\""),
+        "weryfikator musi kodować GLIBC_POLICY_MAX=2.43"
+    );
+    assert!(
+        verify.contains("version_le") && verify.contains("sort -V"),
+        "porównanie GLIBC musi być semantyczne"
+    );
+    assert!(
+        readme.contains("maximum_glibc=2.43") || readme.contains("maximum_glibc"),
+        "README AppImage musi dokumentować politykę 2.43"
+    );
+
+    // 8. Bundlowany jest wyłącznie libhamlib.so.4; glibc i loader nie są bundlowane.
+    assert!(
+        build.contains("install -m 0755 \"${PAYLOAD}/lib/libhamlib.so.4\""),
+        "bundlowany musi być dokładnie libhamlib.so.4"
+    );
+    assert!(
+        build.contains("only libhamlib.so.4 may be bundled"),
+        "budowa musi odrzucać dodatkowe biblioteki"
+    );
+    assert!(
+        verify.contains("the loader/glibc/libm/libgcc_s/libstdc++ must not be bundled"),
+        "weryfikator musi odrzucać bundlowanie loadera i glibc"
+    );
+    assert!(
+        !build.contains("LD_LIBRARY_PATH"),
+        "budowa nie może maskować zależności przez LD_LIBRARY_PATH"
+    );
+
+    // 9. AppImage i pobrane narzędzia nie są commitowane.
+    assert!(
+        gitignore.contains("*.AppImage"),
+        ".gitignore musi ignorować artefakty AppImage"
+    );
+    assert!(
+        !workflow.contains("git add"),
+        "workflow nie może dodawać artefaktów do repozytorium"
+    );
+
+    // 10. publish-release pozostaje bez AppImage i bez zmian tag-gatingu.
+    let publish = workflow
+        .split("publish-release:")
+        .nth(1)
+        .expect("job publish-release musi istnieć");
+    assert!(
+        !publish.contains("AppImage"),
+        "publish-release nie może publikować AppImage w M3-G"
+    );
+    assert!(
+        publish.contains("if: startsWith(github.ref, 'refs/tags/v')"),
+        "publish-release musi pozostać warunkowany tagiem v*"
+    );
+
+    // 11. Cztery profile i ten sam AppImage w każdym z nich.
+    assert_eq!(
+        workflow.matches("distro_id: \"").count(),
+        4,
+        "macierz musi zawierać dokładnie cztery profile"
+    );
+    assert!(
+        workflow.matches("SPLogbook-Linux-x86_64-appimage").count() >= 3,
+        "workflow musi pobierać ten sam artefakt AppImage w jobach weryfikacyjnych"
+    );
+    assert!(
+        workflow.contains("scripts/verify_appimage.sh"),
+        "profile muszą weryfikować ten sam AppImage weryfikatorem fail-closed"
+    );
+
+    // 12. Testy negatywne: 12 mutacji i brak komunikatu sukcesu.
+    assert_eq!(
+        fixtures.matches("expect_reject ").count(),
+        12,
+        "zestaw negatywny musi wywołać dokładnie 12 mutacji"
+    );
+    assert!(
+        fixtures.contains("NEGATIVE FIXTURES REJECTED AS EXPECTED"),
+        "zestaw negatywny musi raportować jawne odrzucenie"
+    );
+
+    // 13. Dane użytkownika są zabronione w obrazie.
+    for forbidden in [
+        "*.db",
+        "*.db-wal",
+        "*.db-shm",
+        "default_log.db",
+        "station_config.json",
+        "*.adi",
+        "*.adif",
+        "*.cbr",
+    ] {
+        assert!(
+            verify.contains(forbidden),
+            "weryfikator musi zakazywać {forbidden} w obrazie"
+        );
+    }
+
+    // 14. F-03 pozostaje fail-closed.
+    assert!(
+        f03.contains("set -eu"),
+        "F-03: weryfikator musi używać set -eu"
+    );
+    assert!(
+        !f03.contains("LEGACY NON-FAIL-CLOSED"),
+        "F-03: brak markera legacy"
+    );
+    assert_eq!(
+        f03.lines()
+            .filter(|line| !line.trim_start().starts_with('#')
+                && line.contains("NATIVE VERIFICATION COMPLETED SUCCESSFULLY"))
+            .count(),
+        1,
+        "F-03: komunikat sukcesu dokładnie raz"
+    );
+    assert!(
+        f03.contains("GLIBC_POLICY_MAX=\"2.43\""),
+        "F-03: polityka GLIBC_2.43 musi pozostać"
+    );
+    assert!(
+        verify.contains("APPIMAGE VERIFICATION COMPLETED SUCCESSFULLY"),
+        "M3-G: komunikat sukcesu weryfikatora AppImage musi istnieć"
     );
 }

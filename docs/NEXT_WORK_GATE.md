@@ -60,17 +60,18 @@ backports/RC nie wyznaczają minimum.
 ## Następna bramka (jedyna wykonywalna)
 
 NEXT_GATE: **`STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE`**
-NEXT_GATE_STATUS: `NOT_STARTED`
-NEXT_GATE_OWNER_GO: `REQUIRED`
+NEXT_GATE_STATUS: `IN_PROGRESS`
+NEXT_GATE_OWNER_GO: `GRANTED` (`OWNER-M3-G-01`, `OWNER-M3-G-05`)
 F03_STATUS: `CLOSED`
-M3_G_STATUS: `READY_FOR_OWNER_GO`
+M3_G_STATUS: `IN_PROGRESS`
 
 # `STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE`
 
 **Typ:** implementacja pakietu AppImage + weryfikacja natywna.
 **Priorytet:** P1.
-**Status:** `NOT_STARTED` / `READY_FOR_OWNER_GO` — **nie rozpoczęto**; wymaga osobnego
-promptu/GO od OWNER. F-03 jest zamknięte, więc blokada merytoryczna została zdjęta.
+**Status:** `IN_PROGRESS` — implementacja rozpoczęta 2026-11-11 po jawnym GO OWNER
+(`OWNER-M3-G-01`, `OWNER-M3-G-05`, `OWNER-M3-G-08`, `OWNER-M3-G-09`). Bramka nie jest
+zamknięta do czasu pełnych, zielonych dowodów CI (4/4 profile + job negatywny + FUSE).
 **Prekondycja:** zamknięta bramka QA, bramka zależności, bramka wyrównania polityki Linux
 **oraz** bramka F-03 — wszystkie spełnione.
 
@@ -79,8 +80,8 @@ z sekcji powyżej, jeden kanoniczny artefakt, layout `SPLogbook/`, aktualizacje
 `JOURNALED_TRANSACTIONAL_REPLACEMENT`, XDG Base Directory, fail-closed weryfikator natywny
 z runu `42685105375`.
 
-**Czego nie wolno:** rozpoczynać M3-G bez osobnego GO OWNER, publikować release, tworzyć tagu,
-zmieniać polityki 7.0/2.43.
+**Czego nie wolno:** publikować release, tworzyć tagu, zmieniać polityki 7.0/2.43, zmieniać
+`publish-release`, dodawać AppImage do publicznego wydania.
 
 ## M3-H/J
 

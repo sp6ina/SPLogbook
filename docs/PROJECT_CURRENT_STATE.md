@@ -90,7 +90,7 @@ jednego pre-existing testu zablokowanego przez prompt sandboxa
 | M3-F Linux support policy alignment | **`COMPLETED_POLICY_ALIGNMENT_VERIFIED`** — 7.0 / 2.43, 4 dystrybucje |
 | M3-F post-closure consistency verification | **`COMPLETED_POST_CLOSURE_CONSISTENCY_VERIFIED`** |
 | **M3-F F-03 fail-closed CI verification** | **`COMPLETED_FAIL_CLOSED_CI_VERIFICATION_VERIFIED`** — run `42685105375` (4/4 profile, zero `not found`, GLIBC ≤ 2.43) + job negatywny (exit 1) |
-| M3-G AppImage | **`READY_FOR_OWNER_GO` / `NOT_STARTED`** — wymaga osobnego GO OWNER |
+| M3-G AppImage | **`IN_PROGRESS`** — GO OWNER udzielone 2026-11-11; implementacja w toku, brak dowodów CI |
 | M3-H/J (DEB/RPM/Flatpak) | `NOT_STARTED` |
 | NATIVE-7B (fizyczny HIL) | `BLOCKED` (10 testów `#[ignore]`, 0 wykonanych) |
 
