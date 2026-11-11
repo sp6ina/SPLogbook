@@ -196,6 +196,9 @@ jobs:
           desktop-file-validate "${ROOT}/splogbook.desktop"
           test "$(find "${ROOT}" -type l | wc -l)" -eq 0
           test "$(find "${ROOT}/usr/lib" -maxdepth 1 -type f ! -name 'libhamlib.so.4' | wc -l)" -eq 0
+          # Flatten the toolchain metadata next to the artifact so that the
+          # uploaded artifact keeps a deterministic, path-stable layout.
+          cp dist/appimage-toolchain/appimage-toolchain.json dist/appimage-toolchain.json
           echo "APPIMAGE SMOKE VERIFICATION PASSED"
 
       - name: Upload AppImage CI artifact
@@ -205,7 +208,7 @@ jobs:
           path: |
             dist/SPLogbook-Linux-x86_64.AppImage
             dist/SPLogbook-Linux-x86_64.AppImage.sha256
-            dist/appimage-toolchain/appimage-toolchain.json
+            dist/appimage-toolchain.json
             dist/appimage-toolchain-resolve.log
           if-no-files-found: error
 
@@ -372,10 +375,13 @@ jobs:
           set -euo pipefail
           APPIMAGE="appimage/SPLogbook-Linux-x86_64.AppImage"
           test -s "${APPIMAGE}"
-          python3 - <<'PY' > appimage-env.sh
+          TOOLCHAIN_JSON=$(find appimage -name appimage-toolchain.json -print -quit)
+          test -n "${TOOLCHAIN_JSON}"
+          python3 - "${TOOLCHAIN_JSON}" <<'PY' > appimage-env.sh
           import json
+          import sys
 
-          with open("appimage/appimage-toolchain.json", encoding="utf-8") as handle:
+          with open(sys.argv[1], encoding="utf-8") as handle:
               data = json.load(handle)
           tool = data["appimagetool"]
           runtime = data["runtime"]
@@ -526,10 +532,13 @@ jobs:
           IMAGE="ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c"
           docker pull "${IMAGE}"
 
-          python3 - <<'PY' > appimage-env.sh
+          TOOLCHAIN_JSON=$(find appimage -name appimage-toolchain.json -print -quit)
+          test -n "${TOOLCHAIN_JSON}"
+          python3 - "${TOOLCHAIN_JSON}" <<'PY' > appimage-env.sh
           import json
+          import sys
 
-          with open("appimage/appimage-toolchain.json", encoding="utf-8") as handle:
+          with open(sys.argv[1], encoding="utf-8") as handle:
               data = json.load(handle)
           tool = data["appimagetool"]
           runtime = data["runtime"]
@@ -615,10 +624,13 @@ jobs:
 
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            file binutils coreutils libfuse2t64 libfuse3-3 desktop-file-utils \
+            file binutils coreutils desktop-file-utils \
             libasound2t64 libx11-6 libxcursor1 libxrandr2 libxi6 libxkbcommon0 \
             libxkbcommon-x11-0 libgl1 libfontconfig1 libwayland-client0 \
             libwayland-cursor0 libwayland-egl1 libgtk-3-0t64 libusb-1.0-0 libudev1
+          # FUSE userspace libraries: package names differ between runner images.
+          sudo apt-get install -y --no-install-recommends libfuse2t64 fuse3 \
+            || sudo apt-get install -y --no-install-recommends libfuse2 fuse3
 
           if [ ! -e /dev/fuse ]; then
             echo "FUSE_STATUS=UNAVAILABLE_IN_CI"

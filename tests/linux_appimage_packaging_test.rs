@@ -13,7 +13,9 @@
 use std::fs;
 
 fn read(path: &str) -> String {
-    fs::read_to_string(path).unwrap_or_else(|error| panic!("cannot read {path}: {error}"))
+    fs::read_to_string(path)
+        .unwrap_or_else(|error| panic!("cannot read {path}: {error}"))
+        .replace("\r\n", "\n")
 }
 
 fn executable_lines(text: &str) -> impl Iterator<Item = &str> {
