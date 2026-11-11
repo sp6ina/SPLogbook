@@ -400,6 +400,8 @@ jobs:
           mkdir -p appimage_env/evidence
           cp "${APPIMAGE}" appimage_env/
           cp appimage/SPLogbook-Linux-x86_64.AppImage.sha256 appimage_env/
+          # Artifact archives do not preserve POSIX modes: restore 0755 explicitly.
+          chmod 0755 appimage_env/SPLogbook-Linux-x86_64.AppImage
           cp scripts/verify_appimage.sh appimage_env/
           cp scripts/install_linux_runtime_deps.sh appimage_env/
           chmod +x appimage_env/verify_appimage.sh appimage_env/install_linux_runtime_deps.sh
@@ -557,6 +559,8 @@ jobs:
           mkdir -p negative_env/evidence
           cp appimage/SPLogbook-Linux-x86_64.AppImage negative_env/
           cp appimage/SPLogbook-Linux-x86_64.AppImage.sha256 negative_env/
+          # Artifact archives do not preserve POSIX modes: restore 0755 explicitly.
+          chmod 0755 negative_env/SPLogbook-Linux-x86_64.AppImage
           cp scripts/verify_appimage.sh negative_env/
           cp scripts/verify_appimage_negative_fixture.sh negative_env/
           cp scripts/install_linux_runtime_deps.sh negative_env/
