@@ -5293,8 +5293,10 @@ fn m3_f_post_closure_consistency_guard() {
         "PROJECT_CURRENT_STATE musi utrzymywać F-03 jako CLOSED"
     );
     assert!(
-        state.contains("M3_G_STATUS") && state.contains("READY_FOR_OWNER_GO"),
-        "PROJECT_CURRENT_STATE musi wskazywać M3-G jako READY_FOR_OWNER_GO"
+        state.contains("M3_G_STATUS")
+            && (state.contains("M3_G_STATUS: `IN_PROGRESS`")
+                || state.contains("M3_G_STATUS: `CLOSED`")),
+        "PROJECT_CURRENT_STATE musi odzwierciedlać rozpoczętą lub zamkniętą bramkę M3-G"
     );
     assert!(
         master.contains("F-03"),
@@ -5456,8 +5458,8 @@ fn qa_native_installer_tests_are_hermetic_and_fail_closed() {
         "CI musi uruchamiać strażnik hermetyczności"
     );
     assert!(
-        ci.contains("2700") && ci.contains("2690") && ci.contains("10 ignored"),
-        "CI musi dokumentować kanoniczne liczniki bazowe (2700/2690/10)"
+        ci.contains("2717") && ci.contains("2707") && ci.contains("10 ignored"),
+        "CI musi dokumentować kanoniczne liczniki bazowe (2717/2707/10)"
     );
 }
 
