@@ -144,3 +144,26 @@ run `42685105375` na commicie `abdb767`, 4/4 profile `success`, job negatywny `s
 | `FIND-F03-05` | Test negatywny: goły `ubuntu:26.04` bez bibliotek runtime → `libasound.so.2 => not found`, `FAIL`, **exit 1**, brak komunikatu sukcesu | job `Verify Linux (negative fixture, fail-closed proof)`, log `native-evidence-negative-fixture` | `VERIFIED` |
 | `FIND-F03-06` | Publikacja zablokowana: `Publish Release Assets` = `skipped` przy pushu na `main`; brak nowego tagu i release; `v1.2.0` nietknięty | GitHub API jobs/releases/tags; `git rev-parse` | `VERIFIED` |
 | `FIND-F03-07` | Anomalia runów na commicie wejściowym `e85ee4e` (CI `42673055954` — 0 jobów; Build and Release `42673056245` — brak joba Windows) to skutek awarii GitHub Actions `major_outage` 18:12–18:43Z, nie defekt repozytorium | `githubstatus.com` summary; API jobs; runy bramki F-03 wykonane w pełni | `EXPLAINED` |
+
+## 10. Bramka M3-G — AppImage (2026-11-11)
+
+Bramka: `STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE` — **`IN_PROGRESS` /
+`BLOCKED_NEW_DEPENDENCY_ADVISORY`**. Implementacja i weryfikacja AppImage zostały wykonane
+w jednej sesji; formalne zamknięcie blokuje nowe advisory zależności (`RUSTSEC-2026-0486`).
+
+| ID | Decyzja / ustalenie | Realizacja | Dowód | Status |
+|---|---|---|---|---|
+| `OWNER-M3-G-01` | `GO` dla bramki AppImage | `docs/NEXT_WORK_GATE.md`, ten wiersz | raport bramki | `IMPLEMENTED` |
+| `OWNER-M3-G-03-R1` | `APPROVE LATEST VERIFIED APPIMAGETOOL CONTINUOUS BUILD` | `scripts/install_appimage_toolchain.sh` | `continuous` @ `11d54c9acc7f246df1398050a4b880314ac76862`, `sha256:e8c1169c…` | `IMPLEMENTED` |
+| `OWNER-M3-G-04-R1` | `RESOLVE AND VERIFY THE LATEST OFFICIAL TYPE-2 RUNTIME` | `scripts/install_appimage_toolchain.sh`, `--runtime-file` | `continuous` @ `fedfad51acc2860b2916a1eef32ba4a500ff31ef`, `sha256:617aa773…` | `IMPLEMENTED` |
+| `OWNER-M3-G-08` | `USE LATEST VERIFIED APPIMAGETOOL CONTINUOUS BUILD` | brak fallbacku 1.9.1 | `m3_g_appimage_integration_guard` | `IMPLEMENTED` |
+| `OWNER-M3-G-09` | `PREFER LATEST AVAILABLE LIBRARIES AND TOOLS` | najnowszy zweryfikowany runtime i tool | metadane toolchainu | `IMPLEMENTED` |
+| `FIND-M3G-01` | Oficjalny digest i lokalny digest `appimagetool` identyczne; asset jednoznaczny | `appimage-toolchain.json` | `sha256:e8c1169c4af66c3184d7ee110713d4be04befe671fa358e2c1591ee840553b03` | `VERIFIED` |
+| `FIND-M3G-02` | Runtime type 2 statycznie linkowany (brak `PT_INTERP`, `DT_NEEDED`, `GLIBC_*`), przekazany jawnie `--runtime-file`; wcześniejszy pin `20251108` odnotowany, DESIGN go nie wymaga | `runtime-x86_64`, `sha256:617aa773…` | analiza ELF + metadane | `VERIFIED` |
+| `FIND-M3G-03` | AppImage zbudowany z zweryfikowanego portable tar.gz tego samego commita; zatwierdzony AppDir, marker, RUNPATH `$ORIGIN/../lib`, wyłącznie `libhamlib.so.4` | `scripts/build_linux_appimage.sh`, `AppRun` | artefakt CI `SPLogbook-Linux-x86_64-appimage` | `VERIFIED` |
+| `FIND-M3G-04` | Testy negatywne: 12 mutacji odrzuconych niezerowym kodem i bez komunikatu sukcesu | `scripts/verify_appimage_negative_fixture.sh` | job `verify-appimage-negative-fixtures` | `VERIFIED` |
+| `FIND-M3G-05` | Cztery profile weryfikują **ten sam** AppImage (bez przebudowy per profil) | `.github/workflows/build-and-release.yml` | joby `Verify Linux (…)` | `VERIFIED` |
+| `FIND-M3G-06` | Ekstrakcja nie jest dowodem FUSE; job FUSE raportuje rzeczywisty status (`VERIFIED` albo `UNAVAILABLE_IN_CI`), nigdy nie oznacza braku jako PASS | job `verify-appimage-fuse` | log `appimage-evidence-fuse` | `DEFINED` |
+| `FIND-M3G-07` | Defekt ratchetu liczników CI (`2700/2690`) ujawniony przez run `43011245883`; poprawiony bez osłabiania asercji bezpieczeństwa | `tests/security_guard.rs`, commit `eb414e9` | run `43015927219` (fmt, clippy, testy zielone) | `FIXED` |
+| `FIND-M3G-08` | **Nowe advisory** `RUSTSEC-2026-0486` (`rustix 1.1.5`, `informational = unsound`, patch `>= 1.1.6`) wykryte przez `cargo audit --deny warnings`; zgodnie z §27 zatrzymuje M3-G i nie jest naprawiane przy okazji | `cargo audit`, job `CI` → `Install and run cargo audit` = `failure` | run `43015927219` | `BLOCKED` |
+| `FIND-M3G-09` | `publish-release` nietknięty, `Publish Release Assets` = `skipped`, brak tagu i release | workflow, GitHub API | run `43015927112` | `VERIFIED` |

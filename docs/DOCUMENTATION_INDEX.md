@@ -17,7 +17,7 @@ Legenda statusu: `CURRENT` — aktualny; `PARTIAL` — częściowo nieaktualny (
 | `README.md` | opis produktu, funkcje, status | `PARTIAL` | sekcja Linux (ok. linii 531) nadal opisuje zastąpioną politykę — do korekty w bramce polityki Linux (DOC-DSH-04) |
 | `MASTER_IMPLEMENTATION_PLAN.md` | kolejność i zależności etapów | `PARTIAL` | blok „Informacje o środowisku” (MSRV 1.85, wersja 1.1.0, „brak MSI”) jest nieaktualny (DOC-DSH-03) |
 | `docs/PROJECT_CURRENT_STATE.md` | jednostronicowy stan prawdy | `CURRENT` | generowany przy zamknięciu każdej bramki |
-| `docs/NEXT_WORK_GATE.md` | dokładnie jedna następna bramka | `CURRENT` | wskazuje `STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE` (`NOT_STARTED` / `READY_FOR_OWNER_GO`); F-03 `CLOSED` |
+| `docs/NEXT_WORK_GATE.md` | dokładnie jedna następna bramka | `CURRENT` | wskazuje `STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE` (`IN_PROGRESS` / `BLOCKED_NEW_DEPENDENCY_ADVISORY`); F-03 `CLOSED` |
 | `docs/PROJECT_ARCHITECTURE_MAP.md` | mapa modułów i przepływów | `CURRENT` | zastępuje `docs/ARCHITECTURE_CURRENT_STATE.md` jako opis bieżący |
 | `docs/DEEPSEEK_HARNESS_HANDOFF.md` | raport przejęcia Antigravity → DSH | `CURRENT` | operacyjne podsumowanie raportu ingestii |
 | `docs/DEEPSEEK_HARNESS_SESSION_BOOTSTRAP.md` | procedura startu sesji | `CURRENT` | |
@@ -74,6 +74,8 @@ Legenda statusu: `CURRENT` — aktualny; `PARTIAL` — częściowo nieaktualny (
 | `STAGE_M3_F_POST_CLOSURE_CONSISTENCY_VERIFICATION_REPORT.md` | M3-F post-closure consistency | `EVIDENCE` — `COMPLETED_POST_CLOSURE_CONSISTENCY_VERIFIED` (domknięta **jedną sesją**: commit + push ff-only); definiuje bramkę F-03; liczniki wyłącznie z własnego pomiaru tej sesji |
 | `STAGE_M3_F_F03_FAIL_CLOSED_CI_VERIFICATION_PRE_IMPLEMENTATION_REPORT.md` | M3-F F-03 | `EVIDENCE` — raport wstępny (analiza, plan, kryteria) |
 | `STAGE_M3_F_F03_FAIL_CLOSED_CI_VERIFICATION_REPORT.md` | M3-F F-03 | `EVIDENCE` — `COMPLETED_FAIL_CLOSED_CI_VERIFICATION_VERIFIED`; run `42685105375` (4/4 profile, zero `not found`, GLIBC ≤ 2.43) + test negatywny |
+| `STAGE_M3_G_LINUX_APPIMAGE_PRE_IMPLEMENTATION_REPORT.md` | M3-G | `EVIDENCE` — raport przedimplementacyjny z sekcją „M3-G APPIMAGETOOL CONTINUOUS RESOLUTION UPDATE” |
+| `STAGE_M3_G_LINUX_APPIMAGE_BLOCKED_REPORT.md` | M3-G | `EVIDENCE` — `BLOCKED_NEW_DEPENDENCY_ADVISORY` (`RUSTSEC-2026-0486`, `rustix 1.1.5`); implementacja i weryfikacja AppImage wykonane |
 | `STAGE_QA_BASELINE_DETERMINISM_AND_HERMETICITY_PRE_IMPLEMENTATION_REPORT.md` | QA baseline | `EVIDENCE` |
 | `STAGE_QA_BASELINE_DETERMINISM_AND_HERMETICITY_REPORT.md` | QA baseline | `EVIDENCE` — `COMPLETED_DETERMINISTIC_HERMETIC_BASELINE_VERIFIED` |
 | `STAGE_QA_DEPENDENCY_ADVISORY_DECISION_PROPOSAL.md` | propozycja decyzji OWNER dla RUSTSEC-2026-0459 | `EVIDENCE` — rozstrzygnięta decyzją `OWNER-DEP-SECURITY-01` |
