@@ -1,0 +1,24 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Mariusz Woźniak (SP6INA)
+#
+# AppRun for the SPLogbook AppImage (STAGE-M3-G).
+#
+# Contract:
+#   * POSIX sh, no bashisms;
+#   * resolves its own AppDir, independent of the current working directory;
+#   * executes usr/bin/SPLogbook with every argument forwarded verbatim;
+#   * preserves the application exit code via exec;
+#   * no sudo / pkexec / doas, no HOME or XDG_* rewriting, no LD_LIBRARY_PATH;
+#   * never writes to the (read-only) AppDir.
+
+set -eu
+
+APPDIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+
+if [ ! -x "${APPDIR}/usr/bin/SPLogbook" ]; then
+    printf 'AppRun: missing or non-executable %s\n' "${APPDIR}/usr/bin/SPLogbook" >&2
+    exit 127
+fi
+
+exec "${APPDIR}/usr/bin/SPLogbook" "$@"
