@@ -1,4 +1,4 @@
-﻿#!/bin/sh
+#!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 #
@@ -97,7 +97,7 @@ install_fedora() {
 }
 
 install_arch() {
-    pacman -Sy --noconfirm --needed \
+    pacman -Syu --noconfirm --needed \
         file \
         binutils \
         desktop-file-utils \
