@@ -1,7 +1,7 @@
 # SPLogbook — BIEŻĄCY STAN PROJEKTU
 
 **Dokument ID:** DSH-SPLOGBOOK-STATE-001
-**Data pomiaru:** 2026-11-09
+**Data pomiaru:** 2026-11-11
 **Zasada:** ten plik jest jednostronicowym źródłem prawdy o stanie. Jest regenerowany przy
 zamknięciu każdej bramki i **zastępuje wszystkie historyczne liczniki** w innych dokumentach.
 
@@ -106,8 +106,8 @@ jednego pre-existing testu zablokowanego przez prompt sandboxa
 
 ## 6. Co NIE jest zrobione
 
-- AppImage / DEB / RPM / Flatpak — brak implementacji (M3-G ma status `READY_FOR_OWNER_GO`,
-  ale **nie rozpoczęto** prac).
+- AppImage / DEB / RPM / Flatpak — AppImage w **`IN_PROGRESS`** (M3-G, GO OWNER 2026-11-11,
+  brak dowodów CI); DEB / RPM / Flatpak bez implementacji (M3-H/J `NOT_STARTED`).
 - MSI i Setup nie są budowane ani publikowane przez CI (F-05).
 - Fizyczny HIL (NATIVE-7B) — niewykonany, sprzęt niedostępny.
 - F-14 (P0, panika po PTT) — nadal otwarte, obowiązkowe przed HIL.
@@ -148,11 +148,12 @@ Test negatywny: goły obraz `ubuntu:26.04` bez bibliotek runtime → `libasound.
 ## 9. Następna bramka
 
 NEXT_GATE: **`STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE`**
-NEXT_GATE_STATUS: `NOT_STARTED`
-NEXT_GATE_OWNER_GO: `REQUIRED`
+NEXT_GATE_STATUS: `IN_PROGRESS`
+NEXT_GATE_OWNER_GO: `GRANTED` (`OWNER-M3-G-01`, `OWNER-M3-G-05`)
 F03_STATUS: `CLOSED`
-M3_G_STATUS: `READY_FOR_OWNER_GO`
+M3_G_STATUS: `IN_PROGRESS`
 
-**`STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE`** pozostaje **`NOT_STARTED`**: wymaga osobnego
-promptu/GO OWNER. Wejście: minimum **Linux 7.0 / glibc 2.43**, cztery wspierane dystrybucje,
-jeden kanoniczny artefakt, fail-closed weryfikator natywny z runu `42685105375`.
+**`STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE`** jest **`IN_PROGRESS`** od 2026-11-11
+(GO OWNER udzielone). Wejście: minimum **Linux 7.0 / glibc 2.43**, cztery wspierane dystrybucje,
+jeden kanoniczny artefakt, fail-closed weryfikator natywny z runu `42685105375`. Bramka nie jest
+zamknięta do czasu pełnych, zielonych dowodów CI.
