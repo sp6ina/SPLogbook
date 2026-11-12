@@ -90,7 +90,7 @@ jednego pre-existing testu zablokowanego przez prompt sandboxa
 | M3-F Linux support policy alignment | **`COMPLETED_POLICY_ALIGNMENT_VERIFIED`** — 7.0 / 2.43, 4 dystrybucje |
 | M3-F post-closure consistency verification | **`COMPLETED_POST_CLOSURE_CONSISTENCY_VERIFIED`** |
 | **M3-F F-03 fail-closed CI verification** | **`COMPLETED_FAIL_CLOSED_CI_VERIFICATION_VERIFIED`** — run `42685105375` (4/4 profile, zero `not found`, GLIBC ≤ 2.43) + job negatywny (exit 1) |
-| M3-G AppImage | **`IN_PROGRESS`** — bloker `RUSTSEC-2026-0486` usunięty (`rustix 1.1.6`, `OWNER-DEP-RUSTIX-01`); oczekuje na pełne dowody CI |
+| M3-G AppImage | **`COMPLETED_APPIMAGE_INTEGRATION_VERIFIED`** — 4/4 profile `success`, 12/12 mutacji odrzuconych, FUSE `VERIFIED`; run `43166825054` + `CI` `43166825036` |
 | M3-H/J (DEB/RPM/Flatpak) | `NOT_STARTED` |
 | NATIVE-7B (fizyczny HIL) | `BLOCKED` (10 testów `#[ignore]`, 0 wykonanych) |
 
@@ -109,7 +109,8 @@ jednego pre-existing testu zablokowanego przez prompt sandboxa
 
 ## 6. Co NIE jest zrobione
 
-- AppImage / DEB / RPM / Flatpak — AppImage w **`IN_PROGRESS`** (M3-G, GO OWNER 2026-11-11,
+- AppImage — **ZREALIZOWANE** (M3-G `COMPLETED_APPIMAGE_INTEGRATION_VERIFIED`, 2026-11-12);
+  DEB / RPM / Flatpak bez implementacji (M3-H/J `NOT_STARTED`, wymagają GO OWNER).
   brak dowodów CI); DEB / RPM / Flatpak bez implementacji (M3-H/J `NOT_STARTED`).
 - MSI i Setup nie są budowane ani publikowane przez CI (F-05).
 - Fizyczny HIL (NATIVE-7B) — niewykonany, sprzęt niedostępny.
@@ -150,16 +151,13 @@ Test negatywny: goły obraz `ubuntu:26.04` bez bibliotek runtime → `libasound.
 
 ## 9. Następna bramka
 
-NEXT_GATE: **`STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE`**
-NEXT_GATE_STATUS: `IN_PROGRESS`
-NEXT_GATE_OWNER_GO: `GRANTED` (`OWNER-M3-G-01`, `OWNER-M3-G-05`)
+NEXT_GATE: **`M3-H`** — Integracja Linux DEB (`MASTER_IMPLEMENTATION_PLAN.md` §10)
+NEXT_GATE_STATUS: `NOT_STARTED`
+NEXT_GATE_OWNER_GO: `REQUIRED`
 F03_STATUS: `CLOSED`
-M3_G_STATUS: `IN_PROGRESS`
-M3_G_BLOCKER: `NONE` — `RUSTSEC-2026-0486` usunięte decyzją `OWNER-DEP-RUSTIX-01`
+M3_G_STATUS: `CLOSED`
 
-**`STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE`** jest **`IN_PROGRESS`** od 2026-11-11
-(GO OWNER udzielone). Implementacja i weryfikacja AppImage zostały wykonane; bloker
-zależności `RUSTSEC-2026-0486` został usunięty 2026-11-12 (`rustix 1.1.6`, `cargo audit`
-EXIT 0). Do zamknięcia bramki wymagane są pełne, zielone dowody CI: 4/4 profile, job
-negatywny i FUSE. Wejście: minimum **Linux 7.0 / glibc 2.43**, cztery wspierane dystrybucje,
-jeden kanoniczny artefakt, fail-closed weryfikator natywny z runu `42685105375`.
+**`STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE`** = **`COMPLETED_APPIMAGE_INTEGRATION_VERIFIED`**
+(2026-11-12): AppImage zbudowany przypiętym Continuous build appimagetool, zweryfikowany
+fail-closed w 4/4 profilach, 12/12 mutacji odrzuconych, FUSE `VERIFIED`, `Publish Release`
+`skipped`. Następna bramka `M3-H` (DEB) nie została rozpoczęta i wymaga osobnego GO OWNER.

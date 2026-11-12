@@ -16,6 +16,7 @@ w tym miejscu wymieniona jako „następna”.
 | `STAGE-M3-F-LINUX-SUPPORT-POLICY-ALIGNMENT-GATE` | **`COMPLETED_POLICY_ALIGNMENT_VERIFIED`** — minimum **Linux 7.0 / glibc 2.43**, 4 wspierane dystrybucje |
 | `STAGE-M3-F-POST-CLOSURE-CONSISTENCY-VERIFICATION-GATE` | **`COMPLETED_POST_CLOSURE_CONSISTENCY_VERIFIED`** — klasyfikacja drzewa, sprostowanie 7 profili, potwierdzony fałszywy PASS na 4 profilach, formalne zdefiniowanie F-03 |
 | `STAGE-M3-F-F03-FAIL-CLOSED-CI-VERIFICATION-GATE` | **`COMPLETED_FAIL_CLOSED_CI_VERIFICATION_VERIFIED`** — fail-closed weryfikator, biblioteki runtime w 4 obrazach OCI, jawna kontrola `GLIBC_2.43`, test negatywny; run `42685105375` na commicie `abdb767`, 4/4 profile `success` |
+| `STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE` | **`COMPLETED_APPIMAGE_INTEGRATION_VERIFIED`** — AppImage: 4/4 profile `success`, 12/12 mutacji odrzuconych, FUSE `VERIFIED`; run `43166825054` + `CI` `43166825036` = `success` |
 
 Raporty: `STAGE_QA_BASELINE_DETERMINISM_AND_HERMETICITY_REPORT.md`,
 `STAGE_DEPENDENCY_SECURITY_UPDATE_REPORT.md`,
@@ -59,33 +60,20 @@ backports/RC nie wyznaczają minimum.
 
 ## Następna bramka (jedyna wykonywalna)
 
-NEXT_GATE: **`STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE`**
-NEXT_GATE_STATUS: `IN_PROGRESS`
-NEXT_GATE_OWNER_GO: `GRANTED` (`OWNER-M3-G-01`, `OWNER-M3-G-05`)
+NEXT_GATE: **`M3-H`** — Integracja Linux DEB (`MASTER_IMPLEMENTATION_PLAN.md` §10)
+NEXT_GATE_STATUS: `NOT_STARTED`
+NEXT_GATE_OWNER_GO: `REQUIRED`
 F03_STATUS: `CLOSED`
-M3_G_STATUS: `IN_PROGRESS`
-M3_G_BLOCKER: `NONE` — `RUSTSEC-2026-0486` usunięte decyzją `OWNER-DEP-RUSTIX-01` (`rustix 1.1.6`)
+M3_G_STATUS: `CLOSED`
 
-# `STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE`
+**`STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE`** = **`COMPLETED_APPIMAGE_INTEGRATION_VERIFIED`**
+(2026-11-12). Dowód: run `43166825054` (4/4 profile `success`, job negatywny 12/12, FUSE
+`VERIFIED`, `Publish Release Assets` = `skipped`) oraz run `43166825036` (`CI` = `success`,
+`cargo audit` EXIT 0). Raport: `STAGE_M3_G_LINUX_APPIMAGE_INTEGRATION_REPORT.md`.
 
-**Typ:** implementacja pakietu AppImage + weryfikacja natywna.
-**Priorytet:** P1.
-**Status:** `IN_PROGRESS` — bramka wznowiona po usunięciu blokera zależności
-(`RUSTSEC-2026-0486`, decyzja `OWNER-DEP-RUSTIX-01`, bramka
-`STAGE-DEPENDENCY-RUSTIX-RUSTSEC-2026-0486-REMEDIATION-GATE`, `rustix 1.1.6`).
-Zamknięcie wymaga pełnych, zielonych dowodów CI: 4/4 profile, job negatywny i FUSE.
-**Prekondycja:** zamknięta bramka QA, bramka zależności, bramka wyrównania polityki Linux
-**oraz** bramka F-03 — wszystkie spełnione.
-
-Kontrakt wejściowy dla M3-G: minimum **Linux 7.0 / glibc 2.43**, cztery wspierane dystrybucje
-z sekcji powyżej, jeden kanoniczny artefakt, layout `SPLogbook/`, aktualizacje
-`JOURNALED_TRANSACTIONAL_REPLACEMENT`, XDG Base Directory, fail-closed weryfikator natywny
-z runu `42685105375`.
-
-**Czego nie wolno:** publikować release, tworzyć tagu, zmieniać polityki 7.0/2.43, zmieniać
-`publish-release`, dodawać AppImage do publicznego wydania, zmieniać `Cargo.toml`/`Cargo.lock`
-bez osobnej decyzji OWNER.
+Kolejna bramka `M3-H` (DEB) **nie została rozpoczęta** i wymaga osobnego GO OWNER.
 
 ## M3-H/J
 
-**`NOT_STARTED`** — DEB/RPM/Flatpak po M3-G.
+**`NOT_STARTED`** — `M3-H` (DEB) wymaga osobnego GO OWNER; `M3-I` (RPM) i `M3-J` (Flatpak)
+pozostają `NOT_STARTED` po zamknięciu M3-G.

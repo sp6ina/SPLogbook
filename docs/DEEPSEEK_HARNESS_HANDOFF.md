@@ -164,8 +164,10 @@ git -c core.fsmonitor=false -c core.untrackedCache=false status --porcelain=v1
   test negatywny; run `42685105375` na commicie `abdb767`, 4/4 profile `success`, zero `not found`.
 - Następna bramka (jedyna wykonywalna): **`STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE`** —
   `IN_PROGRESS` od 2026-11-11 (GO OWNER udzielone), wznowiona 2026-11-12 po usunięciu blokera.
-- M3-G (AppImage): **`IN_PROGRESS`** — bloker `RUSTSEC-2026-0486` usunięty 2026-11-12
-  (`rustix 1.1.6`, `OWNER-DEP-RUSTIX-01`); oczekuje na pełne dowody CI.
+- M3-G (AppImage): **`COMPLETED_APPIMAGE_INTEGRATION_VERIFIED`** (2026-11-12) — run
+  `43166825054` (4/4 profile `success`, 12/12 mutacji odrzuconych, FUSE `VERIFIED`) +
+  `CI` `43166825036` = `success`; `Publish Release Assets` = `skipped`.
+- Następna bramka: **`M3-H`** (DEB) — `NOT_STARTED`, wymaga osobnego GO OWNER.
 
 Raporty: `STAGE_QA_BASELINE_DETERMINISM_AND_HERMETICITY_REPORT.md`,
 `STAGE_DEPENDENCY_SECURITY_UPDATE_REPORT.md`,

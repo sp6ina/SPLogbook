@@ -70,12 +70,11 @@
     wymagania ABI; Ubuntu interim (26.10) jest poza zakresem. Snapshot:
     `LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.{json,md}`. Politykę wolno zmienić wyłącznie nową,
     jawną decyzją OWNER i osobną bramką.
-25. **M3-G (AppImage) jest `IN_PROGRESS`** (2026-11-12). Bloker zależności
-    `RUSTSEC-2026-0486` (`rustix 1.1.5`) został **usunięty** decyzją `OWNER-DEP-RUSTIX-01`
-    i bramką `STAGE-DEPENDENCY-RUSTIX-RUSTSEC-2026-0486-REMEDIATION-GATE`
-    (`rustix 1.1.6`, `cargo audit` EXIT 0). Bramka M3-G wymaga jeszcze pełnych,
-    zielonych dowodów CI (4/4 profile, job negatywny, FUSE) przed zamknięciem.
-    Publikacja release, nowy tag i `publish-release` pozostają poza zakresem.
+25. **M3-G (AppImage) — ZAMKNIĘTE 2026-11-12**: **`COMPLETED_APPIMAGE_INTEGRATION_VERIFIED`**
+    (run `43166825054`: 4/4 profile `success`, 12/12 mutacji odrzuconych, FUSE `VERIFIED`;
+    `CI` `43166825036` = `success`; `Publish Release Assets` = `skipped`). Bloker
+    `RUSTSEC-2026-0486` usunięty decyzją `OWNER-DEP-RUSTIX-01` (`rustix 1.1.6`). Następna
+    bramka `M3-H` (DEB) wymaga osobnego GO OWNER.
 26. **F-03 (P1) — ZAMKNIĘTE 2026-11-09** (`STAGE-M3-F-F03-FAIL-CLOSED-CI-VERIFICATION-GATE`,
     `COMPLETED_FAIL_CLOSED_CI_VERIFICATION_VERIFIED`). Weryfikator
     `scripts/verify_linux_container.sh` jest fail-closed: ELF, `ldd`, `--version`, `--build-info`
@@ -85,8 +84,8 @@
     (`scripts/install_linux_runtime_deps.sh`). Dowód: run `42685105375` na commicie `abdb767`,
     4/4 profile `success`, zero `not found` w logach, `--version` i `--build-info` exit 0,
     wymagany GLIBC ≤ 2.43, oraz job negatywny (brak biblioteki → exit 1, bez komunikatu
-    sukcesu). **Nie deklaruj natywnego PASS bez tych dowodów.** M3-G jest `IN_PROGRESS`
-    (GO OWNER 2026-11-11); F-03 pozostaje `CLOSED` i nie może zostać otwarte ponownie.
+    sukcesu). **Nie deklaruj natywnego PASS bez tych dowodów.** M3-G jest `CLOSED`
+    (2026-11-12); F-03 pozostaje `CLOSED` i nie może zostać otwarte ponownie.
 
 ## 6. Zasady testów i instalatorów
 
