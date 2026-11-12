@@ -193,10 +193,12 @@ grep -q '"installation_type": "LinuxPortableTarGz"' "${PAYLOAD_MARKER}" \
     || fail "payload marker installation_type mismatch"
 log "PASS: payload marker identity verified"
 
-# Only libhamlib.so.4 may be bundled.
-[ "$(find "${PAYLOAD}/lib" -maxdepth 1 -type f | wc -l)" -eq 1 ] \
-    || fail "payload lib/ must contain exactly one file"
+# The portable payload may contain the Hamlib versioned file and convenience
+# names, but the DEB bundles exactly the SONAME file libhamlib.so.4.
 [ -f "${PAYLOAD}/lib/libhamlib.so.4" ] || fail "payload is missing lib/libhamlib.so.4"
+UNEXPECTED_LIBS="$(find "${PAYLOAD}/lib" -maxdepth 1 -type f ! -name 'libhamlib.so*' -printf '%f\n')"
+[ -z "${UNEXPECTED_LIBS}" ] \
+    || fail "payload lib/ contains unexpected libraries: ${UNEXPECTED_LIBS}"
 
 # ------------------------------------------------------------------
 # 4. ELF / RUNPATH / GLIBC preflight of the payload
@@ -239,6 +241,12 @@ find "${SPLOGBOOK_ROOT}/locales" "${SPLOGBOOK_ROOT}/THIRD_PARTY_LICENSES" \
     -type d -exec chmod 0755 {} +
 find "${SPLOGBOOK_ROOT}/locales" "${SPLOGBOOK_ROOT}/THIRD_PARTY_LICENSES" \
     -type f -exec chmod 0644 {} +
+
+# The bundled Hamlib library is LGPL-2.1-or-later. The verified portable
+# payload may not carry the upstream license text, so the package always
+# ships the canonical LGPL-2.1 text as a third-party license.
+install -m 0644 "${REPO_ROOT}/installer/linux/deb/templates/LGPL-2.1.txt" \
+    "${SPLOGBOOK_ROOT}/THIRD_PARTY_LICENSES/HAMLIB_LGPL-2.1.txt"
 
 install -m 0755 "${REPO_ROOT}/installer/linux/deb/launcher" "${PKG_ROOT}/usr/bin/splogbook"
 install -m 0644 "${REPO_ROOT}/installer/linux/deb/splogbook.desktop" \

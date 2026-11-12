@@ -56,9 +56,12 @@ with `dpkg --validate-version` and `dpkg --compare-versions`.
 /usr/share/doc/splogbook/changelog.Debian.gz
 ```
 
-Only `libhamlib.so.4` is bundled. The dynamic loader, glibc, libm, libgcc_s,
-libstdc++, ALSA, X11, Xcursor, Xrandr, Xi, xkbcommon, xkbcommon-x11, OpenGL,
-fontconfig, Wayland, GTK 3, libusb and libudev are **not** bundled.
+Only `libhamlib.so.4` is bundled. The package ships the canonical LGPL-2.1
+text for the bundled Hamlib as
+`/opt/SPLogbook/THIRD_PARTY_LICENSES/HAMLIB_LGPL-2.1.txt`. The dynamic loader,
+glibc, libm, libgcc_s, libstdc++, ALSA, X11, Xcursor, Xrandr, Xi, xkbcommon,
+xkbcommon-x11, OpenGL, fontconfig, Wayland, GTK 3, libusb and libudev are
+**not** bundled.
 
 The launcher is a regular file, not a symlink:
 

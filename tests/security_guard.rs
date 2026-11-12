@@ -6167,6 +6167,10 @@ fn m3_h_deb_integration_guard() {
         build.contains("usr/share/icons/hicolor/256x256/apps/splogbook.png"),
         "builder musi instalować ikonę w hicolor/256x256"
     );
+    assert!(
+        build.contains("HAMLIB_LGPL-2.1.txt") && build.contains("templates/LGPL-2.1.txt"),
+        "builder musi dołączać tekst licencji LGPL-2.1 dla bundlowanego Hamlib"
+    );
 
     // 7. Marker DEB zgodny z kontraktem repozytorium.
     for required in [
