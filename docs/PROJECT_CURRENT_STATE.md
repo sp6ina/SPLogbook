@@ -1,7 +1,7 @@
 # SPLogbook — BIEŻĄCY STAN PROJEKTU
 
 **Dokument ID:** DSH-SPLOGBOOK-STATE-001
-**Data pomiaru:** 2026-11-11
+**Data pomiaru:** 2026-11-12
 **Zasada:** ten plik jest jednostronicowym źródłem prawdy o stanie. Jest regenerowany przy
 zamknięciu każdej bramki i **zastępuje wszystkie historyczne liczniki** w innych dokumentach.
 
@@ -18,7 +18,7 @@ zamknięciu każdej bramki i **zastępuje wszystkie historyczne liczniki** w inn
 | Toolchain w środowisku | `cargo 1.99.0`, `rustc 1.99.0` |
 | Release publiczny | **NIE OPUBLIKOWANO** (brak tagu `v1.3.0*`, brak GitHub Release) |
 | `rusqlite` / `libsqlite3-sys` | **0.41.1** / **0.39.1** (bundled SQLite **3.54.1**, feature `bundled` + `backup`) |
-| `cargo audit` | **0 podatności** (ostatni pomiar bramki zależności, bez `--ignore`) |
+| `cargo audit` | **0 podatności** (2026-11-12, po `rustix 1.1.6`; 1458 advisory, bez `--ignore` dla nowych) |
 | **Minimum Linux** | **kernel 7.0, glibc 2.43** (`OWNER-M3-F-KERNEL-POLICY-OPTION-A`, `OWNER-M3-F-GLIBC-POLICY-01`) |
 | **Wspierane dystrybucje** | Ubuntu 26.04 LTS, Fedora 45, Arch Linux, openSUSE Tumbleweed |
 | Gałąź robocza | `main` |
@@ -90,7 +90,7 @@ jednego pre-existing testu zablokowanego przez prompt sandboxa
 | M3-F Linux support policy alignment | **`COMPLETED_POLICY_ALIGNMENT_VERIFIED`** — 7.0 / 2.43, 4 dystrybucje |
 | M3-F post-closure consistency verification | **`COMPLETED_POST_CLOSURE_CONSISTENCY_VERIFIED`** |
 | **M3-F F-03 fail-closed CI verification** | **`COMPLETED_FAIL_CLOSED_CI_VERIFICATION_VERIFIED`** — run `42685105375` (4/4 profile, zero `not found`, GLIBC ≤ 2.43) + job negatywny (exit 1) |
-| M3-G AppImage | **`IN_PROGRESS` / `BLOCKED_NEW_DEPENDENCY_ADVISORY`** — implementacja i weryfikacja AppImage wykonane; zamknięcie blokuje `RUSTSEC-2026-0486` (`rustix 1.1.5`) |
+| M3-G AppImage | **`IN_PROGRESS`** — bloker `RUSTSEC-2026-0486` usunięty (`rustix 1.1.6`, `OWNER-DEP-RUSTIX-01`); oczekuje na pełne dowody CI |
 | M3-H/J (DEB/RPM/Flatpak) | `NOT_STARTED` |
 | NATIVE-7B (fizyczny HIL) | `BLOCKED` (10 testów `#[ignore]`, 0 wykonanych) |
 
@@ -103,10 +103,9 @@ jednego pre-existing testu zablokowanego przez prompt sandboxa
 - `OWNER-M2-08`, `OWNER-M2-09`, `OWNER-M2-11`, `OWNER-M2-12`, `OWNER-M2-14` — otwarte, nieblokujące.
 - `OWNER-M2-10` — spór dokumentacyjny (plan: APPROVED, DESIGN: OPEN), kod zaimplementowany.
 - `OWNER-M3-E-MSI-VERSIONING-01` — `OPEN`; blokuje MSI dla `1.3.0-alpha.2` (Windows Installer 1638).
-- **`OWNER-M3-G-DEP-ADVISORY-01` (nowa, 2026-11-11)** — `OPEN`; `RUSTSEC-2026-0486`
-  (`rustix 1.1.5`, `informational = unsound`, patch `>= 1.1.6`). Blokuje formalne zamknięcie
-  M3-G: `cargo audit --deny warnings` w jobie `CI` kończy się `failure`. Wymaga osobnej decyzji
-  OWNER (aktualizacja zależności w dedykowanej bramce **albo** formalne `--ignore`).
+- ~~`RUSTSEC-2026-0486`~~ — **ROZWIĄZANE** 2026-11-12 decyzją `OWNER-DEP-RUSTIX-01`
+  (bramka `STAGE-DEPENDENCY-RUSTIX-RUSTSEC-2026-0486-REMEDIATION-GATE`): `rustix 1.1.5 → 1.1.6`,
+  `rustix 0.38.44` nietknięty, bez `--ignore`, `cargo audit` EXIT 0.
 
 ## 6. Co NIE jest zrobione
 
@@ -152,15 +151,15 @@ Test negatywny: goły obraz `ubuntu:26.04` bez bibliotek runtime → `libasound.
 ## 9. Następna bramka
 
 NEXT_GATE: **`STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE`**
-NEXT_GATE_STATUS: `BLOCKED`
+NEXT_GATE_STATUS: `IN_PROGRESS`
 NEXT_GATE_OWNER_GO: `GRANTED` (`OWNER-M3-G-01`, `OWNER-M3-G-05`)
 F03_STATUS: `CLOSED`
 M3_G_STATUS: `IN_PROGRESS`
-M3_G_BLOCKER: `BLOCKED_NEW_DEPENDENCY_ADVISORY` — `RUSTSEC-2026-0486` (`rustix 1.1.5`)
+M3_G_BLOCKER: `NONE` — `RUSTSEC-2026-0486` usunięte decyzją `OWNER-DEP-RUSTIX-01`
 
 **`STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE`** jest **`IN_PROGRESS`** od 2026-11-11
-(GO OWNER udzielone). Implementacja i weryfikacja AppImage zostały wykonane, lecz formalne
-zamknięcie blokuje nowe advisory zależności (`RUSTSEC-2026-0486`), które zatrzymuje bramkę
-zgodnie z §27 promptu i wymaga osobnej decyzji OWNER. Wejście: minimum **Linux 7.0 / glibc 2.43**,
-cztery wspierane dystrybucje, jeden kanoniczny artefakt, fail-closed weryfikator natywny z runu
-`42685105375`.
+(GO OWNER udzielone). Implementacja i weryfikacja AppImage zostały wykonane; bloker
+zależności `RUSTSEC-2026-0486` został usunięty 2026-11-12 (`rustix 1.1.6`, `cargo audit`
+EXIT 0). Do zamknięcia bramki wymagane są pełne, zielone dowody CI: 4/4 profile, job
+negatywny i FUSE. Wejście: minimum **Linux 7.0 / glibc 2.43**, cztery wspierane dystrybucje,
+jeden kanoniczny artefakt, fail-closed weryfikator natywny z runu `42685105375`.

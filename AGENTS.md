@@ -6,7 +6,7 @@
 
 ## 1. Data projektu
 
-1. Aktualna data projektu: **2026-11-11** (data hosta zgodna; potwierdzona 2026-11-11).
+1. Aktualna data projektu: **2026-11-12** (data hosta zgodna; potwierdzona 2026-11-12).
    Data 2026-11-09 pozostaje **historyczną** datą wcześniejszych bramek. Daty projektu **nie wolno cofać**.
    Jeśli host wskazuje datę późniejszą — przyjmij ją i zapisz aktualizację osi czasu.
    Nie zmieniaj zegara systemowego ani dat commitów.
@@ -70,11 +70,11 @@
     wymagania ABI; Ubuntu interim (26.10) jest poza zakresem. Snapshot:
     `LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.{json,md}`. Politykę wolno zmienić wyłącznie nową,
     jawną decyzją OWNER i osobną bramką.
-25. **M3-G (AppImage) jest `IN_PROGRESS` / `BLOCKED_NEW_DEPENDENCY_ADVISORY`** (2026-11-11;
-    GO OWNER: `OWNER-M3-G-01`, `OWNER-M3-G-05`, `OWNER-M3-G-08`, `OWNER-M3-G-09`).
-    Implementacja i weryfikacja AppImage są wykonane; formalne zamknięcie blokuje nowe advisory
-    `RUSTSEC-2026-0486` (`rustix 1.1.5`) w jobie `CI` (`cargo audit --deny warnings`). Nowe
-    advisory zatrzymuje bramkę i **nie jest naprawiane przy okazji** — wymaga decyzji OWNER.
+25. **M3-G (AppImage) jest `IN_PROGRESS`** (2026-11-12). Bloker zależności
+    `RUSTSEC-2026-0486` (`rustix 1.1.5`) został **usunięty** decyzją `OWNER-DEP-RUSTIX-01`
+    i bramką `STAGE-DEPENDENCY-RUSTIX-RUSTSEC-2026-0486-REMEDIATION-GATE`
+    (`rustix 1.1.6`, `cargo audit` EXIT 0). Bramka M3-G wymaga jeszcze pełnych,
+    zielonych dowodów CI (4/4 profile, job negatywny, FUSE) przed zamknięciem.
     Publikacja release, nowy tag i `publish-release` pozostają poza zakresem.
 26. **F-03 (P1) — ZAMKNIĘTE 2026-11-09** (`STAGE-M3-F-F03-FAIL-CLOSED-CI-VERIFICATION-GATE`,
     `COMPLETED_FAIL_CLOSED_CI_VERIFICATION_VERIFIED`). Weryfikator

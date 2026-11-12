@@ -163,9 +163,9 @@ git -c core.fsmonitor=false -c core.untrackedCache=false status --porcelain=v1
   fail-closed weryfikator, biblioteki runtime w 4 obrazach OCI, jawna kontrola `GLIBC_2.43`,
   test negatywny; run `42685105375` na commicie `abdb767`, 4/4 profile `success`, zero `not found`.
 - Następna bramka (jedyna wykonywalna): **`STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE`** —
-  `IN_PROGRESS` / `BLOCKED_NEW_DEPENDENCY_ADVISORY` od 2026-11-11 (GO OWNER udzielone).
-- M3-G (AppImage): **`IN_PROGRESS` / `BLOCKED_NEW_DEPENDENCY_ADVISORY`** — implementacja
-  i weryfikacja wykonane; zamknięcie blokuje `RUSTSEC-2026-0486` (`rustix 1.1.5`).
+  `IN_PROGRESS` od 2026-11-11 (GO OWNER udzielone), wznowiona 2026-11-12 po usunięciu blokera.
+- M3-G (AppImage): **`IN_PROGRESS`** — bloker `RUSTSEC-2026-0486` usunięty 2026-11-12
+  (`rustix 1.1.6`, `OWNER-DEP-RUSTIX-01`); oczekuje na pełne dowody CI.
 
 Raporty: `STAGE_QA_BASELINE_DETERMINISM_AND_HERMETICITY_REPORT.md`,
 `STAGE_DEPENDENCY_SECURITY_UPDATE_REPORT.md`,

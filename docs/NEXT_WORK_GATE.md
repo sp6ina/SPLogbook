@@ -60,21 +60,20 @@ backports/RC nie wyznaczają minimum.
 ## Następna bramka (jedyna wykonywalna)
 
 NEXT_GATE: **`STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE`**
-NEXT_GATE_STATUS: `BLOCKED`
+NEXT_GATE_STATUS: `IN_PROGRESS`
 NEXT_GATE_OWNER_GO: `GRANTED` (`OWNER-M3-G-01`, `OWNER-M3-G-05`)
 F03_STATUS: `CLOSED`
 M3_G_STATUS: `IN_PROGRESS`
-M3_G_BLOCKER: `BLOCKED_NEW_DEPENDENCY_ADVISORY` — `RUSTSEC-2026-0486` (`rustix 1.1.5`)
+M3_G_BLOCKER: `NONE` — `RUSTSEC-2026-0486` usunięte decyzją `OWNER-DEP-RUSTIX-01` (`rustix 1.1.6`)
 
 # `STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE`
 
 **Typ:** implementacja pakietu AppImage + weryfikacja natywna.
 **Priorytet:** P1.
-**Status:** `IN_PROGRESS` / **`BLOCKED_NEW_DEPENDENCY_ADVISORY`** (2026-11-11). Implementacja
-i weryfikacja AppImage zostały wykonane; formalne zamknięcie bramki blokuje **nowe advisory**
-`RUSTSEC-2026-0486` (`rustix 1.1.5`, `informational = unsound`, patch `>= 1.1.6`) wykryte przez
-`cargo audit --deny warnings` w jobie `CI`. Zgodnie z §27 promptu bramki nowe advisory zatrzymuje
-M3-G i **nie jest naprawiane przy okazji** — wymaga osobnej decyzji OWNER.
+**Status:** `IN_PROGRESS` — bramka wznowiona po usunięciu blokera zależności
+(`RUSTSEC-2026-0486`, decyzja `OWNER-DEP-RUSTIX-01`, bramka
+`STAGE-DEPENDENCY-RUSTIX-RUSTSEC-2026-0486-REMEDIATION-GATE`, `rustix 1.1.6`).
+Zamknięcie wymaga pełnych, zielonych dowodów CI: 4/4 profile, job negatywny i FUSE.
 **Prekondycja:** zamknięta bramka QA, bramka zależności, bramka wyrównania polityki Linux
 **oraz** bramka F-03 — wszystkie spełnione.
 
