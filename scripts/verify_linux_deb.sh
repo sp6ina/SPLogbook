@@ -519,6 +519,15 @@ fi
 [ "$(id -u)" -eq 0 ] || fail "the installation lifecycle requires root"
 export DEBIAN_FRONTEND=noninteractive
 
+# Minimal container images frequently ship a dpkg path-exclude for
+# /usr/share/doc. The native lifecycle must prove that the package installs
+# its documentation, so disable that image-only policy inside the disposable
+# test system before installing anything. A normal host is unaffected.
+if [ -f /etc/dpkg/dpkg.cfg.d/excludes ]; then
+    mv /etc/dpkg/dpkg.cfg.d/excludes "${WORK}/dpkg-doc-excludes.disabled"
+    log "disabled the container image dpkg path-exclude for /usr/share/doc"
+fi
+
 TEST_HOME="${WORK}/user-home"
 mkdir -p \
     "${TEST_HOME}/.config/splogbook" \
