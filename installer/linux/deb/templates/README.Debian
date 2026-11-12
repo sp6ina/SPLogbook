@@ -1,0 +1,62 @@
+SPLogbook for Ubuntu 26.04 LTS (Debian binary package)
+======================================================
+
+Supported system
+----------------
+
+This package targets 64-bit systems that provide glibc 2.43 (GLIBC_2.43)
+or newer. The reference and only tested distribution is Ubuntu 26.04 LTS.
+Debian 13.7 (glibc 2.41) and openSUSE Leap 16.1 (glibc 2.40) do not satisfy
+the binary ABI requirement and are not supported. RPM-based and Arch-based
+distributions must use their own package formats.
+
+Installation layout
+-------------------
+
+  /opt/SPLogbook/SPLogbook                     main executable
+  /opt/SPLogbook/splogbook-updater             updater helper
+  /opt/SPLogbook/lib/libhamlib.so.4            bundled Hamlib library
+  /opt/SPLogbook/locales/                      user interface translations
+  /opt/SPLogbook/LICENSE                       GPL-3.0-or-later license text
+  /opt/SPLogbook/THIRD_PARTY_LICENSES/         third-party license texts
+  /opt/SPLogbook/.splogbook-deb-marker         package identity marker
+  /usr/bin/splogbook                           minimal launcher
+  /usr/share/applications/splogbook.desktop    desktop entry
+  /usr/share/icons/hicolor/256x256/apps/splogbook.png
+  /usr/share/doc/splogbook/README.Debian       this file
+  /usr/share/doc/splogbook/copyright           copyright and license
+
+User data
+---------
+
+The package never stores user data in /opt/SPLogbook. SPLogbook keeps its
+data in the XDG base directories:
+
+  $XDG_CONFIG_HOME/splogbook    configuration (fallback ~/.config/splogbook)
+  $XDG_DATA_HOME/splogbook      QSO databases (fallback ~/.local/share/splogbook)
+  $XDG_STATE_HOME/splogbook     state and logs (fallback ~/.local/state/splogbook)
+  $XDG_CACHE_HOME/splogbook     cache (fallback ~/.cache/splogbook)
+
+Installation, upgrade, removal and purge of this package do not modify or
+delete QSO databases, WAL/SHM files, station configuration, ADIF/Cabrillo
+exports, backups or device configuration in the user's home directory.
+
+Updates
+-------
+
+This package is system-managed. SPLogbook detects the DEB installation and
+delegates updates to the system package manager; it never runs sudo, pkexec
+or doas and never replaces files in /usr or /opt by itself. Update the
+package with the distribution package manager, for example:
+
+  sudo apt update
+  sudo apt install --only-upgrade splogbook
+
+Serial port access
+------------------
+
+Access to serial/USB CAT interfaces may require the operator account to be
+a member of the dialout group. The package does not change user accounts or
+group membership; the local administrator decides that separately.
+
+-- SPLogbook packaging, M3-H
