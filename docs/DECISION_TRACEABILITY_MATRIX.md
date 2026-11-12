@@ -185,3 +185,20 @@ Bramka: `STAGE-DEPENDENCY-RUSTIX-RUSTSEC-2026-0486-REMEDIATION-GATE` —
 | `FIND-DEP-RUSTIX-06` | `cargo audit --deny warnings --no-yanked <7 dozwolonych ignore>` = **EXIT 0** (1458 advisory, 674 zależności); `RUSTSEC-2026-0486` nie występuje; nie dodano żadnego `--ignore` | `cargo audit` | log audytu 2026-11-12 | `VERIFIED` |
 | `FIND-DEP-RUSTIX-07` | Pełny baseline po aktualizacji zielony: fmt, check, clippy `-D warnings`, testy **2717/2707/2707/0/10**, doc, tree | 20 targetów | log baseline 2026-11-12 | `VERIFIED` |
 | `FIND-DEP-RUSTIX-08` | M3-G odblokowane: `M3_G_STATUS` = `IN_PROGRESS`, `M3_G_BLOCKER` = `NONE`; zamknięcie M3-G nadal wymaga pełnych dowodów CI (4/4 profile, job negatywny, FUSE) | `docs/NEXT_WORK_GATE.md`, `docs/PROJECT_CURRENT_STATE.md` | ten raport | `DEFINED` |
+
+## 12. Zamknięcie bramki M3-G — AppImage (2026-11-12)
+
+Bramka: `STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE` —
+**`COMPLETED_APPIMAGE_INTEGRATION_VERIFIED`**. Wznowiona i zamknięta po usunięciu blokera
+zależności (`OWNER-DEP-RUSTIX-01`), w jednej sesji.
+
+| ID | Ustalenie | Dowód | Status |
+|---|---|---|---|
+| `FIND-M3G-10` | Toolchain: `appimagetool` continuous `11d54c9…` (`sha256:e8c1169c…`) + runtime `fedfad51…` (`sha256:617aa773…`); digesty oficjalne = lokalne | `appimage-toolchain.json` w artefakcie CI | `VERIFIED` |
+| `FIND-M3G-11` | AppImage `15 583 736` B, `sha256:8eb88eaa…`, `build_commit 35464c7…`, wymagany `GLIBC_2.43`, tylko `libhamlib.so.4`, RUNPATH `$ORIGIN/../lib`, marker `LinuxAppImage` | artefakt `SPLogbook-Linux-x86_64-appimage` | `VERIFIED` |
+| `FIND-M3G-12` | 4/4 profile `success` (Ubuntu 26.04.1, Fedora 45, Arch, Tumbleweed): `--version`, `--build-info` (`Commit: 35464c7…`), `ldd` bez `not found`, GLIBC ≤ 2.43, XDG, immutability, `APPIMAGE VERIFICATION COMPLETED SUCCESSFULLY` | run `43166825054`, logi `appimage-evidence-*` | `VERIFIED` |
+| `FIND-M3G-13` | Testy negatywne: **12/12** mutacji odrzuconych (exit 1, bez komunikatu sukcesu) | `negative-fixtures.log` | `VERIFIED` |
+| `FIND-M3G-14` | FUSE: `FUSE_STATUS=VERIFIED`, rzeczywisty mount, `Commit: 35464c7…`; ekstrakcja nie jest dowodem FUSE | job `verify-appimage-fuse` | `VERIFIED` |
+| `FIND-M3G-15` | Publikacja: `Publish Release Assets` = `skipped`; brak nowego tagu i release; `v1.2.0` nietknięty | run `43166825054`, GitHub API | `VERIFIED` |
+| `FIND-M3G-16` | Baseline i audyt: `CI` run `43166825036` = `success` (fmt, clippy, testy 2717/2707, `cargo audit` EXIT 0) | run `43166825036` | `VERIFIED` |
+| `FIND-M3G-17` | Następna bramka `M3-H` (DEB) — `NOT_STARTED`; nie rozpoczęto prac DEB/RPM/Flatpak | `docs/NEXT_WORK_GATE.md` | `DEFINED` |
