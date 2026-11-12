@@ -167,7 +167,12 @@ git -c core.fsmonitor=false -c core.untrackedCache=false status --porcelain=v1
 - M3-G (AppImage): **`COMPLETED_APPIMAGE_INTEGRATION_VERIFIED`** (2026-11-12) — run
   `43166825054` (4/4 profile `success`, 12/12 mutacji odrzuconych, FUSE `VERIFIED`) +
   `CI` `43166825036` = `success`; `Publish Release Assets` = `skipped`.
-- Następna bramka: **`M3-H`** (DEB) — `NOT_STARTED`, wymaga osobnego GO OWNER.
+- M3-H (DEB): **`COMPLETED_DEB_INTEGRATION_VERIFIED`** (2026-11-12) — binarny DEB
+  `11 883 596 B`, SHA-256 `85a4ca98…90061`, `/opt/SPLogbook` + launcher, lintian
+  0 errors / 2 warnings, 27/27 mutacji odrzuconych, pełny cykl install/upgrade/
+  downgrade/reinstall/remove/purge bez utraty danych; run `43245181565` +
+  `CI` `43245181469` = `success`; `Publish Release Assets` = `skipped`.
+- Następna bramka: **`M3-I`** (RPM) — `NOT_STARTED`, wymaga osobnego GO OWNER.
 
 Raporty: `STAGE_QA_BASELINE_DETERMINISM_AND_HERMETICITY_REPORT.md`,
 `STAGE_DEPENDENCY_SECURITY_UPDATE_REPORT.md`,

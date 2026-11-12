@@ -18,23 +18,26 @@ zamknięciu każdej bramki i **zastępuje wszystkie historyczne liczniki** w inn
 | Toolchain w środowisku | `cargo 1.99.0`, `rustc 1.99.0` |
 | Release publiczny | **NIE OPUBLIKOWANO** (brak tagu `v1.3.0*`, brak GitHub Release) |
 | `rusqlite` / `libsqlite3-sys` | **0.41.1** / **0.39.1** (bundled SQLite **3.54.1**, feature `bundled` + `backup`) |
-| `cargo audit` | **0 podatności** (2026-11-12, po `rustix 1.1.6`; 1458 advisory, bez `--ignore` dla nowych) |
+| `cargo audit` | **0 podatności** (2026-11-12; 1471 advisory, 674 zależności, `--deny warnings --no-yanked`, bez nowych `--ignore`) |
 | **Minimum Linux** | **kernel 7.0, glibc 2.43** (`OWNER-M3-F-KERNEL-POLICY-OPTION-A`, `OWNER-M3-F-GLIBC-POLICY-01`) |
 | **Wspierane dystrybucje** | Ubuntu 26.04 LTS, Fedora 45, Arch Linux, openSUSE Tumbleweed |
+| **Kontrakt DEB** | Ubuntu 26.04 LTS (glibc 2.43); Debian 13.7 (glibc 2.41) i Leap 16.1 (2.40) niewspierane |
+| **Układ DEB** | `/opt/SPLogbook` + launcher `/usr/bin/splogbook` (`OWNER-M3-H-03`) |
 | Gałąź robocza | `main` |
 
-## 2. Git po bramce F-03
+## 2. Git po bramce M3-H
 
 | Pole | Wartość |
 |---|---|
-| HEAD wejściowy (przed tą bramką) | `e85ee4e0c80d2f3ca96b9e7068f401586662b18b` |
-| Commit implementacyjny F-03 | `abdb767d41bd07da1304c1c8f5d8993726a6575a` — `ci(linux): make native evidence free of diagnostic ambiguity` (poprzedzony `4699eacdf0076554e51107593641fb64f4dc6dfb`) |
+| HEAD wejściowy (przed M3-H) | `cf127bbedae0b6b57efcce521a9f546f083b5406` |
+| Commit implementacyjny M3-H | `236b7ea4be70b028fd0f701143144ac6f0952262` — `feat(linux): add verified DEB packaging pipeline` |
+| Commity korygujące | `f9bab2e23951ba59bd7ca0ce7fed55f7e407ef37` (Hamlib payload + CRLF testy), `af04b1300a6e34f8b5c572b68a5c9d6b5a6c93f5` (libhamlib 0644), `3171aa8d03444901c55be7aa1f134e297b061604` (doc path-exclude w kontenerze) |
 | Commit domknięcia tej bramki | najnowszy commit `main`, który zawiera ten dokument (`git log -1 --format=%H`) |
 | main | = HEAD |
 | origin/main | = HEAD (push ff-only wykonany w tej samej sesji; `git rev-parse origin/main`) |
 | ahead / behind | `0 / 0` (zmierzone po pushu) |
 | Zmienione pliki śledzone | **brak** (0 staged, 0 unstaged; `git diff --check` = EXIT 0) |
-| Pliki nieśledzone i nieignorowane | **obecne** — `?? scratch/` (m.in. `scratch/tree_dupes.txt`, `scratch/audit/…`, `scratch/ci/…`, logi dowodowe F-03) |
+| Pliki nieśledzone i nieignorowane | **obecne** — `?? scratch/` (m.in. `scratch/tree_dupes.txt`, logi i dowody M3-H) |
 | Pliki ignorowane | **obecne** (`target/`, `dist/`, `SPLogbook-backup/`, logi i skrypty w `scratch/` — wzorce `.gitignore:14` `*.log`, `.gitignore:52` `*.py`) |
 | Czystość ścisła | **FALSE** — `STRICT_WORKTREE_CLEAN=false`, `TRACKED_WORKTREE_CLEAN=true`, `UNTRACKED_SCRATCH_PRESENT=true` |
 | Aktywna operacja Git | brak |
@@ -43,7 +46,7 @@ zamknięciu każdej bramki i **zastępuje wszystkie historyczne liczniki** w inn
 niepasujący do wzorca (`scratch/tree_dupes.txt`) jest realnie nieśledzony i daje `?? scratch/`
 także z `-c core.fsmonitor=false -c core.untrackedCache=false`. To **nie** jest fantom F-25.
 
-## 3. Baseline (ostatni pełny pomiar: 2026-11-09, po implementacji F-03)
+## 3. Baseline (pomiar 2026-11-12, po implementacji M3-H)
 
 ```
 cargo +stable test --workspace --all-targets -j 1
@@ -51,26 +54,25 @@ cargo +stable test --workspace --all-targets -j 1
 
 | Licznik | Wartość |
 |---|---|
-| Zarejestrowane | **2 702** (`cargo test -- --list`) |
-| Wykonane | **2 692** |
-| Zaliczone | **2 692** |
+| Zarejestrowane | **2 735** (`cargo test -- --list`) |
+| Wykonane | **2 725** |
+| Zaliczone | **2 725** |
 | Nieudane | **0** |
 | Ignorowane (HIL) | **10** |
 | HIL wykonane | **0** |
 | PTT / RF | **0 / 0** |
 | Doc-testy | 0 (brak zarejestrowanych) |
-| `security_guard` | **122 / 122** (w tym nowy `m3_f_f03_fail_closed_verification_guard`) |
-| `inno_user_data_safety_test` | **8 / 8** (E2E jawnie niewykonany bez opt-in) |
-| `msi_user_data_safety_test` | **6 / 6** |
+| `security_guard` | **124 / 124** (w tym `m3_h_deb_integration_guard`) |
+| `linux_deb_packaging_test` | **17 / 17** |
 
-Pomiar wykonany w **tej jednej sesji** (2026-11-09, `cargo +stable test --workspace --all-targets
--j 1` → EXIT 0; 19 targetów). Wzrost 2701→2702 / 2691→2692 wynika wyłącznie z dodania strażnika
-F-03. Baseline nie zależy od `dist/`; natywny E2E instalatora pozostaje jawnym opt-in.
-`-j 1` zamiast `-j 2` z powodu limitu pliku stronicowania tego hosta (`os error 1455`) —
-różnica wydajnościowa, nie wynikowa. Po zmianach dokumentacyjnych powtórka z pominięciem
-jednego pre-existing testu zablokowanego przez prompt sandboxa
-(`windows_helper_test::powershell_real_execution_full_cycle_success`) → 2 691 / 2 691, 0 failed,
-10 ignored, 1 filtered; ten test przeszedł w pełnym przebiegu na tym samym kodzie (2 692).
+Pomiar wykonany w tej jednej sesji: pełny przebieg 2 725/2 725 zakończony `EXIT 0`;
+po ostatnich poprawkach (tylko tryb pliku biblioteki i wyłączenie `path-exclude` w kontenerze)
+powtórzono `cargo test --workspace --all-targets -j 1 -- --skip
+powershell_real_execution_full_cycle_success` → **2 724 / 2 724**, 0 failed, 10 ignored,
+1 filtered. Test `windows_helper_test::powershell_real_execution_full_cycle_success` jest
+**pre-existing** i w tym środowisku blokuje się na prompcie bezpieczeństwa Windows (Low IL);
+ten sam test przeszedł w pełnym przebiegu na wcześniejszym commicie tej bramki oraz w CI.
+Limit `-j 1` wynika z limitu pliku stronicowania hosta (`os error 1455`).
 
 ## 4. Stan bramek
 
@@ -89,75 +91,81 @@ jednego pre-existing testu zablokowanego przez prompt sandboxa
 | Dependency security update | **`COMPLETED_DEPENDENCY_SECURITY_UPDATE_VERIFIED`** |
 | M3-F Linux support policy alignment | **`COMPLETED_POLICY_ALIGNMENT_VERIFIED`** — 7.0 / 2.43, 4 dystrybucje |
 | M3-F post-closure consistency verification | **`COMPLETED_POST_CLOSURE_CONSISTENCY_VERIFIED`** |
-| **M3-F F-03 fail-closed CI verification** | **`COMPLETED_FAIL_CLOSED_CI_VERIFICATION_VERIFIED`** — run `42685105375` (4/4 profile, zero `not found`, GLIBC ≤ 2.43) + job negatywny (exit 1) |
+| M3-F F-03 fail-closed CI verification | **`COMPLETED_FAIL_CLOSED_CI_VERIFICATION_VERIFIED`** — run `42685105375` (4/4 profile, zero `not found`, GLIBC ≤ 2.43) + job negatywny (exit 1) |
 | M3-G AppImage | **`COMPLETED_APPIMAGE_INTEGRATION_VERIFIED`** — 4/4 profile `success`, 12/12 mutacji odrzuconych, FUSE `VERIFIED`; run `43166825054` + `CI` `43166825036` |
-| M3-H/J (DEB/RPM/Flatpak) | `NOT_STARTED` |
+| **M3-H Linux DEB** | **`COMPLETED_DEB_INTEGRATION_VERIFIED`** — run `43245181565` (Build DEB, Verify DEB, 27/27 negative = `success`, Windows/Linux/AppImage `success`, `Publish Release Assets` `skipped`); `CI` `43245181469` = `success` |
+| M3-I (RPM) / M3-J (Flatpak) | `NOT_STARTED` |
 | NATIVE-7B (fizyczny HIL) | `BLOCKED` (10 testów `#[ignore]`, 0 wykonanych) |
 
-## 5. Otwarte decyzje OWNER
+M3_G_STATUS: `CLOSED` — bramka AppImage pozostaje zamknięta i nietknięta.
+F03_STATUS: `CLOSED` — F-03 pozostaje zamknięte.
+
+## 5. Dowód DEB (skrót)
+
+| Pole | Wartość |
+|---|---|
+| Artefakt | `SPLogbook-Linux-amd64-1.3.0-alpha.1.deb` (+ alias `SPLogbook-Linux-amd64.deb`) |
+| Rozmiar | **11 883 596 B** |
+| SHA-256 | **`85a4ca9877305d97f7c31929eb6034bd36e88dc8d7fd208f9fab9cf7d8890061`** |
+| `Package` / `Version` / `Architecture` | `splogbook` / `1.3.0~alpha.1-1` / `amd64` |
+| `Installed-Size` | 45 879 KiB |
+| `build_commit` | `3171aa8d03444901c55be7aa1f134e297b061604` |
+| Maksymalny GLIBC | `2.43` (SPLogbook, libhamlib); `2.39` (updater) |
+| Pliki | 12 plików regularnych / 28 wpisów |
+| Budowa | `dpkg 1.23.7`, `dpkg-deb 1.23.7`, obraz `ubuntu:26.04@sha256:6a06111c…`, dwie niezależne budowy o identycznym SHA-256 |
+| Lintian | **0 errors**, 2 warnings (`initial-upload-closes-no-bugs`, `no-manual-page`); suppression wyłącznie `dir-or-file-in-opt,custom-library-search-path` (OWNER-M3-H-03) |
+| Testy negatywne | **27/27** odrzuconych, exit 1, bez komunikatu sukcesu |
+| Cykl życia | fresh install, upgrade z `1.3.0~alpha.0-1`, downgrade, re-upgrade, reinstall, remove, purge — wszystkie PASS; dane użytkownika SHA-256 identyczne |
+| Publikacja | `Publish Release Assets` = `skipped`; brak nowego tagu i release |
+
+## 6. Otwarte decyzje OWNER
 
 - ~~`RUSTSEC-2026-0459`~~ — **ROZWIĄZANE** 2026-11-09 (`rusqlite 0.41.1`, `libsqlite3-sys 0.39.1`).
 - ~~Polityka Linux (kernel, dystrybucje, glibc)~~ — **ZAPISANA** 2026-11-09.
-- ~~F-03 (fail-closed weryfikacja Linux)~~ — **ZAMKNIĘTE** 2026-11-09 decyzją
-  `OWNER-M3-F-F03-01` (GO) i bramką `STAGE-M3-F-F03-FAIL-CLOSED-CI-VERIFICATION-GATE`.
+- ~~F-03 (fail-closed weryfikacja Linux)~~ — **ZAMKNIĘTE** 2026-11-09 decyzją `OWNER-M3-F-F03-01` (GO).
+- ~~`RUSTSEC-2026-0486`~~ — **ROZWIĄZANE** 2026-11-12 decyzją `OWNER-DEP-RUSTIX-01` (`rustix 1.1.6`).
+- ~~M3-H (DEB)~~ — **ZAMKNIĘTE** 2026-11-12 decyzjami `OWNER-M3-H-01…10`.
 - `OWNER-M2-08`, `OWNER-M2-09`, `OWNER-M2-11`, `OWNER-M2-12`, `OWNER-M2-14` — otwarte, nieblokujące.
 - `OWNER-M2-10` — spór dokumentacyjny (plan: APPROVED, DESIGN: OPEN), kod zaimplementowany.
 - `OWNER-M3-E-MSI-VERSIONING-01` — `OPEN`; blokuje MSI dla `1.3.0-alpha.2` (Windows Installer 1638).
-- ~~`RUSTSEC-2026-0486`~~ — **ROZWIĄZANE** 2026-11-12 decyzją `OWNER-DEP-RUSTIX-01`
-  (bramka `STAGE-DEPENDENCY-RUSTIX-RUSTSEC-2026-0486-REMEDIATION-GATE`): `rustix 1.1.5 → 1.1.6`,
-  `rustix 0.38.44` nietknięty, bez `--ignore`, `cargo audit` EXIT 0.
 
-## 6. Co NIE jest zrobione
+## 7. Co NIE jest zrobione
 
-- AppImage — **ZREALIZOWANE** (M3-G `COMPLETED_APPIMAGE_INTEGRATION_VERIFIED`, 2026-11-12);
-  DEB / RPM / Flatpak bez implementacji (M3-H/J `NOT_STARTED`, wymagają GO OWNER).
-  brak dowodów CI); DEB / RPM / Flatpak bez implementacji (M3-H/J `NOT_STARTED`).
+- Portable tar.gz — **ZREALIZOWANE** (M3-F), nadal PASS.
+- AppImage — **ZREALIZOWANE** (M3-G `COMPLETED_APPIMAGE_INTEGRATION_VERIFIED`), nadal PASS.
+- DEB — **ZREALIZOWANE** (M3-H `COMPLETED_DEB_INTEGRATION_VERIFIED`, 2026-11-12).
+- RPM (M3-I) / Flatpak (M3-J) — bez implementacji (`NOT_STARTED`, wymagają GO OWNER).
 - MSI i Setup nie są budowane ani publikowane przez CI (F-05).
 - Fizyczny HIL (NATIVE-7B) — niewykonany, sprzęt niedostępny.
 - F-14 (P0, panika po PTT) — nadal otwarte, obowiązkowe przed HIL.
 - F-19/F-20/F-21/F-16/F-15/F-17 — otwarte; wymagają bramki danych/RF.
 
-## 7. Dowód natywny F-03 (skrót)
-
-Run `42685105375` (`head_sha = abdb767d41bd07da1304c1c8f5d8993726a6575a`, `conclusion = success`):
-
-| Profil | Biblioteki runtime | `not found` | `--version` | `--build-info` | GLIBC max | Wynik |
-|---|---|---|---|---|---|---|
-| Ubuntu 26.04.1 LTS | zainstalowane | **0** | exit 0, `1.3.0-alpha.1` | exit 0, `abdb767…` | `GLIBC_2.43` ≤ 2.43 (dostępne 2.43) | PASS |
-| Fedora 45 | zainstalowane | **0** | exit 0, `1.3.0-alpha.1` | exit 0, `abdb767…` | `GLIBC_2.43` ≤ 2.43 (dostępne 2.44) | PASS |
-| Arch Linux | zainstalowane | **0** | exit 0, `1.3.0-alpha.1` | exit 0, `abdb767…` | `GLIBC_2.43` ≤ 2.43 (dostępne 2.44) | PASS |
-| openSUSE Tumbleweed | zainstalowane | **0** | exit 0, `1.3.0-alpha.1` | exit 0, `abdb767…` | `GLIBC_2.43` ≤ 2.43 (dostępne 2.44) | PASS |
-
-Test negatywny: goły obraz `ubuntu:26.04` bez bibliotek runtime → `libasound.so.2 => not found`,
-`FAIL: ldd reports an unresolved shared library`, **exit code 1**, brak komunikatu sukcesu.
-`Publish Release Assets` = `skipped`; brak nowego tagu i release.
-
 ## 8. Ograniczenia środowiska (znane, udokumentowane)
 
 - Sandbox DSH: **Low Mandatory Integrity Level** → zapis do `HKCU` i Menu Start = `0x80070005`.
-  Natywny E2E instalatora jest w tym środowisku jawnie niewykonany (opt-in), a nie „zielony”.
-- Windows pokazuje prompt „Otwieranie pliku — ostrzeżenie o zabezpieczeniach” dla niepodpisanych
-  binariów uruchamianych przez `ShellExecute` (fallback PowerShell).
-- `Start-Process` w sandboxie DSH może zawisnąć na tym prompcie; testy używają `CreateProcess`.
-- `git status` klasyfikuje stan poprawnie; `scratch/` daje `?? scratch/` dopóki zawiera plik
-  niepasujący do wzorca `*.log`/`*.py` — to nie fantom cache.
-- Brak lokalnego środowiska Linux/Docker — weryfikacja natywna dystrybucji wymaga CI.
+  Natywny E2E instalatora Windows jest w tym środowisku jawnie niewykonany (opt-in), a nie „zielony”.
+- Masowy `tempfile::tempdir()` w `%TEMP%` hosta daje `PermissionDenied`; baseline uruchamiany
+  z `TMP`/`TEMP` w katalogu workspace (obejście środowiska, nie kodu).
+- `windows_helper_test::powershell_real_execution_full_cycle_success` może zawisnąć na prompcie
+  bezpieczeństwa Windows; w takim przebiegu test jest jawnie filtrowany (`1 filtered`), a ten sam
+  test przechodzi w CI oraz przeszedł w pełnym przebiegu tej bramki.
+- Brak lokalnego środowiska Linux/Docker — natywna weryfikacja dystrybucji wymaga CI.
 - Limit pliku stronicowania hosta (`os error 1455`) uniemożliwia stabilny `-j 2`; baseline
   wykonuje się `-j 1`.
-- 2026-11-09 18:12–18:43Z: awaria GitHub Actions (`major_outage`, potwierdzona status page).
-  Runy na commicie wejściowym `e85ee4e` (`42673055954` CI — 0 jobów; `42673056245` — brak joba
-  Windows) są **skutkiem awarii infrastruktury**, nie defektem repozytorium. Runy bramki F-03
-  (`42685105375`, `42685105448`) wykonały się w pełni po ustąpieniu awarii.
+- Kontenery OCI współdzielą jądro hosta — dowód jest dowodem userspace/CI, nie dowodem jądra
+  dystrybucji.
 
 ## 9. Następna bramka
 
-NEXT_GATE: **`M3-H`** — Integracja Linux DEB (`MASTER_IMPLEMENTATION_PLAN.md` §10)
+NEXT_GATE: **`M3-I`** — Integracja Linux RPM (`MASTER_IMPLEMENTATION_PLAN.md` §10)
 NEXT_GATE_STATUS: `NOT_STARTED`
 NEXT_GATE_OWNER_GO: `REQUIRED`
 F03_STATUS: `CLOSED`
 M3_G_STATUS: `CLOSED`
+M3_H_STATUS: `CLOSED`
 
-**`STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE`** = **`COMPLETED_APPIMAGE_INTEGRATION_VERIFIED`**
-(2026-11-12): AppImage zbudowany przypiętym Continuous build appimagetool, zweryfikowany
-fail-closed w 4/4 profilach, 12/12 mutacji odrzuconych, FUSE `VERIFIED`, `Publish Release`
-`skipped`. Następna bramka `M3-H` (DEB) nie została rozpoczęta i wymaga osobnego GO OWNER.
+**`STAGE-M3-H-LINUX-DEB-INTEGRATION-GATE`** = **`COMPLETED_DEB_INTEGRATION_VERIFIED`**
+(2026-11-12): binarny DEB zbudowany deterministycznie z zweryfikowanego payloadu portable,
+`/opt/SPLogbook` + launcher, GLIBC ≤ 2.43, lintian 0 errors, 27/27 mutacji odrzuconych,
+pełny cykl install/upgrade/downgrade/reinstall/remove/purge bez utraty danych użytkownika.
+Następna bramka `M3-I` (RPM) **nie została rozpoczęta** i wymaga osobnego GO OWNER.

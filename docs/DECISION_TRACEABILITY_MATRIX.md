@@ -202,3 +202,32 @@ zależności (`OWNER-DEP-RUSTIX-01`), w jednej sesji.
 | `FIND-M3G-15` | Publikacja: `Publish Release Assets` = `skipped`; brak nowego tagu i release; `v1.2.0` nietknięty | run `43166825054`, GitHub API | `VERIFIED` |
 | `FIND-M3G-16` | Baseline i audyt: `CI` run `43166825036` = `success` (fmt, clippy, testy 2717/2707, `cargo audit` EXIT 0) | run `43166825036` | `VERIFIED` |
 | `FIND-M3G-17` | Następna bramka `M3-H` (DEB) — `NOT_STARTED`; nie rozpoczęto prac DEB/RPM/Flatpak | `docs/NEXT_WORK_GATE.md` | `DEFINED` |
+
+## 13. Zamknięcie bramki M3-H — Linux DEB amd64 (2026-11-12)
+
+Bramka: `STAGE-M3-H-LINUX-DEB-INTEGRATION-GATE` —
+**`COMPLETED_DEB_INTEGRATION_VERIFIED`**. Jedna sesja, commit implementacyjny
+`236b7ea`, korekty `f9bab2e` / `af04b13` / `3171aa8`.
+
+| ID | Decyzja / ustalenie | Realizacja | Dowód | Status |
+|---|---|---|---|---|
+| `OWNER-M3-H-01` | APPROVE BINARY DEB (bez source package, bez debhelper) | `scripts/build_linux_deb.sh` | brak `debian/`, brak `.dsc` | `IMPLEMENTED` |
+| `OWNER-M3-H-02` | APPROVE DPKG-DEB z oficjalnego repo przypiętego obrazu | `build-deb` job, obraz `ubuntu:26.04@sha256:6a06111c…` | `deb-toolchain.json` | `VERIFIED` |
+| `OWNER-M3-H-03` | APPROVE `/opt/SPLogbook` + launcher + desktop + ikona + marker | builder + verifier | `deb-contents.txt`, log Verify DEB | `VERIFIED` |
+| `OWNER-M3-H-04` | APPROVE FAIL-CLOSED LAUNCHER | `installer/linux/deb/launcher` | `m3_h_deb_integration_guard`, log weryfikatora | `VERIFIED` |
+| `OWNER-M3-H-05` | APPROVE GENERATED-THEN-REVIEWED DEPENDS | `templates/control` + weryfikator | `Depends` 17 pakietów, `dpkg -S`/`ldd` w CI | `VERIFIED` |
+| `OWNER-M3-H-06` | APPROVE MINIMAL MAINTAINER SCRIPTS | `templates/postinst`, `templates/postrm` | brak sieci/sudo/HOME; `sh -n` + skan tokenów | `VERIFIED` |
+| `OWNER-M3-H-07` | APPROVE SYSTEM-WIDE INSTALL WITH USER-DATA PRESERVATION | verifier lifecycle | `PASS: user data unchanged after: final purge` | `VERIFIED` |
+| `OWNER-M3-H-08` | NO PACKAGE SIGNING IN M3-H (tylko SHA-256, bez APT/release) | builder sidecary | `.deb.sha256`, brak `Release`/`InRelease` | `VERIFIED` |
+| `OWNER-M3-H-09` | CI ARTIFACT ONLY (bez release, bez tagu) | workflow `SPLogbook-Linux-amd64-deb` | `Publish Release Assets` = `skipped` | `VERIFIED` |
+| `OWNER-M3-H-10` | APPROVE PACKAGE IDENTITY (`splogbook`, `amd64`, `1.3.0~alpha.1-1`) | control + weryfikator | `deb-fields.txt`, `dpkg --compare-versions` | `VERIFIED` |
+| `FIND-M3H-01` | Deterministyczna budowa: dwie niezależne budowy `dpkg-deb --root-owner-group -Zxz` mają identyczny SHA-256 | builder | `deb-build.log` (`reproducible build`) | `VERIFIED` |
+| `FIND-M3H-02` | Poprawny porządek wersji: `1.3.0~alpha.1-1` < `1.3.0-1`, > `1.3.0~alpha.0-1` | builder/verifier | `dpkg --compare-versions`, downgrade test | `VERIFIED` |
+| `FIND-M3H-03` | Bundlowany wyłącznie `libhamlib.so.4` (0644); glibc/loader/systemowe biblioteki niebundlowane | builder/verifier | `deb-contents.txt` | `VERIFIED` |
+| `FIND-M3H-04` | `GLIBC_2.43` ≤ polityka dla SPLogbook i libhamlib; updater 2.39 | verifier | log Verify DEB | `VERIFIED` |
+| `FIND-M3H-05` | Lintian: **0 errors**, 2 warnings; suppression wyłącznie `dir-or-file-in-opt,custom-library-search-path` (OWNER-M3-H-03) | verifier | log lintian w `deb-verify.log` | `VERIFIED` |
+| `FIND-M3H-06` | Pełny cykl życia PASS: fresh install, upgrade, downgrade, re-upgrade, reinstall, remove, purge; dane XDG SHA-256 identyczne | verifier | `deb-verify.log` | `VERIFIED` |
+| `FIND-M3H-07` | Testy negatywne: **27/27** mutacji odrzuconych, exit 1, bez komunikatu sukcesu | negative harness | `deb-negative-fixtures.log` | `VERIFIED` |
+| `FIND-M3H-08` | Portable tar.gz, AppImage i F-03 bez regresji; 4 profile Linux i 2 joby AppImage = `success` | workflow | run `43245181565` | `VERIFIED` |
+| `FIND-M3H-09` | Baseline: 2735 zarejestrowanych / 2725 wykonanych / 2725 zaliczonych / 0 failed / 10 ignored; `security_guard` 124/124; `cargo audit` EXIT 0 | baseline sesji | logi `scratch/m3h_full_test*.log` | `VERIFIED` |
+| `FIND-M3H-10` | Następna bramka `M3-I` (RPM) — `NOT_STARTED`; M3-J nadal `NOT_STARTED` | `docs/NEXT_WORK_GATE.md` | ten dokument | `DEFINED` |

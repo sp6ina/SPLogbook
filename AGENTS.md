@@ -69,12 +69,16 @@
     Debian 13.7 (glibc 2.41) i openSUSE Leap 16.1 (glibc 2.40) są **niewspierane** — nie spełniają
     wymagania ABI; Ubuntu interim (26.10) jest poza zakresem. Snapshot:
     `LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.{json,md}`. Politykę wolno zmienić wyłącznie nową,
-    jawną decyzją OWNER i osobną bramką.
+    jawną decyzją OWNER i osobną bramką. Kontrakt DEB: Ubuntu 26.04 LTS (glibc 2.43), układ
+    `/opt/SPLogbook` + launcher `/usr/bin/splogbook` (`OWNER-M3-H-03`).
 25. **M3-G (AppImage) — ZAMKNIĘTE 2026-11-12**: **`COMPLETED_APPIMAGE_INTEGRATION_VERIFIED`**
     (run `43166825054`: 4/4 profile `success`, 12/12 mutacji odrzuconych, FUSE `VERIFIED`;
     `CI` `43166825036` = `success`; `Publish Release Assets` = `skipped`). Bloker
-    `RUSTSEC-2026-0486` usunięty decyzją `OWNER-DEP-RUSTIX-01` (`rustix 1.1.6`). Następna
-    bramka `M3-H` (DEB) wymaga osobnego GO OWNER.
+    `RUSTSEC-2026-0486` usunięty decyzją `OWNER-DEP-RUSTIX-01` (`rustix 1.1.6`).
+    **M3-H (DEB) — ZAMKNIĘTE 2026-11-12**: **`COMPLETED_DEB_INTEGRATION_VERIFIED`** (run
+    `43245181565`: `Build DEB`, `Verify DEB`, `Verify DEB (negative fixtures)` 27/27 = `success`;
+    Windows/Linux/AppImage = `success`; `Publish Release Assets` = `skipped`; `CI`
+    `43245181469` = `success`). Następna bramka `M3-I` (RPM) wymaga osobnego GO OWNER.
 26. **F-03 (P1) — ZAMKNIĘTE 2026-11-09** (`STAGE-M3-F-F03-FAIL-CLOSED-CI-VERIFICATION-GATE`,
     `COMPLETED_FAIL_CLOSED_CI_VERIFICATION_VERIFIED`). Weryfikator
     `scripts/verify_linux_container.sh` jest fail-closed: ELF, `ldd`, `--version`, `--build-info`

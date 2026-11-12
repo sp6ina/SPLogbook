@@ -304,7 +304,7 @@ Utworzenie, uzgodnienie i zweryfikowanie trzech kompletnych dokumentĂłw projek
   - M3-E: Integracja Windows System Setup / MSI (COMPLETED_SOFTWARE_VERIFIED)
   - M3-F: Integracja Linux Portable tar.gz (COMPLETED_SOFTWARE_VERIFIED — dowód natywny fail-closed, **F-03 `CLOSED`**; polityka wsparcia Linux 7.0 / glibc 2.43 zamknieta w STAGE-M3-F-LINUX-SUPPORT-POLICY-ALIGNMENT-GATE jako COMPLETED_POLICY_ALIGNMENT_VERIFIED)
   - M3-G: Integracja Linux AppImage (COMPLETED_APPIMAGE_INTEGRATION_VERIFIED, 2026-11-12)
-  - M3-H: Integracja Linux DEB
+  - M3-H: Integracja Linux DEB (COMPLETED_DEB_INTEGRATION_VERIFIED, 2026-11-12)
   - M3-I: Integracja Linux RPM
   - M3-J: Integracja Linux Flatpak
 
@@ -344,9 +344,17 @@ Utworzenie, uzgodnienie i zweryfikowanie trzech kompletnych dokumentĂłw projek
 - **Zaleznosci:** OWNER-M3-F-LINUX-BASELINE-01..OWNER-M3-F-DESKTOP-INTEGRATION-01 (APPROVED), UPDATE-DESIGN-LINUX (APPROVED), UPDATE-DESIGN-PLATFORM (APPROVED), UPDATE-CORE-PLATFORM (COMPLETED_SOFTWARE_VERIFIED)
 - **Zakres:** Integracja kanonicznego pakietu Linux x86_64 portable `SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz` o pojedynczym katalogu głównym `SPLogbook/`, identycznym SHA-256 dla wszystkich dystrybucji, markera metadanych `.splogbook-linux-portable-marker`, dwufazowej bezpiecznej ekstrakcji (`extract_linux_portable_tar_gz_two_phase` z fazą 1 read-only preflight, ochroną przed symlinkami/hardlinkami/urządzeniami/setuid/setgid/bombami), aktualizacji Self-Managed w semantyce JOURNALED_TRANSACTIONAL_REPLACEMENT (z kopią zapasową w `.rollback`, odizolowanym stagingiem, walidacją HealthProof), pełnej zgodności z XDG Base Directory (`src/core/xdg.rs`) z egzekwowaniem ścieżek bezwzględnych, ochroną baz SQLite (`serviceLOG.db`), WAL, SHM, konfiguracji i eksportów użytkownika oraz bezpiecznym skryptem budowania `scripts/build_linux_portable_tar_gz.sh`. Zamknięty w STAGE-M3-F-LINUX-PORTABLE-TAR-GZ-INTEGRATION-GATE oraz zweryfikowany natywnie w STAGE-M3-F-NATIVE-LINUX-EVIDENCE-AND-SNAPSHOT-CORRECTION-GATE (potwierdzono identyczny SHA-256 `5df6ac20dd9717fb568567d53d7566758fa62ec507b1a9cba446c39ea346b7ac` na 7 natywnych obrazach OCI w CI run 42518873662 (tryb legacy, nie fail-closed); liczniki 2698/2688/0/10 są historycznym pomiarem tamtej bramki — aktualny pomiar tej sesji: `docs/PROJECT_CURRENT_STATE.md` §3). **F-03 CLOSED (2026-11-09):** `scripts/verify_linux_container.sh` jest fail-closed (brak `|| true` na `ldd`/`--version`/`--build-info`, jawna kontrola `GLIBC_2.43`), biblioteki runtime są instalowane w 4 przypiętych obrazach OCI przed weryfikacją (`scripts/install_linux_runtime_deps.sh`), a run `42685105375` (commit `abdb767`) dał 4/4 profile `success`, zero `not found` i pozytywny test negatywny (brak biblioteki → exit 1).
 
-#### UPDATE-LINUX-PACKAGES (Dalsze etapy M3: M3-G..M3-J) — Pakiety Linux (AppImage, DEB, RPM, Flatpak)
+#### UPDATE-LINUX-DEB (M3-H) — Integracja Linux DEB (binarny pakiet amd64)
 - **Tor:** UPDATE
-- **Status wykonawczy:** PENDING (Dalsza kolejność po instalatorach Windows)
+- **Status wykonawczy:** **COMPLETED_DEB_INTEGRATION_VERIFIED** (2026-11-12)
+- **Zaleznosci:** OWNER-M3-H-01..10 (APPROVED), UPDATE-DESIGN-LINUX (APPROVED), UPDATE-DESIGN-PLATFORM (APPROVED), UPDATE-CORE-PLATFORM (COMPLETED_SOFTWARE_VERIFIED), M3-F portable tar.gz (COMPLETED_SOFTWARE_VERIFIED)
+- **Zakres:** deterministyczny binarny DEB budowany przez `dpkg-deb` z zweryfikowanego payloadu portable; układ `/opt/SPLogbook` + launcher `/usr/bin/splogbook`; `Depends` wyznaczone z ELF/runtime i potwierdzone w Ubuntu 26.04; marker `.splogbook-deb-marker` (`LinuxDeb`, `SystemManaged`); minimalne `postinst`/`postrm`; `dpkg-deb --root-owner-group -Zxz` i dwie niezależne budowy o identycznym SHA-256; fail-closed weryfikator (lintian, GLIBC ≤ 2.43, ldd, instalacja, upgrade, downgrade, reinstall, remove, purge, ochrona danych XDG); 27 mutacji negatywnych; artefakt wyłącznie CI (`SPLogbook-Linux-amd64-deb`), bez publikacji w release.
+- **Dowód:** run `43245181565` = `success` (`Build DEB`, `Verify DEB`, 27/27 negative, Windows/Linux/AppImage `success`, `Publish Release Assets` `skipped`); `CI` `43245181469` = `success`; DEB `11 883 596 B`, SHA-256 `85a4ca9877305d97f7c31929eb6034bd36e88dc8d7fd208f9fab9cf7d8890061`; raport `STAGE_M3_H_LINUX_DEB_INTEGRATION_REPORT.md`.
+- **Następna bramka:** `M3-I` (RPM), `NOT_STARTED`, `OWNER_GO_REQUIRED`.
+
+#### UPDATE-LINUX-PACKAGES (Dalsze etapy M3: M3-I..M3-J) — Pakiety Linux (RPM, Flatpak)
+- **Tor:** UPDATE
+- **Status wykonawczy:** PENDING (po zamknięciu M3-G i M3-H)
 - **Zaleznosci:** UPDATE-DESIGN-LINUX (APPROVED), UPDATE-DESIGN-PLATFORM (APPROVED), UPDATE-CORE-PLATFORM (COMPLETED_SOFTWARE_VERIFIED), decyzje OWNER-M2-04..07, 11..12 (APPROVED)
 ---
 
