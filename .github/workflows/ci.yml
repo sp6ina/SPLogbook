@@ -70,11 +70,11 @@ jobs:
       - name: Run clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-      # Kanoniczne liczniki bazowe (pomiar 2026-11-11, bramka M3-G AppImage):
-      #   2717 registered / 2707 executed / 2707 passed / 0 failed / 10 ignored (HIL).
-      # Wzrost 2702->2717 i 2692->2707 wynika wyłącznie z dodania 14 testów
-      # kontraktu pakunku AppImage (tests/linux_appimage_packaging_test.rs) oraz
-      # strażnika m3_g_appimage_integration_guard.
+      # Kanoniczne liczniki bazowe (pomiar 2026-11-12, bramka M3-H DEB):
+      #   2735 registered / 2725 executed / 2725 passed / 0 failed / 10 ignored (HIL).
+      # Wzrost 2717->2735 i 2707->2725 wynika wyłącznie z dodania 17 testów
+      # kontraktu pakunku DEB (tests/linux_deb_packaging_test.rs) oraz
+      # strażnika m3_h_deb_integration_guard.
       # Bramka QA 2026-11-09: standardowy baseline NIE wykonuje lokalnego instalatora
       # i NIE zależy od katalogu dist/. Natywny E2E jest jawnym opt-in (patrz AGENTS.md)
       # i nie jest włączany w tym jobie. Ten krok pilnuje hermetyczności kontraktu testów.

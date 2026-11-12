@@ -86,3 +86,7 @@ installer/windows/inno/Output/
 *.wixobj
 installer/windows/msi/bin/
 installer/windows/msi/obj/
+
+# Debian binary packages and their CI evidence (never committed; M3-H)
+*.deb
+*.deb.sha256

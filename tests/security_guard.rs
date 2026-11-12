@@ -5458,8 +5458,8 @@ fn qa_native_installer_tests_are_hermetic_and_fail_closed() {
         "CI musi uruchamiać strażnik hermetyczności"
     );
     assert!(
-        ci.contains("2717") && ci.contains("2707") && ci.contains("10 ignored"),
-        "CI musi dokumentować kanoniczne liczniki bazowe (2717/2707/10)"
+        ci.contains("2735") && ci.contains("2725") && ci.contains("10 ignored"),
+        "CI musi dokumentować kanoniczne liczniki bazowe (2735/2725/10)"
     );
 }
 
@@ -6006,5 +6006,358 @@ fn m3_g_appimage_integration_guard() {
     assert!(
         verify.contains("APPIMAGE VERIFICATION COMPLETED SUCCESSFULLY"),
         "M3-G: komunikat sukcesu weryfikatora AppImage musi istnieć"
+    );
+}
+
+// ============================================================================
+// STAGE-M3-H-LINUX-DEB-INTEGRATION-GATE (2026-11-12)
+// Strażnik binarnego pakietu DEB: oficjalny dpkg-deb, deterministyczna budowa,
+// układ /opt/SPLogbook, fail-closed launcher, minimalne maintainer scripts,
+// weryfikator fail-closed, 27 mutacji negatywnych, artefakt wyłącznie w CI,
+// brak publikacji DEB i brak zmian w F-03 / AppImage / portable tar.gz.
+// ============================================================================
+
+#[test]
+fn m3_h_deb_integration_guard() {
+    let build =
+        fs::read_to_string("scripts/build_linux_deb.sh").expect("scripts/build_linux_deb.sh");
+    let verify =
+        fs::read_to_string("scripts/verify_linux_deb.sh").expect("scripts/verify_linux_deb.sh");
+    let fixtures = fs::read_to_string("scripts/verify_linux_deb_negative_fixture.sh")
+        .expect("scripts/verify_linux_deb_negative_fixture.sh");
+    let control = fs::read_to_string("installer/linux/deb/templates/control")
+        .expect("installer/linux/deb/templates/control");
+    let launcher =
+        fs::read_to_string("installer/linux/deb/launcher").expect("installer/linux/deb/launcher");
+    let desktop = fs::read_to_string("installer/linux/deb/splogbook.desktop")
+        .expect("installer/linux/deb/splogbook.desktop");
+    let postinst = fs::read_to_string("installer/linux/deb/templates/postinst")
+        .expect("installer/linux/deb/templates/postinst");
+    let postrm = fs::read_to_string("installer/linux/deb/templates/postrm")
+        .expect("installer/linux/deb/templates/postrm");
+    let workflow = fs::read_to_string(".github/workflows/build-and-release.yml")
+        .expect(".github/workflows/build-and-release.yml");
+    let gitignore = fs::read_to_string(".gitignore").expect(".gitignore");
+    let f03 = fs::read_to_string("scripts/verify_linux_container.sh")
+        .expect("scripts/verify_linux_container.sh");
+
+    // 1. Oficjalny dpkg-deb, deterministyczna budowa i podwójna kontrola SHA.
+    assert!(
+        build.contains("set -euo pipefail"),
+        "builder musi być fail-closed"
+    );
+    assert!(build.contains("dpkg-deb"), "builder musi używać dpkg-deb");
+    assert!(
+        build.contains("--root-owner-group"),
+        "builder musi ustawiać root:root"
+    );
+    assert!(
+        build.contains("-Z\"${DEB_COMPRESSION}\""),
+        "builder musi jawnie ustawiać kompresję"
+    );
+    assert!(
+        build.contains("SOURCE_DATE_EPOCH"),
+        "builder musi używać SOURCE_DATE_EPOCH"
+    );
+    assert!(
+        build.contains("touch -h -d"),
+        "builder musi ustalać deterministyczne mtime"
+    );
+    assert!(
+        build.contains("the DEB build is not reproducible"),
+        "builder musi porównywać dwa niezależne buildy"
+    );
+    assert!(
+        build.contains("EXPECTED_BUILD_COMMIT"),
+        "builder musi weryfikować build_commit"
+    );
+
+    // 2. Brak zewnętrznych repozytoriów i niebezpiecznych wzorców.
+    for forbidden in ["http://", "ppa:", "latest-debs", "curl | sh", "curl | bash"] {
+        assert!(
+            !build.contains(forbidden),
+            "builder nie może zawierać {forbidden}"
+        );
+    }
+    assert!(
+        !build.contains("git add"),
+        "builder nie może dodawać plików do Git"
+    );
+
+    // 3. Poprawna translacja wersji i dowód porządku.
+    assert!(
+        build.contains("dpkg --validate-version"),
+        "wersja musi być walidowana przez dpkg"
+    );
+    assert!(
+        build.contains("dpkg --compare-versions"),
+        "porządek wersji musi być dowiedziony"
+    );
+    assert!(
+        build.contains("an epoch is not allowed"),
+        "epoch jest zabroniony"
+    );
+    assert!(
+        build.contains("DEBIAN_VERSION=\"${BASE_VERSION}~${PRERELEASE}-${DEB_REVISION}\""),
+        "prerelease musi być tłumaczony przez ~"
+    );
+
+    // 4. Kanoniczna tożsamość i zależności.
+    for required in [
+        "Package: splogbook",
+        "Architecture: amd64",
+        "Maintainer: Mariusz Woźniak (SP6INA) <contact@splogbook.org>",
+        "Section: hamradio",
+        "Priority: optional",
+        "Homepage: https://github.com/sp6ina/SPLogbook",
+        "libc6 (>= 2.43)",
+    ] {
+        assert!(
+            control.contains(required),
+            "control musi zawierać {required}"
+        );
+    }
+    assert!(
+        !control.contains("hamlib,"),
+        "bundlowany Hamlib nie może być zależnością"
+    );
+    assert!(!control.to_lowercase().contains("official debian"));
+    assert!(!control.contains("Recommends:"));
+
+    // 5. Launcher fail-closed.
+    assert!(
+        launcher.contains("#!/bin/sh"),
+        "launcher musi używać /bin/sh"
+    );
+    assert!(launcher.contains("set -eu"), "launcher musi używać set -eu");
+    assert!(
+        launcher.contains("exec /opt/SPLogbook/SPLogbook \"$@\""),
+        "launcher musi przekazywać wszystkie argumenty"
+    );
+    for line in launcher
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+    {
+        for forbidden in ["sudo", "pkexec", "doas", "LD_LIBRARY_PATH", "HOME", "XDG_"] {
+            assert!(
+                !line.contains(forbidden),
+                "launcher nie może zawierać {forbidden}: {line}"
+            );
+        }
+    }
+
+    // 6. Desktop i ikona.
+    assert!(
+        desktop.contains("Exec=splogbook"),
+        "desktop musi wołać launcher z PATH"
+    );
+    assert!(
+        desktop.contains("Icon=splogbook"),
+        "desktop musi wskazywać ikonę splogbook"
+    );
+    assert!(
+        desktop.contains("StartupWMClass=SPLogbook"),
+        "desktop musi ustawiać StartupWMClass"
+    );
+    let icon = fs::read("assets/icon.png").expect("assets/icon.png");
+    let width = u32::from_be_bytes([icon[16], icon[17], icon[18], icon[19]]);
+    let height = u32::from_be_bytes([icon[20], icon[21], icon[22], icon[23]]);
+    assert_eq!((width, height), (256, 256), "ikona musi mieć 256x256");
+    assert!(
+        build.contains("usr/share/icons/hicolor/256x256/apps/splogbook.png"),
+        "builder musi instalować ikonę w hicolor/256x256"
+    );
+
+    // 7. Marker DEB zgodny z kontraktem repozytorium.
+    for required in [
+        "\"installation_type\": \"LinuxDeb\"",
+        "\"management_mode\": \"SystemManaged\"",
+        "\"artifact_format\": \"deb\"",
+        "\"architecture\": \"amd64\"",
+        "\"package_name\": \"splogbook\"",
+        "\"resolved_minimum_kernel\": \"${RESOLVED_MIN_KERNEL}\"",
+        "\"maximum_glibc\": \"${GLIBC_POLICY_MAX}\"",
+    ] {
+        assert!(build.contains(required), "marker musi zawierać {required}");
+    }
+    assert!(
+        !build.contains("date +"),
+        "marker nie może zawierać czasu lokalnego"
+    );
+
+    // 8. Minimalne maintainer scripts.
+    for (name, source) in [("postinst", &postinst), ("postrm", &postrm)] {
+        assert!(
+            source.starts_with("#!/bin/sh"),
+            "{name} musi używać /bin/sh"
+        );
+        assert!(source.contains("set -e"), "{name} musi używać set -e");
+        assert!(
+            source.contains("update-desktop-database") && source.contains("gtk-update-icon-cache"),
+            "{name} może odświeżać wyłącznie cache pulpitu"
+        );
+        for forbidden in [
+            "sudo",
+            "pkexec",
+            "doas",
+            "curl",
+            "wget",
+            "HOME",
+            "XDG_",
+            "debconf",
+            "systemctl",
+        ] {
+            for line in source
+                .lines()
+                .filter(|line| !line.trim_start().starts_with('#'))
+            {
+                assert!(
+                    !line.contains(forbidden),
+                    "{name} nie może zawierać {forbidden}: {line}"
+                );
+            }
+        }
+    }
+    assert!(
+        !build.contains("templates/preinst"),
+        "preinst nie jest potrzebny"
+    );
+    assert!(
+        !build.contains("templates/prerm"),
+        "prerm nie jest potrzebny"
+    );
+    assert!(
+        build.contains("conffiles are not approved"),
+        "brak conffiles"
+    );
+
+    // 9. Weryfikator fail-closed i pełny zakres kontroli.
+    assert!(
+        verify.contains("set -eu"),
+        "weryfikator musi używać set -eu"
+    );
+    assert!(
+        verify.contains("GLIBC_POLICY_MAX=\"2.43\""),
+        "weryfikator musi kodować GLIBC 2.43"
+    );
+    assert!(verify.contains("version_le") && verify.contains("sort -V"));
+    assert!(verify.contains("lintian"));
+    assert!(
+        verify
+            .contains("LINTIAN_SUPPRESSED_TAGS=\"dir-or-file-in-opt,custom-library-search-path\""),
+        "weryfikator może wyciszyć wyłącznie zatwierdzony tag /opt"
+    );
+    assert!(
+        verify.contains("OWNER-M3-H-03"),
+        "wyciszenie tagu musi odwoływać się do decyzji OWNER"
+    );
+    assert!(verify.contains("dpkg --remove") && verify.contains("dpkg --purge"));
+    assert!(verify.contains("user data unchanged"));
+    for forbidden in [
+        "*.db",
+        "*.db-wal",
+        "*.db-shm",
+        "default_log.db",
+        "station_config.json",
+        "*.adi",
+        "*.adif",
+        "*.cbr",
+    ] {
+        assert!(
+            verify.contains(forbidden),
+            "weryfikator musi zakazywać {forbidden}"
+        );
+    }
+    assert_eq!(
+        verify
+            .lines()
+            .filter(|line| !line.trim_start().starts_with('#'))
+            .filter(|line| line.contains("DEB VERIFICATION COMPLETED SUCCESSFULLY"))
+            .count(),
+        1,
+        "komunikat sukcesu dokładnie raz"
+    );
+    assert_eq!(
+        verify.lines().rfind(|line| !line.trim().is_empty()),
+        Some("echo \"DEB VERIFICATION COMPLETED SUCCESSFULLY\""),
+        "komunikat sukcesu musi być ostatnią instrukcją"
+    );
+    assert!(
+        !verify.contains("|| true"),
+        "weryfikator nie może maskować błędów"
+    );
+
+    // 10. Testy negatywne: 27 mutacji, każda odrzucona bez komunikatu sukcesu.
+    assert_eq!(
+        fixtures.matches("expect_reject \"").count(),
+        27,
+        "zestaw negatywny musi wywołać dokładnie 27 mutacji"
+    );
+    assert!(
+        fixtures.contains("NEGATIVE FIXTURES REJECTED AS EXPECTED: ${REJECTED}/${TOTAL}"),
+        "zestaw negatywny musi raportować jawne odrzucenie"
+    );
+    assert!(
+        fixtures.contains("fixture emitted a success message"),
+        "zestaw negatywny musi wykrywać wyciek komunikatu sukcesu"
+    );
+
+    // 11. Workflow: build + verify + negative, artefakt CI, brak publikacji DEB.
+    assert!(workflow.contains("build-deb:"));
+    assert!(workflow.contains("verify-deb:"));
+    assert!(workflow.contains("verify-deb-negative-fixtures:"));
+    assert!(workflow.contains("name: SPLogbook-Linux-amd64-deb"));
+    assert!(
+        workflow.contains(
+            "ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c"
+        ),
+        "DEB musi być budowany w przypiętym obrazie"
+    );
+    assert!(workflow.contains("scripts/build_linux_deb.sh"));
+    assert!(workflow.contains("scripts/verify_linux_deb.sh"));
+    assert!(workflow.contains("scripts/verify_linux_deb_negative_fixture.sh"));
+    assert!(
+        !workflow.contains("git add"),
+        "workflow nie może dodawać artefaktów do repo"
+    );
+    let publish = workflow
+        .split("publish-release:")
+        .nth(1)
+        .expect("job publish-release musi istnieć");
+    assert!(
+        !publish.contains("SPLogbook-Linux-amd64"),
+        "publish-release nie może publikować DEB"
+    );
+    assert!(
+        publish.contains("if: startsWith(github.ref, 'refs/tags/v')"),
+        "publish-release musi pozostać warunkowany tagiem v*"
+    );
+    assert!(
+        publish.contains("DEB must never be published"),
+        "publish-release musi zawierać trwałą asercję braku DEB"
+    );
+
+    // 12. DEB nie jest commitowany.
+    assert!(
+        gitignore.contains("*.deb"),
+        ".gitignore musi ignorować *.deb"
+    );
+    assert!(
+        gitignore.contains("*.deb.sha256"),
+        ".gitignore musi ignorować sidecar *.deb.sha256"
+    );
+
+    // 13. F-03 i cztery profile pozostają nietknięte.
+    assert!(f03.contains("GLIBC_POLICY_MAX=\"2.43\""));
+    assert!(f03.contains("NATIVE VERIFICATION COMPLETED SUCCESSFULLY"));
+    assert_eq!(
+        workflow.matches("distro_id: \"").count(),
+        4,
+        "macierz M3-F musi pozostać czteroprofilowa"
+    );
+    assert!(
+        workflow.contains("SPLogbook-Linux-x86_64-appimage")
+            && workflow.contains("SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz"),
+        "portable tar.gz i AppImage muszą pozostać w workflow"
     );
 }
