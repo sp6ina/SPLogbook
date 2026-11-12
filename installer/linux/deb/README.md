@@ -56,7 +56,9 @@ with `dpkg --validate-version` and `dpkg --compare-versions`.
 /usr/share/doc/splogbook/changelog.Debian.gz
 ```
 
-Only `libhamlib.so.4` is bundled. The package ships the canonical LGPL-2.1
+Only `libhamlib.so.4` is bundled. It is a shared library, not an executable, and
+is installed with mode `0644`; only `SPLogbook`, `splogbook-updater` and the
+launcher are `0755`. The package ships the canonical LGPL-2.1
 text for the bundled Hamlib as
 `/opt/SPLogbook/THIRD_PARTY_LICENSES/HAMLIB_LGPL-2.1.txt`. The dynamic loader,
 glibc, libm, libgcc_s, libstdc++, ALSA, X11, Xcursor, Xrandr, Xi, xkbcommon,

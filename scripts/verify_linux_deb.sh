@@ -299,7 +299,7 @@ assert_mode() {
 
 assert_mode "./opt/SPLogbook/SPLogbook" "-rwxr-xr-x"
 assert_mode "./opt/SPLogbook/splogbook-updater" "-rwxr-xr-x"
-assert_mode "./opt/SPLogbook/lib/libhamlib.so.4" "-rwxr-xr-x"
+assert_mode "./opt/SPLogbook/lib/libhamlib.so.4" "-rw-r--r--"
 assert_mode "./opt/SPLogbook/LICENSE" "-rw-r--r--"
 assert_mode "./opt/SPLogbook/.splogbook-deb-marker" "-rw-r--r--"
 assert_mode "./usr/bin/splogbook" "-rwxr-xr-x"
