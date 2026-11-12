@@ -6171,6 +6171,10 @@ fn m3_h_deb_integration_guard() {
         build.contains("HAMLIB_LGPL-2.1.txt") && build.contains("templates/LGPL-2.1.txt"),
         "builder musi dołączać tekst licencji LGPL-2.1 dla bundlowanego Hamlib"
     );
+    assert!(
+        build.contains("install -m 0644 \"${PAYLOAD}/lib/libhamlib.so.4\""),
+        "biblioteka współdzielona nie może mieć bitu wykonywalnego"
+    );
 
     // 7. Marker DEB zgodny z kontraktem repozytorium.
     for required in [

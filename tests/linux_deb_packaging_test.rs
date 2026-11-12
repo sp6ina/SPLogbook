@@ -175,6 +175,10 @@ fn builder_assembles_the_approved_opt_layout_only() {
         "portable README.txt must not be installed into the DEB"
     );
     assert!(builder.contains("payload lib/ contains unexpected libraries"));
+    assert!(
+        builder.contains("install -m 0644 \"${PAYLOAD}/lib/libhamlib.so.4\""),
+        "shared libraries must not be executable"
+    );
     assert!(builder.contains("HAMLIB_LGPL-2.1.txt"));
     assert!(builder.contains("templates/LGPL-2.1.txt"));
 }
