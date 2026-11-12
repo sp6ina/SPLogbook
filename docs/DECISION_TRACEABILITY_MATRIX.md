@@ -167,3 +167,21 @@ w jednej sesji; formalne zamknięcie blokuje nowe advisory zależności (`RUSTSE
 | `FIND-M3G-07` | Defekt ratchetu liczników CI (`2700/2690`) ujawniony przez run `43011245883`; poprawiony bez osłabiania asercji bezpieczeństwa | `tests/security_guard.rs`, commit `eb414e9` | run `43015927219` (fmt, clippy, testy zielone) | `FIXED` |
 | `FIND-M3G-08` | **Nowe advisory** `RUSTSEC-2026-0486` (`rustix 1.1.5`, `informational = unsound`, patch `>= 1.1.6`) wykryte przez `cargo audit --deny warnings`; zgodnie z §27 zatrzymuje M3-G i nie jest naprawiane przy okazji | `cargo audit`, job `CI` → `Install and run cargo audit` = `failure` | run `43015927219` | `BLOCKED` |
 | `FIND-M3G-09` | `publish-release` nietknięty, `Publish Release Assets` = `skipped`, brak tagu i release | workflow, GitHub API | run `43015927112` | `VERIFIED` |
+
+## 11. Bramka remediacji RUSTSEC-2026-0486 (2026-11-12)
+
+Bramka: `STAGE-DEPENDENCY-RUSTIX-RUSTSEC-2026-0486-REMEDIATION-GATE` —
+**`COMPLETED_DEPENDENCY_ADVISORY_REMEDIATED`**. Wykonana jako **jedna sesja** po decyzji
+`OWNER-DEP-RUSTIX-01` (`APPROVE OPTION A`).
+
+| ID | Decyzja / ustalenie | Realizacja | Dowód | Status |
+|---|---|---|---|---|
+| `OWNER-DEP-RUSTIX-01` | `APPROVE OPTION A` — celowana aktualizacja `rustix 1.1.5 → 1.1.6`, bez `--ignore`, bez szerokiego `cargo update`, bez zmian `Cargo.toml` i kodu AppImage | `Cargo.lock` | raport bramki | `IMPLEMENTED` |
+| `FIND-DEP-RUSTIX-01` | Rzeczywista ścieżka `rustix 1.1.5`: `async-io`/`calloop`/`gethostname`/`polling`/`tempfile`/`wayland-*`/`x11rb`/`xattr`/`zbus` ← `splogbook` | `cargo tree -i rustix@1.1.5 --target all` | logi sesji | `VERIFIED` |
+| `FIND-DEP-RUSTIX-02` | `1.1.6` jest najnowszą stabilną wersją (crates.io, 2026-10-27), MSRV `1.65`, patch w linii `1.x` | crates.io API | `LATEST_STABLE=1.1.6` | `VERIFIED` |
+| `FIND-DEP-RUSTIX-03` | Lockfile: 674 → 674 paczek; usunięto wyłącznie `rustix 1.1.5`, dodano wyłącznie `rustix 1.1.6` (nowy checksum `e5e76742…`); żadna inna wersja paczki się nie zmieniła | `Cargo.lock` | analiza TOML przed/po | `VERIFIED` |
+| `FIND-DEP-RUSTIX-04` | `rustix 0.38.44` **nietknięty** (blok identyczny) | `Cargo.lock` | analiza TOML | `VERIFIED` |
+| `FIND-DEP-RUSTIX-05` | Efekt resolvera: dla 10 paczek wyłącznie windowsowych cargo wybrał inne (już obecne) wersje `windows-sys`; bez zmian wersji tych paczek i bez wpływu na Linux | `Cargo.lock` | analiza TOML | `DOCUMENTED` |
+| `FIND-DEP-RUSTIX-06` | `cargo audit --deny warnings --no-yanked <7 dozwolonych ignore>` = **EXIT 0** (1458 advisory, 674 zależności); `RUSTSEC-2026-0486` nie występuje; nie dodano żadnego `--ignore` | `cargo audit` | log audytu 2026-11-12 | `VERIFIED` |
+| `FIND-DEP-RUSTIX-07` | Pełny baseline po aktualizacji zielony: fmt, check, clippy `-D warnings`, testy **2717/2707/2707/0/10**, doc, tree | 20 targetów | log baseline 2026-11-12 | `VERIFIED` |
+| `FIND-DEP-RUSTIX-08` | M3-G odblokowane: `M3_G_STATUS` = `IN_PROGRESS`, `M3_G_BLOCKER` = `NONE`; zamknięcie M3-G nadal wymaga pełnych dowodów CI (4/4 profile, job negatywny, FUSE) | `docs/NEXT_WORK_GATE.md`, `docs/PROJECT_CURRENT_STATE.md` | ten raport | `DEFINED` |
