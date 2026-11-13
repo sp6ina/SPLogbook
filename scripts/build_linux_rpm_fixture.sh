@@ -94,6 +94,15 @@ SPEC="${TOP}/SPECS/${NAME}.spec"
         case "${rel}" in
             *" "*|*"	"*) fail "fixture path contains whitespace: ${rel}" ;;
         esac
+        case "${rel}" in
+            /opt|/usr|/usr/bin|/usr/share|/usr/share/applications|\
+            /usr/share/doc|/usr/share/licenses|\
+            /usr/share/icons|/usr/share/icons/hicolor|\
+            /usr/share/icons/hicolor/256x256|\
+            /usr/share/icons/hicolor/256x256/apps)
+                continue
+                ;;
+        esac
         kind="$(stat -c '%F' "${path}")"
         mode="$(stat -c '%a' "${path}")"
         uid="$(stat -c '%u' "${path}")"

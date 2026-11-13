@@ -525,7 +525,7 @@ fn workflow_builds_once_verifies_in_four_profiles_and_keeps_publication_disabled
     );
     assert!(
         publish.contains(
-            "needs: [build-linux, build-windows, verify-linux-matrix, verify-linux-negative]"
+            "needs: [build-linux, build-windows, verify-linux-matrix, verify-linux-negative, build-rpm, verify-rpm, verify-rpm-negative-fixtures]"
         ),
         "publish-release must remain unchanged"
     );
