@@ -6389,7 +6389,8 @@ fn m3_i_rpm_integration_guard() {
     let manifest =
         fs::read_to_string("scripts/linux_rpm_manifest.sh").expect("scripts/linux_rpm_manifest.sh");
     let spec = fs::read_to_string("installer/linux/rpm/splogbook.spec")
-        .expect("installer/linux/rpm/splogbook.spec");
+        .expect("installer/linux/rpm/splogbook.spec")
+        .replace("\r\n", "\n");
     let launcher =
         fs::read_to_string("installer/linux/rpm/launcher").expect("installer/linux/rpm/launcher");
     let desktop = fs::read_to_string("installer/linux/rpm/splogbook.desktop")
