@@ -331,7 +331,7 @@ jobs:
             -v "$(pwd):/workspace" \
             -w /workspace \
             "${IMAGE}" \
-            /bin/sh -c 'set -e; dnf install -y --setopt=install_weak_deps=False rpm rpm-build rpmdevtools rpmlint cpio file binutils gzip tar xz findutils coreutils bash; rpm --version | tee dist/rpm-dnf-version.txt; rpmbuild --version | tee -a dist/rpm-dnf-version.txt; rpmspec --version | tee -a dist/rpm-dnf-version.txt; rpmlint --version 2>&1 | head -n 1 | tee -a dist/rpm-dnf-version.txt; bash scripts/build_linux_rpm.sh dist rpm_env/download/SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz' \
+            /bin/sh -c 'set -e; dnf install -y --setopt=install_weak_deps=False rpm rpm-build rpmdevtools rpmlint cpio patchelf file binutils gzip tar xz findutils coreutils bash; rpm --version | tee dist/rpm-dnf-version.txt; rpmbuild --version | tee -a dist/rpm-dnf-version.txt; rpmspec --version | tee -a dist/rpm-dnf-version.txt; rpmlint --version 2>&1 | head -n 1 | tee -a dist/rpm-dnf-version.txt; bash scripts/build_linux_rpm.sh dist rpm_env/download/SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz' \
             2>&1 | tee rpm_env/evidence/rpm-build.log
           test -s rpm_env/evidence/rpm-build.log
           grep -q "RPM BUILD COMPLETED SUCCESSFULLY" rpm_env/evidence/rpm-build.log
