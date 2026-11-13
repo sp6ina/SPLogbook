@@ -237,6 +237,8 @@ pass "RPM identity metadata is correct"
 # 3. Dependency contract
 # ------------------------------------------------------------------
 EXPECTED_REQUIRES="$(cat <<'EOF'
+/bin/sh
+/bin/sh
 glibc >= 2.43
 libGL.so.1()(64bit)
 libX11.so.6()(64bit)

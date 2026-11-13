@@ -105,9 +105,10 @@ libc.so.6(GLIBC_2.43)(64bit)
 ```
 
 `libhamlib.so.4` is bundled and therefore must **not** appear in `Requires`.
-No `Recommends`, `Suggests`, `Supplements`, `Enhances`, `Conflicts`,
-`Obsoletes` or `Provides` are declared beyond RPM's automatic
-`splogbook = <evr>`.
+RPM additionally records `/bin/sh` for the two scriptlet interpreters; this is
+expected and is part of the verified dependency contract. No `Recommends`,
+`Suggests`, `Supplements`, `Enhances`, `Conflicts`, `Obsoletes` or `Provides`
+are declared beyond RPM's automatic `splogbook = <evr>`.
 
 ## 6. RUNPATH and private Hamlib
 
