@@ -1,0 +1,10 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Mariusz Woźniak (SP6INA)
+#
+# Minimal fail-closed system launcher installed as /usr/bin/splogbook.
+# It changes no environment variable, performs no write and masks no error.
+
+set -eu
+
+exec /opt/SPLogbook/SPLogbook "$@"

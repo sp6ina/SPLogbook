@@ -5682,7 +5682,7 @@ fn m3_f_f03_fail_closed_verification_guard() {
     );
     assert!(
         publish.contains(
-            "needs: [build-linux, build-windows, verify-linux-matrix, verify-linux-negative]"
+            "needs: [build-linux, build-windows, verify-linux-matrix, verify-linux-negative, build-rpm, verify-rpm, verify-rpm-negative-fixtures]"
         ),
         "Publish Release Assets musi zależeć od wszystkich jobów weryfikacyjnych"
     );
@@ -6367,5 +6367,272 @@ fn m3_h_deb_integration_guard() {
         workflow.contains("SPLogbook-Linux-x86_64-appimage")
             && workflow.contains("SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz"),
         "portable tar.gz i AppImage muszą pozostać w workflow"
+    );
+}
+
+// ============================================================================
+// STAGE-M3-I-LINUX-RPM-INTEGRATION-GATE (2026-11-13)
+// Strażnik binarnego pakietu RPM: rpmbuild, deterministyczna budowa,
+// układ /opt/SPLogbook, fail-closed launcher, tylko post/postun, weryfikator
+// fail-closed, 34 mutacje negatywne, artefakt wyłącznie w CI, brak publikacji
+// RPM oraz brak zmian w M3-H / M3-G / F-03 i brak rozpoczęcia M3-J.
+// ============================================================================
+
+#[test]
+fn m3_i_rpm_integration_guard() {
+    let build =
+        fs::read_to_string("scripts/build_linux_rpm.sh").expect("scripts/build_linux_rpm.sh");
+    let verify =
+        fs::read_to_string("scripts/verify_linux_rpm.sh").expect("scripts/verify_linux_rpm.sh");
+    let fixtures = fs::read_to_string("scripts/verify_linux_rpm_negative_fixture.sh")
+        .expect("scripts/verify_linux_rpm_negative_fixture.sh");
+    let manifest =
+        fs::read_to_string("scripts/linux_rpm_manifest.sh").expect("scripts/linux_rpm_manifest.sh");
+    let spec = fs::read_to_string("installer/linux/rpm/splogbook.spec")
+        .expect("installer/linux/rpm/splogbook.spec");
+    let launcher =
+        fs::read_to_string("installer/linux/rpm/launcher").expect("installer/linux/rpm/launcher");
+    let desktop = fs::read_to_string("installer/linux/rpm/splogbook.desktop")
+        .expect("installer/linux/rpm/splogbook.desktop");
+    let readme =
+        fs::read_to_string("installer/linux/rpm/README.md").expect("installer/linux/rpm/README.md");
+    let workflow = fs::read_to_string(".github/workflows/build-and-release.yml")
+        .expect(".github/workflows/build-and-release.yml");
+    let gitignore = fs::read_to_string(".gitignore").expect(".gitignore");
+    let installation = fs::read_to_string("src/cloud/updater/installation.rs")
+        .expect("src/cloud/updater/installation.rs");
+    let f03 = fs::read_to_string("scripts/verify_linux_container.sh")
+        .expect("scripts/verify_linux_container.sh");
+    let deb = fs::read_to_string("scripts/build_linux_deb.sh").expect("scripts/build_linux_deb.sh");
+    let appimage = fs::read_to_string("scripts/build_linux_appimage.sh")
+        .expect("scripts/build_linux_appimage.sh");
+
+    // 1. Builder: rpmbuild, dwie niezależne budowy, manifest, fail-closed.
+    assert!(build.contains("set -euo pipefail"));
+    assert!(build.contains("rpmbuild -bb"));
+    assert!(build.contains("SOURCE_DATE_EPOCH"));
+    assert!(spec.contains("build.splogbook.invalid"));
+    assert!(build.contains("the RPM build is not reproducible"));
+    assert!(build.contains("linux_rpm_manifest.sh"));
+    assert!(build.contains("rpmdev-vercmp"));
+    assert_eq!(build.matches("build_once").count(), 3);
+    for forbidden in ["http://", "curl | sh", "curl | bash", "git add", "--nodeps"] {
+        assert!(
+            !build.contains(forbidden),
+            "builder RPM nie może zawierać {forbidden}"
+        );
+    }
+
+    // 2. Wersja i brak epoch.
+    assert!(build.contains("RPM_VERSION=\"${BASE_VERSION}\""));
+    assert!(build.contains("RPM_RELEASE=\"0.1.${PRERELEASE}\""));
+    assert!(build.contains("an epoch is not allowed"));
+    assert!(!spec.contains("Epoch:"));
+    assert!(!spec.contains("%{?dist}"));
+
+    // 3. Tożsamość i zależności.
+    for required in [
+        "Name:           splogbook",
+        "BuildArch:      x86_64",
+        "Vendor:         SPLogbook",
+        "License:        GPL-3.0-or-later AND LGPL-2.1-or-later",
+        "URL:            https://github.com/sp6ina/SPLogbook",
+        "AutoReqProv:    no",
+        "Requires:       glibc >= 2.43",
+        "Requires:       libc.so.6(GLIBC_2.43)(64bit)",
+    ] {
+        assert!(spec.contains(required), "spec RPM musi zawierać {required}");
+    }
+    assert!(!spec.contains("Requires:       hamlib"));
+    assert!(!spec.contains("Recommends:"));
+    assert!(!spec.contains("Suggests:"));
+    assert!(!spec.contains("Conflicts:"));
+    assert!(!spec.contains("Obsoletes:"));
+
+    // 4. Układ, tryby, launcher, desktop, prywatny Hamlib.
+    for required in [
+        "%dir /opt/SPLogbook",
+        "%attr(0755,root,root) /opt/SPLogbook/SPLogbook",
+        "%attr(0644,root,root) /opt/SPLogbook/lib/libhamlib.so.4",
+        "%attr(0755,root,root) /usr/bin/splogbook",
+        "%license /usr/share/licenses/splogbook/HAMLIB_LGPL-2.1.txt",
+    ] {
+        assert!(spec.contains(required), "spec RPM musi zawierać {required}");
+    }
+    assert!(launcher.contains("#!/bin/sh"));
+    assert!(launcher.contains("set -eu"));
+    assert!(launcher.contains("exec /opt/SPLogbook/SPLogbook \"$@\""));
+    for line in launcher
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+    {
+        for forbidden in ["sudo", "pkexec", "doas", "LD_LIBRARY_PATH", "HOME", "XDG_"] {
+            assert!(
+                !line.contains(forbidden),
+                "launcher RPM nie może zawierać {forbidden}: {line}"
+            );
+        }
+    }
+    assert!(desktop.contains("Exec=splogbook"));
+    assert!(desktop.contains("Icon=splogbook"));
+    assert!(desktop.contains("StartupWMClass=SPLogbook"));
+
+    // 5. Tylko %post/%postun, bez config/ghost.
+    assert!(spec.contains("%post\n"));
+    assert!(spec.contains("%postun\n"));
+    for forbidden in [
+        "%pre\n",
+        "%preun\n",
+        "%pretrans\n",
+        "%posttrans\n",
+        "%trigger",
+        "%verifyscript",
+        "%config",
+        "%ghost",
+    ] {
+        assert!(
+            !spec.contains(forbidden),
+            "spec RPM nie może zawierać {forbidden}"
+        );
+    }
+
+    // 6. Marker RPM zgodny z istniejącym updaterem.
+    assert!(installation.contains(".splogbook-rpm-marker"));
+    assert!(installation.contains("InstallationType::LinuxRpm"));
+    for required in [
+        "\"installation_type\": \"LinuxRpm\"",
+        "\"management_mode\": \"SystemManaged\"",
+        "\"artifact_format\": \"rpm\"",
+        "\"architecture\": \"x86_64\"",
+        "\"target\": \"linux-x86_64\"",
+        "\"resolved_minimum_kernel\": \"${RESOLVED_MIN_KERNEL}\"",
+        "\"maximum_glibc\": \"${GLIBC_POLICY_MAX}\"",
+    ] {
+        assert!(
+            build.contains(required),
+            "marker RPM musi zawierać {required}"
+        );
+    }
+
+    // 7. Weryfikator fail-closed i pełny cykl życia.
+    assert!(verify.contains("set -eu"));
+    assert!(verify.contains("GLIBC_POLICY_MAX=\"2.43\""));
+    assert!(verify.contains("rpm -qpR"));
+    assert!(verify.contains("rpmlint"));
+    assert!(verify.contains("rpm -e"));
+    assert!(verify.contains("rpm -U --oldpackage"));
+    assert!(verify.contains("rpm -U --replacepkgs"));
+    assert!(verify.contains("user data unchanged"));
+    assert!(verify.contains("RPM VERIFICATION COMPLETED SUCCESSFULLY"));
+    assert!(verify.contains("OWNER-M3-H-03"));
+    assert!(verify.contains("dir-or-file-in-opt,custom-library-search-path"));
+    for forbidden in ["|| true", "|| :", "--nodeps"] {
+        assert!(
+            !verify.contains(forbidden),
+            "weryfikator RPM nie może maskować błędów przez {forbidden}"
+        );
+    }
+    assert_eq!(
+        verify
+            .lines()
+            .filter(|line| !line.trim_start().starts_with('#'))
+            .filter(|line| line.contains("RPM VERIFICATION COMPLETED SUCCESSFULLY"))
+            .count(),
+        1,
+        "komunikat sukcesu RPM dokładnie raz"
+    );
+    assert_eq!(
+        verify.lines().rfind(|line| !line.trim().is_empty()),
+        Some("echo \"RPM VERIFICATION COMPLETED SUCCESSFULLY\""),
+        "komunikat sukcesu RPM musi być ostatnią instrukcją"
+    );
+
+    // 8. Manifest i negatywne fixture'y.
+    assert!(manifest.contains("SPLOGBOOK_RPM_MANIFEST 1.0"));
+    assert!(manifest.contains("artifact_sha256"));
+    assert_eq!(
+        fixtures.matches("expect_reject \"").count(),
+        34,
+        "zestaw negatywny RPM musi wywołać dokładnie 34 mutacje"
+    );
+    assert!(fixtures.contains("NEGATIVE FIXTURES REJECTED AS EXPECTED: ${REJECTED}/${TOTAL}"));
+    assert!(fixtures.contains("fixture emitted a success message"));
+    assert!(fixtures.contains("SPLOG_RPM_INSPECTION_ONLY=1"));
+
+    // 9. Workflow: build + verify + negative, artefakt CI, brak publikacji RPM.
+    assert!(workflow.contains("build-rpm:"));
+    assert!(workflow.contains("verify-rpm:"));
+    assert!(workflow.contains("verify-rpm-negative-fixtures:"));
+    assert!(workflow.contains("name: SPLogbook-Linux-x86_64-rpm"));
+    assert!(workflow.contains(
+        "fedora:45@sha256:a7d72ba2745b100a3351087472e5ee7b2450af7cf331e7673007e3817612839c"
+    ));
+    assert!(workflow.contains(
+        "opensuse/tumbleweed:latest@sha256:6e3a892daa0372e12a9c0b10291303dbfcd8706a450de6edfd72c763b44b4ac1"
+    ));
+    assert!(workflow.contains("scripts/build_linux_rpm.sh"));
+    assert!(workflow.contains("scripts/verify_linux_rpm.sh"));
+    assert!(workflow.contains("scripts/verify_linux_rpm_negative_fixture.sh"));
+    assert!(!workflow.contains("git add"));
+    let publish = workflow
+        .split("publish-release:")
+        .nth(1)
+        .expect("job publish-release musi istnieć");
+    assert!(
+        !publish.contains("SPLogbook-Linux-x86_64-rpm"),
+        "publish-release nie może publikować RPM"
+    );
+    assert!(publish.contains("if: startsWith(github.ref, 'refs/tags/v')"));
+    assert!(
+        publish.contains("RPM must never be published"),
+        "publish-release musi zawierać trwałą asercję braku RPM"
+    );
+
+    // 10. RPM nie jest commitowany, README opisuje kontrakt.
+    assert!(gitignore.contains("*.rpm"));
+    assert!(gitignore.contains("*.rpm.sha256"));
+    assert!(gitignore.contains("*.rpm.manifest"));
+    let lower = readme.to_lowercase();
+    for required in [
+        "fedora linux 45",
+        "opensuse tumbleweed",
+        "glibc_2.43",
+        "1.3.0-0.1.alpha.1",
+        "/opt/splogbook",
+        "libhamlib.so.4",
+        "linuxrpm",
+        "systemmanaged",
+        "user data",
+        "negative fixtures",
+        "ci artifact only",
+        "rpmlint",
+    ] {
+        assert!(
+            lower.contains(required),
+            "README RPM musi opisywać {required}"
+        );
+    }
+
+    // 11. M3-H, M3-G, F-03 i cztery profile pozostają nietknięte.
+    assert!(deb.contains("DEB BUILD COMPLETED SUCCESSFULLY"));
+    assert!(deb.contains("dpkg-deb"));
+    assert!(appimage.contains("SUCCESS: AppImage built"));
+    assert!(f03.contains("GLIBC_POLICY_MAX=\"2.43\""));
+    assert!(f03.contains("NATIVE VERIFICATION COMPLETED SUCCESSFULLY"));
+    assert_eq!(
+        workflow.matches("distro_id: \"").count(),
+        4,
+        "macierz M3-F musi pozostać czteroprofilowa"
+    );
+    assert!(
+        workflow.contains("SPLogbook-Linux-x86_64-appimage")
+            && workflow.contains("SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz"),
+        "portable tar.gz i AppImage muszą pozostać w workflow"
+    );
+
+    // 12. M3-J nie zostało rozpoczęte.
+    assert!(
+        !std::path::Path::new("installer/linux/flatpak").exists(),
+        "M3-J Flatpak nie może zostać rozpoczęte w M3-I"
     );
 }

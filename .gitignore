@@ -90,3 +90,8 @@ installer/windows/msi/obj/
 # Debian binary packages and their CI evidence (never committed; M3-H)
 *.deb
 *.deb.sha256
+
+# RPM binary packages and their CI evidence (never committed; M3-I)
+*.rpm
+*.rpm.sha256
+*.rpm.manifest
