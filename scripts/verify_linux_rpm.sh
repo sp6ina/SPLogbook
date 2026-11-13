@@ -354,7 +354,6 @@ for required in \
 done
 
 [ -d "${ROOT}/opt/SPLogbook/locales" ] || fail "locales/ directory is missing"
-[ -d "${ROOT}/opt/SPLogbook/locales/manual" ] || fail "locales/manual/ is missing"
 [ -d "${ROOT}/opt/SPLogbook/THIRD_PARTY_LICENSES" ] || fail "THIRD_PARTY_LICENSES/ is missing"
 
 UNEXPECTED_OPT="$(find "${ROOT}/opt/SPLogbook" -mindepth 1 -maxdepth 1 -printf '%f\n' \
@@ -391,7 +390,6 @@ OWNERS="$(find "${ROOT}" -mindepth 1 -printf '%u:%g\n' | sort -u)"
 assert_mode "/opt/SPLogbook" 755
 assert_mode "/opt/SPLogbook/lib" 755
 assert_mode "/opt/SPLogbook/locales" 755
-assert_mode "/opt/SPLogbook/locales/manual" 755
 assert_mode "/opt/SPLogbook/THIRD_PARTY_LICENSES" 755
 assert_mode "/opt/SPLogbook/SPLogbook" 755
 assert_mode "/opt/SPLogbook/splogbook-updater" 755

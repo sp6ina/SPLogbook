@@ -136,12 +136,8 @@ exit 0
 %dir /opt/SPLogbook/lib
 %attr(0644,root,root) /opt/SPLogbook/lib/libhamlib.so.4
 %dir /opt/SPLogbook/locales
-%dir /opt/SPLogbook/locales/manual
-%attr(0644,root,root) /opt/SPLogbook/locales/README.md
-%attr(0644,root,root) /opt/SPLogbook/locales/*.json
-%attr(0644,root,root) /opt/SPLogbook/locales/manual/*.json
 %dir /opt/SPLogbook/THIRD_PARTY_LICENSES
-%attr(0644,root,root) /opt/SPLogbook/THIRD_PARTY_LICENSES/*
+%attr(0644,root,root) /opt/SPLogbook/THIRD_PARTY_LICENSES/HAMLIB_LGPL-2.1.txt
 %license /opt/SPLogbook/LICENSE
 %attr(0644,root,root) /opt/SPLogbook/.splogbook-rpm-marker
 
