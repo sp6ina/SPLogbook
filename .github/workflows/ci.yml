@@ -61,7 +61,11 @@ jobs:
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
-          toolchain: stable
+          # Pin the documented project toolchain (Cargo.toml rust-version,
+          # docs/DEEPSEEK_HARNESS_HANDOFF.md). Rust 1.100.0 stable introduced
+          # clippy::map_unwrap_or findings in pre-existing src/** code; M3-H
+          # must not modify src/** or weaken -D warnings.
+          toolchain: 1.99.0
           components: rustfmt, clippy
 
       - name: Check formatting
