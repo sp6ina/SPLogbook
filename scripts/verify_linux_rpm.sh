@@ -625,8 +625,8 @@ EOF
     RPMLINT_CODE=$?
     set -e
     cat "${WORK}/rpmlint.txt"
-    RPMLINT_ERRORS="$(awk '/^E:/ { n++ } END { print n + 0 }' "${WORK}/rpmlint.txt")"
-    RPMLINT_WARNINGS="$(awk '/^W:/ { n++ } END { print n + 0 }' "${WORK}/rpmlint.txt")"
+    RPMLINT_ERRORS="$(awk '/^E:/ || /: E:/ { n++ } END { print n + 0 }' "${WORK}/rpmlint.txt")"
+    RPMLINT_WARNINGS="$(awk '/^W:/ || /: W:/ { n++ } END { print n + 0 }' "${WORK}/rpmlint.txt")"
     [ "${RPMLINT_ERRORS}" -eq 0 ] || fail "rpmlint reported ${RPMLINT_ERRORS} error(s)"
     if [ "${RPMLINT_CODE}" -ne 0 ]; then
         fail "rpmlint exited with unexpected code ${RPMLINT_CODE}"
