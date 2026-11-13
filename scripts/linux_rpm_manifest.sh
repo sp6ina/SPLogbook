@@ -44,7 +44,7 @@ printf '%s\n' "${RELEASE}" | grep -Eq '^[0-9][0-9A-Za-z.+~_]*$' \
 printf '%s\n' "${COMMIT}" | grep -Eq '^[0-9a-f]{40}$' \
     || fail "build commit must be 40 lowercase hex characters"
 
-for tool in rpm2cpio cpio find sort stat sha256sum wc awk sed mktemp; do
+for tool in rpm rpm2cpio cpio sort stat sha256sum wc awk sed mktemp; do
     command -v "${tool}" >/dev/null 2>&1 || fail "required tool is missing: ${tool}"
 done
 
@@ -68,16 +68,16 @@ ENTRIES="${WORK}/entries.txt"
 FILE_COUNT=0
 ENTRY_COUNT=0
 
-find "${ROOT}" -mindepth 1 -print | LC_ALL=C sort > "${WORK}/paths.txt"
-while IFS= read -r path; do
-    rel="${path#"${ROOT}"}"
+rpm -qpl "${RPM}" | LC_ALL=C sort > "${WORK}/paths.txt"
+while IFS= read -r rel; do
     case "${rel}" in
         /*) ;;
-        *) fail "package path is not below the package root: ${path}" ;;
+        *) fail "RPM path is not absolute: ${rel}" ;;
     esac
     case "${rel}" in
-        *" "*|*"	"*) fail "package path contains whitespace: ${rel}" ;;
+        *" "*|*"	"*) fail "RPM path contains whitespace: ${rel}" ;;
     esac
+    path="${ROOT}${rel}"
     kind="$(stat -c '%F' "${path}")"
     mode="$(stat -c '%a' "${path}")"
     uid="$(stat -c '%u' "${path}")"
