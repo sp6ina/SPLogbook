@@ -6527,7 +6527,7 @@ fn m3_i_rpm_integration_guard() {
     assert!(verify.contains("user data unchanged"));
     assert!(verify.contains("RPM VERIFICATION COMPLETED SUCCESSFULLY"));
     assert!(verify.contains("OWNER-M3-H-03"));
-    assert!(verify.contains("dir-or-file-in-opt,custom-library-search-path"));
+    assert!(verify.contains("dir-or-file-in-opt,binary-or-shlib-defines-rpath"));
     for forbidden in ["|| true", "|| :", "--nodeps"] {
         assert!(
             !verify.contains(forbidden),

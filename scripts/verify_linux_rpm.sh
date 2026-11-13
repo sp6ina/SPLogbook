@@ -615,7 +615,7 @@ if [ "${SKIP_RPMLINT}" = "1" ]; then
     log "rpmlint: skipped by SPLOG_RPM_SKIP_RPMLINT=1 (compatibility profile)"
 else
     require_tool rpmlint
-    RPMLINT_SUPPRESSED_TAGS="dir-or-file-in-opt,custom-library-search-path"
+    RPMLINT_SUPPRESSED_TAGS="dir-or-file-in-opt,binary-or-shlib-defines-rpath"
     log "rpmlint suppressed tags (OWNER-M3-H-03 approved /opt layout): ${RPMLINT_SUPPRESSED_TAGS}"
     set +e
     rpmlint --no-tag-display-limit --suppress-tags "${RPMLINT_SUPPRESSED_TAGS}" "${RPM}" \
