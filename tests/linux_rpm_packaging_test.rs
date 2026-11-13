@@ -66,9 +66,9 @@ fn rpm_version_translation_is_explicit_and_ordered() {
     let builder = read(BUILDER);
     assert!(builder.contains("RPM_VERSION=\"${BASE_VERSION}\""));
     assert!(builder.contains("RPM_RELEASE=\"0.1.${PRERELEASE}\""));
-    assert!(builder.contains("vercmp_is \"${CURRENT_EVR}\" \"1.3.0-1\" 11"));
-    assert!(builder.contains("vercmp_is \"${CURRENT_EVR}\" \"1.3.0-0.1.alpha.0\" 12"));
-    assert!(builder.contains("vercmp_is \"${CURRENT_EVR}\" \"1.3.0-0.1.alpha.2\" 11"));
+    assert!(builder.contains("vercmp_is \"${CURRENT_EVR}\" \"1.3.0-1\" 12"));
+    assert!(builder.contains("vercmp_is \"${CURRENT_EVR}\" \"1.3.0-0.1.alpha.0\" 11"));
+    assert!(builder.contains("vercmp_is \"${CURRENT_EVR}\" \"1.3.0-0.1.alpha.2\" 12"));
     assert!(builder.contains("an epoch is not allowed"));
     assert!(!builder.contains("%{?dist}"));
 }

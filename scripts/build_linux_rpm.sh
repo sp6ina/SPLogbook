@@ -148,9 +148,9 @@ log "Application version: ${PRODUCT_VERSION}"
 log "RPM version: ${RPM_VERSION}-${RPM_RELEASE}"
 
 CURRENT_EVR="${RPM_VERSION}-${RPM_RELEASE}"
-vercmp_is "${CURRENT_EVR}" "1.3.0-1" 11
-vercmp_is "${CURRENT_EVR}" "1.3.0-0.1.alpha.0" 12
-vercmp_is "${CURRENT_EVR}" "1.3.0-0.1.alpha.2" 11
+vercmp_is "${CURRENT_EVR}" "1.3.0-1" 12
+vercmp_is "${CURRENT_EVR}" "1.3.0-0.1.alpha.0" 11
+vercmp_is "${CURRENT_EVR}" "1.3.0-0.1.alpha.2" 12
 vercmp_is "${CURRENT_EVR}" "${CURRENT_EVR}" 0
 log "PASS: RPM version ordering verified with rpmdev-vercmp"
 
