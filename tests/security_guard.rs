@@ -6441,7 +6441,7 @@ fn m3_i_rpm_integration_guard() {
         "URL:            https://github.com/sp6ina/SPLogbook",
         "AutoReqProv:    no",
         "Requires:       glibc >= 2.43",
-        "Requires:       libc.so.6(GLIBC_2.43)(64bit)",
+        "Requires:       libc.so.6()(64bit)",
     ] {
         assert!(spec.contains(required), "spec RPM musi zawierać {required}");
     }

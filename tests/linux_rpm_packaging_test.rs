@@ -104,7 +104,7 @@ fn requires_use_portable_capabilities_and_exclude_hamlib() {
         "Requires:       libasound.so.2()(64bit)",
         "Requires:       libX11.so.6()(64bit)",
         "Requires:       libgtk-3.so.0()(64bit)",
-        "Requires:       libc.so.6(GLIBC_2.43)(64bit)",
+        "Requires:       libc.so.6()(64bit)",
         "Requires:       libudev.so.1()(64bit)",
         "Requires:       libusb-1.0.so.0()(64bit)",
     ] {
