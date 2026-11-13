@@ -6522,8 +6522,8 @@ fn m3_i_rpm_integration_guard() {
     assert!(verify.contains("rpm -qpR"));
     assert!(verify.contains("rpmlint"));
     assert!(verify.contains("rpm -e"));
-    assert!(verify.contains("rpm -U --oldpackage"));
-    assert!(verify.contains("rpm -U --replacepkgs"));
+    assert!(verify.contains("rpm -U --nosignature --oldpackage"));
+    assert!(verify.contains("rpm -U --nosignature --replacepkgs"));
     assert!(verify.contains("user data unchanged"));
     assert!(verify.contains("RPM VERIFICATION COMPLETED SUCCESSFULLY"));
     assert!(verify.contains("OWNER-M3-H-03"));

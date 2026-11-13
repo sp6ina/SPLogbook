@@ -10,7 +10,10 @@ create a source RPM, a COPR repository, a DNF/Zypper repository or a package
 signature.
 
 The RPM is a **CI artifact only**. It is never added to a public GitHub release
-and no tag or release is created by this gate.
+and no tag or release is created by this gate. It is intentionally **unsigned**,
+like the M3-H DEB: the verifier proves integrity with the SHA-256 sidecar and
+the per-file manifest, and installs it with `rpm --nosignature`. No signature
+is claimed or required in M3-I.
 
 ## 2. Supported systems
 
