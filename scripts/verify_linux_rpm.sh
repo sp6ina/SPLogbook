@@ -616,9 +616,12 @@ else
     require_tool rpmlint
     RPMLINT_SUPPRESSED_TAGS="dir-or-file-in-opt,binary-or-shlib-defines-rpath"
     log "rpmlint suppressed tags (OWNER-M3-H-03 approved /opt layout): ${RPMLINT_SUPPRESSED_TAGS}"
+    cat > "${WORK}/rpmlintrc" <<'EOF'
+addFilter("dir-or-file-in-opt")
+addFilter("binary-or-shlib-defines-rpath")
+EOF
     set +e
-    rpmlint --no-tag-display-limit --suppress-tags "${RPMLINT_SUPPRESSED_TAGS}" "${RPM}" \
-        > "${WORK}/rpmlint.txt" 2>&1
+    rpmlint -r "${WORK}/rpmlintrc" "${RPM}" > "${WORK}/rpmlint.txt" 2>&1
     RPMLINT_CODE=$?
     set -e
     cat "${WORK}/rpmlint.txt"
