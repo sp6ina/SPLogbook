@@ -101,7 +101,6 @@ libudev.so.1()(64bit)
 libgcc_s.so.1()(64bit)
 libm.so.6()(64bit)
 libc.so.6()(64bit)
-libc.so.6(GLIBC_2.43)(64bit)
 ```
 
 `libhamlib.so.4` is bundled and therefore must **not** appear in `Requires`.

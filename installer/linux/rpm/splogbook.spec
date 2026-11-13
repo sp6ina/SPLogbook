@@ -58,7 +58,6 @@ Requires:       libudev.so.1()(64bit)
 Requires:       libgcc_s.so.1()(64bit)
 Requires:       libm.so.6()(64bit)
 Requires:       libc.so.6()(64bit)
-Requires:       libc.so.6(GLIBC_2.43)(64bit)
 
 BuildRequires:  coreutils
 BuildRequires:  findutils
