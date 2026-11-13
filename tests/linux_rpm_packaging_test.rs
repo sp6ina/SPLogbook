@@ -318,7 +318,7 @@ fn verifier_checks_every_required_security_property() {
         );
     }
     assert!(verifier.contains("OWNER-M3-H-03"));
-    assert!(verifier.contains("dir-or-file-in-opt,custom-library-search-path"));
+    assert!(verifier.contains("dir-or-file-in-opt,binary-or-shlib-defines-rpath"));
     for forbidden in [
         "*.db",
         "*.db-wal",
