@@ -313,26 +313,26 @@ awk '$1=="F"{print $1,$2,$3,$4,$5,$6} $1=="D"{print $1,$2,$3,$4,"-",$5}' "${MANI
 while IFS=' ' read -r kind mode uid gid extra path; do
     case "${kind}" in
         F)
-            target="${ROOT}${extra}"
-            [ -f "${target}" ] || fail "manifest file is missing: ${extra}"
+            target="${ROOT}${path}"
+            [ -f "${target}" ] || fail "manifest file is missing: ${path}"
             [ "$(stat -c '%a' "${target}")" = "${mode}" ] \
-                || fail "mode mismatch for ${extra}"
+                || fail "mode mismatch for ${path}"
             [ "$(stat -c '%u' "${target}")" = "${uid}" ] \
-                || fail "uid mismatch for ${extra}"
+                || fail "uid mismatch for ${path}"
             [ "$(stat -c '%g' "${target}")" = "${gid}" ] \
-                || fail "gid mismatch for ${extra}"
-            [ "$(sha256sum "${target}" | awk '{print $1}')" = "${path}" ] \
-                || fail "SHA-256 mismatch for ${extra}"
+                || fail "gid mismatch for ${path}"
+            [ "$(sha256sum "${target}" | awk '{print $1}')" = "${extra}" ] \
+                || fail "SHA-256 mismatch for ${path}"
             ;;
         D)
-            target="${ROOT}${extra}"
-            [ -d "${target}" ] || fail "manifest directory is missing: ${extra}"
+            target="${ROOT}${path}"
+            [ -d "${target}" ] || fail "manifest directory is missing: ${path}"
             [ "$(stat -c '%a' "${target}")" = "${mode}" ] \
-                || fail "directory mode mismatch for ${extra}"
+                || fail "directory mode mismatch for ${path}"
             [ "$(stat -c '%u' "${target}")" = "${uid}" ] \
-                || fail "directory uid mismatch for ${extra}"
+                || fail "directory uid mismatch for ${path}"
             [ "$(stat -c '%g' "${target}")" = "${gid}" ] \
-                || fail "directory gid mismatch for ${extra}"
+                || fail "directory gid mismatch for ${path}"
             ;;
         *) fail "unknown manifest entry: ${kind}" ;;
     esac
