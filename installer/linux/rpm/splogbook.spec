@@ -77,10 +77,10 @@ not install, modify or remove user data, QSO databases or configuration stored
 in the XDG directories.
 
 %prep
-: prebuilt payload; no source preparation is required
+: prebuilt payload - no source preparation required
 
 %build
-: prebuilt payload; no compilation is required
+: prebuilt payload - no compilation required
 
 %install
 rm -rf "%{buildroot}"
