@@ -6455,7 +6455,7 @@ fn m3_i_rpm_integration_guard() {
     for required in [
         "%dir /opt/SPLogbook",
         "%attr(0755,root,root) /opt/SPLogbook/SPLogbook",
-        "%attr(0644,root,root) /opt/SPLogbook/lib/libhamlib.so.4",
+        "%attr(0755,root,root) /opt/SPLogbook/lib/libhamlib.so.4",
         "%attr(0755,root,root) /usr/bin/splogbook",
         "%license /usr/share/licenses/splogbook/HAMLIB_LGPL-2.1.txt",
     ] {

@@ -266,7 +266,7 @@ mkdir -p "${PKG_ROOT}/usr/bin" \
 
 install -m 0755 "${PAYLOAD}/SPLogbook" "${SPLOGBOOK_ROOT}/SPLogbook"
 install -m 0755 "${PAYLOAD}/splogbook-updater" "${SPLOGBOOK_ROOT}/splogbook-updater"
-install -m 0644 "${PAYLOAD}/lib/libhamlib.so.4" "${SPLOGBOOK_ROOT}/lib/libhamlib.so.4"
+install -m 0755 "${PAYLOAD}/lib/libhamlib.so.4" "${SPLOGBOOK_ROOT}/lib/libhamlib.so.4"
 install -m 0644 "${PAYLOAD}/LICENSE" "${SPLOGBOOK_ROOT}/LICENSE"
 
 cp -R "${PAYLOAD}/locales/." "${SPLOGBOOK_ROOT}/locales/"

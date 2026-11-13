@@ -68,9 +68,9 @@ Version translation: SemVer `1.3.0-alpha.1` becomes RPM
 /usr/share/licenses/splogbook/HAMLIB_LGPL-2.1.txt
 ```
 
-Only `libhamlib.so.4` is bundled. It is a shared library, not an executable,
-and is installed with mode `0644`; only `SPLogbook`, `splogbook-updater` and
-the launcher are `0755`. All entries are `root:root`.
+Only `libhamlib.so.4` is bundled. It is a shared library, not a separate
+program, and is installed with mode `0755`; `SPLogbook`, `splogbook-updater`
+and the launcher are also `0755`. All entries are `root:root`.
 
 The package deliberately does not copy `assets/`, `README.txt`,
 `.splogbook-linux-portable-marker`, `rigctld`, `rotctld`, databases,
