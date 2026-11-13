@@ -390,7 +390,7 @@ assert_mode "/opt/SPLogbook/locales" 755
 assert_mode "/opt/SPLogbook/THIRD_PARTY_LICENSES" 755
 assert_mode "/opt/SPLogbook/SPLogbook" 755
 assert_mode "/opt/SPLogbook/splogbook-updater" 755
-assert_mode "/opt/SPLogbook/lib/libhamlib.so.4" 644
+assert_mode "/opt/SPLogbook/lib/libhamlib.so.4" 755
 assert_mode "/opt/SPLogbook/LICENSE" 644
 assert_mode "/opt/SPLogbook/.splogbook-rpm-marker" 644
 assert_mode "/usr/bin/splogbook" 755

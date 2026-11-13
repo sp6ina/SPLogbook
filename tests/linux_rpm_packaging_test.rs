@@ -127,7 +127,7 @@ fn spec_installs_the_approved_layout_and_modes() {
         "%dir /opt/SPLogbook",
         "%attr(0755,root,root) /opt/SPLogbook/SPLogbook",
         "%attr(0755,root,root) /opt/SPLogbook/splogbook-updater",
-        "%attr(0644,root,root) /opt/SPLogbook/lib/libhamlib.so.4",
+        "%attr(0755,root,root) /opt/SPLogbook/lib/libhamlib.so.4",
         "%attr(0644,root,root) /opt/SPLogbook/.splogbook-rpm-marker",
         "%attr(0755,root,root) /usr/bin/splogbook",
         "%attr(0644,root,root) /usr/share/applications/splogbook.desktop",

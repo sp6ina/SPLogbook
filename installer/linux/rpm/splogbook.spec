@@ -133,7 +133,7 @@ exit 0
 %attr(0755,root,root) /opt/SPLogbook/SPLogbook
 %attr(0755,root,root) /opt/SPLogbook/splogbook-updater
 %dir /opt/SPLogbook/lib
-%attr(0644,root,root) /opt/SPLogbook/lib/libhamlib.so.4
+%attr(0755,root,root) /opt/SPLogbook/lib/libhamlib.so.4
 %dir /opt/SPLogbook/locales
 %dir /opt/SPLogbook/THIRD_PARTY_LICENSES
 %attr(0644,root,root) /opt/SPLogbook/THIRD_PARTY_LICENSES/HAMLIB_LGPL-2.1.txt
