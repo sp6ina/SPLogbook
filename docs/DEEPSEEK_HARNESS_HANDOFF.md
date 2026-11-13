@@ -172,7 +172,11 @@ git -c core.fsmonitor=false -c core.untrackedCache=false status --porcelain=v1
   0 errors / 2 warnings, 27/27 mutacji odrzuconych, pełny cykl install/upgrade/
   downgrade/reinstall/remove/purge bez utraty danych; run `43245181565` +
   `CI` `43245181469` = `success`; `Publish Release Assets` = `skipped`.
-- Następna bramka: **`M3-I`** (RPM) — `NOT_STARTED`, wymaga osobnego GO OWNER.
+- M3-I (RPM): **`BLOCKED`** (2026-11-13) — RPM build/verify/34/34/lifecycle
+  `success` (run `43453322341`), ale `CI` `43453322339` = `failure` na
+  `RUSTSEC-2026-0523/0524/0538`; wymagana osobna bramka bezpieczeństwa.
+- Następna bramka: **`M3-I`** (RPM) — `BLOCKED_BY_NEW_RUSTSEC_ADVISORIES`,
+  wymaga autoryzacji remediacji zależności. `M3-J` pozostaje `NOT_STARTED`.
 
 Raporty: `STAGE_QA_BASELINE_DETERMINISM_AND_HERMETICITY_REPORT.md`,
 `STAGE_DEPENDENCY_SECURITY_UPDATE_REPORT.md`,

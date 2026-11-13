@@ -350,7 +350,7 @@ Utworzenie, uzgodnienie i zweryfikowanie trzech kompletnych dokumentĂłw projek
 - **Zaleznosci:** OWNER-M3-H-01..10 (APPROVED), UPDATE-DESIGN-LINUX (APPROVED), UPDATE-DESIGN-PLATFORM (APPROVED), UPDATE-CORE-PLATFORM (COMPLETED_SOFTWARE_VERIFIED), M3-F portable tar.gz (COMPLETED_SOFTWARE_VERIFIED)
 - **Zakres:** deterministyczny binarny DEB budowany przez `dpkg-deb` z zweryfikowanego payloadu portable; układ `/opt/SPLogbook` + launcher `/usr/bin/splogbook`; `Depends` wyznaczone z ELF/runtime i potwierdzone w Ubuntu 26.04; marker `.splogbook-deb-marker` (`LinuxDeb`, `SystemManaged`); minimalne `postinst`/`postrm`; `dpkg-deb --root-owner-group -Zxz` i dwie niezależne budowy o identycznym SHA-256; fail-closed weryfikator (lintian, GLIBC ≤ 2.43, ldd, instalacja, upgrade, downgrade, reinstall, remove, purge, ochrona danych XDG); 27 mutacji negatywnych; artefakt wyłącznie CI (`SPLogbook-Linux-amd64-deb`), bez publikacji w release.
 - **Dowód:** run `43245181565` = `success` (`Build DEB`, `Verify DEB`, 27/27 negative, Windows/Linux/AppImage `success`, `Publish Release Assets` `skipped`); `CI` `43245181469` = `success`; DEB `11 883 596 B`, SHA-256 `85a4ca9877305d97f7c31929eb6034bd36e88dc8d7fd208f9fab9cf7d8890061`; raport `STAGE_M3_H_LINUX_DEB_INTEGRATION_REPORT.md`.
-- **Następna bramka:** `M3-I` (RPM), `NOT_STARTED`, `OWNER_GO_REQUIRED`.
+- **Następna bramka:** `M3-I` (RPM), `BLOCKED_BY_NEW_RUSTSEC_ADVISORIES` (2026-11-13); implementacja RPM zweryfikowana, wymagana osobna bramka bezpieczeństwa dla `RUSTSEC-2026-0523/0524/0538`. `M3-J` pozostaje `NOT_STARTED`.
 
 #### UPDATE-LINUX-PACKAGES (Dalsze etapy M3: M3-I..M3-J) — Pakiety Linux (RPM, Flatpak)
 - **Tor:** UPDATE

@@ -6,7 +6,7 @@
 
 ## 1. Data projektu
 
-1. Aktualna data projektu: **2026-11-12** (data hosta zgodna; potwierdzona 2026-11-12).
+1. Aktualna data projektu: **2026-11-13** (data hosta zgodna; potwierdzona 2026-11-13).
    Data 2026-11-09 pozostaje **historyczną** datą wcześniejszych bramek. Daty projektu **nie wolno cofać**.
    Jeśli host wskazuje datę późniejszą — przyjmij ją i zapisz aktualizację osi czasu.
    Nie zmieniaj zegara systemowego ani dat commitów.
@@ -78,7 +78,11 @@
     **M3-H (DEB) — ZAMKNIĘTE 2026-11-12**: **`COMPLETED_DEB_INTEGRATION_VERIFIED`** (run
     `43245181565`: `Build DEB`, `Verify DEB`, `Verify DEB (negative fixtures)` 27/27 = `success`;
     Windows/Linux/AppImage = `success`; `Publish Release Assets` = `skipped`; `CI`
-    `43245181469` = `success`). Następna bramka `M3-I` (RPM) wymaga osobnego GO OWNER.
+    `43245181469` = `success`). **M3-I (RPM) — ZABLOKOWANE 2026-11-13**:
+    implementacja i weryfikacja RPM = `success` (run `43453322341`), ale finalny
+    `CI` `43453322339` = `failure` na nowych `RUSTSEC-2026-0523`,
+    `RUSTSEC-2026-0524` i `RUSTSEC-2026-0538`; brak autoryzacji na zmianę
+    zależności. M3-J (Flatpak) pozostaje `NOT_STARTED`.
 26. **F-03 (P1) — ZAMKNIĘTE 2026-11-09** (`STAGE-M3-F-F03-FAIL-CLOSED-CI-VERIFICATION-GATE`,
     `COMPLETED_FAIL_CLOSED_CI_VERIFICATION_VERIFIED`). Weryfikator
     `scripts/verify_linux_container.sh` jest fail-closed: ELF, `ldd`, `--version`, `--build-info`

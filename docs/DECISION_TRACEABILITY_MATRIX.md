@@ -231,3 +231,18 @@ Bramka: `STAGE-M3-H-LINUX-DEB-INTEGRATION-GATE` —
 | `FIND-M3H-08` | Portable tar.gz, AppImage i F-03 bez regresji; 4 profile Linux i 2 joby AppImage = `success` | workflow | run `43245181565` | `VERIFIED` |
 | `FIND-M3H-09` | Baseline: 2735 zarejestrowanych / 2725 wykonanych / 2725 zaliczonych / 0 failed / 10 ignored; `security_guard` 124/124; `cargo audit` EXIT 0 | baseline sesji | logi `scratch/m3h_full_test*.log` | `VERIFIED` |
 | `FIND-M3H-10` | Następna bramka `M3-I` (RPM) — `NOT_STARTED`; M3-J nadal `NOT_STARTED` | `docs/NEXT_WORK_GATE.md` | ten dokument | `DEFINED` |
+
+## M3-I — RPM (2026-11-13, `BLOCKED`)
+
+| ID | Decyzja / ustalenie | Realizacja | Dowód | Status |
+|---|---|---|---|---|
+| `FIND-M3I-01` | RPM `splogbook-1.3.0-0.1.alpha.1.x86_64`, artefakt `SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm` + alias | spec + builder | `rpm-fields.txt` | `VERIFIED` |
+| `FIND-M3I-02` | Układ `/opt/SPLogbook` + launcher + desktop + ikona + marker; 12 plików / 18 wpisów | spec + verifier | `rpm-contents.txt`, manifest | `VERIFIED` |
+| `FIND-M3I-03` | Prywatny `libhamlib.so.4`, RUNPATH `$ORIGIN/lib` / `$ORIGIN`, `GLIBC_2.43` | builder + verifier | log `Verify RPM` | `VERIFIED` |
+| `FIND-M3I-04` | Dwie niezależne budowy mają identyczny SHA-256 `8915f7bf…4a57a` | builder | `rpm-build.log` | `VERIFIED` |
+| `FIND-M3I-05` | rpmlint 2.9.0: 0 errors, 3 warnings; suppression tylko `dir-or-file-in-opt,binary-or-shlib-defines-rpath` | verifier | log `Verify RPM` | `VERIFIED` z 3 warningami |
+| `FIND-M3I-06` | 34/34 mutacji odrzuconych, exit 1, bez komunikatu sukcesu | negative harness | `rpm-negative-fixtures.log` | `VERIFIED` |
+| `FIND-M3I-07` | Cykl życia Fedora 45 + openSUSE Tumbleweed bez utraty danych | verifier | run `43453322341` | `VERIFIED` |
+| `FIND-M3I-08` | Finalny `Build and Release` = `success`; `Publish Release Assets` = `skipped` | workflow | run `43453322341` | `VERIFIED` |
+| `FIND-M3I-09` | **Bloker:** `CI` `43453322339` = `failure`; `RUSTSEC-2026-0523/0524/0538`; brak `--ignore` i zgody OWNER | `cargo audit` | log `CI` | **`BLOCKED`** |
+| `FIND-M3I-10` | M3-J nadal `NOT_STARTED`; brak tagu/release | `docs/NEXT_WORK_GATE.md` | git/gh | `DEFINED` |

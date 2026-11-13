@@ -1,7 +1,7 @@
 # SPLogbook — BIEŻĄCY STAN PROJEKTU
 
 **Dokument ID:** DSH-SPLOGBOOK-STATE-001
-**Data pomiaru:** 2026-11-12
+**Data pomiaru:** 2026-11-13
 **Zasada:** ten plik jest jednostronicowym źródłem prawdy o stanie. Jest regenerowany przy
 zamknięciu każdej bramki i **zastępuje wszystkie historyczne liczniki** w innych dokumentach.
 
@@ -54,25 +54,24 @@ cargo +stable test --workspace --all-targets -j 1
 
 | Licznik | Wartość |
 |---|---|
-| Zarejestrowane | **2 735** (`cargo test -- --list`) |
-| Wykonane | **2 725** |
-| Zaliczone | **2 725** |
+| Zarejestrowane | **2 753** (`cargo test -- --list`) |
+| Wykonane | **2 742** |
+| Zaliczone | **2 742** |
 | Nieudane | **0** |
 | Ignorowane (HIL) | **10** |
 | HIL wykonane | **0** |
 | PTT / RF | **0 / 0** |
 | Doc-testy | 0 (brak zarejestrowanych) |
-| `security_guard` | **124 / 124** (w tym `m3_h_deb_integration_guard`) |
+| `security_guard` | **125 / 125** (w tym `m3_h_deb_integration_guard`, `m3_i_rpm_integration_guard`) |
 | `linux_deb_packaging_test` | **17 / 17** |
+| `linux_rpm_packaging_test` | **17 / 17** |
 
-Pomiar wykonany w tej jednej sesji: pełny przebieg 2 725/2 725 zakończony `EXIT 0`;
-po ostatnich poprawkach (tylko tryb pliku biblioteki i wyłączenie `path-exclude` w kontenerze)
-powtórzono `cargo test --workspace --all-targets -j 1 -- --skip
-powershell_real_execution_full_cycle_success` → **2 724 / 2 724**, 0 failed, 10 ignored,
+Pomiar wykonany w tej jednej sesji: `cargo test --workspace --all-targets -j 1 -- --skip
+powershell_real_execution_full_cycle_success` → **2 742 / 2 742**, 0 failed, 10 ignored,
 1 filtered. Test `windows_helper_test::powershell_real_execution_full_cycle_success` jest
 **pre-existing** i w tym środowisku blokuje się na prompcie bezpieczeństwa Windows (Low IL);
-ten sam test przeszedł w pełnym przebiegu na wcześniejszym commicie tej bramki oraz w CI.
-Limit `-j 1` wynika z limitu pliku stronicowania hosta (`os error 1455`).
+ten sam test przeszedł w CI. Limit `-j 1` wynika z limitu pliku stronicowania hosta
+(`os error 1455`).
 
 ## 4. Stan bramek
 
@@ -94,10 +93,14 @@ Limit `-j 1` wynika z limitu pliku stronicowania hosta (`os error 1455`).
 | M3-F F-03 fail-closed CI verification | **`COMPLETED_FAIL_CLOSED_CI_VERIFICATION_VERIFIED`** — run `42685105375` (4/4 profile, zero `not found`, GLIBC ≤ 2.43) + job negatywny (exit 1) |
 | M3-G AppImage | **`COMPLETED_APPIMAGE_INTEGRATION_VERIFIED`** — 4/4 profile `success`, 12/12 mutacji odrzuconych, FUSE `VERIFIED`; run `43166825054` + `CI` `43166825036` |
 | **M3-H Linux DEB** | **`COMPLETED_DEB_INTEGRATION_VERIFIED`** — run `43245181565` (Build DEB, Verify DEB, 27/27 negative = `success`, Windows/Linux/AppImage `success`, `Publish Release Assets` `skipped`); `CI` `43245181469` = `success` |
-| M3-I (RPM) / M3-J (Flatpak) | `NOT_STARTED` |
+| M3-I Linux RPM | **`BLOCKED`** — implementacja i weryfikacja RPM `success` (run `43453322341`, 34/34 mutacji, Fedora 45 + openSUSE Tumbleweed), ale `CI` `43453322339` = `failure` na `RUSTSEC-2026-0523/0524/0538` |
+| M3-J (Flatpak) | `NOT_STARTED` |
 | NATIVE-7B (fizyczny HIL) | `BLOCKED` (10 testów `#[ignore]`, 0 wykonanych) |
 
 M3_G_STATUS: `CLOSED` — bramka AppImage pozostaje zamknięta i nietknięta.
+M3_H_STATUS: `CLOSED` — bramka DEB pozostaje zamknięta.
+M3_I_STATUS: `BLOCKED_BY_NEW_RUSTSEC_ADVISORIES` — nie zamknięta.
+M3_J_STATUS: `NOT_STARTED`.
 F03_STATUS: `CLOSED` — F-03 pozostaje zamknięte.
 
 ## 5. Dowód DEB (skrót)
@@ -118,6 +121,24 @@ F03_STATUS: `CLOSED` — F-03 pozostaje zamknięte.
 | Cykl życia | fresh install, upgrade z `1.3.0~alpha.0-1`, downgrade, re-upgrade, reinstall, remove, purge — wszystkie PASS; dane użytkownika SHA-256 identyczne |
 | Publikacja | `Publish Release Assets` = `skipped`; brak nowego tagu i release |
 
+## 5a. Dowód RPM (skrót)
+
+| Pole | Wartość |
+|---|---|
+| Artefakt | `SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm` (+ alias `SPLogbook-Linux-x86_64.rpm`) |
+| Rozmiar | **11 879 109 B** |
+| SHA-256 | **`8915f7bfc0a829d5e3a10d5c961dc68f285b0ade901cb8475ab13705c6c4a57a`** |
+| `Name` / `Version` / `Release` / `Arch` | `splogbook` / `1.3.0` / `0.1.alpha.1` / `x86_64` |
+| `Installed Size` | **47 054 820 B** |
+| `build_commit` | `3afd3ee0d097281e4cb14e6bcb2ec901ce9d702f` |
+| Maksymalny GLIBC | `2.43` (SPLogbook, Hamlib); `2.39` (updater) |
+| Pliki / wpisy | 12 regularnych / 18 |
+| Budowa | `rpm 6.1.0`, `rpmbuild 6.1.0`, obraz `fedora:45@sha256:a7d72ba…`, dwie budowy o identycznym SHA-256 |
+| rpmlint | **0 errors**, 3 warnings (`non-coherent-filename`, `no-manual-page`, `hidden-file-or-dir`) |
+| Testy negatywne | **34/34** odrzuconych |
+| Cykl życia | Fedora 45 + openSUSE Tumbleweed: fresh/remove/upgrade/downgrade/re-upgrade/reinstall/erase — PASS; dane użytkownika SHA-256 identyczne |
+| Publikacja | `Publish Release Assets` = `skipped`; brak tagu i release |
+
 ## 6. Otwarte decyzje OWNER
 
 - ~~`RUSTSEC-2026-0459`~~ — **ROZWIĄZANE** 2026-11-09 (`rusqlite 0.41.1`, `libsqlite3-sys 0.39.1`).
@@ -125,6 +146,7 @@ F03_STATUS: `CLOSED` — F-03 pozostaje zamknięte.
 - ~~F-03 (fail-closed weryfikacja Linux)~~ — **ZAMKNIĘTE** 2026-11-09 decyzją `OWNER-M3-F-F03-01` (GO).
 - ~~`RUSTSEC-2026-0486`~~ — **ROZWIĄZANE** 2026-11-12 decyzją `OWNER-DEP-RUSTIX-01` (`rustix 1.1.6`).
 - ~~M3-H (DEB)~~ — **ZAMKNIĘTE** 2026-11-12 decyzjami `OWNER-M3-H-01…10`.
+- **`RUSTSEC-2026-0523`, `RUSTSEC-2026-0524`, `RUSTSEC-2026-0538`** — **NOWE, OTWARTE** (2026-11-13); blokują M3-I. Wymagają osobnej bramki bezpieczeństwa i aktualizacji `quinn-proto`/`quinn-udp` przez cargo; zakaz `--ignore`.
 - `OWNER-M2-08`, `OWNER-M2-09`, `OWNER-M2-11`, `OWNER-M2-12`, `OWNER-M2-14` — otwarte, nieblokujące.
 - `OWNER-M2-10` — spór dokumentacyjny (plan: APPROVED, DESIGN: OPEN), kod zaimplementowany.
 - `OWNER-M3-E-MSI-VERSIONING-01` — `OPEN`; blokuje MSI dla `1.3.0-alpha.2` (Windows Installer 1638).
@@ -134,7 +156,8 @@ F03_STATUS: `CLOSED` — F-03 pozostaje zamknięte.
 - Portable tar.gz — **ZREALIZOWANE** (M3-F), nadal PASS.
 - AppImage — **ZREALIZOWANE** (M3-G `COMPLETED_APPIMAGE_INTEGRATION_VERIFIED`), nadal PASS.
 - DEB — **ZREALIZOWANE** (M3-H `COMPLETED_DEB_INTEGRATION_VERIFIED`, 2026-11-12).
-- RPM (M3-I) / Flatpak (M3-J) — bez implementacji (`NOT_STARTED`, wymagają GO OWNER).
+- RPM (M3-I) — **ZABLOKOWANE**: pakiet zbudowany i zweryfikowany, ale `cargo audit` wykrył 3 nowe RustSec; brak autoryzacji na zmianę zależności.
+- Flatpak (M3-J) — `NOT_STARTED`, nie rozpoczęty.
 - MSI i Setup nie są budowane ani publikowane przez CI (F-05).
 - Fizyczny HIL (NATIVE-7B) — niewykonany, sprzęt niedostępny.
 - F-14 (P0, panika po PTT) — nadal otwarte, obowiązkowe przed HIL.
@@ -158,14 +181,16 @@ F03_STATUS: `CLOSED` — F-03 pozostaje zamknięte.
 ## 9. Następna bramka
 
 NEXT_GATE: **`M3-I`** — Integracja Linux RPM (`MASTER_IMPLEMENTATION_PLAN.md` §10)
-NEXT_GATE_STATUS: `NOT_STARTED`
-NEXT_GATE_OWNER_GO: `REQUIRED`
+NEXT_GATE_STATUS: `BLOCKED_BY_NEW_RUSTSEC_ADVISORIES`
+NEXT_GATE_OWNER_GO: `REQUIRED_FOR_SECURITY_REMEDIATION`
 F03_STATUS: `CLOSED`
 M3_G_STATUS: `CLOSED`
 M3_H_STATUS: `CLOSED`
+M3_I_STATUS: `BLOCKED`
+M3_J_STATUS: `NOT_STARTED`
 
-**`STAGE-M3-H-LINUX-DEB-INTEGRATION-GATE`** = **`COMPLETED_DEB_INTEGRATION_VERIFIED`**
-(2026-11-12): binarny DEB zbudowany deterministycznie z zweryfikowanego payloadu portable,
-`/opt/SPLogbook` + launcher, GLIBC ≤ 2.43, lintian 0 errors, 27/27 mutacji odrzuconych,
-pełny cykl install/upgrade/downgrade/reinstall/remove/purge bez utraty danych użytkownika.
-Następna bramka `M3-I` (RPM) **nie została rozpoczęta** i wymaga osobnego GO OWNER.
+**`STAGE-M3-I-LINUX-RPM-INTEGRATION-GATE`** = **`BLOCKED`** (2026-11-13):
+RPM jest zbudowany deterministycznie i zweryfikowany (run `43453322341`,
+34/34 mutacji, Fedora 45 + openSUSE Tumbleweed), ale finalny `CI`
+`43453322339` = `failure` na `RUSTSEC-2026-0523/0524/0538`. Bramka nie jest
+zamknięta; M3-J pozostaje `NOT_STARTED`.
