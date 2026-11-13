@@ -106,7 +106,7 @@ echo "=================================================================="
 echo "SPLogbook Linux x86_64 RPM Builder (M3-I)"
 echo "=================================================================="
 
-for tool in rpm rpmbuild rpmspec rpmdev-vercmp rpm2cpio cpio sha256sum tar gzip \
+for tool in rpm rpmbuild rpmspec rpmdev-vercmp rpm2cpio cpio patchelf sha256sum tar gzip \
     find awk sed readelf file install touch sort grep date mktemp xargs wc head \
     cmp diff uname; do
     require_tool "${tool}"
@@ -231,6 +231,15 @@ UNEXPECTED_LIBS="$(find "${PAYLOAD}/lib" -maxdepth 1 -type f ! -name 'libhamlib.
 for elf in "${PAYLOAD}/SPLogbook" "${PAYLOAD}/splogbook-updater" "${PAYLOAD}/lib/libhamlib.so.4"; do
     assert_elf "${elf}"
 done
+
+# The portable payload uses the defensive superset
+# "$ORIGIN/lib:$ORIGIN/../lib" on its executables.  The RPM contract is the
+# stricter, fully private "$ORIGIN/lib"; normalise only the RUNPATH, never the
+# program code, so the verified build identity remains unchanged.
+patchelf --set-rpath '$ORIGIN/lib' "${PAYLOAD}/SPLogbook"
+patchelf --set-rpath '$ORIGIN/lib' "${PAYLOAD}/splogbook-updater"
+patchelf --set-rpath '$ORIGIN' "${PAYLOAD}/lib/libhamlib.so.4"
+log "PASS: RPM RUNPATH normalised to the private \$ORIGIN/lib contract"
 assert_runpath_exact "${PAYLOAD}/SPLogbook" '$ORIGIN/lib'
 assert_runpath_exact "${PAYLOAD}/splogbook-updater" '$ORIGIN/lib'
 assert_runpath_exact "${PAYLOAD}/lib/libhamlib.so.4" '$ORIGIN'
@@ -347,9 +356,9 @@ find "${PKG_ROOT}" -print0 | xargs -0 touch -h -d "@${SOURCE_DATE_EPOCH}"
 install -m 0644 "${SPEC_SOURCE}" "${WORK_ROOT}/splogbook.spec"
 
 SPEC_QUERY="$(rpmspec -q --qf '%{NAME} %{VERSION} %{RELEASE} %{ARCH}\n' \
-    --define "_splog_version ${RPM_VERSION}" \
-    --define "_splog_release ${RPM_RELEASE}" \
-    --define "_splog_commit ${EXPECTED_BUILD_COMMIT}" \
+    --define "splog_version ${RPM_VERSION}" \
+    --define "splog_release ${RPM_RELEASE}" \
+    --define "splog_commit ${EXPECTED_BUILD_COMMIT}" \
     "${WORK_ROOT}/splogbook.spec")"
 [ "${SPEC_QUERY}" = "splogbook ${RPM_VERSION} ${RPM_RELEASE} x86_64" ] \
     || fail "spec query returned '${SPEC_QUERY}'"
@@ -369,9 +378,9 @@ build_once() {
         --define "_rpmdir ${topdir}/RPMS" \
         --define "_specdir ${topdir}/SPECS" \
         --define "_srcrpmdir ${topdir}/SRPMS" \
-        --define "_splog_version ${RPM_VERSION}" \
-        --define "_splog_release ${RPM_RELEASE}" \
-        --define "_splog_commit ${EXPECTED_BUILD_COMMIT}" \
+        --define "splog_version ${RPM_VERSION}" \
+        --define "splog_release ${RPM_RELEASE}" \
+        --define "splog_commit ${EXPECTED_BUILD_COMMIT}" \
         "${WORK_ROOT}/splogbook.spec" > "${logfile}" 2>&1 \
         || {
             cat "${logfile}" >&2

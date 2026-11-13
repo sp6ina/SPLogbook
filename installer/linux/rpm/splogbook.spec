@@ -5,11 +5,11 @@
 #
 # The package is assembled from the already verified portable payload.  It does
 # not compile source code, does not create a source RPM and never installs user
-# data.  The builder passes _splog_version, _splog_release and _splog_commit.
+# data.  The builder passes splog_version, splog_release and splog_commit.
 
-%{!?_splog_version:%global _splog_version 1.3.0}
-%{!?_splog_release:%global _splog_release 0.1.alpha.1}
-%{!?_splog_commit:%global _splog_commit 0000000000000000000000000000000000000000}
+%{!?splog_version:%global splog_version 1.3.0}
+%{!?splog_release:%global splog_release 0.1.alpha.1}
+%{!?splog_commit:%global splog_commit 0000000000000000000000000000000000000000}
 
 # Deterministic package header and payload.  The verified portable payload is
 # already stripped, so the distribution post-processing scripts are disabled;
@@ -25,8 +25,8 @@
 %global _source_filedigest_algorithm 8
 
 Name:           splogbook
-Version:        %{_splog_version}
-Release:        %{_splog_release}
+Version:        %{splog_version}
+Release:        %{splog_release}
 Summary:        Amateur radio logging and station automation workstation
 License:        GPL-3.0-or-later AND LGPL-2.1-or-later
 URL:            https://github.com/sp6ina/SPLogbook

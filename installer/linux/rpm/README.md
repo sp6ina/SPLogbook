@@ -114,6 +114,10 @@ No `Recommends`, `Suggests`, `Supplements`, `Enhances`, `Conflicts`,
 - `SPLogbook` and `splogbook-updater`: exactly `RUNPATH=$ORIGIN/lib`.
 - `libhamlib.so.4`: exactly `RUNPATH=$ORIGIN`.
 - Legacy `RPATH`, absolute paths and `LD_LIBRARY_PATH` are rejected.
+- The portable payload's executables carry the defensive superset
+  `$ORIGIN/lib:$ORIGIN/../lib`. The RPM builder normalises **only** the
+  RUNPATH to the private `$ORIGIN/lib` with `patchelf`; program code and the
+  build identity are unchanged.
 - The bundled library is `libhamlib.so.4` (SONAME check) and must be an
   ELF64 x86-64 shared object.
 - `ldd` must resolve every library after installation and report no `not found`.

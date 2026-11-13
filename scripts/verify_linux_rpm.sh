@@ -160,6 +160,9 @@ if command -v rpmbuild >/dev/null 2>&1; then
 else
     fail "required tool is missing: rpmbuild"
 fi
+if command -v rpmlint >/dev/null 2>&1; then
+    log "rpmlint: $(rpmlint --version 2>&1 | head -n 1)"
+fi
 
 # ------------------------------------------------------------------
 # 1. Checksum sidecar, package type and manifest header
@@ -224,7 +227,8 @@ pass "RPM header and payload digests verified"
     || fail "Summary mismatch"
 [ "$(rpm_qf '%{GROUP}')" = "Applications/Communications" ] || fail "Group mismatch"
 [ "$(rpm_qf '%{BUILDHOST}')" = "build.splogbook.invalid" ] || fail "BuildHost mismatch"
-[ "$(rpm_qf '%{EPOCHNUM}')" = "0" ] || fail "an epoch is not allowed"
+EPOCH_VALUE="$(rpm_qf '%{EPOCHNUM}')"
+[ -z "${EPOCH_VALUE}" ] || [ "${EPOCH_VALUE}" = "0" ] || fail "an epoch is not allowed"
 [ "$(rpm_qf '%{PAYLOADFORMAT}')" = "cpio" ] || fail "payload format must be cpio"
 [ "$(rpm_qf '%{PAYLOADCOMPRESSOR}')" = "xz" ] || fail "payload compressor must be xz"
 if [ -n "${EXPECTED_EPOCH}" ]; then
@@ -469,10 +473,12 @@ TRIGGERS_CODE=$?
 set -e
 [ "${TRIGGERS_CODE}" -eq 0 ] || fail "rpm --triggers failed"
 [ -z "${CONFLICTS_OUT}" ] || fail "unexpected RPM triggers: ${CONFLICTS_OUT}"
-FILE_FLAGS="$(rpm -qp --qf '[%{FILEFLAGS:fflags}\n]' "${RPM}")"
-case "${FILE_FLAGS}" in
-    *c*) fail "RPM config files are not approved" ;;
-esac
+set +e
+CONFIG_FILES="$(rpm -qc "${RPM}" 2>&1)"
+CONFIG_CODE=$?
+set -e
+[ "${CONFIG_CODE}" -eq 0 ] || fail "rpm -qc failed: ${CONFIG_FILES}"
+[ -z "${CONFIG_FILES}" ] || fail "RPM config files are not approved: ${CONFIG_FILES}"
 pass "scriptlets are minimal and no config files are packaged"
 
 # ------------------------------------------------------------------

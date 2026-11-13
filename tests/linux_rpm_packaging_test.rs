@@ -36,6 +36,7 @@ fn rpm_builder_uses_official_rpmbuild_and_is_deterministic() {
         "rpmbuild -bb",
         "SOURCE_DATE_EPOCH",
         "touch -h -d",
+        "patchelf",
         "the RPM build is not reproducible",
         "EXPECTED_BUILD_COMMIT",
         "RPM BUILD COMPLETED SUCCESSFULLY",
@@ -77,8 +78,8 @@ fn spec_has_the_approved_identity_and_no_epoch() {
     let spec = read(SPEC);
     for required in [
         "Name:           splogbook",
-        "Version:        %{_splog_version}",
-        "Release:        %{_splog_release}",
+        "Version:        %{splog_version}",
+        "Release:        %{splog_release}",
         "BuildArch:      x86_64",
         "Vendor:         SPLogbook",
         "License:        GPL-3.0-or-later AND LGPL-2.1-or-later",

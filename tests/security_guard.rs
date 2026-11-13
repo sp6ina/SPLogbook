@@ -6413,6 +6413,7 @@ fn m3_i_rpm_integration_guard() {
     assert!(build.contains("SOURCE_DATE_EPOCH"));
     assert!(spec.contains("build.splogbook.invalid"));
     assert!(build.contains("the RPM build is not reproducible"));
+    assert!(build.contains("patchelf --set-rpath '$ORIGIN/lib'"));
     assert!(build.contains("linux_rpm_manifest.sh"));
     assert!(build.contains("rpmdev-vercmp"));
     assert_eq!(build.matches("build_once").count(), 3);
