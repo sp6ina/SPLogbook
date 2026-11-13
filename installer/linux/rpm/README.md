@@ -82,7 +82,8 @@ configuration, exports, backups or secrets.
 ## 5. Dependencies
 
 `AutoReqProv: no` is used; the contract is explicit and distribution-neutral.
-`Requires` uses SONAME/GLIBC capabilities, not Fedora-only package names:
+`Requires` uses SONAME capabilities and a glibc package floor, not Fedora-only
+package names:
 
 ```text
 glibc >= 2.43

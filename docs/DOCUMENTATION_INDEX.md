@@ -17,7 +17,7 @@ Legenda statusu: `CURRENT` — aktualny; `PARTIAL` — częściowo nieaktualny (
 | `README.md` | opis produktu, funkcje, status | `PARTIAL` | sekcja Linux (ok. linii 531) nadal opisuje zastąpioną politykę — do korekty w bramce polityki Linux (DOC-DSH-04) |
 | `MASTER_IMPLEMENTATION_PLAN.md` | kolejność i zależności etapów | `PARTIAL` | blok „Informacje o środowisku” (MSRV 1.85, wersja 1.1.0, „brak MSI”) jest nieaktualny (DOC-DSH-03) |
 | `docs/PROJECT_CURRENT_STATE.md` | jednostronicowy stan prawdy | `CURRENT` | generowany przy zamknięciu każdej bramki |
-| `docs/NEXT_WORK_GATE.md` | dokładnie jedna następna bramka | `CURRENT` | wskazuje `M3-I` (RPM, `NOT_STARTED`); M3-H i M3-G `CLOSED`; F-03 `CLOSED` |
+| `docs/NEXT_WORK_GATE.md` | dokładnie jedna następna bramka | `CURRENT` | wskazuje `M3-I` (RPM, `BLOCKED` przez nowe RustSec); M3-H i M3-G `CLOSED`; M3-J `NOT_STARTED`; F-03 `CLOSED` |
 | `docs/PROJECT_ARCHITECTURE_MAP.md` | mapa modułów i przepływów | `CURRENT` | zastępuje `docs/ARCHITECTURE_CURRENT_STATE.md` jako opis bieżący |
 | `docs/DEEPSEEK_HARNESS_HANDOFF.md` | raport przejęcia Antigravity → DSH | `CURRENT` | operacyjne podsumowanie raportu ingestii |
 | `docs/DEEPSEEK_HARNESS_SESSION_BOOTSTRAP.md` | procedura startu sesji | `CURRENT` | |
@@ -79,6 +79,8 @@ Legenda statusu: `CURRENT` — aktualny; `PARTIAL` — częściowo nieaktualny (
 | `STAGE_M3_G_LINUX_APPIMAGE_INTEGRATION_REPORT.md` | M3-G | `EVIDENCE` — `COMPLETED_APPIMAGE_INTEGRATION_VERIFIED` (4/4 profile, 12/12 negatywnych, FUSE `VERIFIED`) |
 | `STAGE_M3_H_LINUX_DEB_PRE_IMPLEMENTATION_REPORT.md` | M3-H | `EVIDENCE` — raport przedimplementacyjny (61 punktów, decyzje OWNER-M3-H-01..10) |
 | `STAGE_M3_H_LINUX_DEB_INTEGRATION_REPORT.md` | M3-H | `EVIDENCE` — `COMPLETED_DEB_INTEGRATION_VERIFIED` (run `43245181565`, 27/27 negatywnych, lintian 0 errors, pełny cykl życia) |
+| `STAGE_M3_I_LINUX_RPM_PRE_IMPLEMENTATION_REPORT.md` | M3-I | `EVIDENCE` — raport przedimplementacyjny RPM |
+| `STAGE_M3_I_LINUX_RPM_INTEGRATION_REPORT.md` | M3-I | `EVIDENCE` — `BLOCKED` przez `RUSTSEC-2026-0523/0524/0538`; RPM build/verify/34/34/lifecycle = PASS |
 | `STAGE_DEPENDENCY_RUSTIX_RUSTSEC_2026_0486_REMEDIATION_REPORT.md` | dependency | `EVIDENCE` — `COMPLETED_DEPENDENCY_ADVISORY_REMEDIATED` (`rustix 1.1.6`, `cargo audit` EXIT 0) |
 | `STAGE_QA_BASELINE_DETERMINISM_AND_HERMETICITY_PRE_IMPLEMENTATION_REPORT.md` | QA baseline | `EVIDENCE` |
 | `STAGE_QA_BASELINE_DETERMINISM_AND_HERMETICITY_REPORT.md` | QA baseline | `EVIDENCE` — `COMPLETED_DETERMINISTIC_HERMETIC_BASELINE_VERIFIED` |
