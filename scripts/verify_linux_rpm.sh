@@ -295,7 +295,7 @@ mkdir -p "${ROOT}"
 [ -z "$(find "${ROOT}" -type l -print -quit)" ] || fail "package contains symbolic links"
 
 RPM_FILES="$(rpm -qpl "${RPM}" | LC_ALL=C sort)"
-MANIFEST_FILES="$(awk '$1=="F"{print $5} $1=="D"{print $4}' "${MANIFEST}" | LC_ALL=C sort)"
+MANIFEST_FILES="$(awk '$1=="F"{print $6} $1=="D"{print $5}' "${MANIFEST}" | LC_ALL=C sort)"
 [ "${RPM_FILES}" = "${MANIFEST_FILES}" ] \
     || fail "RPM file list does not match the manifest"
 MANIFEST_FILE_COUNT="$(awk '$1=="F"{n++} END{print n+0}' "${MANIFEST}")"
