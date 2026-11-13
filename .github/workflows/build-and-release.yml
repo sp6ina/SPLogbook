@@ -285,6 +285,81 @@ jobs:
           path: deb_artifact/*
           if-no-files-found: error
 
+  # --------------------------------------------------------------------
+  # STAGE-M3-I: binary RPM. Built once in the pinned Fedora 45 image from
+  # the already verified portable payload. The RPM is a CI artifact only
+  # and is never published in a GitHub release.
+  # --------------------------------------------------------------------
+  build-rpm:
+    name: Build RPM (Fedora 45 x86_64)
+    needs: build-linux
+    runs-on: ubuntu-latest
+    env:
+      BUILD_IMAGE: "fedora:45@sha256:a7d72ba2745b100a3351087472e5ee7b2450af7cf331e7673007e3817612839c"
+      BUILD_IMAGE_DIGEST: "sha256:a7d72ba2745b100a3351087472e5ee7b2450af7cf331e7673007e3817612839c"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download the verified portable payload
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: SPLogbook-Linux-x86_64
+          path: download/
+
+      - name: Build the RPM with the official rpmbuild from the pinned image
+        env:
+          EXPECTED_BUILD_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          IMAGE="${BUILD_IMAGE}"
+          docker pull "${IMAGE}"
+          rm -rf rpm_env
+          mkdir -p rpm_env/download rpm_env/evidence dist
+          cp download/dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz rpm_env/download/
+          cp download/dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz.sha256 rpm_env/download/
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct "${EXPECTED_BUILD_COMMIT}")"
+          export SOURCE_DATE_EPOCH
+          docker run --rm \
+            -e EXPECTED_BUILD_COMMIT \
+            -e SOURCE_DATE_EPOCH \
+            -e BUILD_IMAGE \
+            -e BUILD_IMAGE_DIGEST \
+            -v "$(pwd):/workspace" \
+            -w /workspace \
+            "${IMAGE}" \
+            /bin/sh -c 'set -e; dnf install -y --setopt=install_weak_deps=False rpm rpm-build rpmdevtools rpmlint cpio file binutils gzip tar xz findutils coreutils bash; rpm --version | tee dist/rpm-dnf-version.txt; rpmbuild --version | tee -a dist/rpm-dnf-version.txt; rpmspec --version | tee -a dist/rpm-dnf-version.txt; rpmlint --version 2>&1 | head -n 1 | tee -a dist/rpm-dnf-version.txt; bash scripts/build_linux_rpm.sh dist rpm_env/download/SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz' \
+            2>&1 | tee rpm_env/evidence/rpm-build.log
+          test -s rpm_env/evidence/rpm-build.log
+          grep -q "RPM BUILD COMPLETED SUCCESSFULLY" rpm_env/evidence/rpm-build.log
+          test -s dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm
+          ( cd dist && sha256sum -c SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm.sha256 )
+          ( cd dist && sha256sum -c SPLogbook-Linux-x86_64.rpm.sha256 )
+          mkdir -p rpm_artifact
+          cp dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm rpm_artifact/
+          cp dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm.sha256 rpm_artifact/
+          cp dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm.manifest rpm_artifact/
+          cp dist/SPLogbook-Linux-x86_64.rpm rpm_artifact/
+          cp dist/SPLogbook-Linux-x86_64.rpm.sha256 rpm_artifact/
+          cp dist/rpm-toolchain.json rpm_artifact/
+          cp dist/rpm-info.txt rpm_artifact/
+          cp dist/rpm-contents.txt rpm_artifact/
+          cp dist/rpm-fields.txt rpm_artifact/
+          cp dist/rpm-scripts.txt rpm_artifact/
+          cp dist/rpm-requires.txt rpm_artifact/
+          cp dist/rpm-dnf-version.txt rpm_artifact/
+          cp rpm_env/evidence/rpm-build.log rpm_artifact/
+
+      - name: Upload the RPM CI artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: SPLogbook-Linux-x86_64-rpm
+          path: rpm_artifact/*
+          if-no-files-found: error
+
   build-windows:
     name: Build Windows x64
     runs-on: windows-latest
@@ -864,9 +939,156 @@ jobs:
           path: deb_negative/evidence/deb-negative-fixtures.log
           if-no-files-found: error
 
+  # --------------------------------------------------------------------
+  # STAGE-M3-I: native RPM verification. The same Fedora-built RPM is
+  # installed, upgraded, downgraded, reinstalled and erased in Fedora 45
+  # (native reference) and openSUSE Tumbleweed (compatibility profile).
+  # User data lives in an isolated temporary HOME.
+  # --------------------------------------------------------------------
+  verify-rpm:
+    name: Verify RPM (${{ matrix.name }})
+    needs: build-rpm
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "Fedora Linux 45 (native reference)"
+            rpm_profile: "fedora-45"
+            rpm_oci: "fedora:45@sha256:a7d72ba2745b100a3351087472e5ee7b2450af7cf331e7673007e3817612839c"
+            install_tools: ""
+            skip_rpmlint: "0"
+          - name: "openSUSE Tumbleweed (compatibility)"
+            rpm_profile: "opensuse-tumbleweed"
+            rpm_oci: "opensuse/tumbleweed:latest@sha256:6e3a892daa0372e12a9c0b10291303dbfcd8706a450de6edfd72c763b44b4ac1"
+            install_tools: "zypper --non-interactive --gpg-auto-import-keys refresh; zypper --non-interactive install --no-recommends --auto-agree-with-licenses rpm rpm-build rpmlint cpio file binutils desktop-file-utils findutils python3 ca-certificates"
+            skip_rpmlint: "1"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download the RPM CI artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: SPLogbook-Linux-x86_64-rpm
+          path: rpm/
+
+      - name: Verify the RPM natively in the pinned ${{ matrix.name }} image
+        env:
+          EXPECTED_BUILD_COMMIT: ${{ github.sha }}
+          SKIP_RPMLINT: ${{ matrix.skip_rpmlint }}
+        run: |
+          set -euo pipefail
+          IMAGE="${{ matrix.rpm_oci }}"
+          docker pull "${IMAGE}"
+          EXPECTED_ICON_SHA256="$(sha256sum assets/icon.png | awk '{print $1}')"
+          EXPECTED_DESKTOP_SHA256="$(sha256sum installer/linux/rpm/splogbook.desktop | awk '{print $1}')"
+          EXPECTED_SOURCE_DATE_EPOCH="$(git log -1 --format=%ct "${EXPECTED_BUILD_COMMIT}")"
+          export EXPECTED_ICON_SHA256 EXPECTED_DESKTOP_SHA256 EXPECTED_SOURCE_DATE_EPOCH
+          rm -rf rpm_verify
+          mkdir -p rpm_verify/evidence
+          cp rpm/SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm rpm_verify/
+          cp rpm/SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm.sha256 rpm_verify/
+          cp rpm/SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm.manifest rpm_verify/
+          docker run --rm \
+            -e EXPECTED_BUILD_COMMIT \
+            -e EXPECTED_ICON_SHA256 \
+            -e EXPECTED_DESKTOP_SHA256 \
+            -e EXPECTED_SOURCE_DATE_EPOCH \
+            -e SKIP_RPMLINT \
+            -e INSTALL_TOOLS="${{ matrix.install_tools }}" \
+            -v "$(pwd):/workspace" \
+            -w /workspace \
+            "${IMAGE}" \
+            /bin/sh -c 'set -e; if [ -n "${INSTALL_TOOLS}" ]; then eval "${INSTALL_TOOLS}"; elif command -v dnf >/dev/null 2>&1; then dnf install -y --setopt=install_weak_deps=False rpm rpm-build rpmdevtools rpmlint cpio file binutils desktop-file-utils findutils python3 ca-certificates; else echo "no supported package manager" >&2; exit 1; fi; sh scripts/install_linux_runtime_deps.sh; SPLOG_RPM_SKIP_RPMLINT="${SKIP_RPMLINT}" sh scripts/verify_linux_rpm.sh rpm_verify/SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm' \
+            2>&1 | tee "rpm_verify/evidence/rpm-verify-${GITHUB_JOB}-${{ matrix.rpm_profile }}.log"
+          EVIDENCE="rpm_verify/evidence/rpm-verify-${GITHUB_JOB}-${{ matrix.rpm_profile }}.log"
+          test -s "${EVIDENCE}"
+          grep -q "RPM VERIFICATION COMPLETED SUCCESSFULLY" "${EVIDENCE}"
+          grep -q "PASS: user data unchanged after: final remove and full erase" "${EVIDENCE}"
+          grep -q "PASS: GLIBC policy satisfied" "${EVIDENCE}"
+          grep -q "PASS: ldd resolves every shared library" "${EVIDENCE}"
+          if [ "${{ matrix.skip_rpmlint }}" = "0" ]; then
+            grep -q "PASS: rpmlint reported 0 errors" "${EVIDENCE}"
+          fi
+
+      - name: Upload RPM verification evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rpm-evidence-verify-${{ matrix.rpm_profile }}
+          path: rpm_verify/evidence/*.log
+          if-no-files-found: error
+
+  # --------------------------------------------------------------------
+  # STAGE-M3-I: negative RPM fixtures. The job succeeds ONLY because every
+  # mutated package was rejected with a non-zero verifier exit code and
+  # without any success message.
+  # --------------------------------------------------------------------
+  verify-rpm-negative-fixtures:
+    name: Verify RPM (negative fixtures, fail-closed proof)
+    needs: build-rpm
+    runs-on: ubuntu-latest
+    env:
+      BUILD_IMAGE: "fedora:45@sha256:a7d72ba2745b100a3351087472e5ee7b2450af7cf331e7673007e3817612839c"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download the RPM CI artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: SPLogbook-Linux-x86_64-rpm
+          path: rpm/
+
+      - name: Prove that every mutated RPM fixture fails closed
+        env:
+          EXPECTED_BUILD_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          IMAGE="${BUILD_IMAGE}"
+          docker pull "${IMAGE}"
+          EXPECTED_ICON_SHA256="$(sha256sum assets/icon.png | awk '{print $1}')"
+          EXPECTED_DESKTOP_SHA256="$(sha256sum installer/linux/rpm/splogbook.desktop | awk '{print $1}')"
+          export EXPECTED_ICON_SHA256 EXPECTED_DESKTOP_SHA256
+          rm -rf rpm_negative
+          mkdir -p rpm_negative/evidence
+          cp rpm/SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm rpm_negative/
+          cp rpm/SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm.sha256 rpm_negative/
+          cp rpm/SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm.manifest rpm_negative/
+          docker run --rm \
+            -e EXPECTED_BUILD_COMMIT \
+            -e EXPECTED_ICON_SHA256 \
+            -e EXPECTED_DESKTOP_SHA256 \
+            -v "$(pwd):/workspace" \
+            -w /workspace \
+            "${IMAGE}" \
+            /bin/sh -c 'set -e; dnf install -y --setopt=install_weak_deps=False rpm rpm-build rpmdevtools rpmlint cpio file binutils desktop-file-utils findutils python3 patchelf ca-certificates; sh scripts/install_linux_runtime_deps.sh; sh scripts/verify_linux_rpm_negative_fixture.sh scripts/verify_linux_rpm.sh rpm_negative/SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm' \
+            2>&1 | tee rpm_negative/evidence/rpm-negative-fixtures.log
+          test -s rpm_negative/evidence/rpm-negative-fixtures.log
+          grep -q "NEGATIVE FIXTURES REJECTED AS EXPECTED: 34/34" rpm_negative/evidence/rpm-negative-fixtures.log
+          if grep -q "COMPLETED SUCCESSFULLY" rpm_negative/evidence/rpm-negative-fixtures.log; then
+            echo "::error::the success message leaked into the negative fixture evidence"
+            exit 1
+          fi
+
+      - name: Upload RPM negative fixture evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rpm-evidence-negative-fixtures
+          path: rpm_negative/evidence/rpm-negative-fixtures.log
+          if-no-files-found: error
+
   publish-release:
     name: Publish Release Assets
-    needs: [build-linux, build-windows, verify-linux-matrix, verify-linux-negative]
+    needs: [build-linux, build-windows, verify-linux-matrix, verify-linux-negative, build-rpm, verify-rpm, verify-rpm-negative-fixtures]
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
@@ -926,6 +1148,13 @@ jobs:
           # for a public release, even if a future download step drops it here.
           if find release-staging -maxdepth 1 -name '*.deb' | grep -q .; then
             echo "::error::DEB must never be published in a GitHub release (M3-H)"
+            exit 1
+          fi
+
+          # STAGE-M3-I: the RPM is a CI artifact only. It must never be staged
+          # for a public release, even if a future download step drops it here.
+          if find release-staging -maxdepth 1 -name '*.rpm' | grep -q .; then
+            echo "::error::RPM must never be published in a GitHub release (M3-I)"
             exit 1
           fi
 

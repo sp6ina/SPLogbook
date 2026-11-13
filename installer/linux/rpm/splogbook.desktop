@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=SPLogbook
+GenericName=Amateur Radio Logbook
+Comment=Amateur radio logging and station automation workstation
+Exec=splogbook
+Icon=splogbook
+Terminal=false
+Categories=HamRadio;Utility;
+Keywords=hamradio;amateur;radio;logbook;qso;
+StartupWMClass=SPLogbook
