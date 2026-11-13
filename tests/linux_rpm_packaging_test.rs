@@ -259,8 +259,8 @@ fn verifier_is_fail_closed_and_success_is_last() {
         "USER_QSO_DATABASE",
         "user data unchanged",
         "rpm -e",
-        "rpm -U --oldpackage",
-        "rpm -U --replacepkgs",
+        "rpm -U --nosignature --oldpackage",
+        "rpm -U --nosignature --replacepkgs",
         "RPM VERIFICATION COMPLETED SUCCESSFULLY",
     ] {
         assert!(

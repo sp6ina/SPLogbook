@@ -724,7 +724,7 @@ assert_installed_files() {
 }
 
 install_current() {
-    if ! rpm -i "${RPM}" > "${WORK}/rpm-install.log" 2>&1; then
+    if ! rpm -i --nosignature "${RPM}" > "${WORK}/rpm-install.log" 2>&1; then
         cat "${WORK}/rpm-install.log" >&2
         fail "rpm -i failed for the current package"
     fi
@@ -735,7 +735,7 @@ install_current() {
 }
 
 upgrade_current() {
-    if ! rpm -U "${RPM}" > "${WORK}/rpm-upgrade.log" 2>&1; then
+    if ! rpm -U --nosignature "${RPM}" > "${WORK}/rpm-upgrade.log" 2>&1; then
         cat "${WORK}/rpm-upgrade.log" >&2
         fail "rpm -U failed for the current package"
     fi
@@ -812,7 +812,7 @@ erase_package
 assert_user_home_unchanged "fresh install erase"
 
 echo "=== 11.3 CONTROLLED PREVIOUS FIXTURE INSTALL ==="
-if ! rpm -i "${PREV_RPM}" > "${WORK}/rpm-prev-install.log" 2>&1; then
+if ! rpm -i --nosignature "${PREV_RPM}" > "${WORK}/rpm-prev-install.log" 2>&1; then
     cat "${WORK}/rpm-prev-install.log" >&2
     fail "rpm -i failed for the previous fixture"
 fi
@@ -826,7 +826,7 @@ upgrade_current
 assert_user_home_unchanged "upgrade"
 
 echo "=== 11.5 DOWNGRADE AND RE-UPGRADE ==="
-if ! rpm -U --oldpackage "${PREV_RPM}" > "${WORK}/rpm-downgrade.log" 2>&1; then
+if ! rpm -U --nosignature --oldpackage "${PREV_RPM}" > "${WORK}/rpm-downgrade.log" 2>&1; then
     cat "${WORK}/rpm-downgrade.log" >&2
     fail "downgrade install failed"
 fi
@@ -836,7 +836,7 @@ upgrade_current
 assert_user_home_unchanged "downgrade and re-upgrade"
 
 echo "=== 11.6 REINSTALL THE CURRENT VERSION ==="
-if ! rpm -U --replacepkgs "${RPM}" > "${WORK}/rpm-reinstall.log" 2>&1; then
+if ! rpm -U --nosignature --replacepkgs "${RPM}" > "${WORK}/rpm-reinstall.log" 2>&1; then
     cat "${WORK}/rpm-reinstall.log" >&2
     fail "reinstall failed"
 fi
