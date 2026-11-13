@@ -199,6 +199,12 @@ mutate_bad_release() {
 
 mutate_bad_arch() {
     prepare_root
+    # rpmbuild rejects ELF payloads in a noarch package.  The architecture is
+    # checked before any payload probe, so remove the ELF files to create a
+    # valid noarch header with the wrong architecture.
+    rm -f "${CASE}/root/opt/SPLogbook/SPLogbook" \
+        "${CASE}/root/opt/SPLogbook/splogbook-updater" \
+        "${CASE}/root/opt/SPLogbook/lib/libhamlib.so.4"
     rebuild splogbook 1.3.0 0.1.alpha.1 noarch
 }
 
