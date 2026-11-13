@@ -284,7 +284,7 @@ install -m 0644 "${REPO_ROOT}/installer/linux/rpm/splogbook.desktop" \
     "${PKG_ROOT}/usr/share/applications/splogbook.desktop"
 install -m 0644 "${REPO_ROOT}/assets/icon.png" \
     "${PKG_ROOT}/usr/share/icons/hicolor/256x256/apps/splogbook.png"
-install -m 0644 "${REPO_ROOT}/installer/linux/rpm/templates/README.RPM" \
+install -m 0644 "${REPO_ROOT}/installer/linux/rpm/templates/README-rpm.txt" \
     "${PKG_ROOT}/usr/share/doc/splogbook/README.RPM"
 install -m 0644 "${REPO_ROOT}/LICENSE" \
     "${PKG_ROOT}/usr/share/licenses/splogbook/LICENSE"
