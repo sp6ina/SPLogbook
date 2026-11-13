@@ -382,7 +382,7 @@ ACTUAL_USR_FILES="$(cd "${ROOT}" && find usr -type f -print | LC_ALL=C sort)"
     || fail "package contains setuid/setgid files"
 [ -z "$(find "${ROOT}" -type f -perm -0002 -print -quit)" ] \
     || fail "package contains world-writable files"
-OWNERS="$(find "${ROOT}" -mindepth 1 -printf '%u:%g\n' | sort -u)"
+OWNERS="$(find "${ROOT}" -mindepth 1 -printf '%U:%G\n' | sort -u)"
 [ "${OWNERS}" = "0:0" ] || fail "package contains entries not owned by 0:0: ${OWNERS}"
 assert_mode "/opt/SPLogbook" 755
 assert_mode "/opt/SPLogbook/lib" 755
