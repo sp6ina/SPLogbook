@@ -242,8 +242,8 @@ fn flatpak_manifest_sources_are_pinned_and_hermetic() {
     assert!(!text.contains("file://"));
     assert!(!text.contains("/home/") && !text.contains("/Users/"));
     assert!(
-        text.contains("path: ../.."),
-        "źródło aplikacji musi być względną ścieżką do drzewa repozytorium"
+        text.contains("        path: ../../.."),
+        "źródło aplikacji musi wskazywać katalog główny repozytorium (../../..)"
     );
     for skipped in [".local-work", "scratch", "target", "dist"] {
         assert!(
@@ -275,6 +275,18 @@ fn flatpak_build_is_offline_and_locked() {
     assert!(
         builder.contains("--download-only"),
         "builder musi rozdzielić etap pobierania od etapu budowy"
+    );
+    // flatpak-builder 1.4.x odrzuca źródło `dir` spoza katalogu manifestu
+    // w trybie --sandbox, więc budowa nie może go używać; izolację zapewnia
+    // bwrap, brak sieci, --disable-download i CARGO_NET_OFFLINE.
+    let builder_effective: String = builder
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        !builder_effective.contains("--sandbox"),
+        "builder nie może używać --sandbox z tym layoutem źródeł"
     );
     assert!(
         builder.contains("git -C \"${REPO_ROOT}\" status --porcelain --untracked-files=no"),

@@ -372,6 +372,12 @@ run_build() {
             fail "source download failed for build ${label}"
         }
 
+    # --sandbox is deliberately not passed: flatpak-builder 1.4.x refuses a
+    # `dir` source that lives above the manifest directory in a sandboxed
+    # build, and this package's source is the repository root. Isolation comes
+    # from bwrap, the absent network namespace, --disable-download, the
+    # vendored Cargo sources and CARGO_NET_OFFLINE; the manifest declares no
+    # build-args at all.
     flatpak-builder \
         --user \
         --arch=x86_64 \
@@ -379,7 +385,6 @@ run_build() {
         --repo="${build_root}/repo" \
         --disable-rofiles-fuse \
         --disable-download \
-        --sandbox \
         --force-clean \
         --jobs="${FLATPAK_BUILDER_JOBS:-$(nproc)}" \
         "${build_dir}" "${MANIFEST}" > "${OUTPUT_DIR}/flatpak-build-${label}.log" 2>&1 \

@@ -274,10 +274,10 @@ PY
 }
 expect_reject "archive source without SHA-256" c21
 
-c22() { reset_repo; mutate_manifest 's#^        path: \.\./\.\.$#        path: /home/builder/SPLogbook#'; run_verify_static; }
+c22() { reset_repo; mutate_manifest 's#^        path: \.\./\.\./\.\.$#        path: /home/builder/SPLogbook#'; run_verify_static; }
 expect_reject "absolute local source path" c22
 
-c23() { reset_repo; mutate_manifest 's#^        path: \.\./\.\.$#        path: file:///home/builder/SPLogbook#'; run_verify_static; }
+c23() { reset_repo; mutate_manifest 's#^        path: \.\./\.\./\.\.$#        path: file:///home/builder/SPLogbook#'; run_verify_static; }
 expect_reject "file:/// source path" c23
 
 c24() { reset_repo; mutate_manifest 's/^        CARGO_NET_OFFLINE: "true"$/        CARGO_NET_OFFLINE: "false"/'; run_verify_static; }

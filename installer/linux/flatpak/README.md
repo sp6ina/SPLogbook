@@ -121,9 +121,12 @@ The build is controlled and fail-closed:
 1. `flatpak-builder --download-only` performs the **only** network phase
    (crates from `static.crates.io`, pinned by SHA-256; runtime and SDK from
    the pinned Flathub branch).
-2. `flatpak-builder --disable-download --sandbox` performs the real build with
-   no source download and no build-arg escape. The module sandbox has no
-   network namespace.
+2. `flatpak-builder --disable-download` performs the real build: no source is
+   downloaded, the module runs in a bwrap sandbox without a network namespace,
+   and the manifest declares no `build-args`, so there is no escape hatch to
+   inject one. `--sandbox` is not passed because flatpak-builder 1.4.x rejects
+   a `dir` source located above the manifest directory in a sandboxed build,
+   and this package's source is the repository root.
 3. Cargo runs with `CARGO_NET_OFFLINE=1`, a vendored-source replacement and
    `--locked --offline`, so a missing or mismatched crate fails the build
    instead of being downloaded.

@@ -150,11 +150,15 @@ modules:
         chmod 0644 /app/share/splogbook/build-rust-version.txt
 
     sources:
-      # The tracked repository tree. `skip` is a documented flatpak-builder
-      # `dir` source key; only non-hermetic build output and owner-private
-      # directories are removed. `.git` stays for the build identity.
+      # The tracked repository tree, three levels above this manifest
+      # (installer/linux/flatpak -> repository root). `skip` is a documented
+      # flatpak-builder `dir` source key; only non-hermetic build output and
+      # owner-private directories are removed. `.git` stays for the build
+      # identity. A `dir` source above the manifest directory is only accepted
+      # in a non-sandboxed flatpak-builder invocation, which is why the builder
+      # does not pass --sandbox (see installer/linux/flatpak/README.md §5).
       - type: dir
-        path: ../..
+        path: ../../..
         skip:
           - .local-work
           - SPLogbook-backup
