@@ -693,6 +693,99 @@ fn flatpak_verifier_checks_the_permission_contract_exactly() {
 }
 
 #[test]
+fn flatpak_verifier_accepts_the_real_exported_tree_and_flatpak_metadata() {
+    // Regresja M3-J #12 (run 43639123495): weryfikator zakładał, że manifest
+    // payloadu zawiera wyłącznie pliki regularne, i nie obejmował metadanych,
+    // które flatpak-builder zawsze dopisuje do /app (`manifest.json`, katalog
+    // `share/app-info`) ani licencji modułu. Odrzucał więc prawdziwy bundle.
+    let verifier = read_repo_file("scripts/verify_linux_flatpak.sh");
+    let start = verifier
+        .find("APP_ALLOWLIST() {")
+        .expect("weryfikator musi mieć APP_ALLOWLIST");
+    let end = verifier[start..]
+        .find("\n}\n")
+        .map(|offset| start + offset)
+        .expect("APP_ALLOWLIST musi być zamknięta");
+    let allowlist = &verifier[start..end];
+    // Wpis `APP_ALLOWLIST` używa literału `${APP_ID}`; rozwiń go, aby porównywać
+    // rzeczywiste ścieżki eksportu.
+    let allowlist_expanded = allowlist.replace("${APP_ID}", APP_ID);
+
+    // Pliki eksportowane przez moduł — wyprowadzone z komend instalacji manifestu.
+    let mut expected: Vec<String> = Vec::new();
+    for line in manifest().lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("- install -d ") {
+            continue;
+        }
+        let candidate = if trimmed.starts_with("- install ") {
+            trimmed.rsplit(' ').next()
+        } else {
+            trimmed
+                .find("> /app/")
+                .map(|position| &trimmed[position + 2..])
+        };
+        if let Some(rest) = candidate.and_then(|token| token.strip_prefix("/app/"))
+            && !rest.is_empty()
+            && !rest.ends_with('/')
+        {
+            expected.push(format!("./{rest}"));
+        }
+    }
+    expected.sort();
+    expected.dedup();
+    assert!(
+        expected.len() >= 9,
+        "manifest musi eksportować pliki aplikacji, wyprowadzono: {expected:?}"
+    );
+
+    // Metadane, które flatpak-builder dopisuje niezależnie od modułu.
+    for generated in [
+        "./manifest.json".to_string(),
+        format!("./share/app-info/icons/flatpak/128x128/{APP_ID}.png"),
+        format!("./share/app-info/icons/flatpak/64x64/{APP_ID}.png"),
+        format!("./share/app-info/xmls/{APP_ID}.xml.gz"),
+        format!("./share/licenses/{APP_ID}/splogbook/LICENSE"),
+    ] {
+        assert!(
+            !expected.contains(&generated),
+            "metadana flatpaka nie może być instalowana przez moduł: {generated}"
+        );
+        expected.push(generated);
+    }
+    expected.sort();
+
+    for path in &expected {
+        assert!(
+            allowlist_expanded.contains(&format!("\"{path}\""))
+                || allowlist_expanded.contains(&format!("'{path}'")),
+            "APP_ALLOWLIST musi zawierać {path}"
+        );
+    }
+
+    // Katalogi są legalnymi wpisami drzewa; wszystko inne niż `f` i `d` jest
+    // odrzucane (w szczególności symlinki).
+    assert!(
+        verifier.contains("grep -qv '^[fd] '"),
+        "weryfikator musi dopuszczać katalogi i odrzucać pozostałe rodzaje wpisów"
+    );
+    assert!(
+        verifier.contains("non-file, non-directory entry"),
+        "weryfikator musi zgłaszać kontrolowaną przyczynę dla wpisu innego niż plik/katalog"
+    );
+    assert!(
+        verifier.contains("awk '$1 == \"f\"'"),
+        "allowlistę trzeba porównywać wyłącznie z plikami regularnymi"
+    );
+    // Manifest payloadu produkowany przez builder naprawdę zawiera katalogi.
+    let builder = read_repo_file("scripts/build_linux_flatpak.sh");
+    assert!(
+        builder.contains("find . -mindepth 1 -printf '%y %m %p\\n'"),
+        "manifest payloadu musi wypisywać rodzaj wpisu (katalogi i pliki)"
+    );
+}
+
+#[test]
 fn flatpak_negative_harness_covers_the_required_fixture_families() {
     let text = read_repo_file("scripts/verify_linux_flatpak_negative_fixture.sh");
     let cases = text.matches("expect_reject \"").count();
