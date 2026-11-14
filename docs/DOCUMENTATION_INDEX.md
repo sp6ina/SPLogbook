@@ -73,6 +73,7 @@ not listed in this index.
 | `installer/linux/appimage/README.md` | AppImage toolchain pins, AppDir layout, verification and FUSE proof | CURRENT |
 | `installer/linux/deb/README.md` | DEB package contract, `Depends`, layout, lifecycle, negative fixtures | CURRENT |
 | `installer/linux/rpm/README.md` | RPM package contract, explicit dependencies, RUNPATH, lifecycle, negative fixtures | CURRENT |
+| `installer/linux/flatpak/README.md` | Flatpak package contract, pinned runtime, exact sandbox permissions, device limits, lifecycle, negative fixtures | CURRENT |
 | `installer/windows/inno/README.md` | Inno Setup user setup: approved toolchain, identity, input allowlist, uninstall safety | CURRENT |
 | `installer/windows/msi/README.md` | WiX MSI: toolchain, identity, components, delegation, conflict detection | CURRENT |
 

@@ -23,7 +23,7 @@ that has been remediated and must not be reopened without a reproducible regress
 | Platform | Minimum | Packages |
 |---|---|---|
 | Windows 10/11 x86_64 | — | portable ZIP (published path), Inno Setup user setup, WiX MSI (both implemented, not CI-published) |
-| Linux x86_64 | kernel **7.0**, glibc **2.43** | portable `tar.gz`, AppImage, DEB, RPM |
+| Linux x86_64 | kernel **7.0**, glibc **2.43** | portable `tar.gz`, AppImage, DEB, RPM, Flatpak (`io.github.sp6ina.SPLogbook`, runtime `org.freedesktop.Platform` 26.08) |
 | Linux distributions | Ubuntu 26.04 LTS, Fedora 45, Arch Linux, openSUSE Tumbleweed | — |
 | Not supported | Debian 13 (glibc 2.41), openSUSE Leap 16.1 (glibc 2.40), Ubuntu interim 26.10 | — |
 
@@ -48,6 +48,7 @@ Rawhide, backports, release candidates) never set the minimum.
 | M3-G | Linux AppImage | **DELIVERED** | pinned official `appimagetool` and type-2 runtime, verified FUSE, 12 negative fixtures |
 | M3-H | Linux DEB | **DELIVERED** | `splogbook` DEB under `/opt/SPLogbook` + `/usr/bin/splogbook`, 27 negative fixtures, full lifecycle |
 | M3-I | Linux RPM | **DELIVERED** | deterministic RPM, bundled Hamlib with `RUNPATH`, 34 negative fixtures, lifecycle on Fedora 45 and Tumbleweed |
+| M3-J | Linux Flatpak | **DELIVERED** | `io.github.sp6ina.SPLogbook`, pinned `org.freedesktop` 26.08 runtime/SDK, 662 SHA-256 pinned crates, offline locked build, exact minimal sandbox, 48 negative fixtures, full lifecycle |
 | — | Dependency security remediation | **DELIVERED** | `RUSTSEC-2026-0459`, `-0486`, `-0523`, `-0524`, `-0538` resolved without new `--ignore` entries |
 
 ## 4. Closed risks
@@ -68,7 +69,7 @@ Rawhide, backports, release candidates) never set the minimum.
 
 | Item | Status | Note |
 |---|---|---|
-| `M3-J` Flatpak packaging | **NOT_STARTED** | requires explicit owner authorization; no Flatpak manifest, script or CI job exists |
+| Flathub submission of the Flatpak | **NOT_STARTED** | deliberately out of scope; the package is a local/CI artifact only and is installed from a bundle |
 | Publishing of Windows Inno Setup and MSI installers | **OPEN** (finding `F-05`) | implemented and locally verified; CI builds and publishes only the portable ZIP |
 | MSI prerelease versioning for `1.3.0-alpha.2`+ | **OPEN** (decision `OWNER-M3-E-MSI-VERSIONING-01`) | Windows Installer rejects the prerelease version mapping with error 1638 |
 | Hardware-in-the-loop validation (NATIVE-7B) | **NOT_STARTED** | 10 tests remain `#[ignore = "hardware-in-the-loop"]`; blocked by the open P0 finding `F-14` |

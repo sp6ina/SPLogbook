@@ -117,10 +117,11 @@ pub use helper_protocol::{
     validate_and_normalize_relative_path,
 };
 pub use installation::{
-    InstallationDetectionContext, InstallationType, LINUX_PORTABLE_MARKER_FILENAME,
-    LinuxPortableMarker, ManagementMode, WINDOWS_INNO_MARKER_FILENAME, WINDOWS_INNO_SETUP_APP_ID,
-    WINDOWS_MSI_MARKER_FILENAME, WINDOWS_MSI_UPGRADE_CODE, WINDOWS_MSI_UPGRADE_CODE_PACKED,
-    WindowsMsiMarker, WindowsUserSetupMarker, detect_installation_with_context,
+    FLATPAK_INFO_PATH, InstallationDetectionContext, InstallationType,
+    LINUX_PORTABLE_MARKER_FILENAME, LinuxPortableMarker, ManagementMode,
+    WINDOWS_INNO_MARKER_FILENAME, WINDOWS_INNO_SETUP_APP_ID, WINDOWS_MSI_MARKER_FILENAME,
+    WINDOWS_MSI_UPGRADE_CODE, WINDOWS_MSI_UPGRADE_CODE_PACKED, WindowsMsiMarker,
+    WindowsUserSetupMarker, detect_installation_with_context, is_flatpak_sandbox,
     semver_to_msi_product_version,
 };
 pub use lock::{

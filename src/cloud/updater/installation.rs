@@ -512,6 +512,27 @@ impl LinuxPortableMarker {
     }
 }
 
+/// Kanoniczna ścieżka znacznika sandboxa Flatpak.
+///
+/// Flatpak tworzy plik `/.flatpak-info` w katalogu głównym sandboxa przy każdym
+/// uruchomieniu aplikacji. Jest to stabilny, jednoznaczny i niezależny od
+/// konfiguracji sygnał środowiska (M3-J), w odróżnieniu od heurystyk opartych
+/// na ścieżce binarki: wewnątrz sandboxa binarka leży w `/app/bin`, więc
+/// znacznik nigdy nie sąsiaduje z nią w systemie plików.
+pub const FLATPAK_INFO_PATH: &str = "/.flatpak-info";
+
+/// Czy podana ścieżka znacznika istnieje (wydzielone dla testów).
+fn flatpak_info_exists(path: &Path) -> bool {
+    path.exists()
+}
+
+/// Czy bieżący proces działa wewnątrz sandboxa Flatpak.
+///
+/// Funkcja czyta wyłącznie system plików i nie mutuje środowiska procesu.
+pub fn is_flatpak_sandbox() -> bool {
+    flatpak_info_exists(Path::new(FLATPAK_INFO_PATH))
+}
+
 /// Kontekst detekcji instalacji — umożliwia wstrzykiwanie środowiska i markerów testowych
 /// bez konieczności odwoływania się do globalnego stanu OS.
 #[derive(Debug, Clone, Default)]
@@ -524,6 +545,12 @@ pub struct InstallationDetectionContext {
     pub has_rpm_manifest: bool,
     pub has_msi_registry_entry: bool,
     pub has_inno_uninstall_marker: bool,
+}
+
+/// Czy w katalogu instalacji znajduje się znacznik Flatpak umieszczony przez
+/// pakującego (np. starsze warianty pakietu). Wydzielone dla testów.
+fn flatpak_sandbox_marker(base_dir: &Path) -> bool {
+    flatpak_info_exists(&base_dir.join(".flatpak-info"))
 }
 
 /// Wykrywa typ instalacji na podstawie wiarygodnych dowodów i markerów.
@@ -542,7 +569,7 @@ pub fn detect_installation_with_context(
     // Sprawdzenie konfliktów markerów
     let mut detected_types = Vec::new();
 
-    if ctx.is_flatpak_sandbox || base_dir.join(".flatpak-info").exists() {
+    if ctx.is_flatpak_sandbox || flatpak_sandbox_marker(base_dir) || is_flatpak_sandbox() {
         detected_types.push(InstallationType::LinuxFlatpak);
     }
     if ctx.is_appimage_env || std::env::var_os("APPIMAGE").is_some() {
@@ -719,6 +746,61 @@ mod tests {
         let detected = detect_installation_with_context(&fake_usr_bin, &ctx).unwrap();
         // Sama ścieżka /usr/bin bez markerów DEB/RPM/Flatpak nie dowodzi typu pakietu
         assert_eq!(detected, InstallationType::UnknownInstallation);
+    }
+
+    // ------------------------------------------------------------------
+    // M3-J: rozpoznanie środowiska Flatpak (stabilny sygnał /.flatpak-info)
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn flatpak_runtime_marker_path_is_the_canonical_sandbox_signal() {
+        // Kontrakt środowiska: Flatpak tworzy ten plik w korzeniu sandboxa.
+        assert_eq!(FLATPAK_INFO_PATH, "/.flatpak-info");
+
+        let temp = tempfile::tempdir().unwrap();
+        let marker = temp.path().join(".flatpak-info");
+        assert!(!flatpak_info_exists(&marker));
+        assert!(!flatpak_sandbox_marker(temp.path()));
+
+        std::fs::write(&marker, b"[Application]\nname=io.github.sp6ina.SPLogbook\n").unwrap();
+        assert!(flatpak_info_exists(&marker));
+        assert!(flatpak_sandbox_marker(temp.path()));
+    }
+
+    #[test]
+    fn flatpak_packager_marker_in_installation_dir_is_detected() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join(".flatpak-info"),
+            b"[Application]\nname=io.github.sp6ina.SPLogbook\n",
+        )
+        .unwrap();
+
+        let ctx = InstallationDetectionContext::default();
+        let detected = detect_installation_with_context(temp.path(), &ctx).unwrap();
+        assert_eq!(detected, InstallationType::LinuxFlatpak);
+        // Flatpak jest zarządzany systemowo: brak self-apply, wymagana delegacja.
+        assert!(detected.is_system_managed());
+        assert!(!detected.is_self_managed());
+        let capabilities = crate::cloud::updater::InstallationCapabilities::for_installation_type(
+            InstallationType::LinuxFlatpak,
+        );
+        assert!(!capabilities.supports_self_apply);
+        assert!(capabilities.requires_delegation);
+    }
+
+    #[test]
+    fn flatpak_marker_conflicting_with_container_markers_is_rejected() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join(".flatpak-info"), b"FLATPAK").unwrap();
+        std::fs::write(temp.path().join(".splogbook-deb-marker"), b"DEB").unwrap();
+
+        let ctx = InstallationDetectionContext::default();
+        let res = detect_installation_with_context(temp.path(), &ctx);
+        assert!(matches!(
+            res,
+            Err(UpdaterError::ConflictingInstallationMarkers(_))
+        ));
     }
 
     #[test]

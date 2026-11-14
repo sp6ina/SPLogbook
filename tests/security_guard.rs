@@ -5300,8 +5300,8 @@ fn m3_f_post_closure_consistency_guard() {
         );
     }
     assert!(
-        roadmap.contains("M3-J") && roadmap.contains("NOT_STARTED"),
-        "ROADMAP musi utrzymywać M3-J (Flatpak) jako NOT_STARTED"
+        roadmap.contains("M3-J") && roadmap.contains("DELIVERED"),
+        "ROADMAP musi odnotowywać M3-J (Flatpak) jako dostarczone po zamknięciu bramki"
     );
 
     // 5. Rejestr decyzji zachowuje trwałe identyfikatory; otwarte P0 jest jawne.
@@ -6885,11 +6885,33 @@ fn m3_i_rpm_integration_guard() {
         "portable tar.gz i AppImage muszą pozostać w workflow"
     );
 
-    // 12. M3-J nie zostało rozpoczęte.
+    // 12. M3-J (Flatpak) zostało rozpoczęte w dedykowanej bramce i musi
+    //     pozostawić minimalny, jawny kontrakt sandboxa.
+    let flatpak_manifest =
+        std::fs::read_to_string("installer/linux/flatpak/io.github.sp6ina.SPLogbook.yml")
+            .expect("M3-J: manifest Flatpak musi istnieć");
+    // Komentarze dokumentują, czego świadomie nie ma; skanujemy efektywne YAML.
+    let flatpak_manifest_effective: String = flatpak_manifest
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n");
     assert!(
-        !std::path::Path::new("installer/linux/flatpak").exists(),
-        "M3-J Flatpak nie może zostać rozpoczęte w M3-I"
+        flatpak_manifest.contains("app-id: io.github.sp6ina.SPLogbook"),
+        "M3-J: manifest musi deklarować zatwierdzony app-id"
     );
+    for forbidden in [
+        "--filesystem=host",
+        "--filesystem=home",
+        "--device=all",
+        "--socket=system-bus",
+        "--talk-name=*",
+    ] {
+        assert!(
+            !flatpak_manifest_effective.contains(forbidden),
+            "M3-J: manifest nie może deklarować {forbidden}"
+        );
+    }
 }
 
 // ============================================================================
@@ -6935,5 +6957,163 @@ fn every_tracked_document_is_listed_in_the_documentation_index() {
     assert!(
         missing.is_empty(),
         "Every tracked Markdown document must be listed in docs/DOCUMENTATION_INDEX.md with its exact backticked path; missing: {missing:?}"
+    );
+}
+
+// ============================================================================
+// M3-J: kontrakt pakietu Flatpak (sandbox, źródła, brak self-update)
+// ============================================================================
+#[test]
+fn m3_j_flatpak_sandbox_and_packaging_guard() {
+    let manifest_path = "installer/linux/flatpak/io.github.sp6ina.SPLogbook.yml";
+    let manifest =
+        std::fs::read_to_string(manifest_path).expect("M3-J: manifest Flatpak musi istnieć");
+    // Komentarze dokumentują, czego świadomie nie ma; skanujemy wyłącznie
+    // efektywne linie YAML.
+    let manifest_effective: String = manifest
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    // 1. Tożsamość i przypięty runtime/SDK.
+    for required in [
+        "app-id: io.github.sp6ina.SPLogbook",
+        "runtime: org.freedesktop.Platform",
+        "runtime-version: \"26.08\"",
+        "sdk: org.freedesktop.Sdk",
+        "command: SPLogbook",
+        "org.freedesktop.Sdk.Extension.rust-stable",
+    ] {
+        assert!(
+            manifest.contains(required),
+            "M3-J: manifest musi deklarować {required}"
+        );
+    }
+
+    // 2. Dokładny, minimalny zestaw finish-args (semantycznie równoważny
+    //    kontraktowi sprawdzanemu przez scripts/verify_linux_flatpak.sh).
+    let mut finish_args: Vec<String> = Vec::new();
+    let mut inside = false;
+    for line in manifest.lines() {
+        if line.starts_with("finish-args:") {
+            inside = true;
+            continue;
+        }
+        if inside {
+            if let Some(rest) = line.strip_prefix("  - ") {
+                finish_args.push(rest.trim().to_string());
+            } else if !line.trim().is_empty() && !line.starts_with(' ') {
+                break;
+            }
+        }
+    }
+    finish_args.sort();
+    let mut expected = vec![
+        "--device=dri".to_string(),
+        "--share=ipc".to_string(),
+        "--share=network".to_string(),
+        "--socket=fallback-x11".to_string(),
+        "--socket=pulseaudio".to_string(),
+        "--socket=wayland".to_string(),
+        "--talk-name=org.freedesktop.secrets".to_string(),
+    ];
+    expected.sort();
+    assert_eq!(
+        finish_args, expected,
+        "M3-J: sandbox musi mieć dokładnie zatwierdzony minimalny zestaw uprawnień"
+    );
+
+    // 3. Brak szerokich uprawnień i brak szerokiego dostępu do hosta.
+    for forbidden in [
+        "--filesystem=host",
+        "--filesystem=home",
+        "--filesystem=/dev",
+        "--filesystem=/etc",
+        "--filesystem=/usr",
+        "--filesystem=/opt",
+        "--filesystem=/run",
+        "--device=all",
+        "--socket=system-bus",
+        "--socket=session-bus",
+        "--talk-name=*",
+        "--own-name=*",
+        "--system-talk-name=*",
+        "--allow=devel",
+        "--allow=multiarch",
+    ] {
+        assert!(
+            !manifest_effective.contains(forbidden),
+            "M3-J: manifest nie może deklarować {forbidden}"
+        );
+    }
+
+    // 4. Przypięte źródła i model offline.
+    assert!(
+        !manifest.contains("type: git"),
+        "M3-J: brak nieprzypiętych źródeł git"
+    );
+    assert!(
+        !manifest.contains("branch:"),
+        "M3-J: brak nieprzypiętych gałęzi"
+    );
+    assert!(!manifest.contains("tag:"), "M3-J: brak tagów bez commita");
+    assert!(!manifest.contains("file://"), "M3-J: brak ścieżek file:///");
+    assert!(
+        manifest.contains("CARGO_NET_OFFLINE: \"true\""),
+        "M3-J: build Cargo musi być offline"
+    );
+    assert!(
+        manifest.contains("--locked --offline"),
+        "M3-J: build Cargo musi używać --locked i --offline"
+    );
+    assert!(
+        manifest.contains("replace-with = \"vendored-sources\""),
+        "M3-J: Cargo musi korzystać z vendored sources"
+    );
+    let cargo_sources = std::fs::read_to_string("installer/linux/flatpak/cargo-sources.json")
+        .expect("M3-J: cargo-sources.json musi istnieć");
+    assert!(
+        cargo_sources.len() > 100_000,
+        "M3-J: cargo-sources.json musi opisywać pełny zestaw zależności"
+    );
+    assert!(
+        cargo_sources.contains("\"sha256\": \""),
+        "M3-J: każde źródło Cargo musi mieć SHA-256"
+    );
+
+    // 5. Brak self-update: pakiet nie zawiera pomocnika aktualizacji.
+    assert!(
+        !manifest.contains("splogbook-updater"),
+        "M3-J: bundle nie może instalować pomocnika self-update"
+    );
+
+    // 6. Weryfikator, harness negatywny i dokumentacja istnieją i są spójne.
+    let verifier = std::fs::read_to_string("scripts/verify_linux_flatpak.sh")
+        .expect("M3-J: weryfikator musi istnieć");
+    assert!(
+        verifier.contains("flatpak --user info --show-permissions"),
+        "M3-J: weryfikator musi porównywać faktyczne uprawnienia sandboxa"
+    );
+    assert!(
+        verifier.contains("context.devices dri")
+            && verifier.contains("session-bus.org.freedesktop.secrets talk"),
+        "M3-J: weryfikator musi egzekwować dokładny kontrakt uprawnień"
+    );
+    assert!(
+        !verifier.contains("flatpak install --system"),
+        "M3-J: weryfikator nie może instalować systemowo"
+    );
+    let negative = std::fs::read_to_string("scripts/verify_linux_flatpak_negative_fixture.sh")
+        .expect("M3-J: harness negatywny musi istnieć");
+    assert!(
+        negative.matches("expect_reject \"").count() >= 45,
+        "M3-J: harness musi pokrywać co najmniej 45 negatywnych fixture'ów"
+    );
+    let documentation_index = std::fs::read_to_string("docs/DOCUMENTATION_INDEX.md")
+        .expect("indeks dokumentacji musi istnieć");
+    assert!(
+        documentation_index.contains("`installer/linux/flatpak/README.md`"),
+        "M3-J: README pakietu Flatpak musi być w indeksie dokumentacji"
     );
 }
