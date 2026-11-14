@@ -349,13 +349,17 @@ run_build() {
     build_root="${WORK_ROOT}/build-${label}"
     mkdir -p "${build_root}"
 
+    # flatpak-builder 1.4.x has no --build-dir: the build tree lives inside the
+    # state directory, so a fresh, per-build state dir is also a fresh build dir.
+    state_dir="${build_root}/state"
+    app_tree="${state_dir}/build/files"
+
     # Sources are fetched once per build (network phase), then the real build
     # refuses to download anything.
     flatpak-builder \
         --user \
         --arch=x86_64 \
-        --state-dir="${build_root}/state" \
-        --build-dir="${build_root}/build" \
+        --state-dir="${state_dir}" \
         --repo="${build_root}/repo" \
         --disable-rofiles-fuse \
         --force-clean \
@@ -369,8 +373,7 @@ run_build() {
     flatpak-builder \
         --user \
         --arch=x86_64 \
-        --state-dir="${build_root}/state" \
-        --build-dir="${build_root}/build" \
+        --state-dir="${state_dir}" \
         --repo="${build_root}/repo" \
         --disable-rofiles-fuse \
         --disable-download \
@@ -402,8 +405,8 @@ run_build() {
     sha="$(sha256sum "${bundle}" | awk '{print $1}')"
     size="$(wc -c < "${bundle}" | tr -d ' ')"
 
-    tree="${build_root}/build/files"
-    [ -d "${tree}" ] || fail "build ${label} produced no /app tree"
+    tree="${app_tree}"
+    [ -d "${tree}" ] || fail "build ${label} produced no /app tree at ${tree}"
     entries="$(payload_manifest "${tree}" "${OUTPUT_DIR}/flatpak-payload-${label}.txt")"
 
     printf '%s\n' "${commit}" > "${OUTPUT_DIR}/flatpak-ostree-commit-${label}.txt"
