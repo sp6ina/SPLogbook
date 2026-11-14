@@ -3418,11 +3418,16 @@ fn m3_b_stability_20_iterations_helper_parity_and_e2e_cycle() {
         assert!(script.contains("asset.dat"));
         assert!(script.contains(".health_ok"));
         assert!(script.contains("exit 0"));
-        assert!(!script.contains("Invoke-Expression"));
-        assert!(!script.contains("iex"));
-        assert!(!script.contains("$staging\\*"));
-        assert!(!script.contains("$rollback\\*"));
-        assert!(!script.contains("Remove-Item *"));
+
+        // Losowa nazwa katalogu tymczasowego (`tempfile`) jest częścią ścieżek w skrypcie,
+        // więc przed kontrolą zakazanych tokenów usuwamy ją z porównania. Inaczej przypadkowy
+        // ciąg "iex" w nazwie tempdir czynił test niedeterministycznym (QA-RANDOM-01).
+        let normalized_script = script.replace(&root.display().to_string(), "<INSTALL_ROOT>");
+        assert!(!normalized_script.contains("Invoke-Expression"));
+        assert!(!normalized_script.contains("iex"));
+        assert!(!normalized_script.contains("$staging\\*"));
+        assert!(!normalized_script.contains("$rollback\\*"));
+        assert!(!normalized_script.contains("Remove-Item *"));
     }
 }
 
@@ -5491,6 +5496,230 @@ fn qa_native_installer_tests_are_hermetic_and_fail_closed() {
         assert!(
             baseline.contains(key),
             "docs/VERIFICATION_BASELINE.md musi zawierać kanoniczny licznik {key}"
+        );
+    }
+}
+
+// ============================================================================
+// STAGE-QA-XDG-ENVIRONMENT-DETERMINISM (2026-11-14)
+// Strażnik determinizmu testów mutujących środowisko procesu.
+//
+// Wymusza: jeden wspólny helper (mutex + RAII + odzyskiwanie po poison),
+// brak bezpośrednich mutacji środowiska poza helperem i jawnie udokumentowanym
+// wyjątkiem HIL, brak `#[ignore]`/filtrowania/`--test-threads=1`/retry/sleep,
+// brak nowej zależności do serializacji testów oraz obecność pomiarów w baseline.
+// ============================================================================
+
+#[test]
+fn qa_process_environment_mutation_is_serialized_and_guarded() {
+    let helper = fs::read_to_string("tests/support/process_env.rs")
+        .expect("tests/support/process_env.rs must exist");
+    let xdg = fs::read_to_string("tests/linux_xdg_data_preservation_test.rs")
+        .expect("tests/linux_xdg_data_preservation_test.rs");
+    let env_contract = fs::read_to_string("tests/process_environment_isolation_test.rs")
+        .expect("tests/process_environment_isolation_test.rs");
+    let hil = fs::read_to_string("tests/cat_native_7.rs").expect("tests/cat_native_7.rs");
+    let ci = fs::read_to_string(".github/workflows/ci.yml").expect(".github/workflows/ci.yml");
+    let release = fs::read_to_string(".github/workflows/build-and-release.yml")
+        .expect(".github/workflows/build-and-release.yml");
+    let cargo_toml = fs::read_to_string("Cargo.toml").expect("Cargo.toml");
+    let cargo_lock = fs::read_to_string("Cargo.lock").expect("Cargo.lock");
+    let baseline =
+        fs::read_to_string("docs/VERIFICATION_BASELINE.md").expect("docs/VERIFICATION_BASELINE.md");
+
+    // 1. Wspólny helper: jedna blokada, RAII, przywracanie po panic, obsługa poison.
+    for required in [
+        "static ENV_LOCK: Mutex<()> = Mutex::new(())",
+        "thread_local!",
+        "pub struct EnvGuard",
+        "impl Drop for EnvGuard",
+        "PoisonError::into_inner",
+        "TryLockError::WouldBlock",
+        "EnvGuardError::NestedGuard",
+        "EnvGuardError::Busy",
+        "env::set_var",
+        "env::remove_var",
+        "# Safety",
+    ] {
+        assert!(
+            helper.contains(required),
+            "tests/support/process_env.rs musi zawierać kontrakt: {required}"
+        );
+    }
+
+    // 2. Helper nie może wprowadzać zależności: wszystkie `use` pochodzą z `std`.
+    for line in helper
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("use "))
+    {
+        assert!(
+            line.starts_with("use std::"),
+            "wspólny helper środowiska musi używać wyłącznie biblioteki standardowej: {line}"
+        );
+    }
+    for forbidden in [
+        "serial_test",
+        "serial-test",
+        "envtest",
+        "temp-env",
+        "env-lock",
+        "envtest_derive",
+    ] {
+        assert!(
+            !cargo_toml.to_lowercase().contains(forbidden),
+            "Cargo.toml nie może dodawać zależności do serializacji testów: {forbidden}"
+        );
+        assert!(
+            !cargo_lock.to_lowercase().contains(forbidden),
+            "Cargo.lock nie może dodawać zależności do serializacji testów: {forbidden}"
+        );
+    }
+
+    // 3. Testy XDG korzystają z jednego wspólnego helpera.
+    for required in [
+        "#[path = \"support/process_env.rs\"]",
+        "mod process_env;",
+        "EnvGuard::new",
+    ] {
+        assert!(
+            xdg.contains(required),
+            "tests/linux_xdg_data_preservation_test.rs musi używać wspólnego helpera: {required}"
+        );
+    }
+    assert!(
+        !xdg.contains("unsafe"),
+        "testy XDG nie mogą zawierać rozproszonego `unsafe` — cała mutacja środowiska należy do helpera"
+    );
+    assert!(
+        !xdg.lines()
+            .any(|line| line.trim_start().starts_with("#[ignore")),
+        "testów XDG nie wolno wyciszać przez #[ignore]"
+    );
+    assert!(
+        !env_contract
+            .lines()
+            .any(|line| line.trim_start().starts_with("#[ignore")),
+        "testów kontraktu środowiska nie wolno wyciszać przez #[ignore]"
+    );
+    assert!(
+        !xdg.contains("sleep(") && !env_contract.contains("sleep(") && !helper.contains("sleep("),
+        "synchronizacja środowiska nie może używać sleep"
+    );
+
+    // 4. Testy kontraktu helpera pokrywają wymagane zachowania.
+    for required_test in [
+        "existing_variable_is_restored",
+        "missing_variable_stays_missing",
+        "multiple_variables_are_restored",
+        "empty_value_is_distinct_from_missing",
+        "guard_observes_requested_value_inside_section",
+        "environment_is_restored_after_panic",
+        "lock_is_not_permanently_poisoned_after_panic",
+        "nested_guard_is_explicitly_rejected",
+        "concurrent_acquisition_reports_busy_and_then_succeeds",
+        "concurrent_mutations_are_serialized",
+        "baseline_is_restored_after_drop",
+        "guard_does_not_change_current_directory",
+    ] {
+        assert!(
+            env_contract.contains(&format!("fn {required_test}()")),
+            "brak testu kontraktu helpera: {required_test}"
+        );
+    }
+
+    // 5. Każda bezpośrednia mutacja środowiska w `src/**` i `tests/**` jest zabroniona,
+    //    z wyjątkiem wspólnego helpera oraz jawnie udokumentowanego wyjątku HIL.
+    let listed = Command::new("git")
+        .args(["ls-files", "src", "tests"])
+        .output()
+        .expect("git ls-files must be executable");
+    assert!(
+        listed.status.success(),
+        "git ls-files src tests must succeed"
+    );
+    let mut hil_mutations = 0_usize;
+    for path in String::from_utf8_lossy(&listed.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|path| path.ends_with(".rs"))
+    {
+        if path == "tests/support/process_env.rs" || path == "tests/security_guard.rs" {
+            // Helper jest jedynym dozwolonym miejscem mutacji; strażnik zawiera
+            // wyłącznie wzorce wykrywające, nie mutacje.
+            continue;
+        }
+        let source = fs::read_to_string(path).expect("read tracked source");
+        for (index, line) in source.lines().enumerate() {
+            if !(line.contains("env::set_var(") || line.contains("env::remove_var(")) {
+                continue;
+            }
+            if path == "tests/cat_native_7.rs" {
+                hil_mutations += 1;
+                assert!(
+                    line.contains("std::env::"),
+                    "{path}:{}: mutacja HIL musi być jawnym wywołaniem std::env",
+                    index + 1
+                );
+                continue;
+            }
+            panic!(
+                "{path}:{} mutuje środowisko procesu poza wspólnym helperem \
+                 tests/support/process_env.rs",
+                index + 1
+            );
+        }
+    }
+    assert_eq!(
+        hil_mutations, 5,
+        "liczbę mutacji środowiska w cat_native_7 wolno zmienić wyłącznie przez migrację do wspólnego helpera"
+    );
+    assert!(
+        hil.contains("Chroni wyłącznie zmienne")
+            && hil.contains("SPLOG_HIL_*")
+            && hil.contains("innym procesie"),
+        "wyjątek HIL musi być jawnie udokumentowany: rozłączny zestaw zmiennych, inny proces testowy"
+    );
+    assert!(
+        hil.contains("Manifest nie mutuje środowiska procesu")
+            && hil.contains("run_isolated_hardware_dispatcher_at"),
+        "HIL nie może wracać do niezsynchronizowanego seeda SPLOG_HIL_REFERENCE_TIME"
+    );
+
+    // 6. Workflow nie może filtrować, wyciszać ani serializować globalnie testów.
+    for (name, workflow) in [("ci.yml", &ci), ("build-and-release.yml", &release)] {
+        for forbidden in [
+            "--test-threads",
+            "RUST_TEST_THREADS",
+            "--skip linux_xdg_data_preservation_test",
+            "--skip process_environment_isolation_test",
+            "continue-on-error",
+        ] {
+            assert!(
+                !workflow.contains(forbidden),
+                "{name} nie może zawierać {forbidden} (zakaz filtrowania, wyciszania i globalnej serializacji testów)"
+            );
+        }
+    }
+    assert!(
+        ci.contains("cargo test --workspace --all-targets"),
+        "CI musi uruchamiać pełny zestaw testów workspace"
+    );
+    assert!(
+        release.contains("xvfb-run --auto-servernum cargo test -- --nocapture")
+            && release.contains("cargo test --verbose"),
+        "Build and Release musi uruchamiać pełny zestaw testów na Linux i Windows"
+    );
+
+    // 7. Baseline zawiera zmierzony kontrakt determinizmu środowiska.
+    for required in [
+        "`process_environment_isolation_test`",
+        "`tests/support/process_env.rs`",
+        "iteracji stresowych",
+    ] {
+        assert!(
+            baseline.contains(required),
+            "docs/VERIFICATION_BASELINE.md musi dokumentować pomiar determinizmu środowiska: {required}"
         );
     }
 }
