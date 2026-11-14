@@ -21,7 +21,7 @@ use splogbook::cat::hil::{
     HilPttConsentToken, HilReadinessEvidenceKind, HilReadinessStatus, HilReadinessValidator,
     HilRequirementAssessment, HilRfSafetyConfig, HilRfTermination, HilSessionState,
     HilSoftwareBaselineEvidence, HilTestBenchManifest, HilTransportConfig, HilTxGuard,
-    run_isolated_hardware_dispatcher, run_isolated_hardware_test,
+    run_isolated_hardware_dispatcher_at, run_isolated_hardware_test,
 };
 use splogbook::cat::hub::{RigHub, RigHubError};
 use splogbook::cat::rig::{RigCapabilities, RigCommand, RigError};
@@ -29,6 +29,13 @@ use splogbook::cat::routing::{RigCommandId, RigId, RigTarget, RoutedRigCommand};
 use splogbook::cat::service::RigService;
 use splogbook::cat::tx_arbiter::TxArbiter;
 
+// Mutex środowiska tej binarki testowej.
+//
+// Chroni wyłącznie zmienne `SPLOG_HIL_*` mutowane w tym procesie testowym; wszystkie
+// zapisy w tym pliku wykonują się w scope `_lock` (27 wywołań `EnvGuard::new` w 25
+// scope'ach). Testy HOME/XDG_* używają wspólnego `tests/support/process_env.rs`, ale
+// działają w innej binarce testowej (innym procesie), więc nie ma procesu, w którym
+// dwa niezależne mutexy chroniłyby ten sam stan.
 static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// Stały, deterministyczny czas odniesienia dla testów offline NATIVE-7A/7B.
@@ -82,9 +89,11 @@ impl Drop for EnvGuard {
 }
 
 fn valid_test_manifest() -> HilTestBenchManifest {
-    if std::env::var("SPLOG_HIL_REFERENCE_TIME").is_err() {
-        unsafe { std::env::set_var("SPLOG_HIL_REFERENCE_TIME", HIL_DETERMINISTIC_REFERENCE_TIME) };
-    }
+    // Manifest nie mutuje środowiska procesu. Testy, które oceniają czas wygaśnięcia
+    // sesji, przekazują deterministyczny czas odniesienia jawnie przez
+    // `run_isolated_hardware_dispatcher_at(..., deterministic_reference_time())`
+    // albo `HilHardwareSession::new_with_reference_time`, więc wynik nie zależy od
+    // równoległego zapisu `SPLOG_HIL_REFERENCE_TIME` w innym teście.
     HilTestBenchManifest {
         bench_id: "LAB-BENCH-SP6INA-01".to_string(),
         session_id: "SESSION-TEST-01".to_string(),
@@ -1542,8 +1551,11 @@ fn hil_missing_physical_evidence_is_blocked() {
 #[test]
 fn hil_hardware_case_remains_not_run_when_gate_is_blocked() {
     let manifest = valid_test_manifest();
-    let dispatcher_report =
-        run_isolated_hardware_dispatcher(&manifest, HilExecutionStage::Stage7AOffline);
+    let dispatcher_report = run_isolated_hardware_dispatcher_at(
+        &manifest,
+        HilExecutionStage::Stage7AOffline,
+        deterministic_reference_time(),
+    );
     assert_eq!(
         dispatcher_report.overall_status,
         HilReadinessStatus::Blocked
@@ -1770,7 +1782,11 @@ fn hil_dispatcher_preserves_per_case_status() {
 #[test]
 fn hil_dispatcher_cannot_collapse_not_run_into_passed() {
     let manifest = valid_test_manifest();
-    let report = run_isolated_hardware_dispatcher(&manifest, HilExecutionStage::Stage7AOffline);
+    let report = run_isolated_hardware_dispatcher_at(
+        &manifest,
+        HilExecutionStage::Stage7AOffline,
+        deterministic_reference_time(),
+    );
     assert_ne!(report.overall_status, HilReadinessStatus::Passed);
     assert_eq!(report.overall_status, HilReadinessStatus::Blocked);
 }
@@ -1778,14 +1794,22 @@ fn hil_dispatcher_cannot_collapse_not_run_into_passed() {
 #[test]
 fn hil_dispatcher_blocked_gate_opens_no_transport() {
     let manifest = valid_test_manifest();
-    let report = run_isolated_hardware_dispatcher(&manifest, HilExecutionStage::Stage7AOffline);
+    let report = run_isolated_hardware_dispatcher_at(
+        &manifest,
+        HilExecutionStage::Stage7AOffline,
+        deterministic_reference_time(),
+    );
     assert!(!report.transport_opened);
 }
 
 #[test]
 fn hil_dispatcher_blocked_gate_emits_no_ptt() {
     let manifest = valid_test_manifest();
-    let report = run_isolated_hardware_dispatcher(&manifest, HilExecutionStage::Stage7AOffline);
+    let report = run_isolated_hardware_dispatcher_at(
+        &manifest,
+        HilExecutionStage::Stage7AOffline,
+        deterministic_reference_time(),
+    );
     assert!(!report.ptt_emitted);
 }
 
@@ -1794,7 +1818,11 @@ fn hil_dispatcher_rechecks_expiration() {
     let mut manifest = valid_test_manifest();
     // issued_at (09:30:00Z) < expires_at (10:00:00Z) < reference_time (12:00:00Z)
     manifest.expires_at = Some("2026-10-18T10:00:00Z".to_string());
-    let report = run_isolated_hardware_dispatcher(&manifest, HilExecutionStage::Stage7AOffline);
+    let report = run_isolated_hardware_dispatcher_at(
+        &manifest,
+        HilExecutionStage::Stage7AOffline,
+        deterministic_reference_time(),
+    );
     assert_eq!(report.overall_status, HilReadinessStatus::Failed);
     assert!(report.cases[0].reason.contains("expired"));
 }
@@ -1803,7 +1831,11 @@ fn hil_dispatcher_rechecks_expiration() {
 fn hil_dispatcher_rechecks_session_id() {
     let mut manifest = valid_test_manifest();
     manifest.session_id = "   ".to_string();
-    let report = run_isolated_hardware_dispatcher(&manifest, HilExecutionStage::Stage7AOffline);
+    let report = run_isolated_hardware_dispatcher_at(
+        &manifest,
+        HilExecutionStage::Stage7AOffline,
+        deterministic_reference_time(),
+    );
     assert_eq!(report.overall_status, HilReadinessStatus::Failed);
     assert!(report.cases[0].reason.contains("session_id is empty"));
 }
