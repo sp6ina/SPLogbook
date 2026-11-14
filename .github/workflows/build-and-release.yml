@@ -1086,6 +1086,341 @@ jobs:
           path: rpm_negative/evidence/rpm-negative-fixtures.log
           if-no-files-found: error
 
+  # --------------------------------------------------------------------
+  # STAGE-M3-J: SPLogbook Flatpak (io.github.sp6ina.SPLogbook).
+  #
+  # The bundle is produced from the pinned org.freedesktop runtime 26.08 and
+  # the 662 SHA-256 pinned crates of Cargo.lock, inside a privileged container
+  # (bubblewrap needs user namespaces). Sources are downloaded once with
+  # --download-only; the real build runs with --disable-download and
+  # cargo --locked --offline. The bundle is a CI artifact only: it is never
+  # uploaded to a GitHub release and never submitted to Flathub.
+  # --------------------------------------------------------------------
+  build-flatpak:
+    name: Build Flatpak
+    runs-on: ubuntu-latest
+    env:
+      FLATPAK_BUILD_IMAGE: "ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c"
+      FLATPAK_BUILD_IMAGE_DIGEST: "sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Build the Flatpak in the pinned privileged container
+        env:
+          EXPECTED_BUILD_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          IMAGE="${FLATPAK_BUILD_IMAGE}"
+          docker pull "${IMAGE}"
+          docker run --rm --privileged \
+            -e EXPECTED_BUILD_COMMIT \
+            -e FLATPAK_BUILD_IMAGE \
+            -e FLATPAK_BUILD_IMAGE_DIGEST \
+            -e SPLOG_FLATPAK_BUILDS=1 \
+            -v "$(pwd):/workspace" \
+            -w /workspace \
+            "${IMAGE}" \
+            /bin/bash -c 'set -euo pipefail; export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y --no-install-recommends flatpak flatpak-builder ostree appstream desktop-file-utils xvfb xauth python3 file binutils git ca-certificates; bash -n scripts/build_linux_flatpak.sh; bash -n scripts/verify_linux_flatpak.sh; bash -n scripts/verify_linux_flatpak_negative_fixture.sh; bash scripts/build_linux_flatpak.sh dist' \
+            2>&1 | tee flatpak-build.log
+          test -s flatpak-build.log
+          grep -q "FLATPAK BUILD COMPLETED SUCCESSFULLY" flatpak-build.log
+          test -s dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.flatpak
+          ( cd dist && sha256sum -c SPLogbook-Linux-x86_64-1.3.0-alpha.1.flatpak.sha256 )
+          ( cd dist && sha256sum -c SPLogbook-Linux-x86_64.flatpak.sha256 )
+
+      - name: Upload the Flatpak CI artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: SPLogbook-Linux-x86_64-flatpak
+          path: |
+            dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.flatpak
+            dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.flatpak.sha256
+            dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.flatpak.manifest
+            dist/SPLogbook-Linux-x86_64.flatpak
+            dist/SPLogbook-Linux-x86_64.flatpak.sha256
+            dist/flatpak-toolchain.json
+            dist/flatpak-determinism.txt
+            dist/flatpak-manifest.projection.txt
+            dist/flatpak-runtime-info.txt
+            dist/flatpak-sdk-info.txt
+            dist/flatpak-payload-a.txt
+            dist/flatpak-ostree-commit-a.txt
+            dist/flatpak-bundle-sha256-a.txt
+            flatpak-build.log
+          if-no-files-found: error
+
+  verify-flatpak:
+    name: Verify Flatpak
+    needs: build-flatpak
+    runs-on: ubuntu-latest
+    env:
+      FLATPAK_BUILD_IMAGE: "ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download the Flatpak artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: SPLogbook-Linux-x86_64-flatpak
+          path: download/
+
+      - name: Verify the Flatpak bundle inside the pinned privileged container
+        env:
+          EXPECTED_BUILD_COMMIT: ${{ github.sha }}
+          SPLOG_FLATPAK_STAGE: all
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp download/dist/* dist/
+          IMAGE="${FLATPAK_BUILD_IMAGE}"
+          docker pull "${IMAGE}"
+          docker run --rm --privileged \
+            -e EXPECTED_BUILD_COMMIT \
+            -e SPLOG_FLATPAK_STAGE \
+            -v "$(pwd):/workspace" \
+            -w /workspace \
+            "${IMAGE}" \
+            /bin/bash -c 'set -euo pipefail; export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y --no-install-recommends flatpak flatpak-builder ostree appstream desktop-file-utils xvfb xauth python3 file binutils git ca-certificates; bash scripts/verify_linux_flatpak.sh dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.flatpak' \
+            2>&1 | tee flatpak-verify.log
+          test -s flatpak-verify.log
+          grep -q "FLATPAK VERIFICATION COMPLETED SUCCESSFULLY" flatpak-verify.log
+
+      - name: Upload the verification evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: SPLogbook-Linux-x86_64-flatpak-evidence
+          path: |
+            flatpak-verify.log
+            dist/flatpak-permissions.txt
+            dist/flatpak-build-info.txt
+            dist/flatpak-ldd.txt
+            dist/flatpak-gui-smoke.log
+            dist/flatpak-verification.txt
+          if-no-files-found: error
+
+  verify-flatpak-permissions:
+    name: Verify Flatpak permissions
+    needs: build-flatpak
+    runs-on: ubuntu-latest
+    env:
+      FLATPAK_BUILD_IMAGE: "ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download the Flatpak artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: SPLogbook-Linux-x86_64-flatpak
+          path: download/
+
+      - name: Verify the exact sandbox permission contract
+        env:
+          EXPECTED_BUILD_COMMIT: ${{ github.sha }}
+          SPLOG_FLATPAK_STAGE: permissions
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp download/dist/* dist/
+          IMAGE="${FLATPAK_BUILD_IMAGE}"
+          docker pull "${IMAGE}"
+          docker run --rm --privileged \
+            -e EXPECTED_BUILD_COMMIT \
+            -e SPLOG_FLATPAK_STAGE \
+            -v "$(pwd):/workspace" \
+            -w /workspace \
+            "${IMAGE}" \
+            /bin/bash -c 'set -euo pipefail; export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y --no-install-recommends flatpak flatpak-builder ostree appstream desktop-file-utils xvfb xauth python3 file binutils git ca-certificates; bash scripts/verify_linux_flatpak.sh dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.flatpak' \
+            2>&1 | tee flatpak-permissions.log
+          test -s flatpak-permissions.log
+          grep -q "FLATPAK PERMISSIONS VERIFICATION COMPLETED SUCCESSFULLY" flatpak-permissions.log
+          grep -q "sandbox permissions are exactly the approved minimal set" flatpak-permissions.log
+
+      - name: Upload the permission evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: SPLogbook-Linux-x86_64-flatpak-permissions
+          path: |
+            flatpak-permissions.log
+            dist/flatpak-permissions.txt
+          if-no-files-found: error
+
+  verify-flatpak-lifecycle:
+    name: Verify Flatpak lifecycle
+    needs: build-flatpak
+    runs-on: ubuntu-latest
+    env:
+      FLATPAK_BUILD_IMAGE: "ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download the Flatpak artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: SPLogbook-Linux-x86_64-flatpak
+          path: download/
+
+      - name: Verify the full lifecycle and user-data preservation
+        env:
+          EXPECTED_BUILD_COMMIT: ${{ github.sha }}
+          SPLOG_FLATPAK_STAGE: lifecycle
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp download/dist/* dist/
+          IMAGE="${FLATPAK_BUILD_IMAGE}"
+          docker pull "${IMAGE}"
+          docker run --rm --privileged \
+            -e EXPECTED_BUILD_COMMIT \
+            -e SPLOG_FLATPAK_STAGE \
+            -v "$(pwd):/workspace" \
+            -w /workspace \
+            "${IMAGE}" \
+            /bin/bash -c 'set -euo pipefail; export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y --no-install-recommends flatpak flatpak-builder ostree appstream desktop-file-utils xvfb xauth python3 file binutils git ca-certificates; bash scripts/verify_linux_flatpak.sh dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.flatpak' \
+            2>&1 | tee flatpak-lifecycle.log
+          test -s flatpak-lifecycle.log
+          grep -q "FLATPAK LIFECYCLE VERIFICATION COMPLETED SUCCESSFULLY" flatpak-lifecycle.log
+          grep -q "full lifecycle preserves user data" flatpak-lifecycle.log
+          grep -q "GUI smoke test survived" flatpak-lifecycle.log
+
+      - name: Upload the lifecycle evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: SPLogbook-Linux-x86_64-flatpak-lifecycle
+          path: |
+            flatpak-lifecycle.log
+            dist/flatpak-gui-smoke.log
+            dist/flatpak-verification.txt
+          if-no-files-found: error
+
+  verify-flatpak-determinism:
+    name: Verify Flatpak determinism
+    needs: build-flatpak
+    runs-on: ubuntu-latest
+    env:
+      FLATPAK_BUILD_IMAGE: "ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c"
+      FLATPAK_BUILD_IMAGE_DIGEST: "sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download the first build and its payload evidence
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: SPLogbook-Linux-x86_64-flatpak
+          path: download/
+
+      - name: Build a second time from the same inputs and compare
+        env:
+          EXPECTED_BUILD_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist reference
+          cp download/dist/* dist/ || true
+          cp dist/flatpak-payload-a.txt reference/
+          cp dist/flatpak-ostree-commit-a.txt reference/
+          cp dist/flatpak-bundle-sha256-a.txt reference/
+          rm -f dist/flatpak-payload-a.txt dist/flatpak-payload-b.txt \
+                dist/flatpak-ostree-commit-a.txt dist/flatpak-ostree-commit-b.txt \
+                dist/flatpak-bundle-sha256-a.txt dist/flatpak-bundle-sha256-b.txt
+          IMAGE="${FLATPAK_BUILD_IMAGE}"
+          docker pull "${IMAGE}"
+          docker run --rm --privileged \
+            -e EXPECTED_BUILD_COMMIT \
+            -e FLATPAK_BUILD_IMAGE \
+            -e FLATPAK_BUILD_IMAGE_DIGEST \
+            -e SPLOG_FLATPAK_BUILDS=1 \
+            -v "$(pwd):/workspace" \
+            -w /workspace \
+            "${IMAGE}" \
+            /bin/bash -c 'set -euo pipefail; export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y --no-install-recommends flatpak flatpak-builder ostree appstream desktop-file-utils xvfb xauth python3 file binutils git ca-certificates; bash scripts/build_linux_flatpak.sh dist/reference-build' \
+            2>&1 | tee flatpak-rebuild.log
+          test -s flatpak-rebuild.log
+          grep -q "FLATPAK BUILD COMPLETED SUCCESSFULLY" flatpak-rebuild.log
+          # Payload reproducibility: identical /app tree, modes and file digests.
+          cmp reference/flatpak-payload-a.txt dist/reference-build/flatpak-payload-a.txt
+          diff -u reference/flatpak-ostree-commit-a.txt dist/reference-build/flatpak-ostree-commit-a.txt \
+            || echo "::notice::OSTree commits differ between independent builds"
+          diff -u reference/flatpak-bundle-sha256-a.txt dist/reference-build/flatpak-bundle-sha256-a.txt \
+            || echo "::notice::Bundle SHA-256 differs between independent builds"
+          echo "PAYLOAD REPRODUCIBILITY VERIFIED"
+
+      - name: Upload the determinism evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: SPLogbook-Linux-x86_64-flatpak-determinism
+          path: |
+            flatpak-rebuild.log
+            reference/flatpak-payload-a.txt
+            dist/reference-build/flatpak-payload-a.txt
+            dist/reference-build/flatpak-determinism.txt
+            dist/reference-build/flatpak-toolchain.json
+          if-no-files-found: error
+
+  verify-flatpak-negative-fixtures:
+    name: Verify Flatpak negative fixtures
+    needs: build-flatpak
+    runs-on: ubuntu-latest
+    env:
+      FLATPAK_BUILD_IMAGE: "ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download the Flatpak artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: SPLogbook-Linux-x86_64-flatpak
+          path: download/
+
+      - name: Run every negative fixture
+        env:
+          EXPECTED_BUILD_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp download/dist/* dist/
+          IMAGE="${FLATPAK_BUILD_IMAGE}"
+          docker pull "${IMAGE}"
+          docker run --rm --privileged \
+            -e EXPECTED_BUILD_COMMIT \
+            -v "$(pwd):/workspace" \
+            -w /workspace \
+            "${IMAGE}" \
+            /bin/bash -c 'set -euo pipefail; export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y --no-install-recommends flatpak flatpak-builder ostree appstream desktop-file-utils xvfb xauth python3 file binutils git ca-certificates; bash scripts/verify_linux_flatpak_negative_fixture.sh dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.flatpak' \
+            2>&1 | tee flatpak-negative.log
+          test -s flatpak-negative.log
+          grep -q "FLATPAK NEGATIVE FIXTURES COMPLETED SUCCESSFULLY" flatpak-negative.log
+          grep -Eq "Negative fixtures: [0-9]+/[0-9]+ rejected" flatpak-negative.log
+
+      - name: Upload the negative-fixture evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: SPLogbook-Linux-x86_64-flatpak-negative
+          path: flatpak-negative.log
+          if-no-files-found: error
+
   publish-release:
     name: Publish Release Assets
     needs: [build-linux, build-windows, verify-linux-matrix, verify-linux-negative, build-rpm, verify-rpm, verify-rpm-negative-fixtures]
@@ -1155,6 +1490,13 @@ jobs:
           # for a public release, even if a future download step drops it here.
           if find release-staging -maxdepth 1 -name '*.rpm' | grep -q .; then
             echo "::error::RPM must never be published in a GitHub release (M3-I)"
+            exit 1
+          fi
+
+          # STAGE-M3-J: the Flatpak bundle is a CI artifact only. It must never be
+          # staged for a public release while no publication gate exists.
+          if find release-staging -maxdepth 1 -name '*.flatpak' | grep -q .; then
+            echo "::error::Flatpak bundle must never be published in a GitHub release (M3-J)"
             exit 1
           fi
 
