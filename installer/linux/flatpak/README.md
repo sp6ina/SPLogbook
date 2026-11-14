@@ -116,6 +116,19 @@ and fails if the committed file diverges from `Cargo.lock` in any crate name,
 version or digest. There is no vendored `vendor/` directory in the repository:
 only the generated, reviewable source list is committed.
 
+`cargo-sources.json` has two distinct roles in the manifest, and they must not be
+confused. The bare string in the `sources` list is an **include**
+(`flatpak-manifest(5)`): flatpak-builder reads the JSON, splices the 662 archive
+sources into the module and **never copies the file into the module build
+directory**. The `.cargo-checksum.json` generator in `build-commands[0]`
+therefore reads the projection from its tracked path inside the repository tree
+(`installer/linux/flatpak/cargo-sources.json`), which the repository-root `dir`
+source does deliver. `scripts/build_linux_flatpak.sh` asserts that identity
+before the build starts (`PASS: every build-command input path is delivered by
+the declared sources`) and `tests/linux_flatpak_packaging_test.rs` enforces it
+statically, so the M3-J failure #9 (`FileNotFoundError: 'cargo-sources.json'`,
+run 43628379400) cannot return.
+
 The build is controlled and fail-closed:
 
 1. `flatpak-builder --download-only` performs the **only** network phase

@@ -84,13 +84,21 @@ modules:
       #    so it is generated here from the same SHA-256 that pinned the
       #    archive at download time. `files` is intentionally empty: the archive
       #    itself was already verified against that digest.
+      #
+      #    The projection is read from its tracked path inside the repository
+      #    tree, never from the module build directory root. A bare string in
+      #    `sources` below is a flatpak-builder *include* (flatpak-manifest(5)):
+      #    the JSON file is read and its sources are spliced into this module,
+      #    and the file itself is never copied into the build directory. The
+      #    only source that delivers the repository tree is the `dir` source, so
+      #    the generator must reference the projection where that source puts it.
       - |
         set -euo pipefail
         python3 - <<'PYCHECKSUMS'
         import json
         import pathlib
 
-        entries = json.loads(pathlib.Path("cargo-sources.json").read_text(encoding="utf-8"))
+        entries = json.loads(pathlib.Path("installer/linux/flatpak/cargo-sources.json").read_text(encoding="utf-8"))
         missing = []
         for entry in entries:
             destination = pathlib.Path(entry["dest"])

@@ -250,6 +250,55 @@ print(f'PASS: {len(entries)} pinned cargo archive sources')
 PY
 bash "${REPO_ROOT}/scripts/generate_flatpak_cargo_sources.sh" --check
 
+# ------------------------------------------------------------------
+# Build-command inputs must be delivered by the declared sources
+# ------------------------------------------------------------------
+# A bare string in `sources` is a flatpak-builder *include*
+# (flatpak-manifest(5)): the JSON file is read, its sources are spliced
+# into the module, and the file itself is never copied into the module
+# build directory. The build directory root is the tracked tree (the `dir`
+# source with `path: ../../..`), so a build command may only read a path
+# that the tree actually delivers there. This is the exact contract that
+# M3-J failure #9 (run 43628379400) violated: the `.cargo-checksum.json`
+# generator read `cargo-sources.json`, which only exists as an include.
+python3 - "${REPO_ROOT}" "${MANIFEST}" <<'PYBUILDINPUT'
+import os
+import re
+import sys
+
+repo_root, manifest_path = sys.argv[1], sys.argv[2]
+manifest_dir = os.path.dirname(os.path.abspath(manifest_path))
+with open(manifest_path, encoding="utf-8") as handle:
+    manifest_text = handle.read()
+
+referenced = re.findall(r'pathlib\.Path\("([^"]+)"\)', manifest_text)
+if not referenced:
+    raise SystemExit("FAIL: the manifest has no build-command input path to verify")
+
+included = os.path.join(manifest_dir, "cargo-sources.json")
+if not os.path.isfile(included):
+    raise SystemExit(f"FAIL: the manifest source include is missing: {included}")
+
+for literal in referenced:
+    delivered = os.path.join(repo_root, literal)
+    if not os.path.isfile(delivered):
+        raise SystemExit(
+            f"FAIL: a build command reads {literal!r}, but no declared source "
+            f"delivers that path into the module build directory"
+        )
+    if os.path.realpath(delivered) != os.path.realpath(included):
+        raise SystemExit(
+            f"FAIL: a build command reads {literal!r}, which is not the projection "
+            f"the manifest includes ({os.path.relpath(included, repo_root)!r}); "
+            f"a bare string in `sources` is an include, not a file source"
+        )
+
+print(
+    "PASS: every build-command input path is delivered by the declared sources "
+    f"({len(referenced)} checked, projection {os.path.relpath(included, repo_root)})"
+)
+PYBUILDINPUT
+
 # AppStream and desktop-entry validation before the expensive build.
 appstreamcli validate --no-net "${METainfo}" || fail "appstreamcli rejected the AppStream metadata"
 desktop-file-validate "${DESKTOP_FILE}" || fail "desktop-file-validate rejected the desktop entry"
