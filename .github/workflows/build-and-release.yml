@@ -1217,7 +1217,12 @@ jobs:
       - name: Collect the Flatpak build diagnostics
         if: always()
         run: |
-          set -uo pipefail
+          # GitHub runs every `run:` step as `bash -e`, and a bounded diagnostic
+          # pipeline legitimately ends on SIGPIPE (`find | sort | head`). The
+          # collector must never change the job result, so errexit and pipefail
+          # are disabled and the step ends with an explicit `exit 0`.
+          set +e
+          set +o pipefail
           DIAG=flatpak-diagnostics
           rm -rf "${DIAG}"
           mkdir -p "${DIAG}"
@@ -1302,7 +1307,7 @@ jobs:
 
           if [ -d dist/.flatpak_work ]; then
             ( cd dist && find .flatpak_work -maxdepth 5 -printf '%y %m %s %p\n' | LC_ALL=C sort | head -n 800 ) \
-              > "${DIAG}/flatpak-work-tree.txt" 2>&1
+              > "${DIAG}/flatpak-work-tree.txt"
             du -sh .flatpak_work/* >> "${DIAG}/flatpak-work-tree.txt" 2>&1
           fi
           find dist -maxdepth 1 -printf '%y %m %s %p\n' > "${DIAG}/dist-tree.txt" 2>&1 || true
@@ -1310,13 +1315,13 @@ jobs:
           REPO=dist/.flatpak_work/build-a/repo
           if [ -d "${REPO}" ]; then
             ( find "${REPO}" -maxdepth 3 -printf '%y %m %s %p\n' | LC_ALL=C sort | head -n 400 ) \
-              > "${DIAG}/ostree-repo-tree.txt" 2>&1
+              > "${DIAG}/ostree-repo-tree.txt"
           fi
 
           USER_FLATPAK=dist/.flatpak_work/data/flatpak
           if [ -d "${USER_FLATPAK}" ]; then
             ( find "${USER_FLATPAK}" -maxdepth 4 -printf '%y %m %p\n' | LC_ALL=C sort | head -n 400 ) \
-              > "${DIAG}/flatpak-user-dir.txt" 2>&1
+              > "${DIAG}/flatpak-user-dir.txt"
           fi
 
           df -h > "${DIAG}/disk-usage.txt" 2>&1
