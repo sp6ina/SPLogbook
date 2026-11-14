@@ -1108,7 +1108,7 @@ jobs:
 
       - name: Verify the pinned Rust toolchain digest
         env:
-          RUST_DIST_URL: "https://static.rust-lang.org/dist/rust-1.99.0-x86_64-unknown-linux-gnu.tar.xz"
+          RUST_DIST_URL: "https://static.rust-lang.org/dist/rust-1.99.0-x86_64-unknown-linux-gnu.tar.gz"
         run: |
           set -euo pipefail
           PINNED="$(sed -n 's/^[[:space:]]*sha256: "\([0-9a-f]*\)"$/\1/p' \

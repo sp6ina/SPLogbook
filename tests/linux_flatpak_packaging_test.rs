@@ -115,7 +115,7 @@ fn flatpak_manifest_declares_the_approved_identity_and_pinned_runtime() {
         Some(COMMAND)
     );
     assert!(
-        text.contains("rust-1.99.0-x86_64-unknown-linux-gnu.tar.xz"),
+        text.contains("rust-1.99.0-x86_64-unknown-linux-gnu.tar.gz"),
         "manifest musi przypinać oficjalny toolchain Rust 1.99.0"
     );
     assert!(
