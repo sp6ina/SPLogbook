@@ -115,10 +115,30 @@ Recorded decision identifiers and where each one is implemented are listed in
 
 | Area | State |
 |---|---|
-| Flatpak packaging (`M3-J`) | not started; requires explicit authorization |
+| Flathub submission of the Flatpak | not submitted; the package is a local/CI artifact installed from a bundle |
 | Hardware-in-the-loop validation (NATIVE-7B) | not executed; 10 `#[ignore]` tests; blocked by F-14 |
 | Package signing for DEB/RPM | not implemented; integrity comes from the release manifest and SHA-256 |
+| Package signing for the Flatpak | not applicable to a local bundle; integrity comes from the bundle SHA-256 sidecar and the per-file payload manifest |
 | Signed installers for Windows | not implemented; installer artifacts are unsigned test artifacts |
+
+## 3.1 Flatpak sandbox limitations (by design)
+
+`OWNER-M3-J-DEVICE-01` fixed the default sandbox of the Flatpak package at the
+minimal set `--share=network`, `--share=ipc`, `--socket=wayland`,
+`--socket=fallback-x11`, `--socket=pulseaudio`, `--device=dri`,
+`--talk-name=org.freedesktop.secrets`. Consequences:
+
+| Limit | Impact | Workaround |
+|---|---|---|
+| Native serial CAT (`/dev/ttyUSB*`, `/dev/ttyACM*`, `/dev/ttyS*`) | Icom CI-V, Kenwood, Yaesu and Elecraft serial backends cannot open the port inside the sandbox; the failure is fail-closed with a diagnostic | documented opt-in `flatpak override --user --device=all io.github.sp6ina.SPLogbook`; the override grants **all** devices visible to Flatpak, not only the serial port |
+| Direct USB device access (SDR, `libusb`) | not available | run the host-side daemon and connect over TCP |
+| Local `rigctld` auto-start | the bundle contains no Hamlib binary | run `rigctld` on the host and connect to `127.0.0.1` over the shared network namespace |
+| Selective USB portal (`org.freedesktop.portal.Usb`) | not implemented | recorded as a separate future improvement; it needs new device-access architecture in the serial backends |
+| SemVer downgrade of the Flatpak | not exercised: only one Flatpak build exists | a real version downgrade requires a second published build; the deployment-level downgrade path is verified with `flatpak update --commit=<commit>` |
+
+Network CAT backends (`rigctld`, `rotctld`, TCI, FlexRadio, Kenwood LAN,
+Elecraft K4 TCP, `flrig`, WinKeyer) and all logging, export, portal and audio
+features work in the default sandbox.
 
 ## 4. Environment limitations (not product defects)
 
@@ -128,7 +148,9 @@ Recorded decision identifiers and where each one is implemented are listed in
   (`0x80070005`), so native Windows installer E2E cannot run there; it is explicit opt-in.
 - The owner's build host requires `-j 1`; `-j 2` exhausts the page file (`os error 1455`).
 - There is no local Linux or Docker environment for native distribution testing; those
-  proofs come from CI.
+  proofs come from CI. The same applies to the Flatpak: `flatpak-builder` and `flatpak run`
+  require Linux with bubblewrap, so the build and every sandbox proof come from hosted CI
+  runners with a pinned `ubuntu:26.04` container.
 
 ## 5. Resolved test-infrastructure issues (history)
 

@@ -145,7 +145,24 @@ All ten decisions are **IMPLEMENTED** and verified by `tests/linux_deb_packaging
 | `OWNER-M3-H-09` | No package signing; integrity via the release manifest and SHA-256 |
 | `OWNER-M3-H-10` | Artifact is a CI artifact only; publishing requires a separate release gate |
 
-### 2.7 Dependency and security decisions
+### 2.7 Flatpak package contract (M3-J)
+
+All decisions are **IMPLEMENTED** and verified by `tests/linux_flatpak_packaging_test.rs`,
+`m3_j_flatpak_sandbox_and_packaging_guard` and the Flatpak CI jobs.
+
+| ID | Decision |
+|---|---|
+| `OWNER-M3-J-APPID-01` | Application ID `io.github.sp6ina.SPLogbook`. It is the owner's explicit preference in the M3-J authorization and supersedes the design-time placeholder `org.splogbook.SPLogbook` used in `DESIGN_3_0_B_LINUX_UPDATE.md` / `DESIGN_3_0_C_PLATFORM_INSTALLERS.md`. The `io.github.<owner>.<App>` reverse-DNS form matches the repository owner and needs no domain registration; every exported name (desktop entry, AppStream metadata, icons, marker) uses it. |
+| `OWNER-M3-J-RUNTIME-01` | Runtime `org.freedesktop.Platform` and SDK `org.freedesktop.Sdk`, branch `26.08`, plus `org.freedesktop.Sdk.Extension.rust-stable`. The FREEDESKTOP runtime is the smallest runtime that provides every actual dependency: the lockfile contains no GTK, GLib or Pango crate, so the GNOME runtime would only add an unused stack. |
+| `OWNER-M3-J-DEVICE-01` | Default sandbox without `--device=all`. Native serial CAT (`/dev/ttyUSB*`, `/dev/ttyACM*`) is unavailable and fails closed with a diagnostic; network CAT backends are fully supported. A documented user-side opt-in `flatpak override --user --device=all io.github.sp6ina.SPLogbook` exists and states explicitly that it widens access to all devices visible to Flatpak. Selective USB portal support is a separate future improvement that requires new device-access architecture. |
+| `OWNER-M3-J-SANDBOX-01` | The permission set is exactly `--share=network`, `--share=ipc`, `--socket=wayland`, `--socket=fallback-x11`, `--socket=pulseaudio`, `--device=dri`, `--talk-name=org.freedesktop.secrets`. No filesystem permission, no persistent path, no environment override and no wildcard bus name. |
+| `OWNER-M3-J-OFFLINE-01` | The Rust build is offline and locked: 662 crates pinned by the `Cargo.lock` SHA-256 checksums in `cargo-sources.json`, a vendored-source replacement, `CARGO_NET_OFFLINE=1`, `cargo build --locked --offline`, one `--download-only` network phase and a real build with `--disable-download --sandbox`. |
+| `OWNER-M3-J-HAMLIB-01` | The Flatpak links and bundles no Hamlib. The only Hamlib integration is the `rigctld` TCP protocol, so the DEB/RPM private-library exception has no Flatpak counterpart; the sandbox already guarantees that no host library is reachable. Verified by the absence of `libhamlib*` in the bundle and in `ldd`. |
+| `OWNER-M3-J-UPDATE-01` | A Flatpak is updated by Flatpak only. The bundle ships no `splogbook-updater`, the application classifies itself as `LinuxFlatpak` from the `/.flatpak-info` marker with `supports_self_apply = false` and `requires_delegation = true`, and `/app` is read-only inside the sandbox. |
+| `OWNER-M3-J-PUBLISH-01` | The bundle is a local/CI artifact only. No Flathub submission, no Flathub repository, no GitHub release, no tag, and a permanent assertion that no `.flatpak` may be staged into `release-staging`. |
+| `OWNER-M3-J-REPRO-01` | Two independent clean builds must produce an identical `/app` payload (paths, modes, sizes, per-file SHA-256). Bit-identical bundles or OSTree commits are reported as evidence and never claimed when they differ. |
+
+### 2.8 Dependency and security decisions
 
 | ID | Decision | Status |
 |---|---|---|

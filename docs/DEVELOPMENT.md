@@ -137,6 +137,7 @@ prints its success banner only after all assertions have passed.
 | AppImage | `scripts/build_linux_appimage.sh` | `scripts/verify_appimage.sh` | [`installer/linux/appimage/README.md`](../installer/linux/appimage/README.md) |
 | DEB | `scripts/build_linux_deb.sh` | `scripts/verify_linux_deb.sh` | [`installer/linux/deb/README.md`](../installer/linux/deb/README.md) |
 | RPM | `scripts/build_linux_rpm.sh` | `scripts/verify_linux_rpm.sh` | [`installer/linux/rpm/README.md`](../installer/linux/rpm/README.md) |
+| Flatpak | `scripts/build_linux_flatpak.sh` | `scripts/verify_linux_flatpak.sh` | [`installer/linux/flatpak/README.md`](../installer/linux/flatpak/README.md) |
 | Windows `ZIP` | `.github/workflows/build-and-release.yml` | — | [`README.md`](../README.md) |
 | Windows Inno Setup | `scripts/build_windows_user_setup.ps1` | — | [`installer/windows/inno/README.md`](../installer/windows/inno/README.md) |
 | Windows MSI (WiX) | `scripts/build_windows_msi.ps1` | — | [`installer/windows/msi/README.md`](../installer/windows/msi/README.md) |
@@ -144,6 +145,21 @@ prints its success banner only after all assertions have passed.
 Negative-fixture verifiers (`scripts/verify_*_negative_fixture.sh`) mutate disposable
 copies of a real artifact and assert that every mutation is rejected. They are evidence
 of fail-closed behaviour and never evidence of a successful installation.
+
+The Flatpak is the only format that builds the Rust binary **inside** its own pinned
+runtime (`org.freedesktop.Sdk` 26.08 plus the official Rust SDK extension), because a
+Flatpak must link against the runtime's glibc rather than the host's. Its Cargo sources
+are pinned by the checksums recorded in `Cargo.lock` and listed in
+`installer/linux/flatpak/cargo-sources.json`; regenerate and check that file with
+
+```bash
+bash scripts/generate_flatpak_cargo_sources.sh
+bash scripts/generate_flatpak_cargo_sources.sh --check
+```
+
+`tests/linux_flatpak_packaging_test.rs` fails when the committed list diverges from
+`Cargo.lock`. Building or running the package needs Linux with bubblewrap, so it is
+verified in CI only (see `docs/KNOWN_ISSUES.md` §4).
 
 ## 5. Repository state definitions
 
