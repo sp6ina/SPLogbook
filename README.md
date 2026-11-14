@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/badge/Development-1.3.0--alpha.1-orange.svg" alt="Development Version">
   <img src="https://img.shields.io/badge/Release_Status-Not_Published-yellow.svg" alt="Release Status">
   <a href="https://github.com/sp6ina/SPLogbook/actions"><img src="https://github.com/sp6ina/SPLogbook/actions/workflows/build-and-release.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/Tests-2743%2F2743_Passed-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-2756%2F2756_Passed-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/i18n-7_Languages-cyan.svg" alt="i18n">
   <a href="https://buycoffee.to/sp6ina"><img src="https://img.shields.io/badge/☕_Buy_Me_a_Coffee-buycoffee.to%2Fsp6ina-FFDD00?style=flat&logoColor=black" alt="Buy Me a Coffee"></a>
 </p>
@@ -392,7 +392,7 @@ A modern, asynchronous rig control subsystem powered by the `RigHub` multi-radio
 - **FlexRadio** — native SmartSDR TCP API (v2.0–3.x) with slice/meter subscriptions and automatic UDP discovery (port 4992).
 - **FLRig (XML-RPC)** — cross-platform rig control via FLDigi's companion server.
 - **TCI (WebSocket)** — high-speed Transceiver Control Interface for SDR platforms (SunSDR2, Thetis, ExpertSDR3).
-- **RF Safety & HIL Harness** — `TxArbiter` enforcing single-TX lockout and zero retry on `SetPtt(true)`, safe read-only probe (`ProbeState`), and laboratory Hardware-in-the-Loop harness (`src/cat/hil/`) requiring mandatory 50 Ω dummy load termination. Features a multi-axis evidence model separating `OfflineModel`, `SimulatedRuntime`, and `PhysicalRuntime` contexts with strict 8-variant evidence origin classification (`RepositoryMeasurement`, `SoftwareBaselineArtifact`, `ConfigurationArtifact`, `SyntheticOfflineFixture`, `MockRuntime`, `OperatorDeclaration`, `InstrumentInterface`, `PhysicalMeasurement`). Evaluates the 30 immutable canonical HIL-READY conditions plus 22 extended `HIL-X01`..`HIL-X22` requirements. Software baseline is fully verified and **PASSED** (297 deterministic offline HIL tests passed, 2743 total across the suite), while physical runtime execution (NATIVE-7B) remains formally **BLOCKED** pending physical test bench connection.
+- **RF Safety & HIL Harness** — `TxArbiter` enforcing single-TX lockout and zero retry on `SetPtt(true)`, safe read-only probe (`ProbeState`), and laboratory Hardware-in-the-Loop harness (`src/cat/hil/`) requiring mandatory 50 Ω dummy load termination. Features a multi-axis evidence model separating `OfflineModel`, `SimulatedRuntime`, and `PhysicalRuntime` contexts with strict 8-variant evidence origin classification (`RepositoryMeasurement`, `SoftwareBaselineArtifact`, `ConfigurationArtifact`, `SyntheticOfflineFixture`, `MockRuntime`, `OperatorDeclaration`, `InstrumentInterface`, `PhysicalMeasurement`). Evaluates the 30 immutable canonical HIL-READY conditions plus 22 extended `HIL-X01`..`HIL-X22` requirements. Software baseline is fully verified and **PASSED** (297 deterministic offline HIL tests passed, 2756 total across the suite), while physical runtime execution (NATIVE-7B) remains formally **BLOCKED** pending physical test bench connection.
 
 ---
 
@@ -624,7 +624,7 @@ Ensure you have the Rust toolchain (version $\ge 1.99.0$) installed.
 git clone https://github.com/sp6ina/SPLogbook.git
 cd SPLogbook
 
-# 2. Run the automated test suite (2743 active tests passed, 2754 registered, 10 HIL skipped)
+# 2. Run the automated test suite (2756 active tests passed, 2767 registered, 10 HIL skipped)
 cargo test --workspace --all-targets
 
 # 3. Build optimized release binary with Link-Time Optimization (LTO)
@@ -651,9 +651,9 @@ The compiled standalone binary will be located at:
 - Linux: `target/release/SPLogbook`
 
 ### 🧪 Automated Quality & Test Suite Verification
-- **Total Registered Tests**: 2754
-- **Total Executed Tests**: 2743
-- **Total Passed Tests**: 2743
+- **Total Registered Tests**: 2767
+- **Total Executed Tests**: 2756
+- **Total Passed Tests**: 2756
 - **Total Failed Tests**: 0
 - **Total Ignored Tests**: 10 (Hardware-in-the-Loop lab harness, isolated in `tests/cat_native_7.rs`)
 - **HIL Ignored Tests**: 10

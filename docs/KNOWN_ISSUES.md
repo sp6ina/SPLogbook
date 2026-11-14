@@ -129,3 +129,47 @@ Recorded decision identifiers and where each one is implemented are listed in
 - The owner's build host requires `-j 1`; `-j 2` exhausts the page file (`os error 1455`).
 - There is no local Linux or Docker environment for native distribution testing; those
   proofs come from CI.
+
+## 5. Resolved test-infrastructure issues (history)
+
+Kept so that a recurrence is recognised instead of being rediscovered. These are not
+product defects and no user-facing behaviour is affected.
+
+### QA-XDG-01 — parallel process-environment mutation in XDG tests (resolved 2026-11-14)
+
+CI run `43571747469` attempt 1 failed on `tests/linux_xdg_data_preservation_test.rs:47`
+(`test_xdg_base_directory_resolution_enforces_absolute_paths`):
+
+```
+assertion `left == right` failed
+  left: "/tmp/.tmpTUCjtX/home_user/.config/splogbook"
+ right: "/tmp/.tmpTUCjtX/custom_config/splogbook"
+```
+
+Three tests in the same test binary mutated process-global `HOME`/`XDG_*` without mutual
+exclusion, and `XdgPaths::resolve()` reads `HOME` first and `XDG_CONFIG_HOME` later, so a
+concurrent test could replace the values between those reads. Attempt 2 of the same run
+passed with no code change, which confirmed a race rather than a logic error.
+
+Resolution: every `HOME`/`XDG_*` mutation in tests goes through one shared RAII guard
+(`tests/support/process_env.rs`) — a single per-process mutex, snapshot/restore that
+distinguishes an absent variable from an empty one, restoration during unwinding, poisoned
+mutex recovery, and explicit rejection of nested guards. The two env-mutating unit tests
+moved from `src/core/xdg.rs` to the integration suite, so the library test binary no longer
+mutates the environment. The HIL test binary keeps its own lock for the disjoint
+`SPLOG_HIL_*` namespace and no longer writes an unsynchronised reference-time seed (the
+deterministic time is passed explicitly). `security_guard` enforces all of these rules.
+Measured evidence: `security_guard` 127/127, `linux_xdg_data_preservation_test` 7/7,
+`process_environment_isolation_test` 12/12 and 670 deterministic stress iterations with
+0 failures — see [`VERIFICATION_BASELINE.md`](VERIFICATION_BASELINE.md) §6. No retry,
+`#[ignore]`, test filtering or global `--test-threads=1` was used.
+
+### QA-RANDOM-01 — random temp-directory name could trip the `iex` denial assertion (resolved 2026-11-14)
+
+`m3_b_stability_20_iterations_helper_parity_and_e2e_cycle` generates a PowerShell fallback
+script from a request whose paths point into a `tempfile::tempdir()`. The assertion that the
+script contains no `iex` alias was applied to the whole rendered script, so a random temp
+directory name that happened to contain the letters `iex` made the test fail with no product
+defect. The assertion now strips the random installation-root prefix before checking the
+forbidden tokens; every security assertion is unchanged. Found during the final verification
+of the environment-determinism gate.

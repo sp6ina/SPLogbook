@@ -98,6 +98,34 @@ an attested 50 Ω dummy load and explicit operator consent. See
 [`Native CAT.md`](../Native%20CAT.md) and
 [`HARDWARE_VALIDATION_MATRIX.md`](HARDWARE_VALIDATION_MATRIX.md).
 
+### 3.3 Process environment in tests
+
+Process environment variables are global to the test process and are unsafe to mutate while
+another thread reads them (Rust 2024 marks `std::env::set_var`/`remove_var` as `unsafe`).
+Tests must therefore never call them directly.
+
+- All `HOME`, `XDG_*`, `TMP`, `TEMP`, `TMPDIR` and any other process-environment mutation in
+  a test binary must go through the shared guard enabled with
+  `#[path = "support/process_env.rs"] mod process_env;`.
+- The guard acquires one per-process `Mutex`, snapshots the original state (including
+  "the variable did not exist"), applies the requested values, and restores everything in
+  `Drop` — also while unwinding after a panic. The mutex is recovered from a poisoned state
+  so one panicking test cannot cascade into unrelated failures.
+- A guard is not re-entrant: `EnvGuard::try_new` returns `EnvGuardError::NestedGuard` for the
+  same thread and `EnvGuardError::Busy` when another thread holds the lock. Do not work around
+  this with `sleep`, retries or `--test-threads=1`.
+- Tests that do not touch the environment keep running in parallel; the lock covers only the
+  guarded section.
+- `tests/cat_native_7.rs` is the single documented exception: its offline HIL tests serialize
+  the disjoint `SPLOG_HIL_*` namespace with their own `tokio::sync::Mutex`, in a separate test
+  process. Both mechanisms are enforced by `security_guard`.
+- `std::env::set_current_dir` is a process-global mutation as well. No test may call it
+  without a restoring guard; `security_guard` rejects new occurrences.
+
+The contract and negative tests for the guard live in
+`tests/process_environment_isolation_test.rs`; the verified iteration counts are recorded in
+[`VERIFICATION_BASELINE.md`](VERIFICATION_BASELINE.md) §6.
+
 ## 4. Local Linux packaging builds
 
 Each package has its own build and verify scripts; every verifier is fail-closed and
