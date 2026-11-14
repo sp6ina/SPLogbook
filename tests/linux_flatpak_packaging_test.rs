@@ -930,8 +930,105 @@ fn flatpak_build_commands_read_the_included_cargo_sources_projection() {
     );
 }
 
+/// Prefiksy instalacji toolchainu z `install.sh --prefix="${PWD}/<dir>"`.
+fn installer_prefixes(text: &str) -> Vec<String> {
+    const MARKER: &str = "--prefix=\"${PWD}/";
+    let mut prefixes = Vec::new();
+    let mut rest = text;
+    while let Some(position) = rest.find(MARKER) {
+        let after = &rest[position + MARKER.len()..];
+        match after.find('"') {
+            Some(end) => {
+                prefixes.push(after[..end].to_string());
+                rest = &after[end..];
+            }
+            None => break,
+        }
+    }
+    prefixes
+}
+
+/// Katalogi `bin` odwoływane przez komendy jako `${PWD}/<dir>/bin`.
+fn pwd_bin_dirs(text: &str) -> Vec<String> {
+    const MARKER: &str = "${PWD}/";
+    let mut dirs = Vec::new();
+    let mut rest = text;
+    while let Some(position) = rest.find(MARKER) {
+        let after = &rest[position + MARKER.len()..];
+        let token_len = after
+            .char_indices()
+            .find(|(_, c)| !(c.is_ascii_alphanumeric() || *c == '-' || *c == '_'))
+            .map(|(index, _)| index)
+            .unwrap_or(after.len());
+        if after[token_len..].starts_with("/bin") {
+            dirs.push(after[..token_len].to_string());
+        }
+        rest = &after[token_len.max(1)..];
+    }
+    dirs
+}
+
+#[test]
+fn flatpak_rust_toolchain_is_materialised_for_every_build_command() {
+    // Regresja M3-J failure #10 (run 43635855927). Przypięte archiwum
+    // `rust-<wersja>-<target>.tar.gz` to oficjalny *combined installer*: jego
+    // najwyższy poziom zawiera `install.sh` i katalogi komponentów, a nie
+    // gotowy prefiks z `bin/rustc`. flatpak-builder uruchamia każdą komendę
+    // budowania w osobnym `/bin/sh -c`, więc `export PATH` z jednej komendy nie
+    // dociera do następnej — toolchain musi być materializowany raz i być na
+    // PATH wszystkich komend.
+    let text = manifest();
+
+    // 1. Instalator musi być uruchomiony z przypiętego archiwum.
+    assert!(
+        text.contains("./rust-toolchain/install.sh"),
+        "manifest musi materializować toolchain z przypiętego instalatora"
+    );
+
+    // 2. Prefiks instalacji musi być inny niż katalog instalatora: install.sh
+    //    odmawia instalacji do katalogu, w którym sam leży.
+    let prefixes = installer_prefixes(&text);
+    assert_eq!(
+        prefixes.len(),
+        1,
+        "manifest musi wybrać dokładnie jeden prefiks instalacji toolchainu, ma: {prefixes:?}"
+    );
+    let prefix = prefixes[0].as_str();
+    assert!(
+        !prefix.starts_with("rust-toolchain"),
+        "install.sh nie może instalować do własnego katalogu (prefiks {prefix:?})"
+    );
+
+    // 3. Ten sam prefiks musi być prependowany do PATH wszystkich komend.
+    let expected_prepend = format!("prepend-path: /run/build/splogbook/{prefix}/bin");
+    assert!(
+        text.contains(&expected_prepend),
+        "build-options musi prependować {prefix:?} do PATH, aby toolchain był widoczny \
+         w każdej komendzie budowania"
+    );
+
+    // 4. Żadna komenda nie może polegać na katalogu `bin` samego archiwum.
+    let referenced_bins = pwd_bin_dirs(&text);
+    assert!(
+        !referenced_bins.is_empty(),
+        "komendy budowania muszą używać zmaterializowanego toolchainu"
+    );
+    for bin in &referenced_bins {
+        assert_eq!(
+            bin, prefix,
+            "komenda budowania używa katalogu bin {bin:?}, którego instalator nie tworzy"
+        );
+    }
+
+    // 5. Toolchain nie może trafić do /app: końcowy bundle nie może go zawierać.
+    assert!(
+        !text.contains("--prefix=\"/app") && !text.contains("--prefix=/app"),
+        "toolchain nie może być instalowany do /app"
+    );
+}
+
 // ============================================================================
-// 11. CI: zachowanie kodu wyjścia i diagnostyka `if: always()`
+// 12. CI: zachowanie kodu wyjścia i diagnostyka `if: always()`
 // ============================================================================
 
 const DIAGNOSTICS_ARTIFACT: &str = "SPLogbook-Linux-x86_64-flatpak-diagnostics";
