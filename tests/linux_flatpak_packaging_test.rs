@@ -786,6 +786,44 @@ fn flatpak_verifier_accepts_the_real_exported_tree_and_flatpak_metadata() {
 }
 
 #[test]
+fn flatpak_builder_pins_the_recorded_source_date_epoch() {
+    // Regresja M3-J #13 (run 43643071077): bez `--override-source-date-epoch`
+    // flatpak-builder zapisuje w /app/manifest.json czas modyfikacji pliku
+    // manifestu. Każdy job CI robi checkout w innym momencie, więc to pole —
+    // i cały payload — różniło się między dwoma buildami tego samego commita.
+    let builder = read_repo_file("scripts/build_linux_flatpak.sh");
+    assert!(
+        builder.contains("--override-source-date-epoch=\"${SOURCE_DATE_EPOCH}\""),
+        "builder musi przypinać epoch zapisywany przez flatpak-builder"
+    );
+    assert!(
+        builder
+            .contains("git -C \"${REPO_ROOT}\" log -1 --format=%ct \"${EXPECTED_BUILD_COMMIT}\""),
+        "epoch musi pochodzić z czasu commita, a nie z mtime pliku"
+    );
+}
+
+#[test]
+fn flatpak_verifier_reads_the_installed_commit_with_supported_commands() {
+    // Regresja M3-J #14 (run 43643071077): `flatpak list --columns` w wersji
+    // 1.16.x nie ma kolumny `commit` (`error: Unknown column: commit`), więc
+    // trzy joby Verify padały tuż po instalacji bundle'a.
+    let verifier = read_repo_file("scripts/verify_linux_flatpak.sh");
+    assert!(
+        verifier.contains("flatpak --user info --show-commit \"${APP_ID}\""),
+        "weryfikator musi czytać aktywny commit przez flatpak info --show-commit"
+    );
+    for line in verifier.lines() {
+        if line.contains("--columns=") {
+            assert!(
+                !line.contains("commit"),
+                "kolumna `commit` nie istnieje w flatpak list 1.16.x: {line}"
+            );
+        }
+    }
+}
+
+#[test]
 fn flatpak_negative_harness_covers_the_required_fixture_families() {
     let text = read_repo_file("scripts/verify_linux_flatpak_negative_fixture.sh");
     let cases = text.matches("expect_reject \"").count();
