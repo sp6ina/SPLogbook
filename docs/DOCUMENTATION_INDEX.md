@@ -1,116 +1,102 @@
-# SPLogbook — INDEKS DOKUMENTACJI
+# SPLogbook — Documentation index
 
-**Dokument ID:** DSH-SPLOGBOOK-DOCIDX-001
-**Data:** **2026-11-14** (poprzednio 2026-11-09)
-**Zakres:** wszystkie śledzone dokumenty Markdown w repozytorium (stan po bramce `STAGE-M3-I-SEC`).
-**Zasada:** ten plik jest **wyłącznie indeksem** i nie tworzy konkurencyjnego źródła prawdy.
+Every Markdown document tracked in this repository is listed here. `security_guard`
+enforces this: a new document must be added to this index in the same commit that adds it.
 
-Legenda statusu: `CURRENT` — aktualny; `PARTIAL` — częściowo nieaktualny (wskazano obszar);
-`HISTORICAL` — zapis historyczny, nie źródło bieżącego stanu; `SUPERSEDED` — zastąpiony decyzją OWNER;
-`EVIDENCE` — raport dowodowy zamkniętej bramki.
+Legend: **CURRENT** — current and authoritative; **REFERENCE** — stable technical reference;
+**EVIDENCE** — immutable historical record that must not be edited to look current.
 
-## 1. Dokumenty nadrzędne
+---
 
-| Ścieżka | Rola | Status | Uwagi / korekty |
-|---|---|---|---|
-| `AGENTS.md` | obowiązkowe zasady operacyjne agentów | `CURRENT` | nowy w bramce QA 2026-11-09 |
-| `README.md` | opis produktu, funkcje, status | `PARTIAL` | sekcja Linux (ok. linii 531) nadal opisuje zastąpioną politykę — do korekty w bramce polityki Linux (DOC-DSH-04) |
-| `MASTER_IMPLEMENTATION_PLAN.md` | kolejność i zależności etapów | `PARTIAL` | blok „Informacje o środowisku” (MSRV 1.85, wersja 1.1.0, „brak MSI”) jest nieaktualny (DOC-DSH-03) |
-| `docs/PROJECT_CURRENT_STATE.md` | jednostronicowy stan prawdy | `CURRENT` | generowany przy zamknięciu każdej bramki (2026-11-14: M3-I `COMPLETED`, M3-I-SEC `COMPLETED`) |
-| `docs/NEXT_WORK_GATE.md` | dokładnie jedna następna bramka | `CURRENT` | wskazuje `M3-J` (Flatpak, `NOT_STARTED`, `OWNER_GO_REQUIRED`); M3-I i M3-I-SEC `COMPLETED`; M3-H i M3-G `CLOSED`; F-03 `CLOSED` |
-| `docs/PROJECT_ARCHITECTURE_MAP.md` | mapa modułów i przepływów | `CURRENT` | zastępuje `docs/ARCHITECTURE_CURRENT_STATE.md` jako opis bieżący |
-| `docs/DEEPSEEK_HARNESS_HANDOFF.md` | raport przejęcia Antigravity → DSH | `CURRENT` | operacyjne podsumowanie raportu ingestii |
-| `docs/DEEPSEEK_HARNESS_SESSION_BOOTSTRAP.md` | procedura startu sesji | `CURRENT` | |
-| `docs/DEEPSEEK_HARNESS_REQUIRED_CAPABILITIES.md` | wymagane zdolności harnessu | `CURRENT` | |
-| `docs/DOCUMENTATION_INDEX.md` | ten indeks | `CURRENT` | |
-| `docs/DECISION_TRACEABILITY_MATRIX.md` | decyzja → kod → test → commit | `CURRENT` | zawiera wiersze `OWNER_INTENT_NOT_YET_IN_REPO` |
-| `DEEPSEEK_HARNESS_PROJECT_INGESTION_AND_HANDOFF_REPORT.md` | pełny raport ingestii i audytu przejęcia | `EVIDENCE` | dodany do repo w bramce QA; nie zmieniać ustaleń bez dowodu |
+## 1. Project entry points
 
-## 2. Dokumenty projektowe (DESIGN)
-
-| Ścieżka | Rola | Status |
+| Path | Role | Status |
 |---|---|---|
-| `DESIGN_3_0_A_WINDOWS_UPDATE.md` | architektura aktualizacji Windows (ZIP, staging, rollback, health) | `CURRENT` |
-| `DESIGN_3_0_B_LINUX_UPDATE.md` | architektura aktualizacji Linux | `PARTIAL` — limity/glibc/layout i polityka dystrybucji do korekty (DOC-DSH-10), `SUPERSEDED` w części „glibc 2.35” i macierzy 7 dystrybucji |
-| `DESIGN_3_0_C_PLATFORM_INSTALLERS.md` | wspólny model instalatorów platformowych | `CURRENT` (adnotacja o braku rozszerzenia manifestu — DOC-DSH-11) |
+| `README.md` | product overview, features, requirements, installation, licensing | CURRENT |
+| `CHANGELOG.md` | public release history and unreleased development line | CURRENT |
+| `CONTRIBUTING.md` | contribution workflow, required checks, test and code rules | CURRENT |
+| `SECURITY.md` | security policy, reporting, guarantees, dependency policy | CURRENT |
 
-## 3. Rejestry i plany naprawcze
+The full license text is in `LICENSE` (GPL-3.0); `LICENSE` is not Markdown and is therefore
+not listed in this index.
 
-| Ścieżka | Rola | Status |
+## 2. Maintainer documentation
+
+| Path | Role | Status |
 |---|---|---|
-| `docs/AUDIT_FINDINGS_REGISTER.md` | rejestr znalezisk audytowych SEC/DATA/FUNC/CAT/ARCH/PERF/GUI/TEST/DOC/CI/DEP | `PARTIAL` — nie zawiera jeszcze F-23/F-24/F-25 z raportu ingestii; liczniki historyczne |
-| `docs/IMPROVEMENT_ROADMAP.md` | roadmapa 10 etapów i kategorii zmian | `PARTIAL` — Etap 1-10 opisany historycznie; polityka Linux do korekty |
-| `docs/REMEDIATION_BASELINE.md` | baza pomiarowa programu naprawczego | `PARTIAL` — liczniki z 2026-10-28/11-03 (1 519 / 1 874), nieaktualne wobec 2 698 |
-| `docs/TEST_GAP_ANALYSIS.md` | analiza luk testowych | `HISTORICAL` |
-| `docs/FULL_PROGRAM_AUDIT.md` | audyt całego programu | `HISTORICAL` |
-| `docs/HISTORICAL_RELEASE_AUDIT.md` | audyt wydań historycznych | `HISTORICAL` |
-| `docs/ARCHITECTURE_CURRENT_STATE.md` | opis architektury z `6f7d3aa` | `HISTORICAL` — nazywa pliki, które już nie istnieją (DOC-DSH-06) |
-| `docs/ARCHITECTURE_TARGET_STATE.md` | architektura docelowa | `HISTORICAL` |
-| `docs/ARCHITECTURE_THEMES.md` | motywy GUI | `HISTORICAL` |
-| `docs/RELEASE_SECURITY.md` | bezpieczeństwo wydań | `PARTIAL` — §5 opisuje `.backup_<id>` zamiast `JOURNALED_TRANSACTIONAL_REPLACEMENT` (DOC-DSH-08) |
-| `docs/DATABASE_BACKUP_RECOVERY.md` | backup/odzyskiwanie SQLite | `PARTIAL` — nazwa `splogbook.db` vs `default_log.db` (DOC-DSH-09) |
-| `docs/SECURITY_KEY_ROTATION.md` | rotacja kluczy | `CURRENT` |
-| `Native CAT.md` | dokumentacja CAT/HIL | `PARTIAL` — liczniki testów historyczne (DOC-DSH-01) |
+| `docs/DEVELOPMENT.md` | toolchain pins, build, test baseline, packaging commands, git workflow, documentation policy | CURRENT |
+| `docs/VERIFICATION_BASELINE.md` | single source of truth for verified test counters, audit state and measurement date | CURRENT |
+| `docs/ROADMAP.md` | public roadmap: delivered milestones, closed risks, not-started work | CURRENT |
+| `docs/KNOWN_ISSUES.md` | open defects, open decisions, not-implemented areas, environment limits | CURRENT |
+| `docs/SECURITY_PROCESS.md` | maintainer security process: audit policy, key handling, fail-closed rules, CI controls | CURRENT |
+| `docs/DOCUMENTATION_INDEX.md` | this index | CURRENT |
 
-## 4. Raporty bramek (EVIDENCE)
+## 3. Architecture
 
-| Ścieżka | Bramka | Status |
+| Path | Role | Status |
 |---|---|---|
-| `STAGE_9_EXECUTION_REPORT.md`, `STAGE_9_FINAL_GATE_REPORT.md` | etap 9 | `EVIDENCE` |
-| `STAGE_10_EXECUTION_REPORT.md`, `STAGE_10_FINAL_GATE_REPORT.md` | etap 10 | `EVIDENCE` |
-| `STAGE_M1_COVERAGE_AND_STATUS_REPORT.md` | M1 | `EVIDENCE` |
-| `STAGE_M2_INSTALLER_DESIGN_GATE_REPORT.md`, `STAGE_M2_OWNER_DECISIONS_APPROVAL_REPORT.md` | M2 | `EVIDENCE` |
-| `STAGE_M3_A_*` | M3-A | `EVIDENCE` |
-| `STAGE_M3_B_*` (+ duplikaty w `docs/`) | M3-B | `EVIDENCE` — duplikaty do usunięcia (DOC-DSH-15) |
-| `STAGE_M3_C_*` | M3-C | `EVIDENCE` |
-| `STAGE_M3_D_*` | M3-D | `EVIDENCE` — §6.3 deklaruje E2E z `/NOICONS` (parametr niedziałający przy `DisableProgramGroupPage=yes`); nie wpływa na ważność implementacji |
-| `STAGE_M3_E_*` | M3-E | `EVIDENCE` |
-| `STAGE_M3_DEV_VERSION_*` | M3-DEV | `EVIDENCE` |
-| `STAGE_M3_F_LINUX_PORTABLE_TAR_GZ_*` | M3-F | `EVIDENCE` — polityka dystrybucji `SUPERSEDED` (errata 2026-11-09) |
-| `STAGE_M3_F_NATIVE_LINUX_EVIDENCE_AND_SNAPSHOT_CORRECTION_*` | M3-F native | `EVIDENCE` — dowód userspace/CI, nie dowód jądra (errata 2026-11-09) |
-| `STAGE_M3_F_LINUX_SUPPORT_POLICY_ALIGNMENT_PRE_IMPLEMENTATION_REPORT.md` | M3-F policy | `EVIDENCE` — raport wstępny |
-| `STAGE_M3_F_LINUX_SUPPORT_POLICY_ALIGNMENT_REPORT.md` | M3-F policy | `EVIDENCE` — `COMPLETED_POLICY_ALIGNMENT_VERIFIED`; errata 2026-11-09 (klasyfikacja `scratch/`, chronologia pushu, klasyfikacja dowodu natywnego) |
-| `STAGE_M3_F_POST_CLOSURE_CONSISTENCY_VERIFICATION_PRE_IMPLEMENTATION_REPORT.md` | M3-F post-closure consistency | `EVIDENCE` — raport wstępny |
-| `STAGE_M3_F_POST_CLOSURE_CONSISTENCY_VERIFICATION_REPORT.md` | M3-F post-closure consistency | `EVIDENCE` — `COMPLETED_POST_CLOSURE_CONSISTENCY_VERIFIED` (domknięta **jedną sesją**: commit + push ff-only); definiuje bramkę F-03; liczniki wyłącznie z własnego pomiaru tej sesji |
-| `STAGE_M3_F_F03_FAIL_CLOSED_CI_VERIFICATION_PRE_IMPLEMENTATION_REPORT.md` | M3-F F-03 | `EVIDENCE` — raport wstępny (analiza, plan, kryteria) |
-| `STAGE_M3_F_F03_FAIL_CLOSED_CI_VERIFICATION_REPORT.md` | M3-F F-03 | `EVIDENCE` — `COMPLETED_FAIL_CLOSED_CI_VERIFICATION_VERIFIED`; run `42685105375` (4/4 profile, zero `not found`, GLIBC ≤ 2.43) + test negatywny |
-| `STAGE_M3_G_LINUX_APPIMAGE_PRE_IMPLEMENTATION_REPORT.md` | M3-G | `EVIDENCE` — raport przedimplementacyjny z sekcją „M3-G APPIMAGETOOL CONTINUOUS RESOLUTION UPDATE” |
-| `STAGE_M3_G_LINUX_APPIMAGE_BLOCKED_REPORT.md` | M3-G | `EVIDENCE` — `BLOCKED_NEW_DEPENDENCY_ADVISORY` (`RUSTSEC-2026-0486`, `rustix 1.1.5`); implementacja i weryfikacja AppImage wykonane |
-| `STAGE_M3_G_LINUX_APPIMAGE_INTEGRATION_REPORT.md` | M3-G | `EVIDENCE` — `COMPLETED_APPIMAGE_INTEGRATION_VERIFIED` (4/4 profile, 12/12 negatywnych, FUSE `VERIFIED`) |
-| `STAGE_M3_H_LINUX_DEB_PRE_IMPLEMENTATION_REPORT.md` | M3-H | `EVIDENCE` — raport przedimplementacyjny (61 punktów, decyzje OWNER-M3-H-01..10) |
-| `STAGE_M3_H_LINUX_DEB_INTEGRATION_REPORT.md` | M3-H | `EVIDENCE` — `COMPLETED_DEB_INTEGRATION_VERIFIED` (run `43245181565`, 27/27 negatywnych, lintian 0 errors, pełny cykl życia) |
-| `STAGE_M3_I_LINUX_RPM_PRE_IMPLEMENTATION_REPORT.md` | M3-I | `EVIDENCE` — raport przedimplementacyjny RPM |
-| `STAGE_M3_I_LINUX_RPM_INTEGRATION_REPORT.md` | M3-I | `EVIDENCE` — **`COMPLETED_RPM_INTEGRATION_VERIFIED`** (2026-11-14); historia blokady `RUSTSEC-2026-0523/0524/0538` zachowana w §1 i §24, odblokowanie w §25; RPM build/verify/34/34/lifecycle = PASS; `CI` `43485657304` + `Build and Release` `43485657283` = `success` |
-| `STAGE_M3_I_RUSTSEC_REMEDIATION_PRE_IMPLEMENTATION_REPORT.md` | M3-I-SEC | `EVIDENCE` — raport przedimplementacyjny remediacji RustSec (12 wariantów, wybór minimalny) |
-| `STAGE_M3_I_RUSTSEC_REMEDIATION_REPORT.md` | M3-I-SEC | `EVIDENCE` — **`COMPLETED_RUSTSEC_REMEDIATION_VERIFIED`**; `quinn-proto 0.11.19`, `quinn-udp 0.5.16`; `cargo audit` EXIT 0, bez nowych `--ignore` |
-| `STAGE_DEPENDENCY_RUSTIX_RUSTSEC_2026_0486_REMEDIATION_REPORT.md` | dependency | `EVIDENCE` — `COMPLETED_DEPENDENCY_ADVISORY_REMEDIATED` (`rustix 1.1.6`, `cargo audit` EXIT 0) |
-| `STAGE_QA_BASELINE_DETERMINISM_AND_HERMETICITY_PRE_IMPLEMENTATION_REPORT.md` | QA baseline | `EVIDENCE` |
-| `STAGE_QA_BASELINE_DETERMINISM_AND_HERMETICITY_REPORT.md` | QA baseline | `EVIDENCE` — `COMPLETED_DETERMINISTIC_HERMETIC_BASELINE_VERIFIED` |
-| `STAGE_QA_DEPENDENCY_ADVISORY_DECISION_PROPOSAL.md` | propozycja decyzji OWNER dla RUSTSEC-2026-0459 | `EVIDENCE` — rozstrzygnięta decyzją `OWNER-DEP-SECURITY-01` |
-| `STAGE_DEPENDENCY_SECURITY_UPDATE_PRE_IMPLEMENTATION_REPORT.md` | bramka aktualizacji zależności — raport wstępny | `EVIDENCE` |
-| `STAGE_DEPENDENCY_SECURITY_UPDATE_REPORT.md` | bramka aktualizacji zależności — raport końcowy | `EVIDENCE` — `COMPLETED_DEPENDENCY_SECURITY_UPDATE_VERIFIED` |
-| `UPDATE_ARTIFACT_INVENTORY_REPORT.md`, `UPDATE_PRE_IMPLEMENTATION_REPORT.md`, `UPDATE_TRUST_AND_DATA_SAFETY_GATE_REPORT.md` | tor UPDATE | `EVIDENCE` |
+| `docs/architecture/ARCHITECTURE.md` | module map, entry points, data flows, security boundaries, test map | CURRENT |
+| `docs/architecture/DECISIONS.md` | binding owner decisions, architectural invariants, decision → code → guard traceability | REFERENCE |
+| `docs/architecture/THEMES.md` | semantic palette and theme subsystem, theme guard contract | CURRENT |
+| `DESIGN_3_0_A_WINDOWS_UPDATE.md` | approved Windows installer and updater design | REFERENCE |
+| `DESIGN_3_0_B_LINUX_UPDATE.md` | approved Linux installer and updater design (see the errata banner at the top for superseded values) | REFERENCE |
+| `DESIGN_3_0_C_PLATFORM_INSTALLERS.md` | approved cross-platform installer contract and update state machine | REFERENCE |
 
-## 5. Propozycje decyzji OWNER (nierozstrzygnięte lub zastąpione)
+## 4. Security
 
-| Ścieżka | Status |
-|---|---|
-| `OWNER-M3-F-LINUX-BASELINE-01-PROPOSAL.md` | `SUPERSEDED` przez politykę OWNER z 2026-11-09: `OWNER-M3-F-KERNEL-POLICY-OPTION-A` (dynamiczne minimum **7.0**) + `OWNER-M3-F-GLIBC-POLICY-01` (**2.43**), bez Debian/Leap |
-| `STAGE_M3_F_OWNER_DECISIONS_PROPOSAL.md` | `SUPERSEDED` w części macierzy dystrybucji i modelu kernela |
-| `STAGE_M3_E_MSI_PRERELEASE_VERSIONING_DECISION_PROPOSAL.md` | `OPEN` — blokuje MSI dla `1.3.0-alpha.2` |
-| `STAGE_M3_E_WIX_TOOLCHAIN_DECISION_PROPOSAL.md` | `APPROVED` (`OWNER-M3-E-TOOLCHAIN-01`) |
+| Path | Role | Status |
+|---|---|---|
+| `docs/security/RELEASE_SECURITY.md` | release supply chain: manifest format, Ed25519 trust, archive hardening, journaled replacement, CI release flow | REFERENCE |
+| `docs/security/SECURITY_KEY_ROTATION.md` | SEC-001 incident record, key rotation runbook, emergency kill-switch, user migration | REFERENCE |
+| `docs/security/HISTORICAL_RELEASE_AUDIT.md` | per-release trust audit of every published GitHub release | EVIDENCE |
 
-## 6. Dokumenty lokalne, których NIE MA w repozytorium
+## 5. Platform support and data
 
-Wymieniane w starszych dokumentach jako źródła, ale **nieobecne** (nie szukaj ich, nie cytuj jako istniejących):
-`AUDIT_REPORT.md`, `PLAN.md`, `CODE_QUALITY_NORMALIZATION_PLAN.md`, `DESIGN_2_2_FINAL.md`,
-`DESIGN_3_1_UPDATER_SIGNATURES.md`, `REPORT_3_1_A_GITHUB_DIGEST.md`,
-`REPORT_CODE_QUALITY_P0_VERIFICATION.md`, `DEAD_CODE_VERIFICATION_REPORT.md`.
-Jeżeli decyzja z nich jest nadal wiążąca — musi być powtórzona inline w dokumencie bieżącym.
+| Path | Role | Status |
+|---|---|---|
+| `LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.md` | human-readable Linux support snapshot: kernel and glibc minimums, supported and evaluated distributions | CURRENT |
+| `LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.json` | machine-readable snapshot (`splogbook-linux-support-snapshot-v2`), validated by `security_guard` | CURRENT |
+| `docs/DATABASE_BACKUP_RECOVERY.md` | SQLite backup, validation, restore and operator recovery runbook | CURRENT |
+| `docs/HARDWARE_VALIDATION_MATRIX.md` | CAT protocol knowledge, per-backend hardware requirements, HIL preconditions | CURRENT |
 
-## 7. Zasady utrzymania indeksu
+## 6. Radio control (Native CAT)
 
-- Nowy dokument musi zostać dopisany tutaj w tym samym commicie, w którym powstaje.
-- Dokument `HISTORICAL` nie może być cytowany jako dowód bieżącego stanu.
-- Raport bramki nie nadpisuje kodu; kod nie nadpisuje decyzji OWNER.
-- Liczniki testów podaje się **wyłącznie** z pomiarem `cargo test -- --list` i datą pomiaru.
+| Path | Role | Status |
+|---|---|---|
+| `Native CAT.md` | native CAT architecture: backends, PTT invariants, HIL harness, RF safety | CURRENT |
+
+## 7. Packaging and installers
+
+| Path | Role | Status |
+|---|---|---|
+| `installer/linux/portable/README.md` | portable `tar.gz` layout, extraction rules, XDG data placement | CURRENT |
+| `installer/linux/appimage/README.md` | AppImage toolchain pins, AppDir layout, verification and FUSE proof | CURRENT |
+| `installer/linux/deb/README.md` | DEB package contract, `Depends`, layout, lifecycle, negative fixtures | CURRENT |
+| `installer/linux/rpm/README.md` | RPM package contract, explicit dependencies, RUNPATH, lifecycle, negative fixtures | CURRENT |
+| `installer/windows/inno/README.md` | Inno Setup user setup: approved toolchain, identity, input allowlist, uninstall safety | CURRENT |
+| `installer/windows/msi/README.md` | WiX MSI: toolchain, identity, components, delegation, conflict detection | CURRENT |
+
+## 8. Localization
+
+| Path | Role | Status |
+|---|---|---|
+| `locales/README.md` | translation catalog structure, keys, and the i18n guard contract | CURRENT |
+
+## 9. Documents intentionally not in this repository
+
+Working material — prompts, model handoffs, session notes, gate evidence logs, owner-local
+plans and pre-implementation reports — is kept outside the repository. It is never tracked,
+never published, and is excluded locally through `.git/info/exclude`, which is itself not
+tracked.
+
+If a document referenced from an older report is not listed in this index, it does not exist
+in this repository. Durable technical content that used to live only in such reports has been
+consolidated into the CURRENT and REFERENCE documents above.
+
+## 10. Maintenance rules
+
+1. A new document is added to this index in the same commit.
+2. `CURRENT` claims must be verifiable against the code; a document never overrides code.
+3. Counters appear only in `docs/VERIFICATION_BASELINE.md` and always carry a measurement date.
+4. `EVIDENCE` documents are not rewritten to look current.
+5. No tracked document links to a path that is not tracked.

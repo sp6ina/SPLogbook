@@ -61,10 +61,10 @@ jobs:
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
-          # Pin the documented project toolchain (Cargo.toml rust-version,
-          # docs/DEEPSEEK_HARNESS_HANDOFF.md). Rust 1.100.0 stable introduced
-          # clippy::map_unwrap_or findings in pre-existing src/** code; M3-H
-          # must not modify src/** or weaken -D warnings.
+          # Pin the documented project toolchain (Cargo.toml rust-version and
+          # docs/DEVELOPMENT.md). Do not bump it as a side effect of another change:
+          # newer stable releases introduce new clippy lints in pre-existing src/**,
+          # and -D warnings must never be weakened to accommodate them.
           toolchain: 1.99.0
           components: rustfmt, clippy
 
@@ -74,14 +74,12 @@ jobs:
       - name: Run clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-      # Kanoniczne liczniki bazowe (pomiar 2026-11-12, bramka M3-H DEB):
-      #   2735 registered / 2725 executed / 2725 passed / 0 failed / 10 ignored (HIL).
-      # Wzrost 2717->2735 i 2707->2725 wynika wyłącznie z dodania 17 testów
-      # kontraktu pakunku DEB (tests/linux_deb_packaging_test.rs) oraz
-      # strażnika m3_h_deb_integration_guard.
-      # Bramka QA 2026-11-09: standardowy baseline NIE wykonuje lokalnego instalatora
-      # i NIE zależy od katalogu dist/. Natywny E2E jest jawnym opt-in (patrz AGENTS.md)
-      # i nie jest włączany w tym jobie. Ten krok pilnuje hermetyczności kontraktu testów.
+      # Canonical counters, audit state and the counting method live in exactly one
+      # place: docs/VERIFICATION_BASELINE.md. They are never duplicated here.
+      # The standard baseline does not execute a local installer and does not depend
+      # on the dist/ directory. Native installer E2E is explicit opt-in and
+      # fail-closed (docs/DEVELOPMENT.md); this job only enforces the hermetic
+      # contract of the tests themselves.
       - name: Verify hermetic native-installer contract (F-24)
         run: cargo test --test security_guard qa_native_installer_tests_are_hermetic_and_fail_closed
 

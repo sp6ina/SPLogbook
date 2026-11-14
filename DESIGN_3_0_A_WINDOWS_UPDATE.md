@@ -1,4 +1,4 @@
-﻿# PROJEKT ARCHITEKTONICZNY: PAKIETY INSTALACYJNE I AKTUALIZATOR WINDOWS (PORTABLE ZIP, WIX MSI, INNO SETUP)
+# PROJEKT ARCHITEKTONICZNY: PAKIETY INSTALACYJNE I AKTUALIZATOR WINDOWS (PORTABLE ZIP, WIX MSI, INNO SETUP)
 # Dokument: DESIGN_3_0_A_WINDOWS_UPDATE.md
 
 ---
@@ -27,7 +27,7 @@
 - **Baseline Git HEAD:** `9730304b372bbe81d8be0bc45262028f6ef2408e`
 - **Gałąź referencyjna:** `main` / `repair/full-system-remediation`
 - **Wersja oprogramowania:** SPLogbook `v1.2.0` (kod źródłowy Rust 2024, MSRV 1.85+)
-- **Relacja do Etapu M1 i M2:** Etap M1 został w pełni zrealizowany i zweryfikowany testami oprogramowania (`STAGE_M1_COVERAGE_AND_STATUS_REPORT.md`, 36/36 kryteriów `WIN-M1` spełnionych). Bramka `STAGE-M2-INSTALLER-DESIGN-GATE` zamknęła projekt bazowy, a niniejsza wersja v2.1.0 formalizuje zatwierdzony rozszerzony zakres dla implementacji Etapu M3.
+- **Relacja do Etapu M1 i M2:** Etap M1 został w pełni zrealizowany i zweryfikowany testami oprogramowania — spełnione 36/36 kryteriów `WIN-M1`. Projekt bazowy instalatorów został zamknięty w bramce projektowej M2, a niniejsza wersja v2.1.0 formalizuje zatwierdzony rozszerzony zakres implementacji Etapu M3.
 
 ---
 

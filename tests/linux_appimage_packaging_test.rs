@@ -593,19 +593,18 @@ fn xdg_isolation_and_portable_pipeline_are_preserved() {
 
 #[test]
 fn documentation_records_the_m3_g_gate() {
-    let next_gate = read("docs/NEXT_WORK_GATE.md");
-    let state = read("docs/PROJECT_CURRENT_STATE.md");
+    let roadmap = read("docs/ROADMAP.md");
 
     assert!(
-        next_gate.contains("STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE"),
-        "the next-work-gate document must reference M3-G"
+        roadmap.contains("M3-G") && roadmap.contains("AppImage"),
+        "the public roadmap must record the delivered M3-G AppImage milestone"
     );
     assert!(
-        next_gate.contains("F03_STATUS: `CLOSED`"),
-        "F-03 must remain CLOSED"
+        roadmap.contains("F-03") && roadmap.contains("CLOSED"),
+        "F-03 must remain CLOSED in the public roadmap"
     );
     assert!(
-        state.contains("M3-G"),
-        "the project state must document the M3-G gate"
+        roadmap.contains("NATIVE VERIFICATION COMPLETED SUCCESSFULLY"),
+        "the roadmap must record the fail-closed native verification verdict"
     );
 }

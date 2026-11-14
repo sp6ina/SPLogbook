@@ -32,7 +32,7 @@
 - **Baseline Git HEAD:** `7bb8a2ddeefb7b61c02318e82ce3a8a72216ba6b`
 - **Gałąź referencyjna:** `main` / `repair/full-system-remediation`
 - **Wersja oprogramowania:** SPLogbook `v1.2.0` (kod źródłowy Rust 2024, MSRV 1.85+)
-- **Relacja do Etapu M1 i M2:** W Etapie M1 zweryfikowano pełne pokrycie 40/40 kryteriów `LINUX-M1` (`STAGE_M1_COVERAGE_AND_STATUS_REPORT.md`). Bramka `STAGE-M2-INSTALLER-DESIGN-GATE` zamknęła projekt bazowy, a niniejsza wersja v2.1.0 formalizuje zatwierdzony rozszerzony zakres dla implementacji Etapu M3.
+- **Relacja do Etapu M1 i M2:** W Etapie M1 zweryfikowano pełne pokrycie 40/40 kryteriów `LINUX-M1`. Projekt bazowy instalatorów został zamknięty w bramce projektowej M2, a niniejsza wersja v2.1.0 formalizuje zatwierdzony rozszerzony zakres implementacji Etapu M3.
 
 ---
 
