@@ -270,7 +270,7 @@ PY
 appstreamcli validate --no-net "${METainfo}" || fail "appstreamcli rejected the AppStream metadata"
 desktop-file-validate "${DESKTOP_FILE}" || fail "desktop-file-validate rejected the desktop entry"
 grep -q "<id>${APP_ID}</id>" "${METainfo}" || fail "AppStream id mismatch"
-grep -q "desktop-id>${APP_ID}.desktop<" "${METainfo}" || fail "AppStream launchable mismatch"
+grep -q ">${APP_ID}.desktop</launchable>" "${METainfo}" || fail "AppStream launchable mismatch"
 grep -q "<project_license>GPL-3.0-or-later</project_license>" "${METainfo}" \
     || fail "AppStream project license mismatch"
 grep -q "<metadata_license>CC0-1.0</metadata_license>" "${METainfo}" \

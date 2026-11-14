@@ -399,7 +399,7 @@ c42() {
 }
 expect_reject "wrong AppStream metadata license" c42
 
-c43() { reset_repo; mutate_metainfo "s#desktop-id>${APP_ID}.desktop<#desktop-id>io.github.sp6ina.Other.desktop<#"; run_verify_static; }
+c43() { reset_repo; mutate_metainfo "s#>${APP_ID}.desktop</launchable>#>io.github.sp6ina.Other.desktop</launchable>#"; run_verify_static; }
 expect_reject "mismatching launchable desktop-id" c43
 
 c44() { reset_repo; mutate_manifest 's/^  - --share=network$/  - --share=ipc/'; run_verify_static; }

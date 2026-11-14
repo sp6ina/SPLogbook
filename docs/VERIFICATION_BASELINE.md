@@ -26,9 +26,9 @@ cargo test --workspace --all-targets -j 1 -- --skip powershell_real_execution_fu
 
 | Metric | Value |
 |---|---|
-| TOTAL REGISTERED TESTS: | 2790 |
-| TOTAL EXECUTED TESTS: | 2779 |
-| TOTAL PASSED TESTS: | 2779 |
+| TOTAL REGISTERED TESTS: | 2791 |
+| TOTAL EXECUTED TESTS: | 2780 |
+| TOTAL PASSED TESTS: | 2780 |
 | TOTAL FAILED TESTS: | 0 |
 | TOTAL IGNORED TESTS: | 10 |
 | HIL IGNORED TESTS: | 10 |
@@ -46,7 +46,7 @@ a product defect.
 | Suite | Value |
 |---|---|
 | `security_guard` | 128 / 128 |
-| `linux_flatpak_packaging_test` | 19 / 19 |
+| `linux_flatpak_packaging_test` | 20 / 20 |
 | `linux_xdg_data_preservation_test` | 7 / 7 |
 | `process_environment_isolation_test` | 12 / 12 |
 | `linux_deb_packaging_test` | 17 / 17 |

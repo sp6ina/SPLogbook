@@ -102,8 +102,8 @@ for tool in flatpak flatpak-builder ostree appstreamcli desktop-file-validate \
 done
 
 FLATPAK_VERSION="$(flatpak --version | awk '{print $2}')"
-FLATPAK_BUILDER_VERSION="$(flatpak-builder --version | awk '{print $2}')"
-OSTREE_VERSION="$(ostree --version | sed -n 's/^ Version: //p' | head -n 1)"
+FLATPAK_BUILDER_VERSION="$(flatpak-builder --version | awk '{print $NF}')"
+OSTREE_VERSION="$(ostree --version | sed -n 's/^ Version: //p' | head -n 1 | tr -d "'\"" )"
 APPSTREAM_VERSION="$(appstreamcli --version | head -n 1 | awk '{print $NF}')"
 DESKTOP_VALIDATE_VERSION="$(desktop-file-validate --version 2>&1 | head -n 1 | awk '{print $NF}')"
 
@@ -206,7 +206,7 @@ done
 grep -q "Icon=${APP_ID}" "${DESKTOP_FILE}" || fail "desktop entry does not reference Icon=${APP_ID}"
 grep -q "Exec=${COMMAND}" "${DESKTOP_FILE}" || fail "desktop entry does not reference Exec=${COMMAND}"
 grep -q "<id>${APP_ID}</id>" "${METainfo}" || fail "AppStream metadata does not declare <id>${APP_ID}</id>"
-grep -q "desktop-id>${APP_ID}.desktop<" "${METainfo}" \
+grep -q ">${APP_ID}.desktop</launchable>" "${METainfo}" \
     || fail "AppStream launchable desktop-id does not match the desktop entry"
 
 # ------------------------------------------------------------------

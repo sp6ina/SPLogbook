@@ -517,6 +517,40 @@ fn flatpak_icons_have_the_declared_pixel_sizes() {
     }
 }
 
+#[test]
+fn appstream_launchable_points_to_an_existing_desktop_entry() {
+    // Regresja M3-J (run 43595294288): skrypt budujący porównywał launchable z
+    // deskoptem wzorcem, który nie mógł się dopasować. Ten test egzekwuje
+    // rzeczywisty kontrakt: zawartość <launchable> musi wskazywać istniejący,
+    // eksportowany plik desktop o tej samej nazwie.
+    let text = metainfo();
+    let launchable = text
+        .split("<launchable type=\"desktop-id\">")
+        .nth(1)
+        .and_then(|rest| rest.split("</launchable>").next())
+        .expect("metainfo musi deklarować <launchable type=\"desktop-id\">");
+    assert_eq!(
+        launchable,
+        format!("{APP_ID}.desktop"),
+        "launchable musi być dokładnie <app-id>.desktop"
+    );
+    let exported = flatpak_dir().join(launchable);
+    assert!(
+        exported.is_file(),
+        "launchable musi wskazywać istniejący plik desktop: {}",
+        exported.display()
+    );
+    let desktop = desktop_entry();
+    assert!(
+        desktop.contains(&format!("Icon={APP_ID}")),
+        "plik desktop wskazany przez launchable musi używać ikony app-id"
+    );
+    assert!(
+        desktop.contains(&format!("Exec={COMMAND}")),
+        "plik desktop wskazany przez launchable musi uruchamiać command z manifestu"
+    );
+}
+
 // ============================================================================
 // 6. Skrypty: fail-closed, brak maskowania, znaczniki sukcesu na końcu
 // ============================================================================
