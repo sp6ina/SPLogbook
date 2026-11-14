@@ -164,72 +164,10 @@ pub fn detect_legacy_portable_user_data(portable_root: &Path) -> Vec<LegacyDataF
 mod tests {
     use super::*;
 
-    #[test]
-    fn xdg_resolution_rejects_missing_home() {
-        // Testowanie fallbacku / błędu gdy HOME nie jest ustawione
-        let prev_home = std::env::var("HOME").ok();
-        unsafe {
-            std::env::remove_var("HOME");
-        }
-
-        let res = XdgPaths::resolve();
-        assert!(matches!(res, Err(XdgError::MissingHome)));
-
-        if let Some(h) = prev_home {
-            unsafe {
-                std::env::set_var("HOME", h);
-            }
-        }
-    }
-
-    #[test]
-    fn xdg_resolution_rejects_relative_xdg_vars_and_falls_back() {
-        let temp = tempfile::tempdir().unwrap();
-        let home = temp.path().join("fake_home");
-        std::fs::create_dir_all(&home).unwrap();
-
-        let prev_home = std::env::var("HOME").ok();
-        let prev_config = std::env::var("XDG_CONFIG_HOME").ok();
-        let prev_data = std::env::var("XDG_DATA_HOME").ok();
-
-        unsafe {
-            std::env::set_var("HOME", &home);
-            // Ścieżki względne muszą zostać odrzucone
-            std::env::set_var("XDG_CONFIG_HOME", "relative/config");
-            std::env::set_var("XDG_DATA_HOME", "../relative/data");
-        }
-
-        let paths = XdgPaths::resolve().expect("Resolve with fallback");
-        assert_eq!(paths.config_home, home.join(".config").join("splogbook"));
-        assert_eq!(
-            paths.data_home,
-            home.join(".local").join("share").join("splogbook")
-        );
-        assert_eq!(
-            paths.state_home,
-            home.join(".local").join("state").join("splogbook")
-        );
-        assert_eq!(paths.cache_home, home.join(".cache").join("splogbook"));
-
-        // Przywrócenie środowiska
-        unsafe {
-            if let Some(h) = prev_home {
-                std::env::set_var("HOME", h);
-            } else {
-                std::env::remove_var("HOME");
-            }
-            if let Some(c) = prev_config {
-                std::env::set_var("XDG_CONFIG_HOME", c);
-            } else {
-                std::env::remove_var("XDG_CONFIG_HOME");
-            }
-            if let Some(d) = prev_data {
-                std::env::set_var("XDG_DATA_HOME", d);
-            } else {
-                std::env::remove_var("XDG_DATA_HOME");
-            }
-        }
-    }
+    // Testy mutujące procesowe HOME/XDG_* zostały przeniesione do
+    // `tests/linux_xdg_data_preservation_test.rs`, gdzie korzystają ze wspólnego,
+    // serializowanego guarda środowiska (`tests/support/process_env.rs`). Binarka lib
+    // nie mutuje już środowiska procesu, więc odczyty w innych testach lib są bezpieczne.
 
     #[test]
     fn legacy_portable_user_data_detection() {

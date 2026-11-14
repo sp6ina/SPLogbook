@@ -5,8 +5,16 @@
 use sha2::{Digest, Sha256};
 use splogbook::cloud::updater::UpdatePlan;
 use splogbook::core::xdg::{XdgError, XdgPaths, detect_legacy_portable_user_data};
+use std::ffi::OsStr;
 use std::fs;
 use std::path::Path;
+
+// Wspólny mechanizm izolacji środowiska procesu (jeden mutex, RAII, odzyskiwanie po
+// panic). Wszystkie mutacje HOME/XDG_* w tej binarce przechodzą przez ten guard.
+#[path = "support/process_env.rs"]
+mod process_env;
+
+use process_env::EnvGuard;
 
 fn sha256_of_file(path: &Path) -> String {
     let data = fs::read(path).expect("read file for sha256");
@@ -29,53 +37,19 @@ fn test_xdg_base_directory_resolution_enforces_absolute_paths() {
     fs::create_dir_all(&custom_state).unwrap();
     fs::create_dir_all(&custom_cache).unwrap();
 
-    let prev_home = std::env::var("HOME").ok();
-    let prev_cfg = std::env::var("XDG_CONFIG_HOME").ok();
-    let prev_data = std::env::var("XDG_DATA_HOME").ok();
-    let prev_state = std::env::var("XDG_STATE_HOME").ok();
-    let prev_cache = std::env::var("XDG_CACHE_HOME").ok();
-
-    unsafe {
-        std::env::set_var("HOME", &home);
-        std::env::set_var("XDG_CONFIG_HOME", &custom_cfg);
-        std::env::set_var("XDG_DATA_HOME", &custom_data);
-        std::env::set_var("XDG_STATE_HOME", &custom_state);
-        std::env::set_var("XDG_CACHE_HOME", &custom_cache);
-    }
+    let _env = EnvGuard::new(&[
+        ("HOME", Some(home.as_os_str())),
+        ("XDG_CONFIG_HOME", Some(custom_cfg.as_os_str())),
+        ("XDG_DATA_HOME", Some(custom_data.as_os_str())),
+        ("XDG_STATE_HOME", Some(custom_state.as_os_str())),
+        ("XDG_CACHE_HOME", Some(custom_cache.as_os_str())),
+    ]);
 
     let paths = XdgPaths::resolve().expect("Resolve XDG paths");
     assert_eq!(paths.config_home, custom_cfg.join("splogbook"));
     assert_eq!(paths.data_home, custom_data.join("splogbook"));
     assert_eq!(paths.state_home, custom_state.join("splogbook"));
     assert_eq!(paths.cache_home, custom_cache.join("splogbook"));
-
-    unsafe {
-        if let Some(h) = prev_home {
-            std::env::set_var("HOME", h);
-        } else {
-            std::env::remove_var("HOME");
-        }
-        if let Some(c) = prev_cfg {
-            std::env::set_var("XDG_CONFIG_HOME", c);
-        } else {
-            std::env::remove_var("XDG_CONFIG_HOME");
-        }
-        if let Some(d) = prev_data {
-            std::env::set_var("XDG_DATA_HOME", d);
-        } else {
-            std::env::remove_var("XDG_DATA_HOME");
-        }
-        if let Some(s) = prev_state {
-            std::env::set_var("XDG_STATE_HOME", s);
-        } else {
-            std::env::remove_var("XDG_STATE_HOME");
-        }
-        if let Some(c) = prev_cache {
-            std::env::set_var("XDG_CACHE_HOME", c);
-        } else {
-            std::env::remove_var("XDG_CACHE_HOME");
-        }
-    }
 }
 
 #[test]
@@ -84,20 +58,14 @@ fn test_xdg_relative_paths_are_rejected_and_fallback_to_home() {
     let home = temp.path().join("home_fallback");
     fs::create_dir_all(&home).unwrap();
 
-    let prev_home = std::env::var("HOME").ok();
-    let prev_cfg = std::env::var("XDG_CONFIG_HOME").ok();
-    let prev_data = std::env::var("XDG_DATA_HOME").ok();
-    let prev_state = std::env::var("XDG_STATE_HOME").ok();
-    let prev_cache = std::env::var("XDG_CACHE_HOME").ok();
-
-    unsafe {
-        std::env::set_var("HOME", &home);
+    let _env = EnvGuard::new(&[
+        ("HOME", Some(home.as_os_str())),
         // Ścieżki względne są niebezpieczne i muszą zostać zignorowane
-        std::env::set_var("XDG_CONFIG_HOME", "relative/config");
-        std::env::set_var("XDG_DATA_HOME", "../data");
-        std::env::set_var("XDG_STATE_HOME", "./state");
-        std::env::set_var("XDG_CACHE_HOME", "tmp/cache");
-    }
+        ("XDG_CONFIG_HOME", Some(OsStr::new("relative/config"))),
+        ("XDG_DATA_HOME", Some(OsStr::new("../data"))),
+        ("XDG_STATE_HOME", Some(OsStr::new("./state"))),
+        ("XDG_CACHE_HOME", Some(OsStr::new("tmp/cache"))),
+    ]);
 
     let paths = XdgPaths::resolve().expect("Resolve XDG paths");
     assert_eq!(paths.config_home, home.join(".config").join("splogbook"));
@@ -110,51 +78,53 @@ fn test_xdg_relative_paths_are_rejected_and_fallback_to_home() {
         home.join(".local").join("state").join("splogbook")
     );
     assert_eq!(paths.cache_home, home.join(".cache").join("splogbook"));
-
-    unsafe {
-        if let Some(h) = prev_home {
-            std::env::set_var("HOME", h);
-        } else {
-            std::env::remove_var("HOME");
-        }
-        if let Some(c) = prev_cfg {
-            std::env::set_var("XDG_CONFIG_HOME", c);
-        } else {
-            std::env::remove_var("XDG_CONFIG_HOME");
-        }
-        if let Some(d) = prev_data {
-            std::env::set_var("XDG_DATA_HOME", d);
-        } else {
-            std::env::remove_var("XDG_DATA_HOME");
-        }
-        if let Some(s) = prev_state {
-            std::env::set_var("XDG_STATE_HOME", s);
-        } else {
-            std::env::remove_var("XDG_STATE_HOME");
-        }
-        if let Some(c) = prev_cache {
-            std::env::set_var("XDG_CACHE_HOME", c);
-        } else {
-            std::env::remove_var("XDG_CACHE_HOME");
-        }
-    }
 }
 
 #[test]
 fn test_xdg_missing_home_fails_closed() {
-    let prev_home = std::env::var("HOME").ok();
-    unsafe {
-        std::env::remove_var("HOME");
-    }
+    let _env = EnvGuard::new(&[("HOME", None)]);
 
     let res = XdgPaths::resolve();
     assert!(matches!(res, Err(XdgError::MissingHome)));
+}
 
-    unsafe {
-        if let Some(h) = prev_home {
-            std::env::set_var("HOME", h);
-        }
-    }
+// Poniższe dwa testy zostały przeniesione z modułu `#[cfg(test)]` w `src/core/xdg.rs`.
+// Mutowały procesowe HOME/XDG_* bez synchronizacji w binarce lib; teraz działają w tej
+// samej binarce co pozostałe testy XDG i używają wspólnego guarda środowiska.
+#[test]
+fn xdg_resolution_rejects_missing_home() {
+    let _env = EnvGuard::new(&[("HOME", None)]);
+
+    let res = XdgPaths::resolve();
+    assert!(matches!(res, Err(XdgError::MissingHome)));
+}
+
+#[test]
+fn xdg_resolution_rejects_relative_xdg_vars_and_falls_back() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("fake_home");
+    fs::create_dir_all(&home).unwrap();
+
+    let _env = EnvGuard::new(&[
+        ("HOME", Some(home.as_os_str())),
+        // Ścieżki względne muszą zostać odrzucone
+        ("XDG_CONFIG_HOME", Some(OsStr::new("relative/config"))),
+        ("XDG_DATA_HOME", Some(OsStr::new("../relative/data"))),
+        ("XDG_STATE_HOME", Some(OsStr::new("./relative/state"))),
+        ("XDG_CACHE_HOME", Some(OsStr::new("relative/cache"))),
+    ]);
+
+    let paths = XdgPaths::resolve().expect("Resolve with fallback");
+    assert_eq!(paths.config_home, home.join(".config").join("splogbook"));
+    assert_eq!(
+        paths.data_home,
+        home.join(".local").join("share").join("splogbook")
+    );
+    assert_eq!(
+        paths.state_home,
+        home.join(".local").join("state").join("splogbook")
+    );
+    assert_eq!(paths.cache_home, home.join(".cache").join("splogbook"));
 }
 
 #[test]
