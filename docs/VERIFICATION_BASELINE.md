@@ -26,15 +26,15 @@ cargo test --workspace --all-targets -j 1 -- --skip powershell_real_execution_fu
 
 | Metric | Value |
 |---|---|
-| TOTAL REGISTERED TESTS: | 2767 |
-| TOTAL EXECUTED TESTS: | 2756 |
-| TOTAL PASSED TESTS: | 2756 |
+| TOTAL REGISTERED TESTS: | 2790 |
+| TOTAL EXECUTED TESTS: | 2779 |
+| TOTAL PASSED TESTS: | 2779 |
 | TOTAL FAILED TESTS: | 0 |
 | TOTAL IGNORED TESTS: | 10 |
 | HIL IGNORED TESTS: | 10 |
 | TOTAL FILTERED TESTS: | 1 |
 | Doc-tests | 0 |
-| Test binaries | 23 |
+| Test binaries | 24 |
 
 The single filtered test is `windows_helper_test::powershell_real_execution_full_cycle_success`.
 It can block on a Windows security prompt in an interactive sandbox, so it is filtered in the
@@ -45,7 +45,8 @@ a product defect.
 
 | Suite | Value |
 |---|---|
-| `security_guard` | 127 / 127 |
+| `security_guard` | 128 / 128 |
+| `linux_flatpak_packaging_test` | 19 / 19 |
 | `linux_xdg_data_preservation_test` | 7 / 7 |
 | `process_environment_isolation_test` | 12 / 12 |
 | `linux_deb_packaging_test` | 17 / 17 |
@@ -80,7 +81,7 @@ a product defect.
 | `cargo audit` | **EXIT 0 — 0 vulnerabilities** |
 | Advisory database size at measurement | 1509 advisories |
 | Packages scanned | 663 |
-| Command | `cargo audit --deny warnings --no-yanked --ignore …` (the explicit baseline in `.github/workflows/ci.yml`) |
+| Command | `cargo audit --deny warnings --no-yanked --ignore …` (the explicit baseline in `.github/workflows/ci.yml`); the local re-measurement used `--no-fetch` against the cached database because this host cannot write the advisory-db lock file, CI always fetches |
 | Approved ignores | 7 (`unmaintained` / `yanked` transitive entries only) |
 | New `--ignore` entries in this measurement | none |
 | Offline re-check | `cargo audit --no-fetch …` reuses the cached advisory database and is useful when the environment forbids writing the advisory-db lock file; CI always fetches |
@@ -138,4 +139,4 @@ documents that exception.
 | Public stable | `1.2.0` (tag `v1.2.0`, immutable) |
 | Hardware-in-the-loop tests executed | 0 |
 | PTT / RF operations | 0 / 0 |
-| Flatpak (`M3-J`) | not started |
+| Flatpak (`M3-J`) | delivered and verified in CI: pinned `org.freedesktop` 26.08 runtime/SDK, exact minimal sandbox, offline locked Cargo build from 662 pinned crates, 48 negative fixtures, full lifecycle and payload-reproducible builds (see `installer/linux/flatpak/README.md`) |

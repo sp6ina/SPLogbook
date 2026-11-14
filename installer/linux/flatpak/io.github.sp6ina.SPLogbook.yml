@@ -1,0 +1,166 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Mariusz Woźniak (SP6INA)
+#
+# SPLogbook Flatpak manifest (M3-J) — sandboxed Linux x86_64 package.
+#
+# Contract
+# --------
+# * The runtime and SDK are pinned to the stable org.freedesktop branch 26.08
+#   (freedesktop-sdk release 26.08.4 at the time of the gate; verification
+#   record in installer/linux/flatpak/README.md).
+# * The Rust dependency set is the 662 crates of Cargo.lock, pinned by the
+#   SHA-256 checksums Cargo itself recorded. They are listed in
+#   cargo-sources.json and are the only way cargo may obtain a dependency:
+#   the build uses a vendored-source replacement plus `--locked --offline`
+#   and CARGO_NET_OFFLINE=1, inside a sandbox that has no network namespace.
+# * The application tree is one `dir` source with an explicit `skip` list, so
+#   the build sees exactly the tracked tree and never sees target/, dist/ or an
+#   owner-private directory. `.git` is intentionally kept: it is the single
+#   source of the build identity (`git rev-parse HEAD`) and it is read-only.
+# * Sandbox permissions are the documented minimum for the supported feature
+#   set: network CAT (rigctld/rotctld, TCI, FlexRadio, Kenwood LAN, Elecraft K4
+#   TCP, flrig, WinKeyer), XDG portals, audio, OpenGL and the Secret Service
+#   credential store. There is deliberately no --device=all, no
+#   --filesystem=host, no --filesystem=home, no system-bus socket and no
+#   wildcard D-Bus name. Native CAT over /dev/ttyUSB* and /dev/ttyACM* is not
+#   available inside the sandbox (owner decision OWNER-M3-J-DEVICE-01); the
+#   documented user-side opt-in is in README.md section 6.
+# * This package is a local/CI artifact only. It is never submitted to Flathub
+#   and never attached to a GitHub release.
+
+app-id: io.github.sp6ina.SPLogbook
+runtime: org.freedesktop.Platform
+runtime-version: "26.08"
+sdk: org.freedesktop.Sdk
+command: SPLogbook
+
+# org.freedesktop.Sdk 26.08 ships autoconf/automake/cmake/meson/ninja/pkg-config
+# and git, but no Rust toolchain, so the official SDK Rust extension is used.
+# It is resolved from the same Flathub branch as the SDK, and the exact
+# `rustc --version` / `cargo --version` are recorded both in the build log and
+# inside the bundle (/app/share/splogbook/build-rust-version.txt).
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+
+finish-args:
+  # CAT and station automation: rigctld/rotctld over TCP, TCI, FlexRadio,
+  # Kenwood LAN, Elecraft K4 TCP, flrig, WinKeyer, DX cluster, callbook,
+  # LoTW/eQSL/ClubLog uploads, LAN sync and the loopback REST server.
+  - --share=network
+  # Required by the X11 fallback path (MIT-SHM); Wayland sessions do not use it.
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  # rodio/cpal play the CW/DX side tone through the host sound server.
+  - --socket=pulseaudio
+  # Hardware accelerated OpenGL for eframe/glow.
+  - --device=dri
+  # keyring (Secret Service) stores QRZ/eQSL/ClubLog/LAN credentials.
+  - --talk-name=org.freedesktop.secrets
+
+# Standard SDK leftovers that must never enter a runtime bundle. The module
+# installs an explicit path allowlist, so this is a guard, not a workaround;
+# scripts/verify_linux_flatpak.sh asserts the exact /app file set as well.
+cleanup:
+  - /include
+  - /lib/debug
+  - /lib/pkgconfig
+  - /share/aclocal
+  - /share/doc
+  - /share/gir-1.0
+  - /share/info
+  - /share/man
+
+modules:
+  - name: splogbook
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin
+      env:
+        CARGO_HOME: /run/build/splogbook/.cargo-home
+        CARGO_NET_OFFLINE: "true"
+        CARGO_TERM_COLOR: never
+    build-commands:
+      # 1. Offline, locked, vendored Rust build.
+      - |
+        set -euo pipefail
+        mkdir -p .cargo
+        {
+          printf '%s\n' \
+            '[source.crates-io]' \
+            'replace-with = "vendored-sources"' \
+            '' \
+            '[source.vendored-sources]' \
+            'directory = "cargo/vendor"' \
+            '' \
+            '[net]' \
+            'offline = true' \
+            '' \
+            '[term]' \
+            'color = "never"'
+        } > .cargo/config.toml
+        rustc --version
+        cargo --version
+        cargo build --release --locked --offline --bin SPLogbook \
+          -j "${FLATPAK_BUILDER_N_JOBS:-$(nproc)}"
+
+      # 2. Explicit path allowlist installed into /app.
+      - install -Dm755 target/release/SPLogbook /app/bin/SPLogbook
+      - install -Dm644 installer/linux/flatpak/io.github.sp6ina.SPLogbook.desktop /app/share/applications/io.github.sp6ina.SPLogbook.desktop
+      - install -Dm644 installer/linux/flatpak/io.github.sp6ina.SPLogbook.metainfo.xml /app/share/metainfo/io.github.sp6ina.SPLogbook.metainfo.xml
+      - install -Dm644 installer/linux/flatpak/icons/64x64/io.github.sp6ina.SPLogbook.png /app/share/icons/hicolor/64x64/apps/io.github.sp6ina.SPLogbook.png
+      - install -Dm644 installer/linux/flatpak/icons/128x128/io.github.sp6ina.SPLogbook.png /app/share/icons/hicolor/128x128/apps/io.github.sp6ina.SPLogbook.png
+      - install -Dm644 installer/linux/flatpak/icons/256x256/io.github.sp6ina.SPLogbook.png /app/share/icons/hicolor/256x256/apps/io.github.sp6ina.SPLogbook.png
+      - install -Dm644 LICENSE /app/share/licenses/io.github.sp6ina.SPLogbook/LICENSE
+
+      # 3. Deterministic build/installation marker. The identity comes from the
+      #    same `.git` HEAD that build.rs embeds into `--build-info`, and the
+      #    build fails closed if that identity is not a 40-hex commit.
+      - |
+        set -euo pipefail
+        commit="$(git rev-parse HEAD)"
+        printf '%s' "$commit" | grep -Eq '^[0-9a-f]{40}$' || {
+          printf 'FAIL: build identity is not a 40-hex commit: %s\n' "$commit" >&2
+          exit 1
+        }
+        install -d /app/share/splogbook
+        {
+          printf '%s\n' '{'
+          printf '  "marker_version": "1.0",\n'
+          printf '  "installation_type": "LinuxFlatpak",\n'
+          printf '  "management_mode": "SystemManaged",\n'
+          printf '  "app_id": "io.github.sp6ina.SPLogbook",\n'
+          printf '  "package_version": "1.3.0-alpha.1",\n'
+          printf '  "build_commit": "%s",\n' "$commit"
+          printf '  "build_dirty": false,\n'
+          printf '  "runtime": "org.freedesktop.Platform",\n'
+          printf '  "runtime_version": "26.08",\n'
+          printf '  "sdk": "org.freedesktop.Sdk",\n'
+          printf '  "artifact_format": "flatpak",\n'
+          printf '  "architecture": "x86_64",\n'
+          printf '  "target": "linux-x86_64",\n'
+          printf '  "created_by": "installer/linux/flatpak/io.github.sp6ina.SPLogbook.yml"\n'
+          printf '%s\n' '}'
+        } > /app/share/splogbook/.splogbook-flatpak-marker
+        chmod 0644 /app/share/splogbook/.splogbook-flatpak-marker
+        {
+          rustc --version
+          cargo --version
+        } > /app/share/splogbook/build-rust-version.txt
+        chmod 0644 /app/share/splogbook/build-rust-version.txt
+
+    sources:
+      # The tracked repository tree. `skip` is a documented flatpak-builder
+      # `dir` source key; only non-hermetic build output and owner-private
+      # directories are removed. `.git` stays for the build identity.
+      - type: dir
+        path: ../..
+        skip:
+          - .local-work
+          - SPLogbook-backup
+          - dist
+          - scratch
+          - target
+
+      # 662 pinned crates (see scripts/generate_flatpak_cargo_sources.sh).
+      - cargo-sources.json
