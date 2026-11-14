@@ -392,12 +392,16 @@ install_bundle() {
 # ------------------------------------------------------------------
 install_bundle
 
-INSTALLED_ROW="$(flatpak --user list --app --columns=application,arch,branch,commit \
+INSTALLED_ROW="$(flatpak --user list --app --columns=application,arch,branch \
     | awk -F'\t' -v id="${APP_ID}" '$1 == id { print; exit }')"
 [ -n "${INSTALLED_ROW}" ] || fail "the application does not appear in flatpak list"
 INSTALLED_ARCH="$(printf '%s' "${INSTALLED_ROW}" | cut -f2)"
 INSTALLED_BRANCH="$(printf '%s' "${INSTALLED_ROW}" | cut -f3)"
-INSTALLED_COMMIT="$(printf '%s' "${INSTALLED_ROW}" | cut -f4)"
+# `flatpak list --columns` has no commit column in flatpak 1.16.x; `info
+# --show-commit` is the supported way to read the active deployed commit and is
+# already used by the builder for the runtime refs.
+INSTALLED_COMMIT="$(flatpak --user info --show-commit "${APP_ID}" 2>/dev/null)" \
+    || fail "cannot read the installed OSTree commit"
 [ "${INSTALLED_ARCH}" = "x86_64" ] || fail "unexpected architecture: ${INSTALLED_ARCH}"
 [ "${INSTALLED_BRANCH}" = "${BRANCH}" ] || fail "unexpected branch: ${INSTALLED_BRANCH}"
 printf '%s\n' "${INSTALLED_COMMIT}" | grep -Eq '^[0-9a-f]{64}$' \
