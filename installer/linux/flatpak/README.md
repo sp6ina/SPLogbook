@@ -129,6 +129,16 @@ the declared sources`) and `tests/linux_flatpak_packaging_test.rs` enforces it
 statically, so the M3-J failure #9 (`FileNotFoundError: 'cargo-sources.json'`,
 run 43628379400) cannot return.
 
+The pinned Rust archive is the official **combined installer**: it ships
+`install.sh` next to the per-component trees (`rustc/`, `cargo/`,
+`rust-std-…/`) and does **not** contain a prefixed `bin/rustc`, `bin/cargo` or
+`bin/rustdoc`. `build-commands[1]` runs that installer offline into `rust/`
+(`install.sh` refuses to install into the directory that holds it), and
+`build-options.prepend-path` puts `rust/bin` on `PATH` for **every** build
+command, because flatpak-builder runs each command in its own `/bin/sh -c` and
+an `export PATH` inside one command does not reach the next. The toolchain is
+never installed into `/app` and never enters the bundle.
+
 The build is controlled and fail-closed:
 
 1. `flatpak-builder --download-only` performs the **only** network phase

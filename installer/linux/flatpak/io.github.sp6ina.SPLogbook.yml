@@ -74,6 +74,11 @@ modules:
   - name: splogbook
     buildsystem: simple
     build-options:
+      # Every build command runs in its own `/bin/sh -c`, so a PATH exported by
+      # one command does not reach the next one. The toolchain directory is
+      # prepended for all commands here; it exists only after command 1 has run,
+      # and a missing PATH entry is harmless.
+      prepend-path: /run/build/splogbook/rust/bin
       env:
         CARGO_HOME: /run/build/splogbook/.cargo-home
         CARGO_NET_OFFLINE: "true"
@@ -114,10 +119,29 @@ modules:
         print(f"PASS: wrote .cargo-checksum.json for {len(entries)} vendored crates")
         PYCHECKSUMS
 
-      # 1. Offline, locked, vendored Rust build with the pinned toolchain.
+      # 1. Materialise the pinned toolchain. The pinned archive is the official
+      #    *combined installer* `rust-<version>-<target>.tar.gz`: it contains the
+      #    per-component trees (`rustc/`, `cargo/`, `rust-std-…/`) plus
+      #    `install.sh`, not a prefixed toolchain. `install.sh` is run offline
+      #    from the already digest-verified components, so the tree gains
+      #    `bin/rustc`, `bin/cargo` and `bin/rustdoc`. It refuses to install into
+      #    the directory that holds the installer itself, hence the separate
+      #    `rust/` prefix. No download happens and the archive SHA-256 remains
+      #    the only trust anchor.
       - |
         set -euo pipefail
-        export PATH="${PWD}/rust-toolchain/bin:${PATH}"
+        ./rust-toolchain/install.sh \
+          --prefix="${PWD}/rust" \
+          --components=rustc,cargo,rust-std-x86_64-unknown-linux-gnu \
+          --disable-ldconfig
+        test -x "${PWD}/rust/bin/rustc"
+        test -x "${PWD}/rust/bin/cargo"
+        test -x "${PWD}/rust/bin/rustdoc"
+
+      # 2. Offline, locked, vendored Rust build with the pinned toolchain.
+      - |
+        set -euo pipefail
+        export PATH="${PWD}/rust/bin:${PATH}"
         rustc --version
         cargo --version
         rustc --version | grep -q '^rustc 1\.99\.0 ' || {
@@ -143,7 +167,7 @@ modules:
         cargo --version
         cargo build --release --locked --offline --bin SPLogbook \
           -j "${FLATPAK_BUILDER_N_JOBS:-$(nproc)}"
-      # 2. Explicit path allowlist installed into /app.
+      # 3. Explicit path allowlist installed into /app.
       - install -Dm755 target/release/SPLogbook /app/bin/SPLogbook
       - install -Dm644 installer/linux/flatpak/io.github.sp6ina.SPLogbook.desktop /app/share/applications/io.github.sp6ina.SPLogbook.desktop
       - install -Dm644 installer/linux/flatpak/io.github.sp6ina.SPLogbook.metainfo.xml /app/share/metainfo/io.github.sp6ina.SPLogbook.metainfo.xml
@@ -152,7 +176,7 @@ modules:
       - install -Dm644 installer/linux/flatpak/icons/256x256/io.github.sp6ina.SPLogbook.png /app/share/icons/hicolor/256x256/apps/io.github.sp6ina.SPLogbook.png
       - install -Dm644 LICENSE /app/share/licenses/io.github.sp6ina.SPLogbook/LICENSE
 
-      # 3. Deterministic build/installation marker. The identity comes from the
+      # 4. Deterministic build/installation marker. The identity comes from the
       #    same `.git` HEAD that build.rs embeds into `--build-info`, and the
       #    build fails closed if that identity is not a 40-hex commit.
       - |
