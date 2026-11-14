@@ -322,10 +322,12 @@ export FLATPAK_SYSTEM_DIR="${WORK_ROOT}/system-flatpak"
 unset FLATPAK_ID
 
 # The reference for every negative permission test: one standard remote only.
-flatpak --user remote-add --if-not-exists flathub https://dl.flathub.org/repo/ \
+flatpak --user remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo \
     || fail "cannot add the flatpak remote"
+RUNTIME_REF="${RUNTIME}/x86_64/${RUNTIME_VERSION}"
+SDK_REF="${SDK}/x86_64/${RUNTIME_VERSION}"
 flatpak --user install --noninteractive flathub \
-    "${RUNTIME}//${RUNTIME_VERSION}" "${SDK}//${RUNTIME_VERSION}" \
+    "${RUNTIME_REF}" "${SDK_REF}" \
     || fail "cannot install the pinned runtime/SDK"
 
 APP_DATA_ROOT="${HOME}/.var/app/${APP_ID}"
@@ -380,16 +382,19 @@ install_bundle() {
 # ------------------------------------------------------------------
 install_bundle
 
-INSTALLED_ID="$(flatpak --user info --show-ref "${APP_ID}" | awk -F/ '{print $1}')"
-[ "${INSTALLED_ID}" = "app/${APP_ID}/x86_64/${BRANCH}" ] \
-    || fail "unexpected installed ref: ${INSTALLED_ID}"
-INSTALLED_ARCH="$(flatpak --user info --arch "${APP_ID}")"
+INSTALLED_ROW="$(flatpak --user list --app --columns=application,arch,branch,commit \
+    | awk -F'\t' -v id="${APP_ID}" '$1 == id { print; exit }')"
+[ -n "${INSTALLED_ROW}" ] || fail "the application does not appear in flatpak list"
+INSTALLED_ARCH="$(printf '%s' "${INSTALLED_ROW}" | cut -f2)"
+INSTALLED_BRANCH="$(printf '%s' "${INSTALLED_ROW}" | cut -f3)"
+INSTALLED_COMMIT="$(printf '%s' "${INSTALLED_ROW}" | cut -f4)"
 [ "${INSTALLED_ARCH}" = "x86_64" ] || fail "unexpected architecture: ${INSTALLED_ARCH}"
-INSTALLED_BRANCH="$(flatpak --user info --branch "${APP_ID}")"
 [ "${INSTALLED_BRANCH}" = "${BRANCH}" ] || fail "unexpected branch: ${INSTALLED_BRANCH}"
-INSTALLED_COMMIT="$(flatpak --user info --show-commit "${APP_ID}")"
 printf '%s\n' "${INSTALLED_COMMIT}" | grep -Eq '^[0-9a-f]{64}$' \
     || fail "cannot read the OSTree commit: ${INSTALLED_COMMIT}"
+INSTALLED_ID="app/${APP_ID}/${INSTALLED_ARCH}/${INSTALLED_BRANCH}"
+[ "${INSTALLED_ID}" = "app/${APP_ID}/x86_64/${BRANCH}" ] \
+    || fail "unexpected installed ref: ${INSTALLED_ID}"
 
 flatpak --user info --show-metadata "${APP_ID}" > "${WORK_ROOT}/metadata.txt" \
     || fail "cannot read the application metadata"
@@ -581,13 +586,15 @@ flatpak --user update --noninteractive "${APP_ID}" > "${WORK_ROOT}/update.log" 2
     || fail "flatpak update failed"
 assert_user_data_unchanged "${BASELINE_DIGEST}" "flatpak update"
 
-# downgrade-equivalent: a forced re-deploy of the same OSTree commit exercises
-# the same deployment path a real downgrade uses (see README section 9).
-flatpak --user update --noninteractive --commit="${INSTALLED_COMMIT}" "${APP_ID}" \
-    > "${WORK_ROOT}/redeploy.log" 2>&1 || fail "forced re-deploy failed"
+# Deployment-level re-deploy: reinstalling the same bundle forces a fresh
+# checkout of the same OSTree commit through the deployment path, which is the
+# operation a downgrade/re-upgrade pair performs on user data. A version-number
+# downgrade needs a second published build and is therefore out of scope here
+# (documented in installer/linux/flatpak/README.md section 9).
+install_bundle
 assert_user_data_unchanged "${BASELINE_DIGEST}" "the forced re-deploy (downgrade path)"
 
-# reinstall
+# reinstall once more after an explicit uninstall/reinstall cycle
 install_bundle
 assert_user_data_unchanged "${BASELINE_DIGEST}" "reinstall"
 

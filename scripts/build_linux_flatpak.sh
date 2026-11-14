@@ -33,7 +33,10 @@
 #   SOURCE_DATE_EPOCH          optional, defaults to the commit time
 #   SPLOG_FLATPAK_BUILDS       number of independent clean builds (default 1)
 #   SPLOG_FLATPAK_REMOTE       flatpak remote name (default flathub)
-#   SPLOG_FLATPAK_REMOTE_URL   remote URL (default https://dl.flathub.org/repo/)
+#   SPLOG_FLATPAK_REMOTE_URL   remote descriptor (default
+#                              https://dl.flathub.org/repo/flathub.flatpakrepo;
+#                              the .flatpakrepo file carries the GPG key that a
+#                              bare repository URL does not)
 #   FLATPAK_BUILD_IMAGE        recorded for evidence only
 #   FLATPAK_BUILD_IMAGE_DIGEST recorded for evidence only
 
@@ -62,7 +65,7 @@ CARGO_SOURCES="${REPO_ROOT}/installer/linux/flatpak/cargo-sources.json"
 PRODUCT_VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
 BUILD_COUNT="${SPLOG_FLATPAK_BUILDS:-1}"
 FLATPAK_REMOTE="${SPLOG_FLATPAK_REMOTE:-flathub}"
-FLATPAK_REMOTE_URL="${SPLOG_FLATPAK_REMOTE_URL:-https://dl.flathub.org/repo/}"
+FLATPAK_REMOTE_URL="${SPLOG_FLATPAK_REMOTE_URL:-https://dl.flathub.org/repo/flathub.flatpakrepo}"
 
 log() { printf '%s\n' "$*"; }
 fail() {
@@ -288,25 +291,28 @@ trap cleanup EXIT
 flatpak --user remote-add --if-not-exists "${FLATPAK_REMOTE}" "${FLATPAK_REMOTE_URL}" \
     || fail "cannot add the flatpak remote"
 
+RUNTIME_REF="${RUNTIME}/x86_64/${RUNTIME_VERSION}"
+SDK_REF="${SDK}/x86_64/${RUNTIME_VERSION}"
+RUST_EXTENSION="org.freedesktop.Sdk.Extension.rust-stable/x86_64/${RUNTIME_VERSION}"
+
 flatpak --user install --noninteractive "${FLATPAK_REMOTE}" \
-    "${RUNTIME}//${RUNTIME_VERSION}" \
-    "${SDK}//${RUNTIME_VERSION}" \
+    "${RUNTIME_REF}" \
+    "${SDK_REF}" \
     || fail "cannot install the pinned runtime/SDK ${RUNTIME_VERSION}"
 
-RUST_EXTENSION="org.freedesktop.Sdk.Extension.rust-stable/x86_64/${RUNTIME_VERSION}"
 flatpak --user install --noninteractive "${FLATPAK_REMOTE}" "${RUST_EXTENSION}" \
     || fail "cannot install the pinned Rust SDK extension ${RUST_EXTENSION}"
 
-RUNTIME_COMMIT="$(flatpak --user info --show-commit "${RUNTIME}//${RUNTIME_VERSION}" 2>/dev/null)" || RUNTIME_COMMIT="unresolved"
-SDK_COMMIT="$(flatpak --user info --show-commit "${SDK}//${RUNTIME_VERSION}" 2>/dev/null)" || SDK_COMMIT="unresolved"
-RUST_EXTENSION_COMMIT="$(flatpak --user info --show-commit "org.freedesktop.Sdk.Extension.rust-stable//${RUNTIME_VERSION}" 2>/dev/null)" || RUST_EXTENSION_COMMIT="unresolved"
+RUNTIME_COMMIT="$(flatpak --user info --show-commit "${RUNTIME_REF}" 2>/dev/null)" || RUNTIME_COMMIT="unresolved"
+SDK_COMMIT="$(flatpak --user info --show-commit "${SDK_REF}" 2>/dev/null)" || SDK_COMMIT="unresolved"
+RUST_EXTENSION_COMMIT="$(flatpak --user info --show-commit "${RUST_EXTENSION}" 2>/dev/null)" || RUST_EXTENSION_COMMIT="unresolved"
 log "runtime commit:       ${RUNTIME_COMMIT:-unresolved}"
 log "sdk commit:           ${SDK_COMMIT:-unresolved}"
 log "rust extension commit:${RUST_EXTENSION_COMMIT:-unresolved}"
 
-flatpak --user info "${RUNTIME}//${RUNTIME_VERSION}" > "${OUTPUT_DIR}/flatpak-runtime-info.txt" 2>&1 \
+flatpak --user info "${RUNTIME_REF}" > "${OUTPUT_DIR}/flatpak-runtime-info.txt" 2>&1 \
     || fail "cannot read the runtime metadata"
-flatpak --user info "${SDK}//${RUNTIME_VERSION}" > "${OUTPUT_DIR}/flatpak-sdk-info.txt" 2>&1 \
+flatpak --user info "${SDK_REF}" > "${OUTPUT_DIR}/flatpak-sdk-info.txt" 2>&1 \
     || fail "cannot read the SDK metadata"
 
 # ------------------------------------------------------------------

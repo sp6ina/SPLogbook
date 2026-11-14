@@ -233,9 +233,9 @@ installation and with isolated fixtures (never real user data):
 1. fresh install of the bundle;
 2. first run (`--version`, `--build-info`, `--check-health-startup`);
 3. creation of fixture data in the sandbox XDG directories;
-4. `flatpak update` at the same ref;
-5. a forced re-deploy of the installed OSTree commit, which is the deployment
-   path a real downgrade uses (`flatpak update --commit=<commit>`);
+4. `flatpak update` at the same ref (no-op for a bundle-installed app);
+5. a forced re-deploy of the installed OSTree commit by reinstalling the same
+   bundle, which is the deployment path a downgrade/re-upgrade pair uses;
 6. reinstall of the same bundle;
 7. uninstall — the data directory and its content must be byte-identical;
 8. reinstall and a second run;
@@ -249,8 +249,9 @@ job.
 A SemVer **version** downgrade is not exercised because only one Flatpak build
 exists: the development line `1.3.0-alpha.1` has no earlier Flatpak artifact,
 and the public `1.2.0` release predates this format. A version downgrade
-requires a second published build and therefore remains a future scenario; the
-deployment-level downgrade path is covered as described above.
+requires a second build published to a remote, and `flatpak update --commit`
+is only meaningful against such a remote; the deployment-level re-deploy path
+is covered as described above.
 
 ## 10. Build and verify
 
