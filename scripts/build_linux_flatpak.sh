@@ -43,6 +43,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 
+# The CI container mounts the workspace with a different owner than the build
+# user, so git refuses to read it unless the path is declared safe. This is a
+# configuration-only allowance: it does not relax any build assertion.
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0="safe.directory"
+export GIT_CONFIG_VALUE_0="${REPO_ROOT}"
+
 OUTPUT_DIR="${1:-${REPO_ROOT}/dist}"
 mkdir -p "${OUTPUT_DIR}"
 OUTPUT_DIR="$(cd "${OUTPUT_DIR}" && pwd)"

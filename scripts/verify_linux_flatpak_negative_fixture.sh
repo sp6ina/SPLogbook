@@ -26,6 +26,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 
+# git refuses a workspace owned by another user (the CI container mounts it from
+# the runner). Declaring the path safe is configuration only and relaxes no check.
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0="safe.directory"
+export GIT_CONFIG_VALUE_0="${REPO_ROOT}"
+
 APP_ID="io.github.sp6ina.SPLogbook"
 PRODUCT_VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
 BUNDLE="${1:-${REPO_ROOT}/dist/SPLogbook-Linux-x86_64-${PRODUCT_VERSION}.flatpak}"

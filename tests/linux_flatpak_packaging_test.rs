@@ -24,8 +24,11 @@ fn repo_root() -> PathBuf {
 
 fn read_repo_file(relative: &str) -> String {
     let path = repo_root().join(relative);
-    std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("nie można odczytać {}: {e}", path.display()))
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("nie można odczytać {}: {e}", path.display()));
+    // Windows checkout runners may materialise the tree with CRLF; every
+    // contract in this suite is about content, never about a line terminator.
+    text.replace("\r\n", "\n")
 }
 
 fn flatpak_dir() -> PathBuf {
