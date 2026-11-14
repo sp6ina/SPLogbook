@@ -172,11 +172,14 @@ git -c core.fsmonitor=false -c core.untrackedCache=false status --porcelain=v1
   0 errors / 2 warnings, 27/27 mutacji odrzuconych, pełny cykl install/upgrade/
   downgrade/reinstall/remove/purge bez utraty danych; run `43245181565` +
   `CI` `43245181469` = `success`; `Publish Release Assets` = `skipped`.
-- M3-I (RPM): **`BLOCKED`** (2026-11-13) — RPM build/verify/34/34/lifecycle
-  `success` (run `43453322341`), ale `CI` `43453322339` = `failure` na
-  `RUSTSEC-2026-0523/0524/0538`; wymagana osobna bramka bezpieczeństwa.
-- Następna bramka: **`M3-I`** (RPM) — `BLOCKED_BY_NEW_RUSTSEC_ADVISORIES`,
-  wymaga autoryzacji remediacji zależności. `M3-J` pozostaje `NOT_STARTED`.
+- M3-I (RPM): **`COMPLETED_RPM_INTEGRATION_VERIFIED`** (2026-11-14; wcześniej
+  `BLOCKED`). Odblokowanie: `STAGE-M3-I-SEC` = `COMPLETED_RUSTSEC_REMEDIATION_VERIFIED`
+  (`RUSTSEC-2026-0523/0524/0538` usunięte przez `quinn-proto 0.11.19` i `quinn-udp 0.5.16`;
+  `cargo audit` EXIT 0; `CI` `43485657304` = `success`, `Build and Release` `43485657283`
+  = `success`; RPM `11 881 961 B`, SHA-256 `a25dcb7a…873bd`, 34/34 negatywnych,
+  deterministyczny, Fedora 45 + openSUSE Tumbleweed).
+- Następna bramka: **`M3-J`** (Flatpak) — `NOT_STARTED`, wymaga `OWNER_GO_REQUIRED`.
+  Nie utworzono plików ani jobów Flatpak.
 
 Raporty: `STAGE_QA_BASELINE_DETERMINISM_AND_HERMETICITY_REPORT.md`,
 `STAGE_DEPENDENCY_SECURITY_UPDATE_REPORT.md`,

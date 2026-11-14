@@ -177,6 +177,7 @@ Bramka: `STAGE-DEPENDENCY-RUSTIX-RUSTSEC-2026-0486-REMEDIATION-GATE` —
 | ID | Decyzja / ustalenie | Realizacja | Dowód | Status |
 |---|---|---|---|---|
 | `OWNER-DEP-RUSTIX-01` | `APPROVE OPTION A` — celowana aktualizacja `rustix 1.1.5 → 1.1.6`, bez `--ignore`, bez szerokiego `cargo update`, bez zmian `Cargo.toml` i kodu AppImage | `Cargo.lock` | raport bramki | `IMPLEMENTED` |
+| `OWNER_GO_M3_I_SECURITY_REMEDIATION` | `GO` — osobna bramka `STAGE-M3-I-SEC`: celowana aktualizacja `quinn-proto 0.11.19` i `quinn-udp 0.5.16`, bez `--ignore`/suppression, bez zmian `Cargo.toml` i `src/**`, bez M3-J, bez tagu/release | `Cargo.lock`, `STAGE_M3_I_RUSTSEC_REMEDIATION_*` | `cargo audit` EXIT 0; `CI` `43485657304`; `Build and Release` `43485657283` | `IMPLEMENTED` |
 | `FIND-DEP-RUSTIX-01` | Rzeczywista ścieżka `rustix 1.1.5`: `async-io`/`calloop`/`gethostname`/`polling`/`tempfile`/`wayland-*`/`x11rb`/`xattr`/`zbus` ← `splogbook` | `cargo tree -i rustix@1.1.5 --target all` | logi sesji | `VERIFIED` |
 | `FIND-DEP-RUSTIX-02` | `1.1.6` jest najnowszą stabilną wersją (crates.io, 2026-10-27), MSRV `1.65`, patch w linii `1.x` | crates.io API | `LATEST_STABLE=1.1.6` | `VERIFIED` |
 | `FIND-DEP-RUSTIX-03` | Lockfile: 674 → 674 paczek; usunięto wyłącznie `rustix 1.1.5`, dodano wyłącznie `rustix 1.1.6` (nowy checksum `e5e76742…`); żadna inna wersja paczki się nie zmieniła | `Cargo.lock` | analiza TOML przed/po | `VERIFIED` |
@@ -244,5 +245,5 @@ Bramka: `STAGE-M3-H-LINUX-DEB-INTEGRATION-GATE` —
 | `FIND-M3I-06` | 34/34 mutacji odrzuconych, exit 1, bez komunikatu sukcesu | negative harness | `rpm-negative-fixtures.log` | `VERIFIED` |
 | `FIND-M3I-07` | Cykl życia Fedora 45 + openSUSE Tumbleweed bez utraty danych | verifier | run `43453322341` | `VERIFIED` |
 | `FIND-M3I-08` | Finalny `Build and Release` = `success`; `Publish Release Assets` = `skipped` | workflow | run `43453322341` | `VERIFIED` |
-| `FIND-M3I-09` | **Bloker:** `CI` `43453322339` = `failure`; `RUSTSEC-2026-0523/0524/0538`; brak `--ignore` i zgody OWNER | `cargo audit` | log `CI` | **`BLOCKED`** |
+| `FIND-M3I-09` | **ROZWIĄZANE:** `CI` `43453322339` = `failure` (`RUSTSEC-2026-0523/0524/0538`) → remediacja `quinn-proto 0.11.19`, `quinn-udp 0.5.16`; `cargo audit` EXIT 0 bez nowych `--ignore` | `cargo audit` | log `CI` `43485657304` | **`RESOLVED`** |
 | `FIND-M3I-10` | M3-J nadal `NOT_STARTED`; brak tagu/release | `docs/NEXT_WORK_GATE.md` | git/gh | `DEFINED` |

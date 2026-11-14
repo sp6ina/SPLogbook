@@ -3,20 +3,37 @@
 **Dokument ID:** DSH-SPLOGBOOK-M3I-FINAL-001
 **Bramka:** `STAGE-M3-I-LINUX-RPM-INTEGRATION-GATE`
 **Data raportu:** **2026-11-13** (`Europe/Warsaw`)
-**Status bramki:** **`BLOCKED`**
-**Bloker:** **`RUSTSEC-2026-0523`, `RUSTSEC-2026-0524`, `RUSTSEC-2026-0538`**
-**Nie użyto:** `COMPLETED_RPM_INTEGRATION_VERIFIED`
+**Status bramki (aktualny, po bramce `STAGE-M3-I-SEC`):**
+**`COMPLETED_RPM_INTEGRATION_VERIFIED`**
+**Status historyczny (2026-11-13, przed remediacją RustSec):** `BLOCKED` /
+`BLOCKED_BY_NEW_RUSTSEC_ADVISORIES` — **zachowany bez zmian w §1 i §24**.
+**Bloker historyczny:** `RUSTSEC-2026-0523`, `RUSTSEC-2026-0524`, `RUSTSEC-2026-0538` — **USUNIĘTE**
+(patrz §25).
+
+> **AKTUALIZACJA STATUSU — 2026-11-13, bramka `STAGE-M3-I-SEC`**
+> (`COMPLETED_RUSTSEC_REMEDIATION_VERIFIED`): trzy advisory zostały usunięte przez
+> `quinn-proto 0.11.19` i `quinn-udp 0.5.16`, `cargo audit` = EXIT 0, finalne `CI`
+> i `Build and Release` na weryfikowanym HEAD są zielone, a RPM został przebudowany
+> i ponownie w pełni zweryfikowany (determinizm, 34/34 negatywnych, cykl życia
+> Fedora 45 + openSUSE Tumbleweed). Szczegóły: §25 oraz
+> `STAGE_M3_I_RUSTSEC_REMEDIATION_REPORT.md`.
+>
+> Poniższy akapit i §1 opisują **stan historyczny** z momentu pierwotnego raportu
+> i nie są usuwane ani przepisywane.
 
 > Implementacja RPM, build, determinizm, walidator, testy negatywne i pełny
-> cykl życia są zielone. Bramka **nie może** zostać zamknięta, ponieważ
-> finalny job `CI` (`Format and Lint`) zakończył się `failure` na trzech nowych
-> podatnościach RustSec w lockfile. Zgodnie z `AGENTS.md` §7 nowa podatność
-> wymaga STOP i osobnej bramki bezpieczeństwa; nie wolno jej wyciszyć ani
-> naprawiać „przy okazji” w M3-I.
+> cykl życia były zielone już w pierwotnym raporcie. Bramka **nie mogła** zostać
+> zamknięta, ponieważ finalny job `CI` (`Format and Lint`) zakończył się `failure`
+> na trzech nowych podatnościach RustSec w lockfile. Zgodnie z `AGENTS.md` §7 nowa
+> podatność wymagała STOP i osobnej bramki bezpieczeństwa; nie wolno jej było
+> wyciszyć ani naprawiać „przy okazji” w M3-I.
 
 ---
 
-## 1. Jednoznaczny status
+## 1. Jednoznaczny status — **STAN HISTORYCZNY (2026-11-13, przed STAGE-M3-I-SEC)**
+
+> Tabela poniżej jest zapisem historycznym. **Aktualny status bramki:
+> `COMPLETED_RPM_INTEGRATION_VERIFIED`** — patrz §25.
 
 | Pole | Wartość |
 |---|---|
@@ -492,7 +509,9 @@ Flatpak, nie uruchomiono żadnego joba M3-J.
 
 ---
 
-## 24. Decyzja końcowa
+## 24. Decyzja końcowa — **STAN HISTORYCZNY (2026-11-13, przed STAGE-M3-I-SEC)**
+
+> Zapis historyczny; **nie zmieniony**. Aktualny status i decyzja: §25.
 
 ```text
 STAGE-M3-I — BLOCKED
@@ -506,3 +525,106 @@ Implementacja RPM jest kompletna i zweryfikowana, ale bramka **nie może**
 zostać zamknięta do czasu zielonego `cargo audit` w osobnej, autoryzowanej
 bramce bezpieczeństwa. Nie użyto statusu
 `COMPLETED_RPM_INTEGRATION_VERIFIED`.
+
+---
+
+## 25. ODBLOKOWANIE — `STAGE-M3-I-SEC` (**2026-11-13 → 2026-11-14**)
+
+**Bramka bezpieczeństwa:** `STAGE-M3-I-SEC-RUSTSEC-REMEDIATION-AND-M3-I-UNBLOCK-GATE`
+**Autoryzacja:** `OWNER_GO_M3_I_SECURITY_REMEDIATION=true`
+**Status bramki bezpieczeństwa:** **`COMPLETED_RUSTSEC_REMEDIATION_VERIFIED`**
+**Raport:** `STAGE_M3_I_RUSTSEC_REMEDIATION_REPORT.md`
+
+### 25.1. Usunięte advisory i zastosowane wersje
+
+| Advisory | Pakiet | Wersja podatna | Wersja naprawiona (zastosowana) |
+|---|---|---|---|
+| `RUSTSEC-2026-0523` | `quinn-proto` | `0.11.18` | **`0.11.19`** |
+| `RUSTSEC-2026-0524` | `quinn-proto` | `0.11.18` | **`0.11.19`** |
+| `RUSTSEC-2026-0538` | `quinn-udp` | `0.5.15` | **`0.5.16`** |
+
+Zmiana wyłącznie w `Cargo.lock` (`cargo update -p quinn-proto --precise 0.11.19`,
+`cargo update -p quinn-udp --precise 0.5.16`). `Cargo.toml` i `src/**` bez zmian.
+`quinn` jest opcjonalną zależnością `reqwest` za feature `http3`, który **nie jest aktywowany**
+w SPLogbook — pakiety nie są kompilowane do binariów (0 wystąpień `quinn` w binarce), ale
+`cargo audit` skanuje lockfile i blokował CI.
+
+### 25.2. Commity bramki bezpieczeństwa
+
+| Commit | Rola |
+|---|---|
+| `3c6f4597f9b57e9df60b3168a9eb523593393550` | raport przedimplementacyjny |
+| `326e469e44deece341288817dbe692204456fb4b` | remediacja `Cargo.lock` (2 pakiety, 674 → 663 wpisów) |
+| commit raportu bezpieczeństwa | `STAGE_M3_I_RUSTSEC_REMEDIATION_REPORT.md` |
+| commit wieńczący | aktualizacja tego raportu i dokumentów stanu |
+
+### 25.3. Weryfikacja bezpieczeństwa
+
+- `cargo audit` (polecenie CI, bez nowych `--ignore`): **EXIT 0**, 0 podatności,
+  1509 advisory, **663** zależności; brak `RUSTSEC-2026-0523/0524/0538`;
+  pozostałe 7 pozycji to zatwierdzone `unmaintained`/`yanked` (bez zmian).
+- Nowe `--ignore` / suppression: **BRAK**; kryteria CI bez zmian.
+- Rust **1.99.0** — bez zmian (MSRV nowych wersji 1.85).
+- `cargo tree -d`: 53 → 47 duplikatów, bez nowych duplikatów.
+
+### 25.4. Finalne runy CI (weryfikowany HEAD `326e469`)
+
+| Workflow | Run | Wynik |
+|---|---|---|
+| `CI` | **`43485657304`** | **`success`** — `Format and Lint` `132093276116`, `cargo audit` EXIT 0 |
+| `Build and Release SPLogbook` | **`43485657283`** | **`success`** — 17/17 jobów, `Publish Release Assets` = `skipped` |
+
+Finalny HEAD = najnowszy commit `main` zawierający ten raport (commit dokumentacyjny; kod
+identyczny z `326e469`); jego finalny run `CI` i `Build and Release` również musi być `success`
+— identyfikatory w odpowiedzi końcowej. `HEAD == main == origin/main`, ahead/behind `0/0`.
+
+### 25.5. Nowe dane RPM (przebudowany artefakt)
+
+| Pole | Wartość |
+|---|---|
+| Nazwa | `SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm` |
+| Alias | `SPLogbook-Linux-x86_64.rpm` (bajtowo identyczny) |
+| Rozmiar | **11 881 961 B** |
+| SHA-256 | **`a25dcb7a7595e15cc4d47fc290f9833f2aaa3cdbfca6f4b0e5e73e56872873bd`** |
+| `Package` / `Version` / `Release` / `Architecture` | `splogbook` / `1.3.0` / `0.1.alpha.1` / `x86_64` |
+| `build_commit` | `326e469e44deece341288817dbe692204456fb4b` |
+| `Installed Size` | **47 054 820 B** |
+| Pliki / wpisy | **12 / 18** |
+| `BuildTime` | `1794593274` (`SOURCE_DATE_EPOCH`, 2026-11-13) |
+| Maksymalny GLIBC | **2.43** (`SPLogbook`, Hamlib); **2.39** (updater) |
+| Toolchain | `rpm` / `rpmbuild` / `rpmspec` **6.1.0**, `rpmlint 2.9.0` |
+| Obraz OCI | `fedora:45@sha256:a7d72ba2745b100a3351087472e5ee7b2450af7cf331e7673007e3817612839c` |
+| openSUSE OCI | `opensuse/tumbleweed:latest@sha256:6e3a892daa0372e12a9c0b10291303dbfcd8706a450de6edfd72c763b44b4ac1` |
+| Deterministyczność | **PASS** — dwie niezależne budowy, identyczny SHA-256 |
+| rpmlint | **0 errors, 3 warnings** (bez zmian, bez nowych suppression) |
+| Testy negatywne | **34/34** odrzuconych, `exit=1`, brak komunikatu sukcesu |
+| Cykl życia Fedora 45 | **PASS** — fresh → remove/erase → previous → upgrade → downgrade → re-upgrade → reinstall → remove/erase → fresh → remove/erase; dane użytkownika SHA-256 bez zmian |
+| Cykl życia openSUSE Tumbleweed | **PASS** — ten sam artefakt i pełna sekwencja; dane użytkownika SHA-256 bez zmian |
+| `--version` / `--build-info` | `SPLogbook 1.3.0-alpha.1` / `Commit: 326e469…`, `Target: linux-x86_64` |
+| Health check | **PASS** |
+| Publikacja | **BRAK**; `Publish Release Assets` = `skipped` |
+
+### 25.6. Regresja pozostałych formatów (run `43485657283`)
+
+Windows x64, portable Linux, 4× Verify Linux, Verify Linux negative, AppImage FUSE,
+AppImage negative (12/12), DEB (lintian 0 errors, 27/27 negative, pełny cykl życia),
+RPM i RPM negative — **wszystkie `success`**. F-03 i `security_guard` (125/125) zielone.
+Układ `/opt/SPLogbook`, launcher, prywatny Hamlib, RUNPATH, kontrakt pakietów i mechanizm
+publikacji **bez zmian**.
+
+### 25.7. Decyzja o odblokowaniu
+
+```text
+STAGE-M3-I — ZAMKNIĘTE
+COMPLETED_RPM_INTEGRATION_VERIFIED
+ODBLOKOWANO: 2026-11-13 20:18 (Europe/Warsaw) — zielone CI + Build and Release
+DOKUMENTACJA DOMKNIĘCIA: 2026-11-14
+```
+
+Blokada `BLOCKED_BY_NEW_RUSTSEC_ADVISORIES` została usunięta. Wszystkie kryteria
+`STAGE-M3-I-SEC` oraz pierwotnej bramki M3-I są spełnione. `M3-J` (Flatpak)
+pozostaje **`NOT_STARTED`** i wymaga osobnej decyzji `OWNER_GO_REQUIRED`.
+
+> **Aktualizacja osi czasu (2026-11-14):** host wskazał datę późniejszą niż data projektu
+> (2026-11-13). Zgodnie z `AGENTS.md` §1 datę przyjęto bez zmiany zegara; commity
+> dokumentacyjne mają rzeczywistą datę hosta **2026-11-14**. Nie zmieniano dat wstecz.

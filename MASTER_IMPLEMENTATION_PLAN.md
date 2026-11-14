@@ -305,7 +305,7 @@ Utworzenie, uzgodnienie i zweryfikowanie trzech kompletnych dokumentĂłw projek
   - M3-F: Integracja Linux Portable tar.gz (COMPLETED_SOFTWARE_VERIFIED — dowód natywny fail-closed, **F-03 `CLOSED`**; polityka wsparcia Linux 7.0 / glibc 2.43 zamknieta w STAGE-M3-F-LINUX-SUPPORT-POLICY-ALIGNMENT-GATE jako COMPLETED_POLICY_ALIGNMENT_VERIFIED)
   - M3-G: Integracja Linux AppImage (COMPLETED_APPIMAGE_INTEGRATION_VERIFIED, 2026-11-12)
   - M3-H: Integracja Linux DEB (COMPLETED_DEB_INTEGRATION_VERIFIED, 2026-11-12)
-  - M3-I: Integracja Linux RPM
+  - M3-I: Integracja Linux RPM (**COMPLETED_RPM_INTEGRATION_VERIFIED**, 2026-11-14; odblokowana bramką `STAGE-M3-I-SEC` = `COMPLETED_RUSTSEC_REMEDIATION_VERIFIED`)
   - M3-J: Integracja Linux Flatpak
 
 #### UPDATE-CORE-PLATFORM (M3-A) — Wspolny rdzen transakcyjny aktualizatora
@@ -350,11 +350,11 @@ Utworzenie, uzgodnienie i zweryfikowanie trzech kompletnych dokumentĂłw projek
 - **Zaleznosci:** OWNER-M3-H-01..10 (APPROVED), UPDATE-DESIGN-LINUX (APPROVED), UPDATE-DESIGN-PLATFORM (APPROVED), UPDATE-CORE-PLATFORM (COMPLETED_SOFTWARE_VERIFIED), M3-F portable tar.gz (COMPLETED_SOFTWARE_VERIFIED)
 - **Zakres:** deterministyczny binarny DEB budowany przez `dpkg-deb` z zweryfikowanego payloadu portable; układ `/opt/SPLogbook` + launcher `/usr/bin/splogbook`; `Depends` wyznaczone z ELF/runtime i potwierdzone w Ubuntu 26.04; marker `.splogbook-deb-marker` (`LinuxDeb`, `SystemManaged`); minimalne `postinst`/`postrm`; `dpkg-deb --root-owner-group -Zxz` i dwie niezależne budowy o identycznym SHA-256; fail-closed weryfikator (lintian, GLIBC ≤ 2.43, ldd, instalacja, upgrade, downgrade, reinstall, remove, purge, ochrona danych XDG); 27 mutacji negatywnych; artefakt wyłącznie CI (`SPLogbook-Linux-amd64-deb`), bez publikacji w release.
 - **Dowód:** run `43245181565` = `success` (`Build DEB`, `Verify DEB`, 27/27 negative, Windows/Linux/AppImage `success`, `Publish Release Assets` `skipped`); `CI` `43245181469` = `success`; DEB `11 883 596 B`, SHA-256 `85a4ca9877305d97f7c31929eb6034bd36e88dc8d7fd208f9fab9cf7d8890061`; raport `STAGE_M3_H_LINUX_DEB_INTEGRATION_REPORT.md`.
-- **Następna bramka:** `M3-I` (RPM), `BLOCKED_BY_NEW_RUSTSEC_ADVISORIES` (2026-11-13); implementacja RPM zweryfikowana, wymagana osobna bramka bezpieczeństwa dla `RUSTSEC-2026-0523/0524/0538`. `M3-J` pozostaje `NOT_STARTED`.
+- **Następna bramka:** `M3-J` (Flatpak), `NOT_STARTED`, wymaga `OWNER_GO_REQUIRED`. `M3-I` = `COMPLETED_RPM_INTEGRATION_VERIFIED` (2026-11-14) po bramce `STAGE-M3-I-SEC` (`RUSTSEC-2026-0523/0524/0538` usunięte: `quinn-proto 0.11.19`, `quinn-udp 0.5.16`; `cargo audit` EXIT 0).
 
 #### UPDATE-LINUX-PACKAGES (Dalsze etapy M3: M3-I..M3-J) — Pakiety Linux (RPM, Flatpak)
 - **Tor:** UPDATE
-- **Status wykonawczy:** PENDING (po zamknięciu M3-G i M3-H)
+- **Status wykonawczy:** **M3-I (RPM) = `COMPLETED_RPM_INTEGRATION_VERIFIED`** (2026-11-14; deterministyczny RPM 11 881 961 B, SHA-256 `a25dcb7a…873bd`, 0 errors rpmlint, 34/34 negatywnych, cykl życia Fedora 45 + openSUSE Tumbleweed, `cargo audit` EXIT 0). **M3-J (Flatpak) = `NOT_STARTED`**, wymaga `OWNER_GO_REQUIRED`; nie utworzono plików ani jobów Flatpak.
 - **Zaleznosci:** UPDATE-DESIGN-LINUX (APPROVED), UPDATE-DESIGN-PLATFORM (APPROVED), UPDATE-CORE-PLATFORM (COMPLETED_SOFTWARE_VERIFIED), decyzje OWNER-M2-04..07, 11..12 (APPROVED)
 ---
 
