@@ -78,27 +78,35 @@ show_mismatch() {
 APP_ALLOWLIST() {
     printf '%s\n' \
         './bin/SPLogbook' \
+        './manifest.json' \
+        "./share/app-info/icons/flatpak/128x128/${APP_ID}.png" \
+        "./share/app-info/icons/flatpak/64x64/${APP_ID}.png" \
+        "./share/app-info/xmls/${APP_ID}.xml.gz" \
         "./share/applications/${APP_ID}.desktop" \
         "./share/icons/hicolor/128x128/apps/${APP_ID}.png" \
         "./share/icons/hicolor/256x256/apps/${APP_ID}.png" \
         "./share/icons/hicolor/64x64/apps/${APP_ID}.png" \
         "./share/licenses/${APP_ID}/LICENSE" \
+        "./share/licenses/${APP_ID}/splogbook/LICENSE" \
         "./share/metainfo/${APP_ID}.metainfo.xml" \
         './share/splogbook/.splogbook-flatpak-marker' \
         './share/splogbook/build-rust-version.txt'
 }
 
-# A payload manifest entry is `f <mode> <path> ...`; only regular files from the
-# allowlist are permitted, with no setuid/setgid/sticky and no world-writable
-# bit, so an unexpected export, a symlink or a privilege escalation attempt in
-# the bundle fails here even before the bundle is installed.
+# A payload manifest entry is `f <mode> <path> <size>:<sha256>`, `d <mode> <path>`
+# or `l <mode> <path> -> <target>`. Directories are structural entries of the
+# exported tree and are permitted; symlinks, devices and every other kind are
+# not. Only regular files are compared against the allowlist, and no entry may
+# carry a setuid/setgid/sticky bit or a world-writable mode, so an unexpected
+# export, a symlink or a privilege escalation attempt in the bundle fails here
+# even before the bundle is installed.
 validate_payload_manifest() {
     manifest_file="$1"
     entries="$(grep -v '^#' "${manifest_file}" | sed '/^[[:space:]]*$/d')"
     [ -n "${entries}" ] || fail "payload manifest is empty"
-    if printf '%s\n' "${entries}" | grep -qv '^f '; then
-        printf '%s\n' "${entries}" | grep -v '^f ' >&2
-        fail "payload manifest contains a non-regular-file entry"
+    if printf '%s\n' "${entries}" | grep -qv '^[fd] '; then
+        printf '%s\n' "${entries}" | grep -v '^[fd] ' >&2
+        fail "payload manifest contains a non-file, non-directory entry"
     fi
     bad_mode="$(printf '%s\n' "${entries}" | awk '
         {
@@ -110,7 +118,9 @@ validate_payload_manifest() {
             if (last == 2 || last == 3 || last == 6 || last == 7) { print "world-writable:" $0; exit }
         }')"
     [ -z "${bad_mode}" ] || fail "payload manifest mode contract violated: ${bad_mode}"
-    paths="$(printf '%s\n' "${entries}" | awk '{print $3}' | LC_ALL=C sort)"
+    files="$(printf '%s\n' "${entries}" | awk '$1 == "f"')"
+    [ -n "${files}" ] || fail "payload manifest contains no regular file"
+    paths="$(printf '%s\n' "${files}" | awk '{print $3}' | LC_ALL=C sort)"
     expected="$(APP_ALLOWLIST | LC_ALL=C sort)"
     [ "${paths}" = "${expected}" ] || {
         show_mismatch "${expected}" "${paths}"
