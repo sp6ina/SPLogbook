@@ -1118,6 +1118,27 @@ fn flatpak_ci_preserves_the_build_exit_code_and_always_collects_diagnostics() {
         "artefakt musi zawierać log builda, projekcję manifestu i stan katalogu budowania"
     );
 
+    // Krok diagnostyczny jest uruchamiany przez GitHuba jako `bash -e`; musi
+    // wyłączyć errexit i pipefail, inaczej poprawny SIGPIPE (find | sort | head)
+    // kończy krok błędem i zmienia wynik joba (regresja M3-J #11, run
+    // 43637880553, gdzie build zakończył się sukcesem, a job i tak był czerwony).
+    let diagnostics_end = job
+        .find("name: Upload the Flatpak build diagnostics")
+        .expect("musi istnieć krok publikacji diagnostyki");
+    let diagnostics = &job[collect_at..diagnostics_end];
+    assert!(
+        diagnostics.contains("set +e"),
+        "krok diagnostyczny musi wyłączyć errexit (`set +e`)"
+    );
+    assert!(
+        diagnostics.contains("set +o pipefail"),
+        "krok diagnostyczny musi wyłączyć pipefail dla pipeline'ów z `head`"
+    );
+    assert!(
+        !diagnostics.contains("set -euo pipefail"),
+        "krok diagnostyczny nie może włączać fail-closed trybu powłoki"
+    );
+
     // 4. Brak prywatnych ścieżek i brak publikacji.
     assert!(
         !job_effective.contains(".local-work") && !job_effective.contains("scratch/"),
