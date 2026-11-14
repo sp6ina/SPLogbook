@@ -90,7 +90,7 @@ Wydanie `v1.2.0` oraz wszelkie artefakty podpisane historycznym kluczem `splogbo
 
 ## 7. Publikacja i aktywacja nowego klucza publicznego (Etap 1B)
 
-Właściciel repozytorium wygenerował nową parę kluczy Ed25519 poza repozytorium, zabezpieczył klucz prywatny w GitHub Actions Secrets (`RELEASE_SIGNING_KEY`) oraz przekazał agentowi wyłącznie 32 publiczne bajty i ich fingerprint SHA-256.
+Właściciel repozytorium wygenerował nową parę kluczy Ed25519 poza repozytorium i zabezpieczył klucz prywatny w GitHub Actions Secrets (`RELEASE_SIGNING_KEY`). Do repozytorium trafiły wyłącznie 32 publiczne bajty i ich fingerprint SHA-256.
 
 W `src/cloud/updater.rs` aktywowano nowy klucz publiczny:
 ```rust
@@ -125,7 +125,7 @@ W repozytorium istnieje dokładnie **jeden aktywny klucz** (`splogbook-release-2
 ## 8. Audyt historycznych wydań i manifestów
 
 Szczegółowy raport audytu kryptograficznego wydań historycznych znajduje się w osobnym dokumencie:
-👉 [docs/HISTORICAL_RELEASE_AUDIT.md](file:///c:/Users/sp6in/Documents/SPLogbook/SPLogbook/docs/HISTORICAL_RELEASE_AUDIT.md)
+👉 [HISTORICAL_RELEASE_AUDIT.md](HISTORICAL_RELEASE_AUDIT.md)
 
 **Podsumowanie ustaleń audytowych:**
 1. Wydania `v1.0.0` do `v1.1.0` zostały sklasyfikowane jako `MISSING_MANIFEST` / `UNSIGNED`. Nie zawierają plików manifestu ani sygnatur.
@@ -170,7 +170,7 @@ HISTORY_EXPOSURE: OWNER_DECISION_REQUIRED
 - **Stan obecny:** Wszystkie pliki zawierające materiał kluczy prywatnych (`src/scratch.rs`, `klucz.key`, `.signer_priv.key`, `.test.key`) zostały usunięte z bieżącego drzewa roboczego i zabezpieczone przed ponownym dodaniem w regułach `.gitignore` oraz testach `tests/security_guard.rs`.
 - **Ekspozycja w historii:** Ujawniony w commitach historycznych materiał kryptograficzny pozostaje zapisany w starych obiektach Git.
 - **Kryptograficzna neutralizacja:** Poprzez odwołanie identyfikatora `splogbook-release-2026-01` w `REVOKED_KEY_IDS` oraz dodanie skrótów i kluczy publicznych do `REVOKED_PUBLIC_KEYS`, ujawnione historyczne klucze utraciły możliwość autoryzowania aktualizacji w aplikacji SPLogbook.
-- **Decyzja Właściciela:** Zgodnie z wytycznymi bezpieczeństwa agent **nie wykonuje** procedury przepisywania historii (`git filter-repo`, BFG, rebase, force-push). Decyzja o ewentualnym przepisaniu historii i unieważnieniu istniejących forków/tagów leży wyłącznie w gestii Właściciela repozytorium.
+- **Zasada repozytorium:** historia Git **nie jest przepisywana** — zabronione są `git filter-repo`, BFG, rebase opublikowanej historii i force-push. Decyzja o ewentualnym przepisaniu historii i unieważnieniu istniejących forków lub tagów należy wyłącznie do właściciela repozytorium.
 - **Status dokumentacyjny:** Historia Git **nie jest** oznaczona jako oczyszczona. Pozostaje w statusie `OWNER_DECISION_REQUIRED`.
 
 ---
@@ -186,7 +186,7 @@ HISTORY_EXPOSURE: OWNER_DECISION_REQUIRED
 - [x] **[WŁAŚCICIEL]** Umieszczenie nowego klucza prywatnego w GitHub Actions Secrets (`RELEASE_SIGNING_KEY`).
 - [x] **[WŁAŚCICIEL]** Przekazanie wyłącznie danych publicznych (32 bajty i fingerprint SHA-256).
 - [x] Wdrożenie i aktywacja nowego klucza publicznego `splogbook-release-2026-02` w `src/cloud/updater.rs` — zrealizowane w Etapie 1B.
-- [x] Pełny audyt kryptograficzny wydań historycznych (`docs/HISTORICAL_RELEASE_AUDIT.md`) — zrealizowane w Etapie 1B.
+- [x] Pełny audyt kryptograficzny wydań historycznych (`HISTORICAL_RELEASE_AUDIT.md`) — zrealizowane w Etapie 1B.
 - [ ] **[WŁAŚCICIEL]** Podjęcie ostatecznej decyzji w sprawie ewentualnego oczyszczenia historii Git (`git-filter-repo`).
 
 ---
@@ -214,9 +214,9 @@ Po wdrożeniu Etapu 2 klucz `splogbook-release-2026-02` został w pełni zintegr
 4. **Weryfikacja w Auto-Updaterze:**
    Auto-updater weryfikuje podpis manifestu przy użyciu klucza `splogbook-release-2026-02`, sprawdza brak obecności klucza na liście `REVOKED_KEY_IDS` / `REVOKED_PUBLIC_KEYS`, porównuje sumy SHA-256 pobranych archiwów z manifestem, bezpiecznie rozpakowuje `.zip` na Windows i `.tar.gz` na Linux (z blokadą path traversal i symlinków), spłaszcza pojedynczy katalog główny oraz dokonuje atomowej podmiany plików ze wsparciem automatycznego rollbacku przy jakimkolwiek błędzie.
 5. **Szczegółowa dokumentacja:**
-   Pełna specyfikacja architektury bezpieczeństwa znajduje się w dokumencie `docs/RELEASE_SECURITY.md`.
+   Pełna specyfikacja architektury bezpieczeństwa znajduje się w dokumencie `docs/security/RELEASE_SECURITY.md`.
 
-## 8. Potwierdzenie Weryfikacji Bezpieczeństwa Potoku Wydawniczego (Etap 2 Final Gate)
+## 15. Potwierdzenie weryfikacji bezpieczeństwa potoku wydawniczego
 
 W ramach końcowej bramki Etapu 2 przeprowadzono pełny natywny przebieg GitHub Actions w trybie dry-run (Run ID: `41317314042` na commit `75ef965` gałęzi `main`) z pełną weryfikacją ścieżki produkcyjnego klucza `RELEASE_SIGNING_KEY` oraz migracją wszystkich GitHub Actions do Node 24 runtime.
 

@@ -1,9 +1,9 @@
 # SPLogbook — MAPA ARCHITEKTURY PROJEKTU
 
 **Dokument ID:** DSH-SPLOGBOOK-ARCH-001
-**Data:** 2026-11-09
-**Podstawa:** kod z `f73a703` (ingestia pełna: 292 pliki Rust, 155 097 linii) + bramka QA 2026-11-09.
-**Zastępuje jako opis bieżący:** `docs/ARCHITECTURE_CURRENT_STATE.md` (opisuje `6f7d3aa` i pliki, których już nie ma).
+**Data:** 2026-11-09; liczby plików i statusy zweryfikowane ponownie 2026-11-14.
+**Podstawa:** kod z `f73a703`; liczby zweryfikowane 2026-11-14: `src/**` = **276** plików `.rs`, całe repozytorium = **296** plików `.rs`, `tests/` = 18 plików testowych + `support/`.
+**Zastępuje jako opis bieżący:** wcześniejszy opis architektury z `6f7d3aa`, który opisywał pliki już nieistniejące; ten dokument jest jedynym bieżącym opisem architektury.
 
 ---
 
@@ -26,14 +26,14 @@
 | `src/core` | 49 | 27 780 | domena QSO, SQLite, ADIF/Cabrillo, XDG, i18n | `CURRENT` | F-20/F-21 (eksport/upload) — poza tą bramką |
 | `src/cloud` | 27 | 18 769 | updater (9 431), LoTW/eQSL/QRZ/CloudLog, scheduler | `CURRENT` | F-06 (integralność danych referencyjnych), F-22 (system-managed bez locka) |
 | `src/sync` | 12 | 5 661 | protokół P2P/LAN v2, handshake, szyfrowanie, catch-up | `CURRENT` | F-23 naprawione w bramce QA (testy deterministyczne) |
-| `src/api` | 2 | 3 527 | Axum REST + SSE/WS | `CURRENT` | DOC-DSH-14 (opis API w README) |
+| `src/api` | 2 | 3 527 | Axum REST + SSE/WS | `CURRENT` | opis API w `README.md` |
 | `src/plugins` | 4 | 1 603 | sandbox Rhai, marketplace | `CURRENT` | — |
 | `src/digital` | 5 | 1 553 | WSJT-X / JS8Call / FLdigi / N1MM | `CURRENT` | — |
 | `src/media` | 4 | 718 | nagrywanie audio, dźwięki, voice keyer | `CURRENT` | 1 FFI `mciSendStringW` |
 | `src/cluster` | 2 | 523 | telnet DX cluster | `CURRENT` | — |
 | `src/dsp` | 2 | 276 | FFT, waterfall | `CURRENT` | — |
 | `src/network` | 2 | 124 | Wake-on-LAN | `CURRENT` | — |
-| `tests` | 15 + `support/` | 20 584+ | strażnicy, CAT natywny, instalatory, Linux | `CURRENT` | `support/native_artifact.rs` — nowy kontrakt hermetyczny QA |
+| `tests` | 18 + `support/` | 20 584+ | strażnicy, CAT natywny, instalatory, Linux | `CURRENT` | `support/native_artifact.rs` — kontrakt hermetyczny E2E |
 
 ## 3. Przepływ danych i trwałość
 
@@ -60,6 +60,9 @@ manifest (Ed25519, raw bytes) → select_manifest_asset (SHA-256 + size)
 | Windows Inno Setup (User) | `SystemManaged` | delegacja do zweryfikowanego `Setup-*.exe` (`/SILENT /NORESTART /LOG=`), marker `.splogbook-inno-marker` |
 | Windows MSI (System) | `SystemManaged` | delegacja do `msiexec` z logiem i `/norestart`, marker `.splogbook-msi-marker` |
 | Linux Portable tar.gz | `SelfManaged` | dwufazowa ekstrakcja + transakcja journaled + `.rollback` |
+| Linux AppImage | `SelfManaged` | podmiana obrazu + health check; brak własnego kanału aktualizacji (manifest i podpis poza zakresem M3-G) |
+| Linux DEB | `SystemManaged` | delegacja do menedżera pakietów (APT); brak `sudo`/`pkexec`; układ `/opt/SPLogbook` + `/usr/bin/splogbook` |
+| Linux RPM | `SystemManaged` | delegacja do menedżera pakietów (DNF/zypper); brak `sudo`/`pkexec`; ten sam układ `/opt/SPLogbook` |
 
 ## 5. Granice bezpieczeństwa (obowiązujące niezmienniki)
 
@@ -88,5 +91,5 @@ manifest (Ed25519, raw bytes) → select_manifest_asset (SHA-256 + size)
 
 - `src/cat/so2r.rs` — konfiguracja SO2R, brak pełnej ścieżki sprzętowej.
 - WinKeyer — transport szeregowy zależny od sprzętu (HIL).
-- AppImage / DEB / RPM / Flatpak — **brak implementacji** (M3-G…M3-J `NOT_STARTED`).
+- AppImage / DEB / RPM — **ZREALIZOWANE** i zweryfikowane w CI (M3-G, M3-H, M3-I). Flatpak (M3-J) — **NIE ZREALIZOWANE**, nie rozpoczęte.
 - MSI/Setup nie są budowane ani publikowane przez CI (F-05).

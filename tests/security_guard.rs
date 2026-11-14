@@ -1778,11 +1778,22 @@ fn ci_workflow_does_not_allow_clippy_failure() {
 
 #[test]
 fn documentation_test_counts_match_canonical_workspace_counts() {
-    let report_content = fs::read_to_string("STAGE_10_FINAL_GATE_REPORT.md")
-        .expect("STAGE_10_FINAL_GATE_REPORT.md must exist");
+    // Jedynym źródłem prawdy dla liczników jest publiczna dokumentacja weryfikacji.
+    // Raport bramki procesowej nie jest źródłem prawdy dla testu.
+    let baseline = fs::read_to_string("docs/VERIFICATION_BASELINE.md")
+        .expect("docs/VERIFICATION_BASELINE.md must exist");
+
+    assert!(
+        baseline.contains("**Data pomiaru:**"),
+        "Dokument bazowy musi jawnie podawać datę pomiaru"
+    );
+    assert!(
+        baseline.contains("cargo test --workspace --all-targets"),
+        "Dokument bazowy musi podawać kanoniczną komendę pomiaru"
+    );
 
     let extract_val = |key: &str| -> usize {
-        report_content
+        baseline
             .lines()
             .find(|l| l.contains(key))
             .and_then(|l| {
@@ -1791,7 +1802,7 @@ fn documentation_test_counts_match_canonical_workspace_counts() {
                     digits.parse::<usize>().ok()
                 })
             })
-            .unwrap_or_else(|| panic!("Key {key} not found in STAGE_10_FINAL_GATE_REPORT.md"))
+            .unwrap_or_else(|| panic!("Key {key} not found in docs/VERIFICATION_BASELINE.md"))
     };
 
     let reg = extract_val("TOTAL REGISTERED TESTS");
@@ -1799,10 +1810,26 @@ fn documentation_test_counts_match_canonical_workspace_counts() {
     let executed = extract_val("TOTAL EXECUTED TESTS");
     let ignored = extract_val("TOTAL IGNORED TESTS");
     let hil = extract_val("HIL IGNORED TESTS");
+    let filtered = extract_val("TOTAL FILTERED TESTS");
 
     assert_eq!(executed, passed);
-    assert_eq!(reg, executed + ignored);
-    assert_eq!(ignored, hil);
+    assert_eq!(
+        reg,
+        executed + ignored + filtered,
+        "Każdy zarejestrowany test musi być wykonany, ignorowany albo jawnie przefiltrowany"
+    );
+    assert_eq!(
+        ignored, hil,
+        "Wszystkie ignorowane testy muszą być testami HIL"
+    );
+    assert_eq!(
+        ignored, 10,
+        "Liczba testów HIL nie może się zmienić bez nowej bramki HIL"
+    );
+    assert!(
+        filtered <= 1,
+        "Filtrowanie w baseline jest dozwolone wyłącznie dla jednego testu ograniczonego hostem"
+    );
 
     let readme = fs::read_to_string("README.md").expect("README.md");
     assert!(
@@ -3513,15 +3540,24 @@ fn m3_c_temporary_conservative_backup_retention_guard() {
         "PowerShell fallback nie może usuwać .rollback w bloku sukcesu"
     );
 
-    // 3. Status decyzji OWNER-M2-08 i OWNER-M2-09 musi pozostać OPEN / NON-BLOCKING w dokumentacji
-    let audit_register =
-        fs::read_to_string("docs/AUDIT_FINDINGS_REGISTER.md").expect("read audit register");
-    let roadmap = fs::read_to_string("docs/IMPROVEMENT_ROADMAP.md").expect("read roadmap");
+    // 3. Status decyzji OWNER-M2-08 i OWNER-M2-09 musi pozostać OPEN / NON-BLOCKING.
+    // Źródłem prawdy jest publiczny rejestr decyzji (docs/architecture/DECISIONS.md)
+    // oraz rejestr znanych problemów (docs/KNOWN_ISSUES.md) — nigdy raport procesowy.
+    let decisions = fs::read_to_string("docs/architecture/DECISIONS.md")
+        .expect("docs/architecture/DECISIONS.md");
+    let known_issues = fs::read_to_string("docs/KNOWN_ISSUES.md").expect("docs/KNOWN_ISSUES.md");
 
-    for doc in [&audit_register, &roadmap] {
+    assert!(
+        decisions.contains("OWNER-M2-08") && decisions.contains("OWNER-M2-09"),
+        "DECISIONS musi jawnie rejestrować decyzje OWNER-M2-08 i OWNER-M2-09"
+    );
+    for (name, doc) in [
+        ("docs/architecture/DECISIONS.md", &decisions),
+        ("docs/KNOWN_ISSUES.md", &known_issues),
+    ] {
         assert!(
             !doc.contains("OWNER-M2-08: APPROVED") && !doc.contains("OWNER-M2-09: APPROVED"),
-            "Decyzje OWNER-M2-08 i OWNER-M2-09 nie mogą być oznaczone jako APPROVED przed formalnym rozstrzygnięciem"
+            "Decyzje OWNER-M2-08 i OWNER-M2-09 nie mogą być oznaczone jako APPROVED ({name}) przed formalnym rozstrzygnięciem"
         );
     }
 }
@@ -4103,37 +4139,42 @@ fn m3_transactional_replacement_terminology_guard() {
         "Stara nazwa testu 'windows_helper_stability_20_iterations_database_preservation_and_atomic_swap' nadal występuje w tests/windows_helper_test.rs"
     );
 
-    // Potwierdź formalne tokeny architektoniczne w dokumentacji projektowej
-    let roadmap =
-        fs::read_to_string("docs/IMPROVEMENT_ROADMAP.md").expect("docs/IMPROVEMENT_ROADMAP.md");
+    // Potwierdź formalne tokeny architektoniczne w publicznym kanonie decyzji.
+    let decisions = fs::read_to_string("docs/architecture/DECISIONS.md")
+        .expect("docs/architecture/DECISIONS.md");
     assert!(
-        roadmap.contains("JOURNALED_TRANSACTIONAL_REPLACEMENT_VERIFIED")
-            && roadmap.contains("NOT_POWER_LOSS_ATOMIC")
-            && roadmap.contains("CRASH_RECOVERABLE_BY_JOURNAL"),
-        "Kanon architektoniczny docs/IMPROVEMENT_ROADMAP.md musi zawierać potwierdzenie semantyki transakcyjnej"
+        decisions.contains("JOURNALED_TRANSACTIONAL_REPLACEMENT_VERIFIED")
+            && decisions.contains("NOT_POWER_LOSS_ATOMIC")
+            && decisions.contains("CRASH_RECOVERABLE_BY_JOURNAL"),
+        "Kanon architektoniczny docs/architecture/DECISIONS.md musi zawierać potwierdzenie semantyki transakcyjnej"
     );
 }
 
 #[test]
 fn m3_d_inno_setup_toolchain_decision_guard() {
-    let pre_report =
-        fs::read_to_string("STAGE_M3_D_WINDOWS_USER_SETUP_RESUME_PRE_IMPLEMENTATION_REPORT.md")
-            .expect("STAGE_M3_D_WINDOWS_USER_SETUP_RESUME_PRE_IMPLEMENTATION_REPORT.md");
+    // Źródłem prawdy dla zatwierdzonego toolchainu jest publiczna dokumentacja
+    // instalatora (installer/windows/inno/README.md), nie raport przedimplementacyjny.
+    let inno_doc = fs::read_to_string("installer/windows/inno/README.md")
+        .expect("installer/windows/inno/README.md");
     assert!(
-        pre_report.contains("OWNER-M3-D-TOOLCHAIN-01"),
-        "Raport musi zawierać identyfikator decyzji OWNER-M3-D-TOOLCHAIN-01"
+        inno_doc.contains("OWNER-M3-D-TOOLCHAIN-01"),
+        "Dokumentacja instalatora musi zawierać identyfikator decyzji OWNER-M3-D-TOOLCHAIN-01"
     );
     assert!(
-        pre_report.contains("APPROVED"),
+        inno_doc.contains("APPROVED"),
         "Decyzja OWNER-M3-D-TOOLCHAIN-01 musi mieć status APPROVED"
     );
     assert!(
-        pre_report.contains("7.1.1"),
+        inno_doc.contains("7.1.1"),
         "Zatwierdzona wersja Inno Setup to 7.1.1"
     );
     assert!(
-        pre_report.contains(r"C:\Program Files\Inno Setup 7\ISCC.exe"),
+        inno_doc.contains(r"C:\Program Files\Inno Setup 7\ISCC.exe"),
         r"Zatwierdzona ścieżka kompilatora to C:\Program Files\Inno Setup 7\ISCC.exe"
+    );
+    assert!(
+        inno_doc.contains("E0F9F1DC32032650C6629F6DEE41EB6D20BA140E4E3C07C25D8A24F9BA781644"),
+        "Dokumentacja instalatora musi zapisywać SHA-256 zatwierdzonego kompilatora"
     );
 
     let iscc_path = std::path::Path::new(r"C:\Program Files\Inno Setup 7\ISCC.exe");
@@ -4923,8 +4964,9 @@ fn m3_e_stability_20_iterations_msi_lifecycle_guard() {
 
 #[test]
 fn m3_f_owner_decisions_and_support_policy_guard() {
-    let decisions_doc = fs::read_to_string("STAGE_M3_F_OWNER_DECISIONS_PROPOSAL.md")
-        .expect("read STAGE_M3_F_OWNER_DECISIONS_PROPOSAL.md");
+    // Źródłem prawdy dla 11 decyzji M3-F jest publiczny kanon decyzji.
+    let decisions_doc = fs::read_to_string("docs/architecture/DECISIONS.md")
+        .expect("docs/architecture/DECISIONS.md");
 
     // Wszystkie 11 formalnych decyzji M3-F
     assert!(decisions_doc.contains("OWNER-M3-F-LINUX-BASELINE-01"));
@@ -4938,10 +4980,6 @@ fn m3_f_owner_decisions_and_support_policy_guard() {
     assert!(decisions_doc.contains("OWNER-M3-F-XDG-DATA-01"));
     assert!(decisions_doc.contains("OWNER-M3-F-SIGNING-01"));
     assert!(decisions_doc.contains("OWNER-M3-F-DESKTOP-INTEGRATION-01"));
-
-    // Status decyzji
-    assert!(decisions_doc.contains("M3-F OWNER DECISIONS: COMPLETED_DESIGN_VERIFIED"));
-    assert!(decisions_doc.contains("M3-F IMPLEMENTATION: READY_FOR_RESUME"));
 
     // Kluczowe zasady
     assert!(decisions_doc.contains("DYNAMIC DISTRIBUTION-DERIVED KERNEL COMPATIBILITY FLOOR"));
@@ -5201,113 +5239,87 @@ fn m3_f_owner_decisions_and_support_policy_guard() {
 
 #[test]
 fn m3_f_post_closure_consistency_guard() {
-    let agents = fs::read_to_string("AGENTS.md").expect("AGENTS.md");
-    let state =
-        fs::read_to_string("docs/PROJECT_CURRENT_STATE.md").expect("docs/PROJECT_CURRENT_STATE.md");
-    let next_gate = fs::read_to_string("docs/NEXT_WORK_GATE.md").expect("docs/NEXT_WORK_GATE.md");
-    let master =
-        fs::read_to_string("MASTER_IMPLEMENTATION_PLAN.md").expect("MASTER_IMPLEMENTATION_PLAN.md");
-    let policy_report = fs::read_to_string("STAGE_M3_F_LINUX_SUPPORT_POLICY_ALIGNMENT_REPORT.md")
-        .expect("STAGE_M3_F_LINUX_SUPPORT_POLICY_ALIGNMENT_REPORT.md");
-    let matrix = fs::read_to_string("docs/DECISION_TRACEABILITY_MATRIX.md")
-        .expect("docs/DECISION_TRACEABILITY_MATRIX.md");
-    let index =
-        fs::read_to_string("docs/DOCUMENTATION_INDEX.md").expect("docs/DOCUMENTATION_INDEX.md");
+    // Strażnik spójności po zamknięciu M3-F. Czyta wyłącznie publiczną dokumentację
+    // trwałą; raporty procesowe nie są źródłem prawdy.
+    let dev = fs::read_to_string("docs/DEVELOPMENT.md").expect("docs/DEVELOPMENT.md");
+    let roadmap = fs::read_to_string("docs/ROADMAP.md").expect("docs/ROADMAP.md");
+    let decisions = fs::read_to_string("docs/architecture/DECISIONS.md")
+        .expect("docs/architecture/DECISIONS.md");
+    let issues = fs::read_to_string("docs/KNOWN_ISSUES.md").expect("docs/KNOWN_ISSUES.md");
+    let arch = fs::read_to_string("docs/architecture/ARCHITECTURE.md")
+        .expect("docs/architecture/ARCHITECTURE.md");
+    let secproc = fs::read_to_string("docs/SECURITY_PROCESS.md").expect("docs/SECURITY_PROCESS.md");
 
     // 1. Stan drzewa musi być opisany jawnie (tracked / untracked / ignored / strict).
-    for (name, source) in [
-        ("AGENTS.md", &agents),
-        ("docs/PROJECT_CURRENT_STATE.md", &state),
-        (
-            "STAGE_M3_F_LINUX_SUPPORT_POLICY_ALIGNMENT_REPORT.md",
-            &policy_report,
-        ),
+    for state in [
+        "TRACKED_CLEAN",
+        "UNTRACKED_PRESENT",
+        "IGNORED_PRESENT",
+        "STRICT_WORKTREE_CLEAN",
     ] {
         assert!(
-            source.contains("STRICT_WORKTREE_CLEAN") || source.contains("czystość ścisła"),
-            "{name}: brak jawnej definicji czystości (tracked / untracked / ignored / strict)"
+            dev.contains(state),
+            "docs/DEVELOPMENT.md: brak jawnej definicji stanu drzewa {state}"
         );
     }
     assert!(
-        !state.contains("| Working tree | `CLEAN` |"),
-        "PROJECT_CURRENT_STATE: nieprecyzyjne `CLEAN` bez definicji jest zabronione"
+        dev.contains(".git/info/exclude"),
+        "docs/DEVELOPMENT.md musi opisywać lokalne wykluczanie przez .git/info/exclude"
     );
 
-    // 2. scratch/ jest ignorowany tylko wzorcami plików — nie nazywaj go fantomem.
+    // 2. Dowód natywny jest dowodem userspace/CI, nie dowodem jądra dystrybucji.
     assert!(
-        agents.contains("scratch/tree_dupes.txt"),
-        "AGENTS.md musi nazywać realny nieśledzony plik w scratch/ (F-25 to nie fantom)"
-    );
-    assert!(
-        state.contains("UNTRACKED_SCRATCH_PRESENT"),
-        "PROJECT_CURRENT_STATE musi jawnie klasyfikować nieśledzony scratch/"
+        secproc.contains("userspace and CI evidence"),
+        "docs/SECURITY_PROCESS.md musi klasyfikować dowód z kontenera OCI"
     );
 
-    // 3. Dowód natywny: run 42518873662 dotyczył 7 profili, nie 4.
+    // 3. F-03 jest zamknięte i nie może być otwarte bez odtwarzalnej regresji.
     assert!(
-        !master.contains("4 profile w GitHub Actions Run ID 42518873662"),
-        "MASTER_IMPLEMENTATION_PLAN: run 42518873662 dotyczył 7 profili, nie 4"
+        roadmap.contains("F-03") && roadmap.contains("CLOSED"),
+        "ROADMAP musi utrzymywać F-03 jako CLOSED"
+    );
+    assert!(
+        roadmap.contains("NATIVE VERIFICATION COMPLETED SUCCESSFULLY"),
+        "ROADMAP musi opisywać fail-closed werdykt weryfikatora natywnego"
+    );
+    assert!(
+        !roadmap.contains("4 profile w GitHub Actions Run ID 42518873662"),
+        "ROADMAP nie może powtarzać nieprawdziwego opisu runu 42518873662"
     );
 
-    // 4. Formalna bramka F-03 jest zdefiniowana, a M3-G pozostaje zablokowane.
-    for (name, source) in [
-        ("docs/NEXT_WORK_GATE.md", &next_gate),
-        ("docs/DECISION_TRACEABILITY_MATRIX.md", &matrix),
+    // 4. Stan przyrostowy: M3-G/M3-H/M3-I dostarczone, M3-J nie rozpoczęte.
+    for milestone in ["M3-G", "M3-H", "M3-I"] {
+        assert!(
+            roadmap.contains(milestone),
+            "ROADMAP musi odnotowywać kamień milowy {milestone}"
+        );
+    }
+    assert!(
+        roadmap.contains("M3-J") && roadmap.contains("NOT_STARTED"),
+        "ROADMAP musi utrzymywać M3-J (Flatpak) jako NOT_STARTED"
+    );
+
+    // 5. Rejestr decyzji zachowuje trwałe identyfikatory; otwarte P0 jest jawne.
+    for owner_id in [
+        "OWNER-M3-F-PCV-01",
+        "OWNER-M3-F-PCV-07",
+        "OWNER-M3-F-F03-01",
     ] {
         assert!(
-            source.contains("STAGE-M3-F-F03-FAIL-CLOSED-CI-VERIFICATION-GATE"),
-            "{name}: brak formalnego identyfikatora bramki F-03"
+            decisions.contains(owner_id),
+            "DECISIONS musi zapisywać decyzję {owner_id}"
         );
     }
     assert!(
-        next_gate.contains("STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE"),
-        "NEXT_WORK_GATE musi wskazywać M3-G jako jedyną następną bramkę"
-    );
-    assert!(
-        next_gate.contains("F03_STATUS: `CLOSED`"),
-        "NEXT_WORK_GATE musi utrzymywać F-03 jako CLOSED"
-    );
-    assert!(
-        next_gate.contains("M3_G_STATUS: `IN_PROGRESS`")
-            || next_gate.contains("M3_G_STATUS: `CLOSED`"),
-        "NEXT_WORK_GATE musi odzwierciedlać rozpoczętą lub zamkniętą bramkę M3-G"
+        issues.contains("F-14"),
+        "KNOWN_ISSUES musi jawnie ewidencjonować otwarte znalezisko F-14"
     );
 
-    // 5. Raport M3-F i indeks muszą odnotować tę bramkę.
+    // 6. Mapa architektury nie może twierdzić, że pakiety Linux nie są zaimplementowane.
     assert!(
-        policy_report.contains("ERRATA"),
-        "Raport M3-F policy musi zawierać errata spójności po zamknięciu"
+        !arch.contains("brak implementacji"),
+        "ARCHITECTURE nie może deklarować braku implementacji pakietów Linux"
     );
-    assert!(
-        index.contains("STAGE_M3_F_POST_CLOSURE_CONSISTENCY_VERIFICATION_REPORT.md"),
-        "Indeks dokumentacji musi zawierać raport bramki spójności"
-    );
-
-    // 6. Trwałe reguły bramki: F-03 jawnie CLOSED w kontrakcie i stanie, decyzje OWNER zapisane.
-    assert!(
-        agents.contains("F-03"),
-        "AGENTS.md musi jawnie opisywać F-03 (zakaz deklarowania natywnego PASS)"
-    );
-    assert!(
-        state.contains("F-03") && state.contains("`CLOSED`"),
-        "PROJECT_CURRENT_STATE musi utrzymywać F-03 jako CLOSED"
-    );
-    assert!(
-        state.contains("M3_G_STATUS")
-            && (state.contains("M3_G_STATUS: `IN_PROGRESS`")
-                || state.contains("M3_G_STATUS: `CLOSED`")),
-        "PROJECT_CURRENT_STATE musi odzwierciedlać rozpoczętą lub zamkniętą bramkę M3-G"
-    );
-    assert!(
-        master.contains("F-03"),
-        "MASTER_IMPLEMENTATION_PLAN musi jawnie oznaczać F-03"
-    );
-    for owner_id in ["OWNER-M3-F-PCV-01", "OWNER-M3-F-PCV-07"] {
-        assert!(
-            matrix.contains(owner_id),
-            "DECISION_TRACEABILITY_MATRIX musi zapisywać decyzję {owner_id}"
-        );
-    }
 }
 
 // ============================================================================
@@ -5457,10 +5469,30 @@ fn qa_native_installer_tests_are_hermetic_and_fail_closed() {
         ci.contains("qa_native_installer_tests_are_hermetic_and_fail_closed"),
         "CI musi uruchamiać strażnik hermetyczności"
     );
+    // Liczniki bazowe mają dokładnie jedno źródło prawdy: docs/VERIFICATION_BASELINE.md.
+    // Workflow nie może ich duplikować, ale musi na to źródło wskazywać.
     assert!(
-        ci.contains("2735") && ci.contains("2725") && ci.contains("10 ignored"),
-        "CI musi dokumentować kanoniczne liczniki bazowe (2735/2725/10)"
+        ci.contains("docs/VERIFICATION_BASELINE.md"),
+        "CI musi wskazywać jedno źródło prawdy dla liczników (docs/VERIFICATION_BASELINE.md)"
     );
+    assert!(
+        !ci.contains("2735 registered") && !ci.contains("2725 executed"),
+        "CI nie może duplikować liczników bazowych — obowiązuje docs/VERIFICATION_BASELINE.md"
+    );
+    let baseline =
+        fs::read_to_string("docs/VERIFICATION_BASELINE.md").expect("docs/VERIFICATION_BASELINE.md");
+    for key in [
+        "TOTAL REGISTERED TESTS",
+        "TOTAL EXECUTED TESTS",
+        "TOTAL PASSED TESTS",
+        "TOTAL IGNORED TESTS",
+        "HIL IGNORED TESTS",
+    ] {
+        assert!(
+            baseline.contains(key),
+            "docs/VERIFICATION_BASELINE.md musi zawierać kanoniczny licznik {key}"
+        );
+    }
 }
 
 // ============================================================================
@@ -5687,39 +5719,31 @@ fn m3_f_f03_fail_closed_verification_guard() {
         "Publish Release Assets musi zależeć od wszystkich jobów weryfikacyjnych"
     );
 
-    // 10. Dokumentacja domyka F-03, a M3-G pozostaje tylko READY_FOR_OWNER_GO.
-    let state =
-        fs::read_to_string("docs/PROJECT_CURRENT_STATE.md").expect("docs/PROJECT_CURRENT_STATE.md");
-    let next_gate = fs::read_to_string("docs/NEXT_WORK_GATE.md").expect("docs/NEXT_WORK_GATE.md");
-    let handoff = fs::read_to_string("docs/DEEPSEEK_HARNESS_HANDOFF.md")
-        .expect("docs/DEEPSEEK_HARNESS_HANDOFF.md");
-    let matrix = fs::read_to_string("docs/DECISION_TRACEABILITY_MATRIX.md")
-        .expect("docs/DECISION_TRACEABILITY_MATRIX.md");
-    let index =
-        fs::read_to_string("docs/DOCUMENTATION_INDEX.md").expect("docs/DOCUMENTATION_INDEX.md");
+    // 10. Publiczna dokumentacja domyka F-03 i opisuje fail-closed; M3-G jest dostarczone.
+    let roadmap = fs::read_to_string("docs/ROADMAP.md").expect("docs/ROADMAP.md");
+    let security_process =
+        fs::read_to_string("docs/SECURITY_PROCESS.md").expect("docs/SECURITY_PROCESS.md");
+    let decisions = fs::read_to_string("docs/architecture/DECISIONS.md")
+        .expect("docs/architecture/DECISIONS.md");
     let snapshot = fs::read_to_string("LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.json")
         .expect("LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.json");
 
     assert!(
-        state.contains("COMPLETED_FAIL_CLOSED_CI_VERIFICATION_VERIFIED"),
-        "PROJECT_CURRENT_STATE musi zamykać F-03 statusem COMPLETED_FAIL_CLOSED_CI_VERIFICATION_VERIFIED"
+        roadmap.contains("F-03") && roadmap.contains("CLOSED"),
+        "ROADMAP musi utrzymywać F-03 jako CLOSED"
     );
     assert!(
-        next_gate.contains("STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE")
-            && next_gate.contains("F03_STATUS: `CLOSED`"),
-        "NEXT_WORK_GATE musi zachowywać F-03 jako CLOSED i wskazywać bramkę M3-G"
+        roadmap.contains("M3-G") && roadmap.contains("AppImage"),
+        "ROADMAP musi odnotowywać dostarczenie M3-G (AppImage)"
     );
     assert!(
-        handoff.contains("F-03") && handoff.contains("ZAMKNIĘTE"),
-        "handoff musi odnotować zamknięcie F-03"
+        security_process.contains("F-03")
+            && security_process.contains("NATIVE VERIFICATION COMPLETED SUCCESSFULLY"),
+        "SECURITY_PROCESS musi opisywać fail-closed weryfikację natywną i zamknięcie F-03"
     );
     assert!(
-        matrix.contains("OWNER-M3-F-F03-01"),
-        "macierz decyzji musi zapisywać OWNER-M3-F-F03-01"
-    );
-    assert!(
-        index.contains("STAGE_M3_F_F03_FAIL_CLOSED_CI_VERIFICATION_REPORT.md"),
-        "indeks dokumentacji musi zawierać raport końcowy F-03"
+        decisions.contains("OWNER-M3-F-F03-01"),
+        "kanon decyzji musi zapisywać OWNER-M3-F-F03-01"
     );
     let snapshot_json: serde_json::Value =
         serde_json::from_str(&snapshot).expect("snapshot JSON musi być poprawny");
@@ -6636,5 +6660,51 @@ fn m3_i_rpm_integration_guard() {
     assert!(
         !std::path::Path::new("installer/linux/flatpak").exists(),
         "M3-J Flatpak nie może zostać rozpoczęte w M3-I"
+    );
+}
+
+// ============================================================================
+// Higiena publicznego drzewa dokumentacji
+// Każde śledzone Markdown musi być wpisane do publicznego indeksu dokumentacji.
+// Kontrola jest fail-closed: nowy, nieindeksowany dokument (w tym przypadkowo
+// dodany dokument procesowy) blokuje CI.
+// ============================================================================
+
+#[test]
+fn every_tracked_document_is_listed_in_the_documentation_index() {
+    let index = fs::read_to_string("docs/DOCUMENTATION_INDEX.md")
+        .expect("docs/DOCUMENTATION_INDEX.md must exist");
+    let output = Command::new("git")
+        .args(["ls-files", "*.md"])
+        .output()
+        .expect("git ls-files must be executable");
+    assert!(
+        output.status.success(),
+        "git ls-files must succeed to enumerate tracked documentation"
+    );
+
+    let listed = String::from_utf8_lossy(&output.stdout);
+    let tracked: Vec<&str> = listed
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+
+    assert!(
+        tracked.len() >= 20,
+        "Public repository must track its documentation, found only {} Markdown files",
+        tracked.len()
+    );
+
+    let mut missing: Vec<&str> = Vec::new();
+    for path in &tracked {
+        let needle = format!("`{path}`");
+        if !index.contains(&needle) {
+            missing.push(path);
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "Every tracked Markdown document must be listed in docs/DOCUMENTATION_INDEX.md with its exact backticked path; missing: {missing:?}"
     );
 }

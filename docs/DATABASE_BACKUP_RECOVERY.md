@@ -83,9 +83,9 @@ Domyślny katalog danych aplikacji znajduje się w profilu użytkownika:
 - Windows: `%APPDATA%\SPLogbook\` lub katalog wskazywany przez `--data-dir`
 
 Sprawdź obecność plików:
-- `splogbook.db` (baza główna)
-- `splogbook.db-wal` (dziennik transakcyjny WAL)
-- `splogbook.db-shm` (pamięć współdzielona indeksu WAL)
+- `default_log.db` (baza główna)
+- `default_log.db-wal` (dziennik transakcyjny WAL)
+- `default_log.db-shm` (pamięć współdzielona indeksu WAL)
 - `backups/*.db` (katalog automatycznych kopii zapasowych)
 
 ### Krok 2: Odzyskiwanie przy nienaruszonej bazie WAL
@@ -94,7 +94,7 @@ Jeżeli program został przerwany w trakcie zapisu, SQLite automatycznie odtworz
 2. Przy otwarciu `LogDatabase::open` sprawdzana jest poprawność schematu i następuje checkpoint WAL.
 
 ### Krok 3: Przywracanie z kopii zapasowej w przypadku uszkodzenia pliku głównego
-Jeżeli `splogbook.db` uległ uszkodzeniu fizycznemu (np. błędy I/O, `PRAGMA quick_check` zwraca błędy):
+Jeżeli `default_log.db` uległ uszkodzeniu fizycznemu (np. błędy I/O, `PRAGMA quick_check` zwraca błędy):
 1. Zakończ działanie programu SPLogbook.
 2. Zlokalizuj najnowszą poprawną kopię zapasową w podkatalogu `backups/`:
    ```bash
@@ -103,17 +103,17 @@ Jeżeli `splogbook.db` uległ uszkodzeniu fizycznemu (np. błędy I/O, `PRAGMA q
    ```
 3. Przetestuj integralność wybranego pliku kopii:
    ```bash
-   sqlite3.exe .\backups\splogbook_backup_YYYYMMDD_HHMMSS.db "PRAGMA quick_check;"
+   sqlite3.exe .\backups\default_log_backup_YYYYMMDD_HHMMSS.db "PRAGMA quick_check;"
    ```
    (Wynik musi brzmieć `ok`).
 4. Zabezpiecz uszkodzony plik:
    ```bash
-   Move-Item splogbook.db splogbook.db.corrupt
-   Remove-Item splogbook.db-wal, splogbook.db-shm -ErrorAction SilentlyContinue
+   Move-Item default_log.db default_log.db.corrupt
+   Remove-Item default_log.db-wal, default_log.db-shm -ErrorAction SilentlyContinue
    ```
-5. Skopiuj zweryfikowany plik kopii na miejsce `splogbook.db`:
+5. Skopiuj zweryfikowany plik kopii na miejsce `default_log.db`:
    ```bash
-   Copy-Item .\backups\splogbook_backup_YYYYMMDD_HHMMSS.db .\splogbook.db
+   Copy-Item .\backups\default_log_backup_YYYYMMDD_HHMMSS.db .\default_log.db
    ```
 6. Uruchom SPLogbook — program automatycznie otworzy odzyskaną bazę i zweryfikuje integralność.
 

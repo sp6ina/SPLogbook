@@ -1,10 +1,10 @@
 # Bezpieczeństwo Procesu Wydawniczego i Auto-Updatera SPLogbook (`RELEASE_SECURITY.md`)
 
-**Dokumentacja techniczna i operacyjna:** `docs/RELEASE_SECURITY.md`  
-**Projekt:** SPLogbook  
-**Wersja specyfikacji:** 2.0 (Etap 2 — REL-001 + CI-001)  
-**Klasyfikacja:** Dokumentacja Architektury Bezpieczeństwa Łańcucha Dostaw (Supply Chain Security)  
-**Status wdrożenia:** `FIXED` (REL-001, CI-001)  
+**Dokumentacja techniczna i operacyjna:** `docs/security/RELEASE_SECURITY.md`
+**Projekt:** SPLogbook
+**Wersja specyfikacji:** 2.0 (Etap 2 — REL-001 + CI-001)
+**Klasyfikacja:** Dokumentacja Architektury Bezpieczeństwa Łańcucha Dostaw (Supply Chain Security)
+**Status wdrożenia:** `FIXED` (REL-001, CI-001)
 
 ---
 
@@ -22,8 +22,8 @@ Mechanizm automatycznych aktualizacji (Auto-Updater) oraz potok ciągłej integr
 | **Path Traversal w archiwach ZIP / TAR (Zip Slip)** | Rygorystyczna funkcja `validate_archive_relative_path` odrzucająca `..`, RootDir, Windows Drive Prefixes (`C:`), UNC paths (`\\`), znaki null i urządzenia specjalne (`CON`, `PRN`, `AUX`, `NUL` itp.). | ZABEZPIECZONY |
 | **Symlink / Hardlink Traversal** | Bezwzględne odrzucanie symlinków i hardlinków w `extract_tar_gz_safe` oraz `extract_zip_safe_windows`. Brak podążania za istniejącymi linkami. | ZABEZPIECZONY |
 | **Archive Bomb / DoS zasobów dyskowych** | Limity `ArchiveLimits`: max 5 000 wpisów, max 150 MB pojedynczy plik, max 300 MB łączne dane rozpakowane. | ZABEZPIECZONY |
-| **Time-of-Check to Time-of-Use (TOCTOU)** | Weryfikacja SHA-256 pobranego pliku przed rozpakowaniem; atomowa instalacja staging; weryfikacja integralności staging przed podmianą. | ZABEZPIECZONY |
-| **Uszkodzenie instalacji przy awarii zasilania / błędu rename** | Atomowa instalacja (`apply_atomic_installation`): kopia zapasowa modyfikowanych plików do `.backup_<id>`, atomowa podmiana, automatyczny rollback przy dowolnym błędzie, czyszczenie staging. | ZABEZPIECZONY |
+| **Time-of-Check to Time-of-Use (TOCTOU)** | Weryfikacja SHA-256 pobranego pliku przed rozpakowaniem; przygotowanie i weryfikacja stagingu przed podmianą; integralność stagingu sprawdzana ponownie bezpośrednio przed podmianą. | ZABEZPIECZONY |
+| **Przerwanie podmiany (crash, błąd rename, restart)** | `JOURNALED_TRANSACTIONAL_REPLACEMENT_VERIFIED`: transakcja zapisywana przed podmianą, `.rollback` z plikami `replace_files`, journal operacji, automatyczny rollback przy błędzie. Semantyka to `CRASH_RECOVERABLE_BY_JOURNAL` i **`NOT_POWER_LOSS_ATOMIC`** — odtwarzalna z journala, nie atomowa wobec utraty zasilania. | ZABEZPIECZONY (odtwarzalny, nie atomowy wobec utraty zasilania) |
 | **Złośliwe bity uprawnień na systemach Unix** | Wymuszenie czystych masek uprawnień `0o755` dla plików wykonywalnych i katalogów oraz `0o644` dla plików zwykłych; bezwzględne usunięcie bitów `setuid`, `setgid` i `sticky`. | ZABEZPIECZONY |
 | **Publikacja niepodpisanego wydania w CI (CI-001)** | Fail-closed: brak sekretu `RELEASE_SIGNING_KEY` przerywa potok z błędem (`exit 1`); weryfikacja podpisu wygenerowanego manifestu przed uploadem artefaktów. | ZABEZPIECZONY |
 | **Wyciek klucza prywatnego w logach CI** | Umask `077`, prawa `600`, brak logowania sekretu w poleceniach `echo`, automatyczne czyszczenie pliku prywatnego przez powłokowy `trap 'rm -f priv.key' EXIT`. | ZABEZPIECZONY |
@@ -49,7 +49,7 @@ flowchart TD
         V{Weryfikacja SHA-256}
         E[Bezpieczna Ekstrakcja do .staging]
         L[Walidacja Staging Layout]
-        SW[Atomowy Swap & Backup]
+        SW[Journaled Transactional Replacement + .rollback]
     end
 
     M & S --> K
@@ -81,12 +81,14 @@ Wszelkie historyczne klucze powiązane z incydentem SEC-001 podlegają bezwzglę
 
 Struktura manifestu wydania jest ściśle zdefiniowana i weryfikowana w kodzie (`ReleaseManifest` w `src/cloud/updater.rs`):
 
+Przykład ilustracyjny (wartości `commit`, `size` i `sha256` są przykładowe):
+
 ```json
 {
   "manifest_version": 1,
   "key_id": "splogbook-release-2026-02",
   "product": "SPLogbook",
-  "version": "1.2.1",
+  "version": "1.3.0-alpha.1",
   "channel": "stable",
   "minimum_updater_version": "1.1.0",
   "commit": "16892e84cd824d5bfd96442beb7ba2e624c7165a",
@@ -156,48 +158,58 @@ Struktura manifestu wydania jest ściśle zdefiniowana i weryfikowana w kodzie (
 
 ---
 
-## 5. Atomowa Instalacja, Weryfikacja Układu i Rollback
+## 5. Podmiana plików, dowód zdrowia i rollback
 
-Proces podmiany istniejącej instalacji nową wersją jest w pełni atomowy i transakcyjny (`apply_atomic_installation_with_options`):
+Podmiana istniejącej instalacji jest transakcyjna i odtwarzalna z journala. Obowiązujące
+określenia to `JOURNALED_TRANSACTIONAL_REPLACEMENT_VERIFIED` oraz
+`CRASH_RECOVERABLE_BY_JOURNAL`, przy czym operacja jest jawnie **`NOT_POWER_LOSS_ATOMIC`**:
+jest odtwarzalna po przerwaniu, ale **nie** jest atomowa wobec utraty zasilania. Żaden
+dokument i żaden komentarz w kodzie nie może twierdzić inaczej.
 
 ```mermaid
 sequenceDiagram
     participant U as Updater
     participant S as Staging (.staging)
-    participant B as Backup (.backup_<id>)
+    participant T as Journal (.update_transaction.json)
+    participant R as Rollback (.rollback)
     participant A as Active App Dir
 
     U->>S: 1. validate_staging_layout(executable_name)
-    Note over U,S: Weryfikacja obecności i niepustości pliku wykonywalnego
-    U->>B: 2. create_dir_all(.backup_<id>)
-    loop Dla każdego pliku w staging
-        U->>B: 3. fs::copy(orig_file, backup_file)
+    U->>T: 2. zapis transakcji (wersja, attempt_id, plan_digest, replace/create)
+    U->>R: 3. kopie wyłącznie plików replace_files
+    U->>U: 4. journal operacji + sync_all
+    loop Dla każdego pliku replace/create
+        U->>A: 5. podmiana lub utworzenie
     end
-    loop Dla każdego pliku w staging
-        U->>A: 4. fs::rename / fs::copy(staging_file, active_file)
-    end
-    U->>A: 5. Walidacja końcowa pliku wykonywalnego
-    alt Błąd na dowolnym etapie (Swap / Walidacja)
-        Note over U,A: TRIGGER ROLLBACK!
-        loop Dla każdego zamienionego pliku
-            U->>A: Usuń pliki nowe
-            U->>A: Przywróć pliki z .backup_<id>
-        end
-        U->>B: Usuń .backup_<id>
-        U->>S: Usuń staging
-        U-->>U: Err(UpdaterError::InstallFailed)
+    U->>A: 6. uruchomienie kandydata --check-health-startup <attempt_id>
+    U->>A: 7. oczekiwanie na .health_ok (limit 15 s)
+    alt Brak .health_ok lub błąd na dowolnym etapie
+        U->>A: rollback: usuń pliki create, przywróć pliki replace
+        U->>R: .rollback pozostaje zachowany
     else Sukces
-        U->>B: Usuń .backup_<id>
-        U->>S: Usuń staging
-        U-->>U: Ok(())
+        U->>A: usunięcie .health_ok i .staging po potwierdzonym sukcesie
+        U->>R: .rollback pozostaje zachowany (polityka retencji)
     end
 ```
 
-### Gwarancje Niezawodności:
-- **Zasada nienaruszalności starej wersji:** Oryginalna instalacja nie jest dotykana dopóki staging nie zostanie w 100% przygotowany, rozpakowany i zweryfikowany pod kątem obecności pliku wykonywalnego.
-- **Kopia zapasowa w tym samym systemie plików:** Katalog `.backup_<random>` jest tworzony bezpośrednio w katalogu aplikacji, co gwarantuje atomowość operacji w obrębie tego samego punktu montowania dysku.
-- **Automatyczny rollback:** Jeżeli jakakolwiek operacja podmiany pliku zawiedzie lub walidacja końcowa nie potwierdzi sprawności nowego pliku wykonywalnego, updater automatycznie przywraca poprzednią wersję ze stworzonego backupu i usuwa wszelkie częściowe pliki nowej wersji.
-- **Czystość środowiska:** Wszelkie katalogi staging i backup są sprzątane zarówno w przypadku sukcesu, jak i w przypadku awarii.
+### Gwarancje niezawodności
+
+- **Stara instalacja nietknięta do końca preflightu:** staging musi być w całości
+  przygotowany i zweryfikowany, zanim jakikolwiek plik aktywny zostanie podmieniony.
+- **Dane użytkownika poza planem:** `.rollback` zawiera wyłącznie pliki z listy
+  `replace_files` — nigdy bazy QSO, pliki WAL/SHM, konfigurację ani sekrety.
+- **Journal jako źródło odtwarzania:** transakcja jest zapisywana przed podmianą i
+  walidowana przy odczycie; nieznana wersja transakcji jest odrzucana, a odtwarzanie po
+  restarcie nigdy nie powtarza automatycznie kroku `apply`.
+- **Dowód zdrowia:** nowy plik wykonywalny musi zapisać `.health_ok` powiązany z
+  `attempt_id`, wersją, commitem, platformą i typem instalacji w oknie 15 s; brak dowodu
+  oznacza rollback.
+- **Zachowanie `.rollback`:** katalog nie jest automatycznie usuwany. Do czasu zamknięcia
+  decyzji `OWNER-M2-08`/`OWNER-M2-09` obowiązuje tymczasowa, konserwatywna polityka
+  retencji, a jego rozmiar jest raportowany jako `backup_retained_bytes`.
+- **Wersje systemowe:** MSI, Inno Setup, DEB, RPM i Flatpak są zarządzane przez menedżer
+  pakietów (`SystemManaged`); updater nie podmienia ich plików bezpośrednio i nie eskaluje
+  uprawnień.
 
 ---
 
@@ -288,7 +300,7 @@ Pakiet testów strażnika bezpieczeństwa (`tests/security_guard.rs` oraz moduł
 
 ---
 
-## 8. Podsumowanie Stanu Gotowości Wydawniczej
+## 8. Podsumowanie stanu gotowości wydawniczej
 
 Po wdrożeniu Etapu 2 (REL-001 + CI-001):
 - Auto-updater aplikacji jest w pełni bezpieczny i funkcjonalny na platformach Windows i Linux.
@@ -297,7 +309,7 @@ Po wdrożeniu Etapu 2 (REL-001 + CI-001):
 - Wszystkie testy jednostkowe, integracyjne i testy strażników bezpieczeństwa przechodzą na zielono.
 - Stan wydawniczy SPLogbook: **`RELEASE_PIPELINE_READY`**.
 
-## 8. Potwierdzenie Weryfikacji Potoku w Trybie Dry-Run (Etap 2 Final Gate)
+## 9. Potwierdzenie weryfikacji potoku w trybie dry-run
 
 W ramach końcowej bramki weryfikacyjnej Etapu 2 przeprowadzono rzeczywisty, pełny i natywny przebieg potoku wydawniczego na GitHub Actions:
 

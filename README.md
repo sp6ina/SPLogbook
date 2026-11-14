@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/badge/Development-1.3.0--alpha.1-orange.svg" alt="Development Version">
   <img src="https://img.shields.io/badge/Release_Status-Not_Published-yellow.svg" alt="Release Status">
   <a href="https://github.com/sp6ina/SPLogbook/actions"><img src="https://github.com/sp6ina/SPLogbook/actions/workflows/build-and-release.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/Tests-2279%2F2279_Passed-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-2743%2F2743_Passed-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/i18n-7_Languages-cyan.svg" alt="i18n">
   <a href="https://buycoffee.to/sp6ina"><img src="https://img.shields.io/badge/☕_Buy_Me_a_Coffee-buycoffee.to%2Fsp6ina-FFDD00?style=flat&logoColor=black" alt="Buy Me a Coffee"></a>
 </p>
@@ -73,9 +73,10 @@ From deep ionospheric modeling (VOACAP-lite HF propagation), automated antenna r
 7. [Building from Source](#-building-from-source)
 8. [Codebase Architecture & Directory Structure](#-codebase-architecture--directory-structure)
 9. [Configuration & Data Safety](#-configuration--data-safety)
-10. [Contributing & Bug Reports](#-contributing--bug-reports)
-11. [Support & Donations](#-support--donations)
-12. [License & Credits](#-license--credits)
+10. [Documentation](#-documentation)
+11. [Contributing & Bug Reports](#-contributing--bug-reports)
+12. [Support & Donations](#-support--donations)
+13. [License & Credits](#-license--credits)
 
 ---
 
@@ -391,7 +392,7 @@ A modern, asynchronous rig control subsystem powered by the `RigHub` multi-radio
 - **FlexRadio** — native SmartSDR TCP API (v2.0–3.x) with slice/meter subscriptions and automatic UDP discovery (port 4992).
 - **FLRig (XML-RPC)** — cross-platform rig control via FLDigi's companion server.
 - **TCI (WebSocket)** — high-speed Transceiver Control Interface for SDR platforms (SunSDR2, Thetis, ExpertSDR3).
-- **RF Safety & HIL Harness** — `TxArbiter` enforcing single-TX lockout and zero retry on `SetPtt(true)`, safe read-only probe (`ProbeState`), and laboratory Hardware-in-the-Loop harness (`src/cat/hil/`) requiring mandatory 50 Ω dummy load termination. Features a multi-axis evidence model separating `OfflineModel`, `SimulatedRuntime`, and `PhysicalRuntime` contexts with strict 8-variant evidence origin classification (`RepositoryMeasurement`, `SoftwareBaselineArtifact`, `ConfigurationArtifact`, `SyntheticOfflineFixture`, `MockRuntime`, `OperatorDeclaration`, `InstrumentInterface`, `PhysicalMeasurement`). Evaluates the 30 immutable canonical HIL-READY conditions plus 22 extended `HIL-X01`..`HIL-X22` requirements. Software baseline is fully verified and **PASSED** (297 deterministic offline HIL tests passed, 2279 total across the suite), while physical runtime execution (NATIVE-7B) remains formally **BLOCKED** pending physical test bench connection.
+- **RF Safety & HIL Harness** — `TxArbiter` enforcing single-TX lockout and zero retry on `SetPtt(true)`, safe read-only probe (`ProbeState`), and laboratory Hardware-in-the-Loop harness (`src/cat/hil/`) requiring mandatory 50 Ω dummy load termination. Features a multi-axis evidence model separating `OfflineModel`, `SimulatedRuntime`, and `PhysicalRuntime` contexts with strict 8-variant evidence origin classification (`RepositoryMeasurement`, `SoftwareBaselineArtifact`, `ConfigurationArtifact`, `SyntheticOfflineFixture`, `MockRuntime`, `OperatorDeclaration`, `InstrumentInterface`, `PhysicalMeasurement`). Evaluates the 30 immutable canonical HIL-READY conditions plus 22 extended `HIL-X01`..`HIL-X22` requirements. Software baseline is fully verified and **PASSED** (297 deterministic offline HIL tests passed, 2743 total across the suite), while physical runtime execution (NATIVE-7B) remains formally **BLOCKED** pending physical test bench connection.
 
 ---
 
@@ -571,6 +572,46 @@ Pre-compiled release packages are available directly from the [Releases](https:/
    ```
    *(Optional)* Copy `share/applications/splogbook.desktop` to `~/.local/share/applications/` to integrate with your FreeDesktop application launcher without root privileges. User data is strictly preserved in standard XDG Base Directories (`$XDG_DATA_HOME/splogbook` and `$XDG_CONFIG_HOME/splogbook`).
 
+### 🐧 GNU/Linux distribution packages
+
+The DEB, RPM and AppImage packages are implemented and verified by CI. They are **not yet
+attached to a published release** — only `v1.2.0` is published, and it predates these
+formats. Build them locally with the scripts listed in
+[`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
+
+**Debian / Ubuntu (`.deb`)**
+
+```bash
+sudo apt install ./SPLogbook-Linux-amd64-1.3.0-alpha.1.deb
+splogbook
+```
+
+Installs under `/opt/SPLogbook` with the launcher `/usr/bin/splogbook`. Installation, upgrade
+and removal never touch user data. Details:
+[`installer/linux/deb/README.md`](installer/linux/deb/README.md).
+
+**Fedora / openSUSE (`.rpm`)**
+
+```bash
+sudo dnf install --nogpgcheck ./SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm          # Fedora
+sudo zypper --no-gpg-checks install ./SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm    # openSUSE
+splogbook
+```
+
+Same `/opt/SPLogbook` layout; the bundled `libhamlib.so.4` is private to the package, and the
+package requires glibc 2.43 or newer. Details:
+[`installer/linux/rpm/README.md`](installer/linux/rpm/README.md).
+
+**AppImage**
+
+```bash
+chmod +x SPLogbook-Linux-x86_64.AppImage
+./SPLogbook-Linux-x86_64.AppImage
+```
+
+Requires a working FUSE mount. Details:
+[`installer/linux/appimage/README.md`](installer/linux/appimage/README.md).
+
 ---
 
 ## 🛠️ Building from Source
@@ -583,7 +624,7 @@ Ensure you have the Rust toolchain (version $\ge 1.99.0$) installed.
 git clone https://github.com/sp6ina/SPLogbook.git
 cd SPLogbook
 
-# 2. Run automated test suite (2690 active tests passed, 2700 registered, 10 HIL skipped)
+# 2. Run the automated test suite (2743 active tests passed, 2754 registered, 10 HIL skipped)
 cargo test --workspace --all-targets
 
 # 3. Build optimized release binary with Link-Time Optimization (LTO)
@@ -610,9 +651,9 @@ The compiled standalone binary will be located at:
 - Linux: `target/release/SPLogbook`
 
 ### 🧪 Automated Quality & Test Suite Verification
-- **Total Registered Tests**: 2289
-- **Total Executed Tests**: 2279
-- **Total Passed Tests**: 2279
+- **Total Registered Tests**: 2754
+- **Total Executed Tests**: 2743
+- **Total Passed Tests**: 2743
 - **Total Failed Tests**: 0
 - **Total Ignored Tests**: 10 (Hardware-in-the-Loop lab harness, isolated in `tests/cat_native_7.rs`)
 - **HIL Ignored Tests**: 10
@@ -886,6 +927,34 @@ SPLogbook/
 
 ---
 
+## 📚 Documentation
+
+| Document | Contents |
+|---|---|
+| [`CHANGELOG.md`](CHANGELOG.md) | public release history and the unreleased development line |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | contribution workflow, required checks, test and code rules |
+| [`SECURITY.md`](SECURITY.md) | security policy, reporting, and the guarantees the updater enforces |
+| [`docs/DOCUMENTATION_INDEX.md`](docs/DOCUMENTATION_INDEX.md) | index of every tracked document |
+| [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | toolchain pins, build/test/package commands, git workflow |
+| [`docs/VERIFICATION_BASELINE.md`](docs/VERIFICATION_BASELINE.md) | verified test counters and dependency-audit state |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | delivered milestones, closed risks, planned work |
+| [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md) | open defects and open decisions |
+| [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md) | module map, data flows, security boundaries |
+| [`docs/architecture/DECISIONS.md`](docs/architecture/DECISIONS.md) | binding owner decisions and architectural invariants |
+| [`docs/architecture/THEMES.md`](docs/architecture/THEMES.md) | theme and semantic palette architecture |
+| [`docs/SECURITY_PROCESS.md`](docs/SECURITY_PROCESS.md) | dependency-audit policy, key handling, fail-closed rules |
+| [`docs/security/RELEASE_SECURITY.md`](docs/security/RELEASE_SECURITY.md) | release supply chain and update trust specification |
+| [`docs/security/SECURITY_KEY_ROTATION.md`](docs/security/SECURITY_KEY_ROTATION.md) | key rotation runbook and incident record |
+| [`docs/DATABASE_BACKUP_RECOVERY.md`](docs/DATABASE_BACKUP_RECOVERY.md) | SQLite backup, restore and recovery runbook |
+| [`docs/HARDWARE_VALIDATION_MATRIX.md`](docs/HARDWARE_VALIDATION_MATRIX.md) | CAT protocol knowledge and hardware requirements |
+| [`Native CAT.md`](Native%20CAT.md) | native CAT architecture, PTT invariants, HIL and RF safety |
+| [`LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.md`](LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.md) | Linux kernel/glibc policy and supported distributions |
+| [`DESIGN_3_0_A_WINDOWS_UPDATE.md`](DESIGN_3_0_A_WINDOWS_UPDATE.md) | approved Windows installer and updater design |
+| [`DESIGN_3_0_B_LINUX_UPDATE.md`](DESIGN_3_0_B_LINUX_UPDATE.md) | approved Linux installer and updater design |
+| [`DESIGN_3_0_C_PLATFORM_INSTALLERS.md`](DESIGN_3_0_C_PLATFORM_INSTALLERS.md) | cross-platform installer contract and update state machine |
+| [`installer/`](installer) | per-format packaging documentation for Windows and Linux |
+
+---
 ## 🤝 Contributing & Bug Reports
 
 Contributions, issue reports, and suggestions are warmly welcome!

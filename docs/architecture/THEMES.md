@@ -1,8 +1,8 @@
-# Architektura Motywów i Palety Semantycznej w SPLogbook (Wave W6 / ARCH-THEMES)
+# Architektura motywów i palety semantycznej
 
 ## 1. Wstęp i Cel Architektury
 
-W ramach fali refaktoryzacyjnej W6 (ARCH-THEMES) cały podsystem wizualny aplikacji SPLogbook został zmigrowany z bezpośrednich literałów kolorystycznych (`Color32::from_rgb`, `Color32::from_rgba`, stałe nazwane np. `Color32::WHITE`) na scentralizowaną architekturę palety semantycznej.
+Podsystem wizualny aplikacji SPLogbook korzysta wyłącznie z palety semantycznej zamiast bezpośrednich literałów kolorystycznych (`Color32::from_rgb`, `Color32::from_rgba`, stałe nazwane np. `Color32::WHITE`) na scentralizowaną architekturę palety semantycznej.
 
 Główne cele architektury:
 - **Spójność wizualna**: Pełne wsparcie dla przełączania motywów w czasie rzeczywistym (np. Dark, Light, Cyberpunk, Solarized, High-Contrast).
@@ -20,9 +20,12 @@ System motywów zlokalizowany jest w `src/gui/theme/`:
 src/gui/theme/
 ├── mod.rs          # Główny interfejs modułu, re-eksporty, aplikacja do egui::Context
 ├── palette.rs      # Definicje struktur Palette, BandColors, SegmentColors, MapColors, waterfall_color()
-├── presets.rs      # Fabryki gotowych palet (dark, light, cyberpunk, solarized itp.)
+├── contrast.rs     # Kontrast WCAG (relative_luminance, contrast_ratio), testy zgodnosci
 └── ext.rs          # Traity ThemeExt (dla Context i Ui) oraz ColorExt (.alpha())
 ```
+
+Presety motywów (`ThemePreset`) są zdefiniowane w `palette.rs`: enum `ThemePreset` wraz z
+`from_id()`, `label()`, `description()`, `is_dark()` i fabryką `palette()`.
 
 ### 2.1. `ThemeExt`
 Umożliwia ergonomiczny dostęp do aktywnej palety z poziomu dowolnego kontekstu `egui`:
@@ -85,13 +88,13 @@ pub mod qsl_colors {
 ## 4. Jak Dodać Nowy Motyw lub Token
 
 ### 4.1. Dodanie nowego motywu
-1. Otwórz `src/gui/theme/presets.rs`.
-2. Zdefiniuj funkcję fabrykującą paletę, np. `pub fn high_contrast() -> Palette`.
+1. Dodaj wariant do enuma `ThemePreset` w `src/gui/theme/palette.rs`.
+2. Zaimplementuj gałąź tego wariantu w `ThemePreset::palette()` (zwracającą pełną `Palette`).
 3. Zarejestruj identyfikator motywu w konfiguracji stacji oraz w menu wyboru motywów (`src/gui/theme/mod.rs`).
 
 ### 4.2. Dodanie nowego tokenu semantycznego
 1. Dodaj pole do struktury `Palette` w `src/gui/theme/palette.rs`.
-2. Uzupełnij definicję pola we wszystkich presetach w `src/gui/theme/presets.rs`.
+2. Uzupełnij definicję pola we wszystkich wariantach `ThemePreset::palette()` w `src/gui/theme/palette.rs`.
 3. Użyj nowego tokenu w kodzie widoków za pośrednictwem `ui.palette().nowy_token`.
 
 ---
