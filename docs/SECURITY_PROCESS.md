@@ -110,6 +110,34 @@ Masking any of those steps with `|| true` is forbidden, and `m3_f_f03_fail_close
 enforces the contract. This control was established by the now-closed finding `F-03` and must
 not be reopened without a reproducible regression.
 
+### 5.1 Flatpak sandbox (`M3-J`)
+
+The Flatpak package `io.github.sp6ina.SPLogbook` is verified by
+`scripts/verify_linux_flatpak.sh`, whose contract mirrors the F-03 rules:
+
+- the bundle type, magic, size, both SHA-256 sidecars, the per-file payload manifest and the
+  exact `/app` export allowlist are **assertions**; the payload manifest may contain no
+  symlink, no setuid/setgid/sticky bit and no world-writable file;
+- `flatpak info --show-permissions` is compared with the exact approved minimal set
+  (`shared=network;ipc;`, `sockets=wayland;fallback-x11;pulseaudio;`, `devices=dri;`,
+  `org.freedesktop.secrets=talk`), so an extra filesystem, device, socket, bus name,
+  environment variable or persistent path fails the job;
+- `--filesystem=host`, `--filesystem=home`, `--filesystem=/dev`, `--device=all`,
+  `--socket=system-bus`, wildcard bus names and `--allow=devel|multiarch` are rejected in the
+  manifest before anything is downloaded;
+- the build performs exactly one network phase (`--download-only`); the real build runs with
+  `--disable-download`, a vendored Cargo source replacement, `CARGO_NET_OFFLINE=1` and
+  `--locked --offline`;
+- `FLATPAK VERIFICATION COMPLETED SUCCESSFULLY` is the last statement, and
+  `SPLOG_FLATPAK_INSPECTION_ONLY=1` prints a different banner so a static-only run can never
+  be mistaken for an installation proof.
+
+`OWNER-M3-J-DEVICE-01` fixes the device policy: the shipped manifest never declares
+`--device=all`. Native serial CAT is unavailable in the default sandbox and fails closed;
+the documented user-side opt-in (`flatpak override --user --device=all
+io.github.sp6ina.SPLogbook`) widens access to every device visible to Flatpak and is
+labelled as such in `installer/linux/flatpak/README.md`.
+
 OCI containers share the host kernel. Native verification is userspace and CI evidence; it is
 never proof of a distribution kernel, and `uname -r` inside a container is not native evidence.
 

@@ -31,6 +31,16 @@ Artifacts are produced and verified by CI only.
 - **Linux RPM** — `splogbook-1.3.0-0.1.alpha.1.x86_64`, same `/opt/SPLogbook` layout,
   bundled `libhamlib.so.4` with `RUNPATH=$ORIGIN/lib`; 34 negative fixtures; lifecycle
   verified on Fedora 45 and openSUSE Tumbleweed.
+- **Linux Flatpak** — sandboxed `io.github.sp6ina.SPLogbook` bundle on the pinned
+  `org.freedesktop.Platform` 26.08 runtime, with all 662 Rust crates pinned by the
+  `Cargo.lock` checksums and an offline, locked build. The sandbox is limited to network,
+  Wayland/X11, audio, OpenGL and the Secret Service credential store — no filesystem, home
+  or device-wide access. Network CAT (`rigctld`, `rotctld`, TCI, FlexRadio, Kenwood LAN,
+  Elecraft K4 TCP, `flrig`, WinKeyer), logging, ADIF/Cabrillo, portals and audio work in
+  the sandbox; native serial CAT does not and fails closed (documented opt-in override).
+  Updates are delivered by Flatpak only. 48 negative fixtures; install, update, re-deploy,
+  reinstall and uninstall preserve user data byte-for-byte. Implemented and verified by CI;
+  **not published**, **not submitted to Flathub**.
 - **Windows Inno Setup user setup** — per-user installer in
   `%LOCALAPPDATA%\Programs\SPLogbook`, no elevation, user data preserved on update and
   uninstall. Implemented and locally verified; **not built or published by CI** (see
@@ -89,7 +99,10 @@ Artifacts are produced and verified by CI only.
   `OWNER-M3-E-MSI-VERSIONING-01` (Windows Installer error 1638).
 - Hardware-in-the-loop validation (NATIVE-7B) is **not executed**: 10 tests remain
   `#[ignore = "hardware-in-the-loop"]`. The open P0 finding **F-14** must be resolved first.
-- Flatpak packaging (`M3-J`) is **not started**.
+- The Flatpak has **no Flathub submission** and is not part of any GitHub release; it is
+  installed from a locally built bundle.
+- In the default Flatpak sandbox, native serial CAT (`/dev/ttyUSB*`, `/dev/ttyACM*`) is
+  unavailable and fails closed; direct USB device access is unavailable as well.
 
 ---
 

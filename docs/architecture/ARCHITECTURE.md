@@ -91,5 +91,5 @@ manifest (Ed25519, raw bytes) → select_manifest_asset (SHA-256 + size)
 
 - `src/cat/so2r.rs` — konfiguracja SO2R, brak pełnej ścieżki sprzętowej.
 - WinKeyer — transport szeregowy zależny od sprzętu (HIL).
-- AppImage / DEB / RPM — **ZREALIZOWANE** i zweryfikowane w CI (M3-G, M3-H, M3-I). Flatpak (M3-J) — **NIE ZREALIZOWANE**, nie rozpoczęte.
+- AppImage / DEB / RPM / Flatpak — **ZREALIZOWANE** i zweryfikowane w CI (M3-G, M3-H, M3-I, M3-J).
 - MSI/Setup nie są budowane ani publikowane przez CI (F-05).
