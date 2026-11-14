@@ -857,3 +857,181 @@ fn flatpak_artefacts_are_not_tracked() {
         );
     }
 }
+
+// ============================================================================
+// 10. Regresja M3-J failure #9 — wejścia komend budowania
+// ============================================================================
+
+/// Ścieżki, które komendy budowania czytają przez `pathlib.Path("…")`.
+fn manifest_path_literals(text: &str) -> Vec<String> {
+    const PREFIX: &str = "pathlib.Path(\"";
+    let mut literals = Vec::new();
+    let mut rest = text;
+    while let Some(position) = rest.find(PREFIX) {
+        let after = &rest[position + PREFIX.len()..];
+        let end = after
+            .find("\")")
+            .unwrap_or_else(|| panic!("niedomknięty literał pathlib.Path: {after}"));
+        literals.push(after[..end].to_string());
+        rest = &after[end..];
+    }
+    literals
+}
+
+fn canonical(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path)
+        .unwrap_or_else(|e| panic!("nie można rozwiązać ścieżki {}: {e}", path.display()))
+}
+
+#[test]
+fn flatpak_build_commands_read_the_included_cargo_sources_projection() {
+    // Regresja M3-J failure #9 (run 43628379400). Goły string na liście
+    // `sources` jest *dołącznikiem* flatpak-buildera (flatpak-manifest(5)):
+    // plik jest czytany, a jego źródła wstawiane do modułu, ale sam plik nie
+    // trafia do katalogu budowania. Katalog budowania to drzewo repozytorium
+    // (źródło `dir` z `path: ../../..`), więc komenda budowania może czytać
+    // wyłącznie ścieżkę, którą to drzewo rzeczywiście dostarcza — i musi to być
+    // ten sam plik, który manifest dołącza jako listę źródeł.
+    let text = manifest();
+    let literals = manifest_path_literals(&text);
+    assert!(
+        !literals.is_empty(),
+        "manifest musi zawierać ścieżkę wejściową komendy budowania do zweryfikowania"
+    );
+
+    let included = flatpak_dir().join("cargo-sources.json");
+    assert!(
+        included.is_file(),
+        "dołącznik źródeł musi istnieć: {}",
+        included.display()
+    );
+
+    for literal in &literals {
+        let delivered = repo_root().join(literal);
+        assert!(
+            delivered.is_file(),
+            "komenda budowania czyta {literal:?}, ale żadne zadeklarowane źródło nie \
+             dostarcza tej ścieżki do katalogu budowania"
+        );
+        assert_eq!(
+            canonical(&delivered),
+            canonical(&included),
+            "komenda budowania czyta {literal:?}, a to nie jest projekcja dołączona przez \
+             manifest ({}); goły string w `sources` jest dołącznikiem, nie źródłem plikowym",
+            included.display()
+        );
+    }
+
+    // Dołącznik musi pozostać zadeklarowany: bez niego 662 archiwów nie trafi
+    // do modułu, a cargo nie znajdzie vendorów.
+    assert!(
+        text.contains("      - cargo-sources.json"),
+        "manifest musi nadal dołączać cargo-sources.json jako listę źródeł"
+    );
+}
+
+// ============================================================================
+// 11. CI: zachowanie kodu wyjścia i diagnostyka `if: always()`
+// ============================================================================
+
+const DIAGNOSTICS_ARTIFACT: &str = "SPLogbook-Linux-x86_64-flatpak-diagnostics";
+
+#[test]
+fn flatpak_ci_preserves_the_build_exit_code_and_always_collects_diagnostics() {
+    let workflow = read_repo_file(".github/workflows/build-and-release.yml");
+    let start = workflow
+        .find("  build-flatpak:\n")
+        .expect("workflow musi mieć job build-flatpak");
+    let end = workflow[start..]
+        .find("  verify-flatpak:")
+        .map(|offset| start + offset)
+        .expect("job build-flatpak musi poprzedzać verify-flatpak");
+    let job = &workflow[start..end];
+    // Komentarze YAML dokumentują, czego job nie robi; egzekwujemy wyłącznie
+    // efektywną konfigurację.
+    let job_effective: String = job
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    // 1. Właściwy build nie może maskować wyniku ani używać continue-on-error.
+    assert!(
+        !job.contains("continue-on-error"),
+        "job build-flatpak nie może używać continue-on-error"
+    );
+    assert!(
+        job.contains("PIPESTATUS[0]"),
+        "krok budowania musi zachować rzeczywisty kod wyjścia przez PIPESTATUS[0]"
+    );
+    assert!(
+        job.contains("exit \"${status}\""),
+        "krok budowania musi zakończyć się rzeczywistym kodem wyjścia builda"
+    );
+    assert!(
+        job.contains("set +e"),
+        "krok budowania musi przechwycić kod wyjścia przed asercjami sukcesu"
+    );
+    assert!(
+        job.contains("FLATPAK_BUILD_EXIT_CODE="),
+        "kod wyjścia builda musi być zapisany w logu dla diagnostyki"
+    );
+
+    // 2. Diagnostyka działa przy sukcesie i przy porażce, po kroku budowania.
+    let build_at = job
+        .find("name: Build the Flatpak in the pinned privileged container")
+        .expect("job musi mieć krok budowania");
+    let collect_at = job
+        .find("name: Collect the Flatpak build diagnostics")
+        .expect("job musi mieć krok zbierania diagnostyki");
+    assert!(
+        build_at < collect_at,
+        "diagnostyka musi być wykonywana po kroku budowania"
+    );
+    assert!(
+        job.contains("if: always()"),
+        "diagnostyka musi używać `if: always()`, aby przetrwać porażkę builda"
+    );
+    // Krok diagnostyczny nie może zmienić wyniku joba.
+    assert!(
+        job.contains("exit 0"),
+        "krok diagnostyczny musi kończyć się jawnym `exit 0` i nie zmieniać wyniku builda"
+    );
+
+    // 3. Artefakt diagnostyczny: ograniczona retencja, filtrowany zakres.
+    let artifact_at = job
+        .find(DIAGNOSTICS_ARTIFACT)
+        .expect("musi istnieć artefakt diagnostyczny");
+    assert!(
+        collect_at < artifact_at,
+        "artefakt musi być po zebraniu danych"
+    );
+    assert!(
+        job.contains("retention-days: 7"),
+        "artefakt diagnostyczny musi mieć ograniczoną retencję"
+    );
+    assert!(
+        job.contains("if-no-files-found: warn"),
+        "brak plików diagnostycznych nie może zmienić wyniku joba"
+    );
+    assert!(
+        job.contains("${DIAG}/flatpak-build.log")
+            && job.contains("${DIAG}/module-build-dir.txt")
+            && job.contains("dist/flatpak-manifest.projection.txt"),
+        "artefakt musi zawierać log builda, projekcję manifestu i stan katalogu budowania"
+    );
+
+    // 4. Brak prywatnych ścieżek i brak publikacji.
+    assert!(
+        !job_effective.contains(".local-work") && !job_effective.contains("scratch/"),
+        "artefakt nie może publikować prywatnych katalogów"
+    );
+    assert!(
+        !job_effective.contains("release-staging"),
+        "job Flatpaka nie może dotykać release-staging"
+    );
+    assert!(
+        !job_effective.contains("gh release") && !job_effective.contains("softprops"),
+        "job Flatpaka nie może publikować GitHub Release"
+    );
+}
