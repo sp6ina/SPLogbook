@@ -349,10 +349,12 @@ run_build() {
     build_root="${WORK_ROOT}/build-${label}"
     mkdir -p "${build_root}"
 
-    # flatpak-builder 1.4.x has no --build-dir: the build tree lives inside the
-    # state directory, so a fresh, per-build state dir is also a fresh build dir.
+    # flatpak-builder 1.4.x signature: `flatpak-builder [OPTION] DIRECTORY MANIFEST`.
+    # The first positional argument is the build directory (there is no
+    # --build-dir option) and --state-dir holds the per-build caches.
     state_dir="${build_root}/state"
-    app_tree="${state_dir}/build/files"
+    build_dir="${build_root}/build"
+    app_tree="${build_dir}/files"
 
     # Sources are fetched once per build (network phase), then the real build
     # refuses to download anything.
@@ -364,7 +366,7 @@ run_build() {
         --disable-rofiles-fuse \
         --force-clean \
         --download-only \
-        "${MANIFEST}" > "${OUTPUT_DIR}/flatpak-download-${label}.log" 2>&1 \
+        "${build_dir}" "${MANIFEST}" > "${OUTPUT_DIR}/flatpak-download-${label}.log" 2>&1 \
         || {
             cat "${OUTPUT_DIR}/flatpak-download-${label}.log" >&2
             fail "source download failed for build ${label}"
@@ -380,7 +382,7 @@ run_build() {
         --sandbox \
         --force-clean \
         --jobs="${FLATPAK_BUILDER_JOBS:-$(nproc)}" \
-        "${MANIFEST}" > "${OUTPUT_DIR}/flatpak-build-${label}.log" 2>&1 \
+        "${build_dir}" "${MANIFEST}" > "${OUTPUT_DIR}/flatpak-build-${label}.log" 2>&1 \
         || {
             tail -n 200 "${OUTPUT_DIR}/flatpak-build-${label}.log" >&2
             fail "flatpak-builder failed for build ${label}"
