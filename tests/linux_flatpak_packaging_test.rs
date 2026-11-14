@@ -115,8 +115,16 @@ fn flatpak_manifest_declares_the_approved_identity_and_pinned_runtime() {
         Some(COMMAND)
     );
     assert!(
-        text.contains("sdk-extensions:\n  - org.freedesktop.Sdk.Extension.rust-stable"),
-        "manifest musi deklarować oficjalne rozszerzenie Rust SDK"
+        text.contains("rust-1.99.0-x86_64-unknown-linux-gnu.tar.xz"),
+        "manifest musi przypinać oficjalny toolchain Rust 1.99.0"
+    );
+    assert!(
+        text.contains("dest: rust-toolchain"),
+        "toolchain musi być rozpakowany do katalogu rust-toolchain"
+    );
+    assert!(
+        !text.contains("Sdk.Extension.rust-stable"),
+        "manifest nie może używać rozszerzenia SDK z rustc 1.98.0 (MSRV to 1.99.0)"
     );
     assert!(
         text.contains("  - /include") && text.contains("  - /share/man"),
@@ -235,9 +243,39 @@ fn flatpak_sandbox_has_no_network_bypass_and_no_privileged_device() {
 fn flatpak_manifest_sources_are_pinned_and_hermetic() {
     let text = manifest();
     assert!(
-        !text.contains("type: git") && !text.contains("type: archive"),
-        "manifest nie może deklarować źródeł VCS ani archiwów bez SHA-256"
+        !text.contains("type: git")
+            && !text.contains("type: bzr")
+            && !text.contains("type: svn")
+            && !text.contains("type: hg"),
+        "manifest nie może deklarować źródeł VCS"
     );
+    // Archiwum jest dozwolone wyłącznie z przypiętym SHA-256 w tym samym bloku
+    // źródła (dotyczy przypiętego toolchainu Rust).
+    let lines: Vec<&str> = text.lines().collect();
+    let mut archives = 0;
+    for (index, line) in lines.iter().enumerate() {
+        if line.trim() == "- type: archive" {
+            archives += 1;
+            let window = &lines[index..std::cmp::min(index + 6, lines.len())];
+            let has_pinned_sha = window.iter().any(|candidate| {
+                candidate
+                    .trim()
+                    .strip_prefix("sha256: \"")
+                    .and_then(|rest| rest.strip_suffix('"'))
+                    .is_some_and(|digest| {
+                        digest.len() == 64
+                            && digest
+                                .chars()
+                                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+                    })
+            });
+            assert!(
+                has_pinned_sha,
+                "źródło archive musi mieć przypięty SHA-256: {line}"
+            );
+        }
+    }
+    assert!(archives >= 1, "manifest musi przypinać toolchain Rust");
     assert!(!text.contains("branch:") && !text.contains("tag:"));
     assert!(!text.contains("file://"));
     assert!(!text.contains("/home/") && !text.contains("/Users/"));

@@ -12,7 +12,7 @@ This directory contains the reviewed sources of the sandboxed Flatpak package
 | Application ID | `io.github.sp6ina.SPLogbook` |
 | Runtime | `org.freedesktop.Platform` branch **26.08** |
 | SDK | `org.freedesktop.Sdk` branch **26.08** |
-| Rust toolchain | `org.freedesktop.Sdk.Extension.rust-stable` (branch 26.08) |
+| Rust toolchain | official `rust-1.99.0-x86_64-unknown-linux-gnu.tar.xz`, SHA-256 pinned in the manifest |
 | Architecture | `x86_64` |
 | Branch | `master` |
 | Command | `SPLogbook` |

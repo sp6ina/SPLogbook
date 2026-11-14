@@ -34,13 +34,12 @@ runtime-version: "26.08"
 sdk: org.freedesktop.Sdk
 command: SPLogbook
 
-# org.freedesktop.Sdk 26.08 ships autoconf/automake/cmake/meson/ninja/pkg-config
-# and git, but no Rust toolchain, so the official SDK Rust extension is used.
-# It is resolved from the same Flathub branch as the SDK, and the exact
-# `rustc --version` / `cargo --version` are recorded both in the build log and
-# inside the bundle (/app/share/splogbook/build-rust-version.txt).
-sdk-extensions:
-  - org.freedesktop.Sdk.Extension.rust-stable
+# The build toolchain is the project's pinned Rust release, fetched as one
+# immutable archive and verified by SHA-256. The SDK's own Rust extension is
+# deliberately not used: it ships rustc 1.98.0 for branch 26.08, which is below
+# the project MSRV 1.99.0 (owner decision OWNER-M3-J-TOOLCHAIN-01). The
+# `Resolve Rust toolchain pin` CI job re-verifies this digest against the
+# official distribution on every run.
 
 finish-args:
   # CAT and station automation: rigctld/rotctld over TCP, TCI, FlexRadio,
@@ -75,15 +74,48 @@ modules:
   - name: splogbook
     buildsystem: simple
     build-options:
-      append-path: /usr/lib/sdk/rust-stable/bin
       env:
         CARGO_HOME: /run/build/splogbook/.cargo-home
         CARGO_NET_OFFLINE: "true"
         CARGO_TERM_COLOR: never
     build-commands:
-      # 1. Offline, locked, vendored Rust build.
+      # 0. Vendor metadata. A published .crate archive does not contain the
+      #    `.cargo-checksum.json` file that a cargo `directory` source requires,
+      #    so it is generated here from the same SHA-256 that pinned the
+      #    archive at download time. `files` is intentionally empty: the archive
+      #    itself was already verified against that digest.
       - |
         set -euo pipefail
+        python3 - <<'PYCHECKSUMS'
+        import json
+        import pathlib
+
+        entries = json.loads(pathlib.Path("cargo-sources.json").read_text(encoding="utf-8"))
+        missing = []
+        for entry in entries:
+            destination = pathlib.Path(entry["dest"])
+            if not destination.is_dir():
+                missing.append(str(destination))
+                continue
+            payload = {"files": {}, "package": entry["sha256"]}
+            (destination / ".cargo-checksum.json").write_text(
+                json.dumps(payload, sort_keys=True), encoding="utf-8"
+            )
+        if missing:
+            raise SystemExit("missing vendored crate directories: " + ", ".join(missing))
+        print(f"PASS: wrote .cargo-checksum.json for {len(entries)} vendored crates")
+        PYCHECKSUMS
+
+      # 1. Offline, locked, vendored Rust build with the pinned toolchain.
+      - |
+        set -euo pipefail
+        export PATH="${PWD}/rust-toolchain/bin:${PATH}"
+        rustc --version
+        cargo --version
+        rustc --version | grep -q '^rustc 1\.99\.0 ' || {
+          printf 'FAIL: the pinned Rust 1.99.0 toolchain is not active\n' >&2
+          exit 1
+        }
         mkdir -p .cargo
         {
           printf '%s\n' \
@@ -103,7 +135,6 @@ modules:
         cargo --version
         cargo build --release --locked --offline --bin SPLogbook \
           -j "${FLATPAK_BUILDER_N_JOBS:-$(nproc)}"
-
       # 2. Explicit path allowlist installed into /app.
       - install -Dm755 target/release/SPLogbook /app/bin/SPLogbook
       - install -Dm644 installer/linux/flatpak/io.github.sp6ina.SPLogbook.desktop /app/share/applications/io.github.sp6ina.SPLogbook.desktop
@@ -150,6 +181,14 @@ modules:
         chmod 0644 /app/share/splogbook/build-rust-version.txt
 
     sources:
+      # Official, pinned Rust toolchain (bootstrapped digest is enforced by the
+      # `Resolve Rust toolchain pin` CI job and re-verified at build time).
+      - type: archive
+        url: https://static.rust-lang.org/dist/rust-1.99.0-x86_64-unknown-linux-gnu.tar.xz
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+        dest: rust-toolchain
+        strip-components: 1
+
       # The tracked repository tree, three levels above this manifest
       # (installer/linux/flatpak -> repository root). `skip` is a documented
       # flatpak-builder `dir` source key; only non-hermetic build output and

@@ -1096,8 +1096,51 @@ jobs:
   # cargo --locked --offline. The bundle is a CI artifact only: it is never
   # uploaded to a GitHub release and never submitted to Flathub.
   # --------------------------------------------------------------------
+  resolve-rust-toolchain:
+    name: Resolve Rust toolchain pin
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify the pinned Rust toolchain digest
+        env:
+          RUST_DIST_URL: "https://static.rust-lang.org/dist/rust-1.99.0-x86_64-unknown-linux-gnu.tar.xz"
+        run: |
+          set -euo pipefail
+          PINNED="$(sed -n 's/^[[:space:]]*sha256: "\([0-9a-f]*\)"$/\1/p' \
+            installer/linux/flatpak/io.github.sp6ina.SPLogbook.yml | head -n 1)"
+          [ -n "${PINNED}" ] || { echo "::error::the manifest does not pin a Rust toolchain sha256"; exit 1; }
+          curl -fsSL -o rust-toolchain.tar.xz "${RUST_DIST_URL}"
+          curl -fsSL -o rust-toolchain.tar.xz.sha256 "${RUST_DIST_URL}.sha256"
+          PUBLISHED="$(awk '{print $1}' rust-toolchain.tar.xz.sha256)"
+          ACTUAL="$(sha256sum rust-toolchain.tar.xz | awk '{print $1}')"
+          {
+            printf 'distribution_url=%s\n' "${RUST_DIST_URL}"
+            printf 'published_sha256=%s\n' "${PUBLISHED}"
+            printf 'actual_sha256=%s\n' "${ACTUAL}"
+            printf 'manifest_pinned_sha256=%s\n' "${PINNED}"
+          } | tee rust-toolchain-digest.txt
+          [ "${PUBLISHED}" = "${ACTUAL}" ] \
+            || { echo "::error::the published digest does not match the downloaded Rust archive"; exit 1; }
+          [ "${PINNED}" = "${ACTUAL}" ] \
+            || { echo "::error::the manifest does not pin the official Rust toolchain digest (see rust-toolchain-digest.txt)"; exit 1; }
+          echo "PASS: the manifest pins the official Rust toolchain digest"
+
+      - name: Upload the digest evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rust-toolchain-digest
+          path: rust-toolchain-digest.txt
+          if-no-files-found: error
+
   build-flatpak:
     name: Build Flatpak
+    needs: resolve-rust-toolchain
     runs-on: ubuntu-latest
     env:
       FLATPAK_BUILD_IMAGE: "ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c"

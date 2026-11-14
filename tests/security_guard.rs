@@ -6983,7 +6983,7 @@ fn m3_j_flatpak_sandbox_and_packaging_guard() {
         "runtime-version: \"26.08\"",
         "sdk: org.freedesktop.Sdk",
         "command: SPLogbook",
-        "org.freedesktop.Sdk.Extension.rust-stable",
+        "rust-1.99.0-x86_64-unknown-linux-gnu.tar.xz",
     ] {
         assert!(
             manifest.contains(required),
