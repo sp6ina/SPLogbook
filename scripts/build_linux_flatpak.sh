@@ -421,6 +421,12 @@ run_build() {
             fail "source download failed for build ${label}"
         }
 
+    # --override-source-date-epoch is required for reproducibility. Without it
+    # flatpak-builder records the *manifest file mtime* as `source-date-epoch`
+    # in /app/manifest.json. Every CI job checks the repository out at a
+    # different time, so that field (and therefore the whole payload) differed
+    # between two builds of the same commit (M3-J failure #13). The pinned value
+    # is the commit time, which is what SOURCE_DATE_EPOCH already means here.
     # --sandbox is deliberately not passed: flatpak-builder 1.4.x refuses a
     # `dir` source that lives above the manifest directory in a sandboxed
     # build, and this package's source is the repository root. Isolation comes
@@ -436,6 +442,7 @@ run_build() {
         --disable-download \
         --force-clean \
         --jobs="${FLATPAK_BUILDER_JOBS:-$(nproc)}" \
+        --override-source-date-epoch="${SOURCE_DATE_EPOCH}" \
         "${build_dir}" "${MANIFEST}" > "${OUTPUT_DIR}/flatpak-build-${label}.log" 2>&1 \
         || {
             tail -n 200 "${OUTPUT_DIR}/flatpak-build-${label}.log" >&2

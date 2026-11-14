@@ -164,6 +164,14 @@ the bundle file are also bit-identical is recorded as evidence and reported
 separately; the gate never claims bit-identical bundles when OSTree metadata
 differs.
 
+`/app/manifest.json` is part of that payload, and flatpak-builder records a
+`source-date-epoch` field in it. Without `--override-source-date-epoch` the
+builder takes that value from the *manifest file mtime*, which differs in every
+CI checkout, so two builds of the same commit produced the same file size with
+a different digest. `scripts/build_linux_flatpak.sh` now passes the pinned
+commit epoch (the same value it exports as `SOURCE_DATE_EPOCH`), which makes
+that field deterministic too.
+
 The build identity (`--build-info` and the in-bundle marker) comes from the
 `.git` directory of the source tree, which is the single source of truth for
 the commit. The builder never injects a synthetic commit.
