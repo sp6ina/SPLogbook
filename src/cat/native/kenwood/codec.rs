@@ -100,6 +100,57 @@ impl KenwoodFrame {
             raw: trimmed.to_string(),
         })
     }
+
+    /// Rozpoznaje **udokumentowaną** ramkę komunikatu błędu transceivera.
+    ///
+    /// Wszystkie trzy obsługiwane referencje (`B5A-0316-20/01`, `B5A-2944-00/01`,
+    /// `B5A-3170-00`, sekcja *Error Messages*, s. 3) definiują dokładnie trzy komunikaty:
+    /// `?;` (błędna składnia albo komenda nie została wykonana w bieżącym stanie),
+    /// `E;` (błąd transmisji szeregowej) oraz `O;` (przepełnienie bufora odbiorczego).
+    ///
+    /// Ramka błędu ma długość jednego znaku, więc nie może zostać pomylona z 2-znakowym kodem
+    /// komendy.
+    pub fn documented_error(&self) -> Option<KenwoodErrorFrame> {
+        match self.command.as_str() {
+            "?" => Some(KenwoodErrorFrame::Syntax),
+            "E" => Some(KenwoodErrorFrame::Communication),
+            "O" => Some(KenwoodErrorFrame::BufferOverrun),
+            _ => None,
+        }
+    }
+}
+
+/// Udokumentowany komunikat błędu transceivera Kenwood (sekcja *Error Messages*, s. 3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KenwoodErrorFrame {
+    /// `?;` — błędna składnia komendy lub komenda nie wykonana w bieżącym stanie transceivera.
+    Syntax,
+    /// `E;` — błąd komunikacji szeregowej (overrun lub framing).
+    Communication,
+    /// `O;` — przepełnienie bufora odbiorczego.
+    BufferOverrun,
+}
+
+impl KenwoodErrorFrame {
+    /// Bajty komunikatu na łączu.
+    pub fn wire(self) -> &'static str {
+        match self {
+            Self::Syntax => "?;",
+            Self::Communication => "E;",
+            Self::BufferOverrun => "O;",
+        }
+    }
+
+    /// Opis z oficjalnej dokumentacji (tabela *Error Messages*).
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Syntax => {
+                "command syntax was incorrect or the command was not executed in the current state"
+            }
+            Self::Communication => "serial communication error (overrun or framing error)",
+            Self::BufferOverrun => "receive buffer overrun error",
+        }
+    }
 }
 
 /// Zdekodowane dane transceivera z ramki informacji `IF;`.
@@ -124,7 +175,13 @@ pub struct KenwoodIfInfo {
 }
 
 impl KenwoodIfInfo {
-    /// Dekoduje odpowiedź na rozkaz `IF;` (zgodnie ze specyfikacją TS-590S/SG, TS-890S, TS-990S).
+    /// Dekoduje odpowiedź na rozkaz `IF;`.
+    ///
+    /// `IF` jest udokumentowany **wyłącznie** w dokumencie TS-590S/TS-590SG
+    /// (`B5A-0316-20/01`, *"IF Reads the transceiver status"*, s. 15 — `P8` `0: RX`, `1: TX`).
+    /// Referencje TS-890S (`B5A-2944-00/01`) i TS-990S (`B5A-3170-00`) **nie definiują** komendy
+    /// `IF`, dlatego ten parser jest używany tylko dla modeli, które ją dokumentują.
+    ///
     /// Format: `IF[11 cyfr Hz][5 znaków pamięć/krok][znak i 4 cyfry RIT][RIT on][XIT on][3 cyfry mem][TX/RX][Mode][VFO][Scan][Split]...;`
     pub fn parse(resp: &str) -> Option<Self> {
         let trimmed = resp.trim().trim_end_matches(';');
@@ -143,9 +200,13 @@ impl KenwoodIfInfo {
         let rit_on = trimmed.chars().nth(23)? == '1';
         let xit_on = trimmed.chars().nth(24)? == '1';
 
-        // Stan TX/RX: indeks 28 ('0' = RX, '1' = TX, '2' = TX)
-        let tx_char = trimmed.chars().nth(28)?;
-        let tx = tx_char == '1' || tx_char == '2';
+        // Stan TX/RX: indeks 28 to P8; dokumentacja definiuje wyłącznie 0 (RX) i 1 (TX).
+        // Każda inna wartość jest nieudokumentowana i nie może tworzyć stanu PTT.
+        let tx = match trimmed.chars().nth(28)? {
+            '0' => false,
+            '1' => true,
+            _ => return None,
+        };
 
         // Emisja: indeks 29
         let mode = match trimmed.chars().nth(29)? {
@@ -348,24 +409,27 @@ impl KenwoodCat {
     }
 
     /// Komenda załączenia / rozłączenia nadawania PTT (`TX;` / `RX;`).
+    ///
+    /// Kontrakt jest udokumentowany modelowo w [`crate::cat::native::kenwood::models`]:
+    /// `TX;` (bez parametru) = `SEND`, `RX;` = powrót do odbioru.
     pub fn set_ptt_cmd(ptt: bool) -> &'static str {
         if ptt { "TX;" } else { "RX;" }
     }
 
-    /// Komenda odczytu stanu PTT (`TX;` -> zwraca `TX0;`, `TX1;` lub `TX2;`).
-    pub fn read_ptt_cmd() -> &'static str {
-        "TX;"
-    }
-
-    /// Dekoduje stan PTT z odpowiedzi (`TX0;` = RX, `TX1;` lub `TX2;` = TX).
+    /// Dekoduje **udokumentowaną** odpowiedź `TX P1;` / `RX;` na komendę PTT.
+    ///
+    /// Dokumentacja (B5A-0316-20/01 `TX` s. 30, B5A-2944-00/01 `TX` s. 67, B5A-3170-00 `TX` s. 61)
+    /// definiuje odpowiedź `TX P1;`, gdzie `P1` jest **rodzajem transmisji**:
+    /// `0` = SEND/PTT, `1` = DATA SEND/PKS, `2` = TX Tune. Każda z tych wartości oznacza, że
+    /// transceiver **nadaje**. `P1 = 0` **nie** oznacza odbioru. Odpowiedź `RX;` oznacza odbiór.
+    ///
+    /// Wszystko inne — w szczególności sama komenda `TX;` bez parametru — nie jest udokumentowaną
+    /// odpowiedzią i jest odrzucane (`None`), aby nie tworzyć niepotwierdzonego stanu PTT.
     pub fn parse_ptt_resp(resp: &str) -> Option<bool> {
-        let trimmed = resp.trim().trim_end_matches(';');
-        if trimmed == "TX" || trimmed == "TX1" || trimmed == "TX2" {
-            Some(true)
-        } else if trimmed == "RX" || trimmed == "TX0" {
-            Some(false)
-        } else {
-            None
+        match resp.trim().trim_end_matches(';') {
+            "TX0" | "TX1" | "TX2" => Some(true),
+            "RX" => Some(false),
+            _ => None,
         }
     }
 
@@ -520,10 +584,48 @@ mod tests {
         assert_eq!(KenwoodCat::set_ptt_cmd(true), "TX;");
         assert_eq!(KenwoodCat::set_ptt_cmd(false), "RX;");
 
+        // Dokumentowany Answer `TX P1;`: P1=0 SEND, P1=1 DATA SEND, P1=2 TX Tune — każdy = TX.
+        assert_eq!(KenwoodCat::parse_ptt_resp("TX0;"), Some(true));
         assert_eq!(KenwoodCat::parse_ptt_resp("TX1;"), Some(true));
         assert_eq!(KenwoodCat::parse_ptt_resp("TX2;"), Some(true));
-        assert_eq!(KenwoodCat::parse_ptt_resp("TX0;"), Some(false));
         assert_eq!(KenwoodCat::parse_ptt_resp("RX;"), Some(false));
+
+        // Nieudokumentowane warianty nie tworzą stanu PTT.
+        assert_eq!(KenwoodCat::parse_ptt_resp("TX;"), None);
+        assert_eq!(KenwoodCat::parse_ptt_resp("TX3;"), None);
+        assert_eq!(KenwoodCat::parse_ptt_resp("?;"), None);
+        assert_eq!(KenwoodCat::parse_ptt_resp(""), None);
+    }
+
+    #[test]
+    fn test_kenwood_documented_error_frames() {
+        let codec = KenwoodCodec::new();
+        for (raw, expected) in [
+            ("?;", KenwoodErrorFrame::Syntax),
+            ("E;", KenwoodErrorFrame::Communication),
+            ("O;", KenwoodErrorFrame::BufferOverrun),
+        ] {
+            let (frame, consumed) = codec
+                .decode_frame(raw.as_bytes())
+                .expect("decode")
+                .expect("complete frame");
+            assert_eq!(consumed, raw.len());
+            assert_eq!(frame.documented_error(), Some(expected));
+            assert_eq!(expected.wire(), raw);
+        }
+
+        // Zwykłe ramki komend nie są błędami.
+        for raw in ["TX0;", "RX;", "IF;", "?0;"] {
+            let (frame, _) = codec
+                .decode_frame(raw.as_bytes())
+                .expect("decode")
+                .expect("complete frame");
+            assert_eq!(
+                frame.documented_error(),
+                None,
+                "{raw} is not an error frame"
+            );
+        }
     }
 
     #[test]
@@ -722,10 +824,11 @@ mod tests {
     }
 
     #[test]
-    fn test_kenwood_if_parser_ts890_ts990() {
-        // TS-890/TS-990 format z aktywnym Split (1), TX (1), CW (3), VFO B (1), RIT +150Hz włączonym (1)
+    fn test_kenwood_if_parser_documented_layout_and_values() {
+        // Układ `IF` jest udokumentowany wyłącznie w B5A-0316-20/01 (TS-590S/SG): Split aktywny (1),
+        // TX (1), CW (3), VFO B (1), RIT +150 Hz włączony (1).
         let resp = "IF0000703000000000+0150100001310100000;";
-        let info = KenwoodIfInfo::parse(resp).expect("parse TS-890/990 IF");
+        let info = KenwoodIfInfo::parse(resp).expect("parse documented IF");
 
         assert_eq!(info.frequency_hz, 7_030_000);
         assert_eq!(info.rit_offset_hz, 150);
@@ -735,6 +838,11 @@ mod tests {
         assert_eq!(info.mode, "CW");
         assert!(info.vfo_b);
         assert!(info.split);
+
+        // P8 jest udokumentowany wyłącznie jako 0 (RX) i 1 (TX); '2' jest nieudokumentowane.
+        let mut undocumented = resp.to_string();
+        undocumented.replace_range(28..29, "2");
+        assert_eq!(KenwoodIfInfo::parse(&undocumented), None);
     }
 
     #[test]

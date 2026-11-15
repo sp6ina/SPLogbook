@@ -15,9 +15,23 @@ use std::time::Duration;
 use crate::cat::backend::{BoxFuture, CatBackendKind, RigBackend, RigProbeResult};
 use crate::cat::native::kenwood::codec::{KenwoodCat, KenwoodCodec, KenwoodFrame, KenwoodIfInfo};
 use crate::cat::native::kenwood::lan::{AsyncReaderWriter, KenwoodLanConfig, KenwoodLanTransport};
+use crate::cat::native::kenwood::models::KenwoodPttContract;
 use crate::cat::native::profile::RigModelProfile;
-use crate::cat::native::transport::{AsyncFramedTransport, SerialConfig, open_serial_stream};
+use crate::cat::native::transport::{
+    AsyncFramedTransport, SerialConfig, TransportError, open_serial_stream,
+};
 use crate::cat::rig::{RigCapabilities, RigCommand, RigError, RigState};
+
+/// Twardy limit czasu jednej komendy PTT z udokumentowaną weryfikacją `IF;`.
+const PTT_STATUS_TIMEOUT: Duration = Duration::from_millis(1500);
+
+/// Opóźnienie po wysłaniu komendy PTT, po którym wysyłany jest udokumentowany odczyt statusu `IF;`.
+const PTT_STATUS_QUERY_DELAY: Duration = Duration::from_millis(150);
+
+/// Okno oczekiwania na udokumentowaną odpowiedź Auto Information (`TX P1;` / `RX;`) na modelach,
+/// których dokument **nie** definiuje odczytu statusu `IF;`. Po jego upływie komenda jest uznana
+/// za wysłaną, ale stan pozostaje **niepotwierdzony**.
+const PTT_AI_ANSWER_WINDOW: Duration = Duration::from_millis(250);
 
 /// Backend natywnego protokołu Kenwood PC Control.
 pub struct KenwoodBackend {
@@ -29,7 +43,13 @@ pub struct KenwoodBackend {
     state: RigState,
     codec: KenwoodCodec,
     ai_active: bool,
+    /// Stan PTT potwierdzony udokumentowaną odpowiedzią transceivera.
     confirmed_ptt: bool,
+    /// Wysłano udokumentowaną komendę `TX;`, ale stan nie został potwierdzony.
+    ///
+    /// Służy wyłącznie jako obowiązek bezpiecznego `RX;` przy rozłączeniu. **Nie** jest
+    /// potwierdzeniem fizycznego nadawania i nigdy nie jest raportowany jako `ConfirmedTx`.
+    ptt_commanded: bool,
 }
 
 impl KenwoodBackend {
@@ -45,6 +65,7 @@ impl KenwoodBackend {
             codec: KenwoodCodec::new(),
             ai_active: false,
             confirmed_ptt: false,
+            ptt_commanded: false,
         }
     }
 
@@ -60,6 +81,7 @@ impl KenwoodBackend {
             codec: KenwoodCodec::new(),
             ai_active: false,
             confirmed_ptt: false,
+            ptt_commanded: false,
         }
     }
 
@@ -78,6 +100,7 @@ impl KenwoodBackend {
             codec: KenwoodCodec::new(),
             ai_active: false,
             confirmed_ptt: false,
+            ptt_commanded: false,
         }
     }
 
@@ -97,6 +120,7 @@ impl KenwoodBackend {
             codec: KenwoodCodec::new(),
             ai_active: false,
             confirmed_ptt: false,
+            ptt_commanded: false,
         }
     }
 
@@ -126,6 +150,34 @@ impl KenwoodBackend {
         }
     }
 
+    /// Zwraca udokumentowany kontrakt PTT modelu tego profilu.
+    ///
+    /// Model spoza tabeli udokumentowanych kontraktów nie ma oficjalnego dokumentu → błąd
+    /// `Unsupported` (fail-closed), bez wysyłania jakiejkolwiek komendy PTT.
+    fn ptt_contract(&self) -> Result<&'static KenwoodPttContract, RigError> {
+        KenwoodPttContract::for_model(self.profile.model_id).ok_or(RigError::Unsupported {
+            backend: CatBackendKind::Kenwood,
+            command: "SetPtt",
+        })
+    }
+
+    /// Czy dokument tego modelu definiuje odczyt statusu `IF;`.
+    fn documents_status_read(&self) -> bool {
+        KenwoodPttContract::for_model(self.profile.model_id)
+            .is_some_and(KenwoodPttContract::documents_status_read)
+    }
+
+    /// Buduje typowany błąd dla udokumentowanej ramki błędu transceivera (`?;`, `E;`, `O;`).
+    fn documented_error(frame: &KenwoodFrame) -> Option<RigError> {
+        frame.documented_error().map(|error| RigError::Protocol {
+            detail: format!(
+                "Kenwood documented error frame '{}': {}",
+                error.wire(),
+                error.description()
+            ),
+        })
+    }
+
     /// Przetwarza zdekodowaną ramkę Kenwood i aktualizuje lokalny stan radia.
     fn handle_incoming_frame(&mut self, frame: &KenwoodFrame) {
         match frame.command.as_str() {
@@ -148,6 +200,9 @@ impl KenwoodBackend {
                 if let Some(ptt) = KenwoodCat::parse_ptt_resp(&frame.raw) {
                     self.state.ptt = ptt;
                     self.confirmed_ptt = ptt;
+                    if !ptt {
+                        self.ptt_commanded = false;
+                    }
                 }
             }
             "SM" => {
@@ -168,11 +223,18 @@ impl KenwoodBackend {
                 }
             }
             "IF" => {
-                if let Some(info) = KenwoodIfInfo::parse(&frame.raw) {
+                // `IF` jest udokumentowany wyłącznie w dokumencie TS-590S/TS-590SG; dla pozostałych
+                // modeli ramka nie jest interpretowana (brak dokumentu = brak zgadywania).
+                if self.documents_status_read()
+                    && let Some(info) = KenwoodIfInfo::parse(&frame.raw)
+                {
                     self.state.frequency_hz = info.frequency_hz;
                     self.state.mode = info.mode.to_string();
                     self.state.ptt = info.tx;
                     self.confirmed_ptt = info.tx;
+                    if !info.tx {
+                        self.ptt_commanded = false;
+                    }
                     self.state.split_enabled = info.split;
                     self.state.rit_hz = info.rit_offset_hz;
                     self.state.vfo = if info.vfo_b {
@@ -238,6 +300,9 @@ impl KenwoodBackend {
         }
 
         for frame in frames {
+            if let Some(error) = Self::documented_error(&frame) {
+                return Err(error);
+            }
             self.handle_incoming_frame(&frame);
         }
 
@@ -286,7 +351,6 @@ impl KenwoodBackend {
                     "XT" => Some("XT;"),
                     "FR" => Some("FR;"),
                     "FT" => Some("FT;"),
-                    "TX" | "RX" => Some("IF;"),
                     _ => None,
                 };
                 if let Some(query) = getter
@@ -309,14 +373,12 @@ impl KenwoodBackend {
                     Ok(Some((frame, consumed))) => {
                         transport.consume(consumed);
                         if !frame.command.is_empty() {
+                            // Udokumentowany komunikat błędu (`?;`, `E;`, `O;`) przerywa operację
+                            // natychmiast — bez retry i bez fałszywego sukcesu.
+                            if let Some(error) = Self::documented_error(&frame) {
+                                return Err(error);
+                            }
                             if frame.command == expected_cmd {
-                                matched_frame = Some(frame.clone());
-                            } else if (expected_cmd == "TX" || expected_cmd == "RX")
-                                && frame.command == "IF"
-                                && let Some(info) = KenwoodIfInfo::parse(&frame.raw)
-                                && ((expected_cmd == "TX" && info.tx)
-                                    || (expected_cmd == "RX" && !info.tx))
-                            {
                                 matched_frame = Some(frame.clone());
                             }
                             frames_to_apply.push(frame);
@@ -352,6 +414,211 @@ impl KenwoodBackend {
 
             if let Some(frame) = matched_frame {
                 return Ok(frame);
+            }
+        }
+    }
+
+    /// Wysyła **udokumentowaną** komendę PTT (`TX;` / `RX;`) i próbuje potwierdzić stan wyłącznie
+    /// kanałem, który dokumentuje dany model.
+    ///
+    /// * Modele z udokumentowanym `IF;` (TS-590S/TS-590SG): po 150 ms wysyłany jest `IF;`, a wynik
+    ///   jest potwierdzony tylko wtedy, gdy `P8` odpowiada żądanemu stanowi. Brak odpowiedzi =
+    ///   `Timeout` (fail-closed).
+    /// * Modele bez `IF;` (TS-890S/TS-990S): jedynym udokumentowanym kanałem jest odpowiedź Auto
+    ///   Information (`TX P1;` / `RX;`). Po jej otrzymaniu stan jest potwierdzony; po upływie okna
+    ///   komenda jest uznana za **wysłaną**, ale stan pozostaje **niepotwierdzony** (`Ok(false)`).
+    ///
+    /// Zwraca `Ok(true)` tylko dla potwierdzonego stanu. Nigdy nie ponawia komendy PTT.
+    async fn write_ptt_command(
+        &mut self,
+        command: &str,
+        expected_cmd: &str,
+        status_read: Option<&'static str>,
+        requested: bool,
+    ) -> Result<bool, RigError> {
+        let endpoint = self.endpoint_name();
+        let encoded = self.codec.encode_command(command);
+        let status_command = status_read.map(|wire| wire.trim_end_matches(';'));
+
+        let Some(transport) = self.transport.as_mut() else {
+            return Err(RigError::NotConnected);
+        };
+        transport
+            .write_all(&encoded)
+            .await
+            .map_err(|e| e.to_rig_error(CatBackendKind::Kenwood, &endpoint))?;
+
+        let window = if status_command.is_some() {
+            PTT_STATUS_TIMEOUT
+        } else {
+            PTT_AI_ANSWER_WINDOW
+        };
+        let start = tokio::time::Instant::now();
+        let mut status_query_sent = false;
+
+        loop {
+            // 1. Przetwórz wszystkie kompletne ramki obecne w buforze.
+            let mut frames = Vec::new();
+            {
+                let Some(transport) = self.transport.as_mut() else {
+                    return Err(RigError::NotConnected);
+                };
+                loop {
+                    match self.codec.decode_frame(transport.buffer()) {
+                        Ok(Some((frame, consumed))) => {
+                            transport.consume(consumed);
+                            if !frame.command.is_empty() {
+                                frames.push(frame);
+                            }
+                        }
+                        Ok(None) => break,
+                        Err(e) => {
+                            transport.clear_buffer();
+                            return Err(RigError::Protocol {
+                                detail: format!("Kenwood decode error during PTT: {e}"),
+                            });
+                        }
+                    }
+                }
+            }
+
+            for frame in frames {
+                if let Some(error) = Self::documented_error(&frame) {
+                    // Udokumentowane odrzucenie komendy — natychmiastowy błąd, bez retry.
+                    self.handle_incoming_frame(&frame);
+                    return Err(error);
+                }
+                if frame.command == expected_cmd {
+                    self.handle_incoming_frame(&frame);
+                    return Ok(true);
+                }
+                if status_command.is_some_and(|command| frame.command == command)
+                    && let Some(info) = KenwoodIfInfo::parse(&frame.raw)
+                {
+                    if info.tx == requested {
+                        self.handle_incoming_frame(&frame);
+                        return Ok(true);
+                    }
+                    // Niezgodny odczyt statusu nie jest potwierdzeniem — kontynuuj do deadline.
+                    continue;
+                }
+                self.handle_incoming_frame(&frame);
+            }
+
+            // 2. Po 150 ms wyślij udokumentowany odczyt statusu (tylko gdy model go definiuje).
+            if !status_query_sent
+                && status_command.is_some()
+                && start.elapsed() >= PTT_STATUS_QUERY_DELAY
+            {
+                if let Some(read) = status_read {
+                    let query = self.codec.encode_command(read);
+                    if let Some(transport) = self.transport.as_mut() {
+                        let _ = transport.write_all(&query).await;
+                    }
+                }
+                status_query_sent = true;
+            }
+
+            // 3. Upłynął limit czasu.
+            if start.elapsed() >= window {
+                if status_command.is_some() {
+                    return Err(RigError::Timeout {
+                        endpoint,
+                        operation: "ptt_status_read",
+                    });
+                }
+                // Komenda została zapisana; stan pozostaje niepotwierdzony.
+                return Ok(false);
+            }
+
+            // 4. Czekaj na kolejne bajty z łącza.
+            //
+            // Gdy model dokumentuje odczyt statusu i nie został on jeszcze wysłany, oczekiwanie
+            // jest skrócone do chwili `PTT_STATUS_QUERY_DELAY`, aby odczyt statusu został wysłany
+            // mimo braku jakiejkolwiek ramki z transceivera.
+            let remaining = window.saturating_sub(start.elapsed());
+            let slice = if !status_query_sent && status_command.is_some() {
+                let until_query = PTT_STATUS_QUERY_DELAY.saturating_sub(start.elapsed());
+                remaining.min(until_query.max(Duration::from_millis(1)))
+            } else {
+                remaining
+            };
+            let Some(transport) = self.transport.as_mut() else {
+                return Err(RigError::NotConnected);
+            };
+            // Trzy warianty "brak nowych danych" (poprawny odczyt, limit transportu, wycinek czasu)
+            // mają świadomie identyczne zachowanie: pętla sprawdza własny limit `window`.
+            #[allow(clippy::match_same_arms)]
+            match tokio::time::timeout(slice, transport.read_chunk()).await {
+                Ok(Ok(_)) => {}
+                Ok(Err(TransportError::Closed)) => return Err(RigError::NotConnected),
+                Ok(Err(e)) => {
+                    if !matches!(e, TransportError::Timeout { .. }) {
+                        return Err(e.to_rig_error(CatBackendKind::Kenwood, &endpoint));
+                    }
+                }
+                Err(_) => {}
+            }
+        }
+    }
+
+    /// Wykonuje `SetPtt` zgodnie z udokumentowanym kontraktem modelu.
+    ///
+    /// Kontrakt bezpieczeństwa:
+    /// - komenda jest wysyłana dokładnie raz (brak retry PTT ON),
+    /// - `state.ptt`/`confirmed_ptt` ustawiane są **wyłącznie** po udokumentowanym potwierdzeniu,
+    /// - samo powodzenie zapisu nigdy nie jest raportowane jako potwierdzony TX,
+    /// - po przyjętej komendzie `TX;` obowiązek bezpiecznego `RX;` przy rozłączeniu pozostaje
+    ///   (`ptt_commanded`), nawet gdy stan jest niepotwierdzony.
+    async fn execute_set_ptt(&mut self, ptt: bool) -> Result<(), RigError> {
+        // Model bez oficjalnego dokumentu jest odrzucany **przed** jakimkolwiek zapisem.
+        let contract = self.ptt_contract()?;
+        if self.transport.is_none() {
+            return Err(RigError::NotConnected);
+        }
+        let command = if ptt {
+            contract.ptt_on
+        } else {
+            contract.ptt_off
+        };
+        let expected = if ptt { "TX" } else { "RX" };
+
+        // Zamiar nadawania jest rejestrowany **przed** zapisem komendy: nawet przerwanie
+        // (cancellation) w połowie zapisu pozostawia obowiązek bezpiecznego `RX;` przy rozłączeniu.
+        if ptt {
+            self.ptt_commanded = true;
+        }
+
+        let outcome = self
+            .write_ptt_command(command, expected, contract.status_read, ptt)
+            .await;
+
+        match outcome {
+            Ok(confirmed) => {
+                if ptt {
+                    // Komenda `TX;` została wysłana; bezpieczne RX; pozostaje obowiązkiem.
+                    self.ptt_commanded = true;
+                    if confirmed {
+                        self.confirmed_ptt = true;
+                        self.state.ptt = true;
+                    }
+                } else {
+                    self.ptt_commanded = false;
+                    self.confirmed_ptt = false;
+                    self.state.ptt = false;
+                }
+                Ok(())
+            }
+            Err(error) => {
+                if ptt {
+                    // Zapis mógł częściowo dotrzeć do transceivera — utrzymaj obowiązek RX;.
+                    self.ptt_commanded = true;
+                } else {
+                    self.ptt_commanded = false;
+                    self.confirmed_ptt = false;
+                    self.state.ptt = false;
+                }
+                Err(error)
             }
         }
     }
@@ -410,13 +677,14 @@ impl RigBackend for KenwoodBackend {
 
             // 2. Rygorystyczny test obecności radia (Probe) — wyłącznie komendy bezpieczne READ-ONLY!
             // Zakaz jakiegokolwiek załączania PTT podczas connect/probe!
+            // `IF;` jest udokumentowany tylko dla TS-590S/TS-590SG; fallback używa `ID;`
+            // (udokumentowany dla wszystkich czterech obsługiwanych modeli).
             let probe_res = self
                 .roundtrip_command(KenwoodCat::read_freq_cmd(false), "FA")
                 .await;
             if probe_res.is_err() {
-                // Alternatywna bezpieczna próba: komenda IF
                 let _ = self
-                    .roundtrip_command(KenwoodCat::read_if_cmd(), "IF")
+                    .roundtrip_command(KenwoodCat::read_id_cmd(), "ID")
                     .await?;
             }
 
@@ -429,6 +697,7 @@ impl RigBackend for KenwoodBackend {
             }
 
             self.confirmed_ptt = false;
+            self.ptt_commanded = false;
             self.state.ptt = false;
             self.state.connected = true;
             Ok(())
@@ -444,18 +713,22 @@ impl RigBackend for KenwoodBackend {
             // Odbierz wszelkie asynchroniczne powiadomienia AI obecne w buforze
             let _ = self.drain_incoming().await;
 
-            if !self.ai_active {
-                // Gdy Auto Information nie jest aktywne, odpytaj stan komendą IF
-                let _ = self
-                    .roundtrip_command(KenwoodCat::read_if_cmd(), "IF")
-                    .await?;
+            let contract = KenwoodPttContract::for_model(self.profile.model_id);
+
+            // `IF;` wolno wysłać wyłącznie modelom, których dokument go definiuje.
+            if !self.ai_active
+                && let Some(status_read) = contract.and_then(|contract| contract.status_read)
+            {
+                let status_cmd = status_read.trim_end_matches(';');
+                let _ = self.roundtrip_command(status_read, status_cmd).await?;
             }
 
-            // S-Meter jest miernikiem analogowym i nie jest rozsyłany samorzutnie przez AI
-            if self.profile.capabilities.s_meter {
-                let _ = self
-                    .roundtrip_command(KenwoodCat::read_smeter_cmd(), "SM")
-                    .await;
+            // S-Meter jest miernikiem analogowym i nie jest rozsyłany samorzutnie przez AI.
+            // Formularz parametru jest modelowy (`SM0;` dla TS-590S/SG/990S, `SM;` dla TS-890S).
+            if self.profile.capabilities.s_meter
+                && let Some(smeter_read) = contract.and_then(|contract| contract.smeter_read)
+            {
+                let _ = self.roundtrip_command(smeter_read, "SM").await;
             }
 
             self.state.connected = true;
@@ -492,25 +765,8 @@ impl RigBackend for KenwoodBackend {
                 RigCommand::SetPtt(ptt) => {
                     // BEZPIECZEŃSTWO PTT:
                     // SetPtt(true) NIE MOŻE być ponawiane w przypadku błędu/timeoutu!
-                    let cmd = KenwoodCat::set_ptt_cmd(*ptt);
-                    let res = self
-                        .roundtrip_command(cmd, if *ptt { "TX" } else { "RX" })
-                        .await;
-                    match res {
-                        Ok(_) => {
-                            self.confirmed_ptt = *ptt;
-                            self.state.ptt = *ptt;
-                            Ok(())
-                        }
-                        Err(e) => {
-                            // Brak retry! Natychmiastowe zgłoszenie błędu
-                            if !*ptt {
-                                self.confirmed_ptt = false;
-                                self.state.ptt = false;
-                            }
-                            Err(e)
-                        }
-                    }
+                    // Komenda i kanał potwierdzenia pochodzą z udokumentowanego kontraktu modelu.
+                    self.execute_set_ptt(*ptt).await
                 }
                 RigCommand::SetSplit { enabled, tx_vfo: _ } => {
                     let cmd = KenwoodCat::set_split_cmd(*enabled);
@@ -564,17 +820,21 @@ impl RigBackend for KenwoodBackend {
     fn disconnect(&mut self) -> BoxFuture<'_, ()> {
         Box::pin(async move {
             // BEZPIECZEŃSTWO PTT:
-            // Jeśli radio było w stanie nadawania, wykonaj bezpieczną próbę przejścia na odbiór (RX)
-            if self.confirmed_ptt {
+            // Jeśli radio było w stanie nadawania **lub** przyjęło udokumentowaną komendę `TX;`
+            // (stan niepotwierdzony), wykonaj jedną bezpieczną próbę przejścia na odbiór (`RX;`).
+            // `RX;` jest udokumentowaną, idempotentną komendą; próba jest pojedyncza i ograniczona
+            // czasowo, a jej wynik nie jest raportowany jako potwierdzenie fizycznego RX.
+            if self.confirmed_ptt || self.ptt_commanded {
                 if let Some(transport) = self.transport.as_mut() {
-                    let rx_bytes = b"RX;";
+                    let rx_bytes = KenwoodCat::set_ptt_cmd(false);
                     let _ = tokio::time::timeout(
                         Duration::from_millis(200),
-                        transport.write_all(rx_bytes),
+                        transport.write_all(rx_bytes.as_bytes()),
                     )
                     .await;
                 }
                 self.confirmed_ptt = false;
+                self.ptt_commanded = false;
                 self.state.ptt = false;
             }
 
@@ -629,13 +889,15 @@ impl RigBackend for KenwoodBackend {
                 }
             }
 
-            // Bezpieczny odczyt FA; lub IF; — bez AI2! Bez PTT!
+            // Bezpieczny odczyt `FA;` lub `ID;` — bez AI2! Bez PTT!
+            // `IF;` nie jest używany: jest udokumentowany wyłącznie dla TS-590S/TS-590SG,
+            // a `ID;` jest udokumentowany dla wszystkich czterech obsługiwanych modeli.
             let probe_res = self
                 .roundtrip_command(KenwoodCat::read_freq_cmd(false), "FA")
                 .await;
             if probe_res.is_err() {
                 let _ = self
-                    .roundtrip_command(KenwoodCat::read_if_cmd(), "IF")
+                    .roundtrip_command(KenwoodCat::read_id_cmd(), "ID")
                     .await?;
             }
 
