@@ -864,6 +864,14 @@ fn flatpak_build_hides_untracked_artefacts_from_the_embedded_identity() {
         "wykluczenie musi trafiać do .git/info/exclude, a nie do plików śledzonych"
     );
     assert!(
+        text.contains("printf '\\n'"),
+        "wykluczenie musi być odseparowane nową linią od kopiowanego pliku exclude"
+    );
+    assert!(
+        text.contains("the module tree is not clean before the build"),
+        "build musi fail-closed, gdy drzewo nadal nie jest czyste"
+    );
+    assert!(
         !text.contains("SPLOGBOOK_GIT_DIRTY"),
         "build nie może nadpisywać flagi dirty przez zmienną środowiskową"
     );
