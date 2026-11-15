@@ -878,6 +878,10 @@ fn flatpak_build_hides_untracked_artefacts_from_the_embedded_identity() {
         "CARGO_HOME musi istnieć przed wyliczeniem wykluczeń"
     );
     assert!(
+        text.contains("printf '/.cargo-home/\\n'"),
+        "CARGO_HOME musi mieć jawny wzorzec: git nie widzi pustego katalogu"
+    );
+    assert!(
         text.contains("the module tree is dirty after the build"),
         "build musi fail-closed również po kompilacji, z wypisanymi ścieżkami"
     );

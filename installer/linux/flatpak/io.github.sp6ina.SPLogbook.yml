@@ -180,6 +180,10 @@ modules:
         mkdir -p .cargo-home
         {
           printf '\n'
+          # git never reports an empty untracked directory, so CARGO_HOME -
+          # created empty above and populated only by cargo - needs its pattern
+          # written explicitly.
+          printf '/.cargo-home/\n'
           git status --porcelain -z --untracked-files=normal \
             | tr '\0' '\n' \
             | sed -n 's/^?? //p' \
