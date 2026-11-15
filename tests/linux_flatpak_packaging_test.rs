@@ -871,6 +871,16 @@ fn flatpak_build_hides_untracked_artefacts_from_the_embedded_identity() {
         text.contains("the module tree is not clean before the build"),
         "build musi fail-closed, gdy drzewo nadal nie jest czyste"
     );
+    // CARGO_HOME leży w drzewie modułu i powstaje dopiero podczas builda,
+    // więc musi być utworzony i wykluczony już przed snapshotem.
+    assert!(
+        text.contains("mkdir -p .cargo-home"),
+        "CARGO_HOME musi istnieć przed wyliczeniem wykluczeń"
+    );
+    assert!(
+        text.contains("the module tree is dirty after the build"),
+        "build musi fail-closed również po kompilacji, z wypisanymi ścieżkami"
+    );
     assert!(
         !text.contains("SPLOGBOOK_GIT_DIRTY"),
         "build nie może nadpisywać flagi dirty przez zmienną środowiskową"

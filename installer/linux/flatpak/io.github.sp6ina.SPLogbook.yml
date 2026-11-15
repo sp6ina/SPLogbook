@@ -170,10 +170,14 @@ modules:
         # the tee'd build log), so without this exclusion `--build-info`
         # reported a dirty build and the verifier rejected the bundle.
         # `info/exclude` only hides untracked paths: a modification of a
-        # tracked file still reports dirty. The leading newline keeps the
-        # appended patterns separate even when the copied exclude file has no
-        # trailing newline, and the result is asserted so the build fails here
-        # with the offending paths instead of producing a dirty bundle.
+        # tracked file still reports dirty. CARGO_HOME also lives inside the
+        # module tree and cargo creates it only while building, i.e. after any
+        # earlier snapshot, so it is created here and excluded with the rest.
+        # The leading newline keeps the appended patterns separate even when
+        # the copied exclude file has no trailing newline, and the result is
+        # asserted so the build fails here with the offending paths instead of
+        # producing a dirty bundle.
+        mkdir -p .cargo-home
         {
           printf '\n'
           git status --porcelain -z --untracked-files=normal \
@@ -190,6 +194,14 @@ modules:
         cargo --version
         cargo build --release --locked --offline --bin SPLogbook \
           -j "${FLATPAK_BUILDER_N_JOBS:-$(nproc)}"
+        # Fail closed if the build itself dirtied the tree: the embedded
+        # identity would then say "dirty" and the verifier would reject the
+        # bundle. Printing the paths here keeps the diagnosis in the build log.
+        remaining_after="$(git status --porcelain)"
+        [ -z "${remaining_after}" ] || {
+          printf 'FAIL: the module tree is dirty after the build:\n%s\n' "${remaining_after}" >&2
+          exit 1
+        }
       # 3. Explicit path allowlist installed into /app.
       - install -Dm755 target/release/SPLogbook /app/bin/SPLogbook
       - install -Dm644 installer/linux/flatpak/io.github.sp6ina.SPLogbook.desktop /app/share/applications/io.github.sp6ina.SPLogbook.desktop
