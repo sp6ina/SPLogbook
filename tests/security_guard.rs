@@ -7124,3 +7124,289 @@ fn m3_j_flatpak_sandbox_and_packaging_guard() {
         "M3-J: README pakietu Flatpak musi być w indeksie dokumentacji"
     );
 }
+
+// =========================================================================
+// P0-F14 - PTT PANIC, PROTOCOL CONFORMANCE AND TRANSMITTER FAIL-SAFE
+// =========================================================================
+
+/// F-14: the HIL transmit path must not use a panicking `Ord::clamp` for the pulse range, must
+/// validate the bounded duration before PTT ON, and must expose the documented minimum as a
+/// manifest constant.
+#[test]
+fn p0_f14_transmit_path_has_no_panicking_clamp_guard() {
+    let session = fs::read_to_string("src/cat/hil/session.rs").expect("session.rs");
+    let manifest = fs::read_to_string("src/cat/hil/manifest.rs").expect("manifest.rs");
+
+    assert!(
+        !session.contains(".clamp("),
+        "F-14: the HIL transmit path must not call Ord::clamp (panics on an inverted range)"
+    );
+    assert!(
+        session.contains("fn bounded_test_duration("),
+        "F-14: a total (Result-returning) range helper is required"
+    );
+    assert!(
+        session.contains("if max_test_duration_ms < HIL_MIN_TEST_DURATION_MS"),
+        "F-14: the total helper must reject a below-minimum maximum"
+    );
+    assert!(
+        session.contains("requested < lower") && session.contains("requested > upper"),
+        "F-14: clamping must be explicit comparisons, not a panicking call"
+    );
+    assert!(
+        manifest.contains("pub const HIL_MIN_TEST_DURATION_MS: u64 = 10;"),
+        "F-14: the documented minimum must be a manifest constant"
+    );
+    assert!(
+        manifest.contains("pub const HIL_MAX_TEST_DURATION_MS: u64 = 500;"),
+        "F-14: the laboratory maximum must be a manifest constant"
+    );
+    assert!(
+        manifest.contains("self.rf_safety.max_test_duration_ms < HIL_MIN_TEST_DURATION_MS"),
+        "F-14: the manifest must reject an inverted pulse range before any PTT"
+    );
+    assert!(
+        manifest.contains("max_test_power_watts.is_finite()"),
+        "F-14: non-finite power limits must be rejected"
+    );
+
+    let bounded_at = session
+        .find("bounded_test_duration(duration")
+        .expect("acquire path computes the bounded duration");
+    let first_on = session
+        .find("RigCommand::SetPtt(true)")
+        .expect("the ON command exists");
+    assert!(
+        bounded_at < first_on,
+        "F-14: range validation must precede the first SetPtt(true)"
+    );
+}
+
+/// F-14: every controlled post-PTT-ON path must attempt a release, the emergency Drop release
+/// must be non-blocking, and a failed/unconfirmed release must never be success.
+#[test]
+fn p0_f14_post_ptt_on_paths_attempt_release_guard() {
+    let session = fs::read_to_string("src/cat/hil/session.rs").expect("session.rs");
+
+    assert!(
+        session.contains("fn emergency_release_ptt("),
+        "F-14: Drop must have a dedicated emergency release path"
+    );
+    assert!(
+        session.contains("Waker::noop()"),
+        "F-14: the emergency release must poll once with a no-op waker (no runtime, no blocking)"
+    );
+    assert!(
+        session.contains("self.release_outcome = self.emergency_release_ptt();"),
+        "F-14: Drop must perform the emergency release when none was attempted"
+    );
+    assert!(
+        session.matches("emergency PTT OFF attempted").count() >= 2,
+        "F-14: both the ON-error and the confirm-error paths must attempt PTT OFF"
+    );
+    for required in [
+        "HilReleaseOutcome::NotAttempted",
+        "HilReleaseOutcome::Confirmed",
+        "HilReleaseOutcome::Failed",
+        "HilReleaseOutcome::Unconfirmed",
+        "HilError::MissingConfirmedRx",
+        "HilError::ReleaseError",
+        "HilError::TimeoutToUnknown",
+    ] {
+        assert!(
+            session.contains(required),
+            "F-14: release semantics require {required}"
+        );
+    }
+}
+
+/// Test-only protocol doubles may live only in `tests/` / `tests/support/`; they must never be
+/// reachable from `src/`, the backend enum, the GUI, the CLI, the configuration or the environment.
+#[test]
+fn p0_f14_test_doubles_are_test_scope_only_guard() {
+    let double = fs::read_to_string("tests/support/protocol_double.rs")
+        .expect("tests/support/protocol_double.rs must exist");
+    assert!(double.contains("TEST-ONLY PROTOCOL DOUBLES"));
+    assert!(double.contains("impl RigBackend for ProtocolDouble"));
+
+    for consumer in [
+        "tests/cat_f14_fail_safe.rs",
+        "tests/protocol_conformance.rs",
+    ] {
+        let source = fs::read_to_string(consumer).expect(consumer);
+        assert!(
+            source.contains("#[path = \"support/protocol_double.rs\"]"),
+            "{consumer} must include the shared test double explicitly"
+        );
+    }
+
+    let backend = fs::read_to_string("src/cat/backend.rs").expect("src/cat/backend.rs");
+    assert!(
+        backend.contains("pub const ALL: [Self; 9] = ["),
+        "F-14: the production backend enum must keep exactly 9 real variants"
+    );
+    let enum_start = backend
+        .find("pub enum CatBackendKind {")
+        .expect("backend enum");
+    let enum_end = backend[enum_start..]
+        .find("\n}")
+        .map(|offset| enum_start + offset)
+        .expect("backend enum end");
+    let enum_body = &backend[enum_start..enum_end].to_ascii_lowercase();
+    for forbidden in [
+        "mock",
+        "simulator",
+        "fake",
+        "dummy",
+        "test",
+        "virtual",
+        "protocoldouble",
+    ] {
+        assert!(
+            !enum_body.contains(forbidden),
+            "F-14: production backend enum must not expose '{forbidden}'"
+        );
+    }
+
+    for entry in walkdir::WalkDir::new("src")
+        .into_iter()
+        .filter_map(Result::ok)
+    {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+            continue;
+        }
+        let source = fs::read_to_string(path).expect("readable source");
+        for forbidden in [
+            "ProtocolDouble",
+            "DocumentedPttProtocol",
+            "support/protocol_double",
+            "test-radio",
+            "fake-radio",
+            "dummy-radio",
+            "virtual-transceiver",
+            "mock-radio",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "F-14: {} must not reference the test double token '{forbidden}'",
+                path.display()
+            );
+        }
+    }
+
+    let cargo_toml = fs::read_to_string("Cargo.toml").expect("Cargo.toml");
+    assert!(
+        !cargo_toml.contains("[features]"),
+        "F-14: no feature flag may gate a test double"
+    );
+    for forbidden in [
+        "mock",
+        "simulator",
+        "fake-radio",
+        "test-radio",
+        "dummy-radio",
+        "virtual-transceiver",
+    ] {
+        assert!(
+            !cargo_toml.to_ascii_lowercase().contains(forbidden),
+            "F-14: Cargo.toml must not mention '{forbidden}'"
+        );
+    }
+    assert!(
+        cargo_toml.contains("panic = \"abort\""),
+        "F-14: the release profile must keep panic=abort (no silent unwind-based remediation)"
+    );
+}
+
+/// The ten hardware-in-the-loop tests stay ignored and neither workflow executes them.
+#[test]
+fn p0_f14_hil_hardware_tests_remain_ignored_guard() {
+    let hil = fs::read_to_string("tests/cat_native_7.rs").expect("tests/cat_native_7.rs");
+    let ignored_attributes = hil
+        .lines()
+        .filter(|line| line.trim_start().starts_with("#[ignore"))
+        .count();
+    assert_eq!(
+        ignored_attributes, 10,
+        "F-14: exactly ten hardware-in-the-loop tests must remain ignored"
+    );
+    assert_eq!(
+        hil.matches("#[ignore = \"hardware-in-the-loop\"]").count(),
+        11,
+        "F-14: ten attributes plus the module-level documentation mention"
+    );
+    for case in [
+        "hil_hardware_live_test_bench",
+        "hil_hardware_read_01",
+        "hil_hardware_freq_01",
+        "hil_hardware_mode_01",
+        "hil_hardware_ptt_01",
+        "hil_hardware_ptt_timeout_01",
+        "hil_hardware_resync_01",
+        "hil_hardware_multi_radio_01",
+        "hil_hardware_shutdown_01",
+        "hil_hardware_shutdown_tx_01",
+    ] {
+        assert!(hil.contains(case), "missing HIL case {case}");
+    }
+
+    for workflow in [
+        ".github/workflows/ci.yml",
+        ".github/workflows/build-and-release.yml",
+    ] {
+        let source = fs::read_to_string(workflow).expect(workflow);
+        for forbidden in [
+            "--ignored",
+            "hil_hardware",
+            "SPLOG_HIL_ENABLE",
+            "SPLOG_HIL_ALLOW_TX",
+            "SPLOG_HIL_SESSION",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "{workflow} must not run hardware HIL ('{forbidden}')"
+            );
+        }
+    }
+}
+
+/// Public documentation must separate the software remediation, the protocol-conformance
+/// verification and the hardware validation that was NOT executed.
+#[test]
+fn p0_f14_documentation_separates_software_and_hardware_guard() {
+    let known = fs::read_to_string("docs/KNOWN_ISSUES.md").expect("KNOWN_ISSUES.md");
+    for required in [
+        "F-14 software remediation = CLOSED",
+        "Hardware validation = NOT_EXECUTED",
+        "Protocol conformance software verification = COMPLETED",
+        "NATIVE-7B = NOT_STARTED",
+        "F-15 (P1)",
+        "F-17 (P1)",
+    ] {
+        assert!(
+            known.contains(required),
+            "KNOWN_ISSUES.md must record: {required}"
+        );
+    }
+    assert!(
+        !known.to_ascii_lowercase().contains("mock radio"),
+        "test doubles must never be described as an application feature"
+    );
+
+    let matrix = fs::read_to_string("docs/HARDWARE_VALIDATION_MATRIX.md")
+        .expect("HARDWARE_VALIDATION_MATRIX");
+    for required in [
+        "HARDWARE_BEHAVIOUR_NOT_VERIFIED",
+        "TEST_DOUBLE_PRODUCTION_EXCLUSION_VERIFIED",
+        "SOFTWARE_ONLY_VERIFICATION",
+    ] {
+        assert!(
+            matrix.contains(required),
+            "HARDWARE_VALIDATION_MATRIX.md must record: {required}"
+        );
+    }
+}
