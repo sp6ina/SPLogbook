@@ -46,21 +46,54 @@ load, real PTT or RF transmission was used. The 10 hardware tests remain
 
 Files: `src/cat/hil/session.rs`, `src/cat/hil/manifest.rs`.
 
-### Recorded protocol-conformance discrepancies (not F-14 blockers)
+### CAT-018 / CAT-019 — protocol conformance (software remediation 2026-11-15)
 
-These were found while verifying the production PTT frames against the official documents. Each
-path fails **closed** (an error, never an unrequested transmission) and each is outside the
-minimal F-14 source scope, so they are recorded here instead of being silently changed:
+Both discrepancies recorded during the F-14 closure were resolved by the dedicated gate
+`STAGE-CAT-018-019-SOFTWARE`, against the **official model-specific** documents. Software-only
+verification: no transceiver, serial port, real FLRig, PTT or RF was used.
 
-- **CAT-018 (Kenwood, latent):** the official PC CONTROL COMMAND references define `TX P1` with
-  `P1=0` as `SEND`/`SEND-PTT`, i.e. transmit, but `KenwoodCat::parse_ptt_resp` maps `TX0;` to
-  receive. The production release path sends the documented `RX;`, so `TX0;` is never emitted;
-  the parser mapping is contradicted by the documentation and must be corrected in a dedicated
-  protocol-conformance change.
-- **CAT-019 (FLRig, functional):** `rig.set_ptt` is documented with an **integer** parameter
-  (`n:i`, "set PTT 1/0"), while the client sends an XML-RPC `<boolean>`. FLRig rejects the type
-  with a `type error` fault, so PTT fails closed (error, no TX) rather than keying. Requires a
-  dedicated conformance change plus real FLRig verification.
+- **CAT-018 — CLOSED, `COMPLETED_KENWOOD_PTT_PROTOCOL_CONFORMANCE_VERIFIED`.** The official
+  PC CONTROL COMMAND references (`B5A-0316-20/01` TS-590S/SG, `B5A-2944-00/01` TS-890S,
+  `B5A-3170-00` TS-990S) define the Answer `TX P1;` where `P1=0` is `SEND`, `P1=1` is
+  `DATA SEND` and `P1=2` is `TX Tune` — **every** documented `P1` means the transceiver is
+  transmitting. The production parser now matches that documented Answer model (`TX0;`/`TX1;`/
+  `TX2;` ⇒ TX, `RX;` ⇒ RX, anything else — including a bare `TX;` — yields no state), the
+  mislabelled "PTT read" helper that returned the transmit command `TX;` is gone, and the
+  documented error frames `?;` / `E;` / `O;` fail the operation closed. The confirmation channel
+  is **model-specific**: `IF` exists only in `B5A-0316-20/01` (TS-590S/SG); the TS-890S/TS-990S
+  use only the documented Auto-Information Answer and no longer receive an undocumented `IF;`.
+  The documented `ID;` command replaced `IF;` as the probe fallback. Write success is never a
+  confirmed TX, and an accepted `TX;` keeps a release obligation for `disconnect()`.
+- **CAT-019 — CLOSED, `COMPLETED_FLRIG_XMLRPC_PTT_CONFORMANCE_VERIFIED`.** FLRig **2.0.00**
+  (`xml_server.cxx`, tag `v2.0.00`) documents `rig.set_ptt` as `n:i` — one **integer**
+  parameter, nil return — and implements it as `PTT = int(params[0])`. The client now sends
+  `<int>1</int>` / `<int>0</int>`, accepts the documented nil response, rejects any `<value>`
+  (including the `<int>0</int>` "transceiver offline" answer), enforces the documented `<int>`
+  type for `rig.get_ptt` and rejects non-200 HTTP statuses. No boolean/int fallback exists, and a
+  PTT request is never retried.
+
+`rig.set_verify_ptt` (`n:i`) and `rig.set_ptt_fast` (`n:i`, *"deprecated; use set_ptt"*) remain
+documented in 2.0.00 but unused by SPLogbook; neither is required by the PTT path.
+
+Status block:
+
+```
+CAT-018 = CLOSED / COMPLETED_KENWOOD_PTT_PROTOCOL_CONFORMANCE_VERIFIED
+CAT-019 = CLOSED / COMPLETED_FLRIG_XMLRPC_PTT_CONFORMANCE_VERIFIED
+SOFTWARE_ONLY_VERIFICATION=true
+PROTOCOL_CONFORMANCE_SOFTWARE_VERIFIED=true
+HARDWARE_BEHAVIOUR_NOT_VERIFIED=true
+REAL_TRANSCEIVER_CONNECTED=false
+REAL_PTT_EXECUTED=false
+RF_TRANSMISSION_EXECUTED=false
+HIL_EXECUTED=false
+```
+
+Tests: `cat_018_kenwood_conformance`, `cat_019_flrig_conformance`, the per-model rows in
+`protocol_conformance`, and six `cat018_*` / `cat019_*` rules in `security_guard`. The synthetic
+Kenwood wire (`tests/support/kenwood_wire.rs`) and the synthetic FLRig XML-RPC daemon
+(`tests/support/flrig_wire.rs`) exist only in the test scope and are not an application feature.
+
 
 ### F-15 (P1) — HIL readiness is self-certifiable
 

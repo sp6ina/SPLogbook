@@ -182,6 +182,17 @@ All decisions are **IMPLEMENTED** and verified by `tests/linux_flatpak_packaging
 | `DEC-P0-F14-RELEASE-01` | Every controlled path after logical PTT ON attempts exactly one PTT OFF. A failed, timed-out or unconfirmed release is reported as an error (`HilReleaseOutcome::{Failed,Unconfirmed}`), never as success. A cancelled/abandoned transmit guard performs one non-blocking emergency release in `Drop` (single poll with `Waker::noop()`; no runtime creation, no blocking I/O, no fabricated `ConfirmedRx`), because `panic = "abort"` makes unwind-based cleanup unavailable in release. | IMPLEMENTED |
 | `DEC-P0-F14-DOUBLES-01` | Test-only protocol doubles are confined to `tests/`/`tests/support/` and `#[cfg(test)]`. No production enum variant, feature flag, GUI/CLI entry, configuration key, environment variable or fallback may select them; they cannot be compiled into a release artifact. | IMPLEMENTED |
 
+### 2.10 CAT-018 / CAT-019 protocol-conformance decisions
+
+| ID | Decision | Status |
+|---|---|---|
+| `DEC-CAT-018-01` | Kenwood PTT is resolved **per model** through an explicit documented contract (`KenwoodPttContract`): ON `TX;`, OFF `RX;`, and a status-read channel that is `IF` only for TS-590S/TS-590SG. There is no brand-wide Kenwood command assumption; a model without a document is refused before any byte is written. | IMPLEMENTED |
+| `DEC-CAT-018-02` | `TX P1;` is decoded as the documented **transmission-mode** answer: `P1=0` (`SEND`), `1` (`DATA SEND`) and `2` (`TX Tune`) all mean transmit; `RX;` means receive; any other frame (including a bare `TX;`) produces no PTT state. The former `TX0; = receive` mapping and the "PTT read" helper that returned the transmit command `TX;` are removed. | IMPLEMENTED |
+| `DEC-CAT-018-03` | Write success is never a confirmed TX. `state.ptt`/`confirmed_ptt` change only on a documented answer (`TX P1;`, `RX;` or the documented `IF` P8 status read for the models that define it). An accepted `TX;` leaves a release obligation (`ptt_commanded`) that `disconnect()` discharges with exactly one documented `RX;`. | IMPLEMENTED |
+| `DEC-CAT-018-04` | The documented error messages `?;`, `E;`, `O;` (p. 3 of every reference) abort the operation immediately with a typed protocol error; PTT ON is never retried. The documented `ID;` command replaces `IF;` as the connection-probe fallback, and the S-meter read form is model-specific (`SM0;` vs `SM;`). | IMPLEMENTED |
+| `DEC-CAT-019-01` | FLRig 2.0.00 is the version contract. `rig.set_ptt` (`n:i`) is sent with one `<int>` parameter (`1`/`0`); the documented nil response is the only success shape; any `<value>` (including the `<int>0</int>` "transceiver offline" answer), a fault, malformed XML, a non-200 HTTP status or a timeout is an error. No boolean/int fallback and no type-based retry exist. | IMPLEMENTED |
+| `DEC-CAT-019-02` | `rig.get_ptt` (`i:n`) accepts only the documented `<int>` `0`/`1`; other XML-RPC types are rejected as protocol errors (no implicit coercion). `rig.set_verify_ptt` (`n:i`) and the deprecated `rig.set_ptt_fast` (`n:i`) are recorded but not adopted. | IMPLEMENTED |
+
 ## 3. Update state machine and data classification (reference)
 
 - 20 states with strict transitions; `Committed` is the only terminal-success state. A

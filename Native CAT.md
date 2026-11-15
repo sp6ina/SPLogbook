@@ -312,23 +312,43 @@ Przykład: 14 074 000 Hz:
 
 ---
 
-## 11. Mapa Kenwood PC Control (Wdrożono w NATIVE-2)
+## 11. Mapa Kenwood PC Control (Wdrożono w NATIVE-2; kontrakt PTT zweryfikowany modelowo w CAT-018)
 
 1. **Format**: Tekst ASCII ze średnikiem `;` jako terminatorem każdej ramki.
 2. **Kluczowe komendy**:
    - `FA<11 cyfr Hz>;` / `FB<11 cyfr Hz>;` — częstotliwość VFO A / VFO B (odczyt: `FA;` / `FB;`),
    - `MD<kod>;` — emisja (1: LSB, 2: USB, 3: CW, 4: FM, 5: AM, 6: FSK/RTTY, 7: CW-R, 8: FSK-R, 9: PSK),
-   - `TX;` / `RX;` — bezpieczne sterowanie PTT bez ponawiania (odczyt: `TX;` zwraca `TX0;`/`TX1;`/`TX2;`),
-   - `SM0;` — odczyt S-metra (odpowiedź `SM000xx;`, mapowana na dBm i jednostki S),
+   - `TX;` / `RX;` — bezpieczne sterowanie PTT bez ponawiania. `TX;` (bez parametru P1) jest
+     udokumentowaną komendą nadawania (`P1` pominięty = `SEND`), `RX;` — powrotem do odbioru.
+     **`TX;` nie jest komendą odczytu stanu**; udokumentowaną odpowiedzią jest `TX P1;`
+     (`0` = `SEND`, `1` = `DATA SEND`, `2` = `TX Tune` — każda wartość oznacza nadawanie)
+     albo `RX;`, wysyłana tylko przy włączonym AI.
+   - `IF;` — pełny 38-znakowy blok statusu transceivera (częstotliwość, RIT/XIT offset, stan TX/RX
+     w `P8`, emisja, VFO, Split). **`IF` jest udokumentowany wyłącznie dla TS-590S/TS-590SG**
+     (`B5A-0316-20/01`, s. 15); referencje TS-890S (`B5A-2944-00/01`) i TS-990S (`B5A-3170-00`)
+     go nie definiują, więc backend nie wysyła `IF;` do tych modeli.
+   - `SM0;` / `SM;` — odczyt S-metra. Formularz jest modelowy: `SM0;` dla TS-590S/SG/990S,
+     `SM;` dla TS-890S.
    - `FT0;` / `FT1;` — załączenie i wyłączenie pracy Split,
-   - `IF;` — pełny 38-znakowy blok statusu transceivera (częstotliwość, RIT/XIT offset, stan TX/RX, emisja, VFO, Split).
-3. **Tryb Auto Information (AI)**:
+   - `ID;` — odczyt identyfikatora modelu (`021` TS-590S, `023` TS-590SG, `022` TS-990S,
+     `024` TS-890S); używany jako udokumentowana komenda probe (zamiast `IF;`),
+   - `?;`, `E;`, `O;` — udokumentowane komunikaty błędu (błędna składnia / komenda nie wykonana,
+     błąd transmisji szeregowej, przepełnienie bufora). Każdy z nich kończy operację fail-closed
+     natychmiast, bez ponawiania.
+3. **Kontrakt PTT (modelowy)**: `src/cat/native/kenwood/models.rs` definiuje
+   `KenwoodPttContract` dla każdego obsługiwanego modelu (osobny oficjalny dokument, komendy
+   `TX;`/`RX;`, kanał potwierdzenia, formularz S-metra, status weryfikacji). Model spoza tabeli
+   nie ma dokumentu → `SetPtt` jest odrzucany (`RigError::Unsupported`) przed zapisem
+   jakiegokolwiek bajtu. Powodzenie zapisu nie jest potwierdzeniem TX: `state.ptt` zmienia się
+   wyłącznie po udokumentowanej odpowiedzi, a przyjęta komenda `TX;` pozostawia obowiązek
+   bezpiecznego `RX;` przy rozłączeniu.
+4. **Tryb Auto Information (AI)**:
    - Włączenie `AI2;` przy nawiązywaniu połączenia eliminuje konieczność ciągłego odpytywania częstotliwości, emisji i PTT.
    - Radio samorzutnie rozsyła zmiany parametrów (np. obrót gałką VFO, zmiana pasma, aktywacja PTT), redukując nadmiarowy ruch odpytywania.
-4. **Transport**:
+5. **Transport**:
    - Porty szeregowe / USB Virtual COM przez `tokio-serial`,
    - Kenwood Network Command System (KNS LAN): TCP port 60000 dla TS-890S i TS-990S, negocjacja `##CN` / `##ID` z bezpiecznym maskowaniem poświadczeń.
-5. **Profile referencyjne**:
+6. **Profile referencyjne**:
    - `TS-590S` i `TS-590SG` (USB Virtual COM / RS-232C, brak wbudowanego Ethernetu),
    - `TS-890S` (Hybrid SDR, USB + KNS LAN),
    - `TS-990S` (Dual RX Main + Sub, USB + KNS LAN).
@@ -1072,7 +1092,7 @@ NATIVE-0 -> NATIVE-1 -> NATIVE-2 -> NATIVE-3 -> NATIVE-4 -> NATIVE-5 (5A-5E) -> 
 
 ### Końcowy werdykt programu NATIVE-CAT (zaktualizowany po Etapie 10 — 2026-11-06):
 
-1. **NATIVE-CAT SOFTWARE**: **PASSED** (8 backendów, RigHub, TxArbiter, CatRuntime, CatStationConfig, migracja v0->v1 z rollbackiem, FormVariantCache, Hamlib Proxy per-rig port binding, PhysicalEndpointRegistry, 2834 aktywnych testów programowych passed w całym projekcie, 2845 zarejestrowanych testów we workspace, 10 testów ignorowanych sprzętowych HIL, 0 doc testów, 0 ostrzeżeń `cargo clippy --workspace --all-targets --all-features -- -D warnings`).
+1. **NATIVE-CAT SOFTWARE**: **PASSED** (8 backendów, RigHub, TxArbiter, CatRuntime, CatStationConfig, migracja v0->v1 z rollbackiem, FormVariantCache, Hamlib Proxy per-rig port binding, PhysicalEndpointRegistry, 2883 aktywnych testów programowych passed w całym projekcie, 2894 zarejestrowanych testów we workspace, 10 testów ignorowanych sprzętowych HIL, 0 doc testów, 0 ostrzeżeń `cargo clippy --workspace --all-targets --all-features -- -D warnings`).
 2. **NATIVE-7A OFFLINE**: **PASSED** (kompletny harness HIL, wieloosiowy model dowodowy, walidator 30 nienaruszalnych kanonicznych warunków HIL-READY, zestaw rozszerzony `HIL-X01`..`HIL-X22`, 297 testów offline passed w `tests/cat_native_7.rs`, 165 w `tests/cat_native_6a.rs`, 99 w `tests/cat_native_6b.rs`, 0 ostrzeżeń).
 3. **NATIVE-7B HARDWARE**: **BLOCKED** (brak fizycznego stanowiska laboratoryjnego i sztucznego obciążenia 50 Ω w środowisku CI/dev).
 4. **HARDWARE TEST CASES**: **NOT RUN** (10 izolowanych przypadków sprzętowych w stanie NotRun z powodu blokady bramki HIL-READY).

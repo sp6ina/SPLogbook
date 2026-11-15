@@ -4,7 +4,7 @@ Single source of truth for verified test counters and dependency-audit state. Co
 only here; every other document links to this file. Never update a counter without a real
 measurement, and always record the measurement date.
 
-**Data pomiaru:** 2026-11-15
+**Data pomiaru:** 2026-11-15 (ostatni pomiar: po `STAGE-CAT-018-019-SOFTWARE`)
 **Środowisko:** Windows 10/11 x86_64, `rustc 1.99.0`, `cargo 1.99.0`, `-j 1`
 **HEAD pomiaru:** commit zawierający ten plik (`git log -1 --format=%H`)
 
@@ -26,15 +26,15 @@ cargo test --workspace --all-targets -j 1 -- --skip powershell_real_execution_fu
 
 | Metric | Value |
 |---|---|
-| TOTAL REGISTERED TESTS: | 2845 |
-| TOTAL EXECUTED TESTS: | 2834 |
-| TOTAL PASSED TESTS: | 2834 |
+| TOTAL REGISTERED TESTS: | 2894 |
+| TOTAL EXECUTED TESTS: | 2883 |
+| TOTAL PASSED TESTS: | 2883 |
 | TOTAL FAILED TESTS: | 0 |
 | TOTAL IGNORED TESTS: | 10 |
 | HIL IGNORED TESTS: | 10 |
 | TOTAL FILTERED TESTS: | 1 |
 | Doc-tests | 0 |
-| Test binaries | 26 |
+| Test binaries | 28 |
 
 The single filtered test is `windows_helper_test::powershell_real_execution_full_cycle_success`.
 It can block on a Windows security prompt in an interactive sandbox, so it is filtered in the
@@ -45,9 +45,11 @@ a product defect.
 
 | Suite | Value |
 |---|---|
-| `security_guard` | 133 / 133 |
+| `security_guard` | 139 / 139 |
 | `cat_f14_fail_safe` | 28 / 28 |
 | `protocol_conformance` | 11 / 11 |
+| `cat_018_kenwood_conformance` | 22 / 22 |
+| `cat_019_flrig_conformance` | 19 / 19 |
 | `linux_flatpak_packaging_test` | 29 / 29 |
 | `linux_xdg_data_preservation_test` | 7 / 7 |
 | `process_environment_isolation_test` | 12 / 12 |
@@ -62,7 +64,7 @@ a product defect.
 | `windows_msi_test` | 18 / 18 |
 | `inno_user_data_safety_test` | 8 / 8 |
 | `msi_user_data_safety_test` | 6 / 6 |
-| `cat_native_6a` / `cat_native_6b` / `cat_native_7` | 165 / 99 / 307 (10 `#[ignore]` in `cat_native_7`) |
+| `cat_native_6a` / `cat_native_6b` / `cat_native_7` | 165 / 99 / 307 executed + 10 `#[ignore]` w `cat_native_7` |
 | `i18n_guard` | 15 / 15 |
 | `theme_guard` | 1 / 1 |
 
@@ -171,3 +173,37 @@ The P0-F14 tests drive the real production HilHardwareSession against test-only 
 doubles in 	ests/support/protocol_double.rs; they never open a port, a device or a real
 
 igctld, never key a transmitter and never emit RF.
+
+## 9. CAT-018 / CAT-019 protocol conformance (2026-11-15)
+
+Measured on the `STAGE-CAT-018-019-SOFTWARE` tree with the canonical command from section 1.
+Software-only verification: no transceiver, serial port, real FLRig, PTT or RF was used.
+
+| Item | Value |
+|---|---|
+| Registered / executed / passed | 2894 / 2883 / 2883 |
+| Failed | 0 |
+| Ignored (all hardware-in-the-loop) | 10 |
+| Filtered locally | 1 (`windows_helper_test::powershell_real_execution_full_cycle_success`) |
+| Test binaries | 28 |
+| Kenwood conformance suite | `cat_018_kenwood_conformance` 22 / 22 |
+| FLRig conformance suite | `cat_019_flrig_conformance` 19 / 19 |
+| Protocol conformance suite | `protocol_conformance` 11 / 11 |
+| Security guard (incl. 6 `cat018_*`/`cat019_*` rules) | 139 / 139 |
+| F-14 fail-safe suite (unchanged) | `cat_f14_fail_safe` 28 / 28 |
+| CAT-018 reproduction before the fix | `TX0;` parsed as RX, disconnect fail-safe skipped, `IF;` sent to TS-890S — 3 tests failed |
+| CAT-019 reproduction before the fix | `<boolean>1</boolean>` on the wire, nil response rejected, `<int>0</int>` treated as success — 4 tests failed |
+| Kenwood PTT stress | 1000 ON + 1000 OFF per profile (4 profiles), 500 rejections + 500 timeouts + 500 transport losses per profile |
+| FLRig PTT stress | 1000 ON + 1000 OFF, 1000 faults, 1000 malformed responses, 1000 HTTP 500, 5 HTTP statuses × 200, 1000 client timeouts + 1000 peer disconnects |
+| `Cargo.toml` / `Cargo.lock` | unchanged |
+| `SOFTWARE_ONLY_VERIFICATION` | true |
+| `HARDWARE_CONNECTED` / `REAL_TRANSCEIVER_CONNECTED` | false / false |
+| `REAL_PTT_EXECUTED` / `RF_TRANSMISSION_EXECUTED` / `HIL_EXECUTED` | false / false / false |
+| `PROTOCOL_CONFORMANCE_SOFTWARE_VERIFIED` | true |
+| `HARDWARE_BEHAVIOUR_NOT_VERIFIED` | true |
+| `TEST_DOUBLE_PRODUCTION_EXCLUSION_VERIFIED` | true (release binary scanned: no test-double symbols) |
+
+The new suites drive the real production codecs/clients through test-only doubles
+(`tests/support/kenwood_wire.rs` in-memory `tokio::io::duplex`, `tests/support/flrig_wire.rs`
+loopback `127.0.0.1:0` XML-RPC daemon). They never open a serial port, never connect to a real
+FLRig, never key a transmitter and never emit RF.

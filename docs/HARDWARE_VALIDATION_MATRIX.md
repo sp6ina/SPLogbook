@@ -93,25 +93,32 @@ Legenda statusów: `OFFICIAL_MODEL_SPECIFIC_VERIFIED`, `OFFICIAL_FAMILY_LEVEL_VE
 | Yaesu | FT-991A | `Yaesu` | Serial | `TX1;` | `TX0;` | CAT Operation Reference **1711-D** (2017) / **1808-D** (DG-ID) | j.w. | j.w. | j.w. | `protocol_conformance` | `OFFICIAL_MODEL_SPECIFIC_VERIFIED` |
 | Yaesu | FT-710 | `Yaesu` | Serial (CAT-1) | `TX1;` | `TX0;` | CAT Operation Reference **2306-C** (2023) | j.w. + AI push po zmianie stanu | j.w. | j.w. | `protocol_conformance` | `OFFICIAL_MODEL_SPECIFIC_VERIFIED` |
 | Yaesu | FTDX10 | `Yaesu` | Serial (Enhanced COM) | `TX1;` | `TX0;` | CAT Operation Reference **2308-F** (2023) | j.w. | j.w. | j.w. | `protocol_conformance` | `OFFICIAL_MODEL_SPECIFIC_VERIFIED` |
-| Kenwood | TS-590S / TS-590SG | `Kenwood` | Serial / USB | `TX;` | `RX;` | PC CONTROL COMMAND **B5A-0316-20/01** (2019-01-30) | odpowiedź tylko gdy AI ON; status `IF` P8 (0=RX, 1=TX) | brak reguły w dokumencie | `RX;` + status | `protocol_conformance` | `OFFICIAL_MODEL_SPECIFIC_VERIFIED` |
-| Kenwood | TS-890S | `Kenwood` | Serial / LAN | `TX;` | `RX;` | PC CONTROL COMMAND **B5A-2944-00/01** (2019-01-30) | odpowiedź tylko gdy AI ON; brak `IF` w referencji | brak reguły | `RX;` | `protocol_conformance` | `OFFICIAL_MODEL_SPECIFIC_VERIFIED` (keying) / `DOCUMENTATION_NOT_FOUND` (odczyt statusu) |
-| Kenwood | TS-990S | `Kenwood` | Serial / LAN | `TX;` | `RX;` | PC CONTROL COMMAND **B5A-3170-00** (2019-01-30) | j.w. | brak reguły | `RX;` | `protocol_conformance` | `OFFICIAL_MODEL_SPECIFIC_VERIFIED` (keying) / `DOCUMENTATION_NOT_FOUND` (odczyt statusu) |
+| Kenwood | TS-590S / TS-590SG | `Kenwood` | Serial / USB | `TX;` | `RX;` | PC CONTROL COMMAND **B5A-0316-20/01** (2019-01-30) | odpowiedź tylko gdy AI ON; status `IF` P8 (0=RX, 1=TX) | brak reguły w dokumencie | `RX;` + status | `cat_018_kenwood_conformance`, `protocol_conformance` | `OFFICIAL_MODEL_SPECIFIC_VERIFIED` |
+| Kenwood | TS-890S | `Kenwood` | Serial / LAN | `TX;` | `RX;` | PC CONTROL COMMAND **B5A-2944-00/01** (2019-01-30) | odpowiedź tylko gdy AI ON; **brak `IF` w referencji** — potwierdzenie wyłącznie Auto Information (`TX P1;`/`RX;`) | brak reguły | `RX;` | `cat_018_kenwood_conformance`, `protocol_conformance` | `OFFICIAL_MODEL_SPECIFIC_VERIFIED` (keying + kanał AI) |
+| Kenwood | TS-990S | `Kenwood` | Serial / LAN | `TX;` | `RX;` | PC CONTROL COMMAND **B5A-3170-00** (2019-01-30) | j.w. (**brak `IF`**) | brak reguły | `RX;` | `cat_018_kenwood_conformance`, `protocol_conformance` | `OFFICIAL_MODEL_SPECIFIC_VERIFIED` (keying + kanał AI) |
 | Elecraft | K3 / K3S / KX3 / KX2 | `Elecraft` | Serial | `TX;` | `RX;` | Programmer's Reference **Rev. G5** (2019-02-20) | `TQ;` → `TQ0;`/`TQ1;` | dokument: typowa odpowiedź <10 ms, najgorsza ~100 ms; brak reguły retry | `RX;` + `TQ;` | `protocol_conformance` | `OFFICIAL_MODEL_SPECIFIC_VERIFIED` (K3) / `OFFICIAL_FAMILY_LEVEL_VERIFIED` (K3S/KX3/KX2) |
 | Elecraft | K4 / K4D / K4HD | `Elecraft` | TCP (K4) | `TX;` | `RX;` | K4 Programmer's Reference **Rev. D12** (2026-05-04) | `TQ;` → `TQ1;` (TQX od Rev. C10) | PING 1 s / drop po 10 s | `RX;` + `TQ;` | `protocol_conformance` | `OFFICIAL_MODEL_SPECIFIC_VERIFIED` (K4) / `OFFICIAL_FAMILY_LEVEL_VERIFIED` (K4D/K4HD) |
 | FlexRadio | FLEX-6400/6600/8400/8600M | `FlexRadio` | TCP 4992 | `xmit 1` | `xmit 0` | SmartSDR TCP/IP API, `TCPIP xmit` rev `177f09f` (2024-07-01) + `interlock` status (2026-10-06) | `R<seq>|0|`; stan wyłącznie przez `S…|interlock state=… tx_allowed=…` | keepalive 1 s / 15 s | `xmit 0` + interlock RX | `protocol_conformance` | `OFFICIAL_FAMILY_LEVEL_VERIFIED` |
 | Expert Electronics | TCI (SunSDR / Thetis) | `Tci` | WebSocket | `trx:0,true;` | `trx:0,false;` | TCI Protocol **2.1** (Sep. 2026) | `TRX:arg1,arg2;` (broadcast 30 ms tick; 200 ms monopoly) | brak wymaganego ack/timeout w specyfikacji | `trx:…,false;` + potwierdzenie | `protocol_conformance` | `OFFICIAL_PROTOCOL_LEVEL_VERIFIED` |
 | Hamlib | `rigctld` (dowolny model backendu) | `Hamlib` | TCP | `T 1` | `T 0` | `rigctld(1)` @ **4.7.2** + `rig.h` | `RPRT x` (0 = OK, ujemne = kod błędu); `t` → 0/1/2/3 | brak timeoutu po stronie klienta w dokumentacji | `T 0` + `t` | `protocol_conformance` | `OFFICIAL_PROTOCOL_LEVEL_VERIFIED` |
-| FLRig | FLRig 2.0.00 | `Flrig` | TCP XML-RPC 12345 | `rig.set_ptt` `<int>1</int>` | `rig.set_ptt` `<int>0</int>` | `xml_server.cxx` (metoda `n:i`), `rig.get_ptt` `i:n` | wynik `rig.set_ptt` nieokreślony; `rig.get_ptt` → `<int>` | brak timeoutu XML-RPC w dokumentacji | `rig.set_ptt 0` + `rig.get_ptt` | `protocol_conformance` (dokument) + `CAT-019` (rozbieżność) | `OFFICIAL_PROTOCOL_LEVEL_VERIFIED` |
+| FLRig | FLRig 2.0.00 | `Flrig` | TCP XML-RPC 12345 | `rig.set_ptt` `<int>1</int>` | `rig.set_ptt` `<int>0</int>` | `xml_server.cxx` @ tag `v2.0.00` (metoda `n:i`; `rig.get_ptt` `i:n`) | `rig.set_ptt` → nil (brak `<value>`); `<int>0</int>` = transceiver offline / XML-RPC wyłączone (komenda **nie** wykonana); `rig.get_ptt` → `<int>` 0/1 | brak timeoutu XML-RPC w dokumentacji; klient 1500 ms | `rig.set_ptt 0` + `rig.get_ptt` | `cat_019_flrig_conformance`, `protocol_conformance` | `OFFICIAL_PROTOCOL_LEVEL_VERIFIED` |
 | K1EL | WinKeyer USB (WK3) | `Winkeyer` | Serial (brak sterownika I/O — `FUNC-004`) | nie dotyczy: PTT sterowane sprzętowo przez klawer | `PTT On/Off 0x18` tylko gdy PTT wyłączone | WinKeyer3 IC Manual **Rev. 1.3** (2019-03-19), WKUSB **Rev. 1.4** (2023-09-02) | brak komendy hosta bezpośrednio załączającej PTT | tune watchdog 100 s | n/d (brak ścieżki hosta) | — | `OFFICIAL_PROTOCOL_LEVEL_VERIFIED` / `PTT_NOT_SUPPORTED` (host) |
 
 Uwagi:
 
-1. Parser Kenwooda mapuje `TX0;` na odbiór, podczas gdy oficjalne referencje definiują `P1=0`
-   jako `SEND` (nadawanie) — zapisane jako `CAT-018` w [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md);
-   ścieżka jest nieosiągalna, bo backend wysyła `RX;`.
-2. Klient FLRig wysyła parametr `<boolean>` zamiast udokumentowanego `<int>` — zapisane jako
-   `CAT-019`; błąd typu w FLRig kończy się błędem (fail-closed), nie transmisją.
-3. Testowe implementacje protokołów istnieją wyłącznie w `tests/support/protocol_double.rs`
-   i `#[cfg(test)]`; nie są kompilowane do wersji release, nie są dostępne z GUI/CLI/konfiguracji/
+1. Parser Kenwooda realizuje **udokumentowany model odpowiedzi** `TX P1;`: `P1=0` (`SEND`),
+   `P1=1` (`DATA SEND`) i `P1=2` (`TX Tune`) oznaczają nadawanie; `RX;` oznacza odbiór. Sama
+   komenda `TX;` nie jest udokumentowaną odpowiedzią. Kanał potwierdzenia jest modelowy:
+   `IF` (P8) jest udokumentowany tylko dla TS-590S/TS-590SG, dlatego TS-890S/TS-990S korzystają
+   wyłącznie z odpowiedzi Auto Information i nie otrzymują nieudokumentowanego `IF;`.
+   Szczegóły: [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md) (CAT-018).
+2. Klient FLRig wysyła udokumentowany parametr `<int>` (`n:i`), akceptuje udokumentowaną
+   odpowiedź `nil`, odrzuca każdą wartość zwracaną (w tym `<int>0</int>` = transceiver offline),
+   wymusza `<int>` dla `rig.get_ptt` i odrzuca statusy HTTP inne niż 200. Brak fallbacku
+   boolean/int: błąd typu kończy operację fail-closed. Szczegóły: [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md)
+   (CAT-019).
+3. Testowe implementacje protokołów istnieją wyłącznie w `tests/support/protocol_double.rs`,
+   `tests/support/kenwood_wire.rs` i `tests/support/flrig_wire.rs` oraz w modułach
+   `#[cfg(test)]`; nie są kompilowane do wersji release, nie są dostępne z GUI/CLI/konfiguracji/
    środowiska i nie ma na nie automatycznego fallbacku
    (`TEST_DOUBLE_PRODUCTION_EXCLUSION_VERIFIED=true`).

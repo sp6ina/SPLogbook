@@ -255,3 +255,33 @@ cargo test --test security_guard p0_f14
 Hardware-in-the-loop validation remains **NOT_EXECUTED**: the ten
 `#[ignore = "hardware-in-the-loop"]` tests are never run by CI and no real PTT, RF transmission
 or transceiver connection is part of the baseline.
+
+## CAT-018 / CAT-019 — protocol-conformance suites (software-only)
+
+Two dedicated suites verify the production PTT frames against the official documentation without
+any hardware:
+
+- `tests/cat_018_kenwood_conformance.rs` drives the real `KenwoodBackend`/`KenwoodCodec` over the
+  test-only in-memory wire double `tests/support/kenwood_wire.rs`. It asserts, **per model**
+  (TS-590S, TS-590SG, TS-890S, TS-990S), the exact `TX;`/`RX;` bytes, the documented `TX P1;`
+  answer semantics, the model-specific confirmation channel (`IF` only for TS-590S/SG), the
+  documented error frames `?;`/`E;`/`O;`, the no-retry rule for PTT ON, the release obligation on
+  disconnect, fault injection, a combinatorial matrix and deterministic stress
+  (1000 ON + 1000 OFF per profile, 500 errors/timeouts/transport losses per profile).
+- `tests/cat_019_flrig_conformance.rs` drives the real `FlrigClient` against the test-only
+  loopback XML-RPC daemon `tests/support/flrig_wire.rs`. It asserts the byte-exact
+  `rig.set_ptt` payload (`<int>1</int>` / `<int>0</int>`, one method, one parameter, documented
+  endpoint), the documented nil response, the rejection of any `<value>` (including the
+  `<int>0</int>` "transceiver offline" answer), the strict `<int>` type of `rig.get_ptt`, the
+  HTTP-status and malformed/truncated/oversized response handling, no boolean/int fallback, a
+  combinatorial matrix and deterministic stress (`1000 × (ON + OFF)`, 1000 faults, HTTP matrix).
+
+Both doubles are compiled only into test binaries, are never referenced from `src/`, and cannot
+be selected from the GUI, the CLI, the configuration or the environment. The focused commands are:
+
+```
+cargo test --test cat_018_kenwood_conformance
+cargo test --test cat_019_flrig_conformance
+cargo test --test security_guard cat018
+cargo test --test security_guard cat019
+```
