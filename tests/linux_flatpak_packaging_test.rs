@@ -795,6 +795,18 @@ fn flatpak_verifier_accepts_the_real_exported_tree_and_flatpak_metadata() {
         builder.contains("find . -mindepth 1 -printf '%y %m %p\\n'"),
         "manifest payloadu musi wypisywać rodzaj wpisu (katalogi i pliki)"
     );
+
+    // Regresja M3-J #16 (run 43688754376): flatpak dopisuje do *wdrożonego*
+    // drzewa `/app/.ref`, którego nie ma w payloadzie bundle'a, więc dynamiczne
+    // porównanie musi go pominąć — ale allowlista statyczna nie może go zawierać.
+    assert!(
+        verifier.contains("find . -type f ! -name '.ref'"),
+        "dynamiczne porównanie musi pomijać .ref dodawany przez flatpaka"
+    );
+    assert!(
+        !allowlist_expanded.contains("\"./.ref\"") && !allowlist_expanded.contains("'./.ref'"),
+        ".ref nie może być wpisany do statycznej allowlisty"
+    );
 }
 
 #[test]
