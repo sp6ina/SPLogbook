@@ -26,9 +26,9 @@ cargo test --workspace --all-targets -j 1 -- --skip powershell_real_execution_fu
 
 | Metric | Value |
 |---|---|
-| TOTAL REGISTERED TESTS: | 2958 |
-| TOTAL EXECUTED TESTS: | 2947 |
-| TOTAL PASSED TESTS: | 2947 |
+| TOTAL REGISTERED TESTS: | 2961 |
+| TOTAL EXECUTED TESTS: | 2950 |
+| TOTAL PASSED TESTS: | 2950 |
 | TOTAL FAILED TESTS: | 0 |
 | TOTAL IGNORED TESTS: | 10 |
 | HIL IGNORED TESTS: | 10 |
@@ -219,14 +219,14 @@ provider exists in the production code.
 
 | Item | Value |
 |---|---|
-| Registered / executed / passed | 2958 / 2947 / 2947 |
+| Registered / executed / passed | 2961 / 2950 / 2950 |
 | Failed | 0 |
 | Ignored (all hardware-in-the-loop) | 10 |
 | Filtered locally | 1 (`windows_helper_test::powershell_real_execution_full_cycle_success`) |
 | Test binaries | 29 |
 | New F-15 integration suite | `cat_f15_independent_evidence` 9 / 9 |
 | F-14 fail-safe suite (fail-closed contract) | `cat_f14_fail_safe` 21 / 21 |
-| F-14/F-15 mechanical and stress tests under `cfg(test)` | 56 / 56 (`cargo test --lib hil::`) |
+| F-14/F-15 mechanical, stress and canonical-matrix tests under `cfg(test)` | 59 / 59 (`cargo test --lib hil::`) |
 | Native CAT offline suite | `cat_native_7` 297 executed + 10 `#[ignore]` |
 | Security guard (incl. 7 `p1_f15_*` rules) | 146 / 146 |
 | Deserialisation matrix | 24 mandatory cases (empty, missing, false, true-without-evidence, null, wrong types, duplicate, unknown, alias/case, empty/partial object, legacy schema, future schema, malformed JSON, missing nested objects, partial attestations, `serde(default)`, `Default::default()`, custom defaults, migration) |

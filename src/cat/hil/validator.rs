@@ -89,6 +89,12 @@ impl std::fmt::Display for HilProfileValidationError {
 
 impl std::error::Error for HilProfileValidationError {}
 
+/// Kanoniczny identyfikator radia używany wyłącznie przez referencyjną macierz warunków.
+///
+/// Jest to stała literału zwalidowana testem `canonical_matrix_rig_id_constant_is_valid`;
+/// żadna ścieżka przetwarzająca dane wejściowe nie korzysta z `expect`/`unwrap`.
+pub const CANONICAL_MATRIX_RIG_ID: &str = "RIG-IC7300-01";
+
 /// Walidator konfiguracji i modelu dowodowego Hardware-In-The-Loop ([`HilReadinessValidator`]).
 ///
 /// **F-15:** walidator ocenia plan i deklaracje, ale **nie może** autoryzować wykonania
@@ -200,7 +206,8 @@ impl HilReadinessValidator {
             allow_tx: true,
             matrix: crate::cat::hil::HilMatrixEntry {
                 backend_kind: crate::cat::backend::CatBackendKind::IcomCiV,
-                rig_id: crate::cat::routing::RigId::new("RIG-IC7300-01").unwrap(),
+                rig_id: crate::cat::routing::RigId::new(CANONICAL_MATRIX_RIG_ID)
+                    .expect("the canonical reference rig id is a validated constant"),
                 model_name: "IC-7300".to_string(),
                 transport: crate::cat::hil::HilTransportConfig::Serial {
                     port_name: "COM3".to_string(),
@@ -2306,5 +2313,93 @@ impl HilReadinessValidator {
                     .to_string(),
             },
         ]
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn canonical_matrix_rig_id_constant_is_valid() {
+        assert!(
+            crate::cat::routing::RigId::new(CANONICAL_MATRIX_RIG_ID).is_ok(),
+            "the canonical reference rig id must stay a valid RigId"
+        );
+    }
+
+    #[test]
+    fn canonical_matrix_contains_no_panicking_input_path() {
+        let matrix = HilReadinessValidator::canonical_matrix();
+        assert_eq!(matrix.len(), 30);
+        assert!(matrix.iter().all(|c| !c.id.is_empty()));
+    }
+
+    #[test]
+    fn canonical_matrix_readiness_is_blocked_for_hardware() {
+        let manifest = crate::cat::hil::manifest::HilTestBenchManifest {
+            schema_version: crate::cat::hil::manifest::HIL_PLAN_SCHEMA_VERSION,
+            bench_id: "LAB-BENCH-SP6INA-01".to_string(),
+            session_id: "SESSION-CANONICAL-01".to_string(),
+            test_case_id: "hil_hardware_live_test_bench".to_string(),
+            attempt_id: "ATTEMPT-CANONICAL-01".to_string(),
+            created_at: "2026-10-18T09:30:00Z".to_string(),
+            expires_at: None,
+            tested_commit: None,
+            expected_commit: None,
+            working_tree_clean: Some(true),
+            software_tests_passed: Some(true),
+            operator_id: "SP6INA".to_string(),
+            operator_callsign: "SP6INA".to_string(),
+            operator_name: "Mariusz".to_string(),
+            hil_enabled: true,
+            allow_tx: true,
+            matrix: crate::cat::hil::manifest::HilMatrixEntry {
+                backend_kind: crate::cat::backend::CatBackendKind::IcomCiV,
+                rig_id: crate::cat::routing::RigId::new(CANONICAL_MATRIX_RIG_ID)
+                    .expect("validated constant"),
+                model_name: "IC-7300".to_string(),
+                transport: crate::cat::hil::manifest::HilTransportConfig::Serial {
+                    port_name: "COM3".to_string(),
+                    baud_rate: 115_200,
+                    data_bits: 8,
+                    parity: "none".to_string(),
+                    stop_bits: 1,
+                    flow_control: "none".to_string(),
+                },
+                firmware_version: "v1.42".to_string(),
+            },
+            rf_safety: crate::cat::hil::manifest::HilRfSafetyConfig {
+                termination: crate::cat::hil::manifest::HilRfTermination::DummyLoad(
+                    crate::cat::hil::manifest::HilDummyLoadSpec {
+                        power_rating_watts: 100.0,
+                        max_swr: 1.15,
+                        serial_number: "DL-50W-001".to_string(),
+                        impedance_ohms: 50.0,
+                    },
+                ),
+                max_test_power_watts: 10.0,
+                frequency_range_hz: (14_000_000, 14_350_000),
+                interlock_engaged: true,
+                max_test_duration_ms: 500,
+                smartlink_disabled: true,
+                unattended_remote_tx_disabled: true,
+                remote_endpoint_is_local_or_controlled: true,
+                operator_has_immediate_stop_control: true,
+                out_of_band_data_plane_disabled: true,
+            },
+            operator_attestation: None,
+            instrument_verification: None,
+        };
+        let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7BHardware);
+        assert!(!report.can_run_hardware_ptt());
+        let decision = HilReadinessValidator::authorize_hardware_execution_at(
+            &manifest,
+            None,
+            None,
+            chrono::DateTime::parse_from_rfc3339("2026-10-18T12:00:00Z")
+                .expect("reference time")
+                .with_timezone(&chrono::Utc),
+        );
+        assert!(!decision.authorizes_hardware_ptt());
     }
 }
