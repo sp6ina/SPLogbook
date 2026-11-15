@@ -13,13 +13,14 @@
 use std::time::Duration;
 
 use splogbook::cat::backend::RigBackend;
-use splogbook::cat::flrig::XmlRpcRequest;
+use splogbook::cat::flrig::{FlrigClient, XmlRpcRequest};
 use splogbook::cat::hamlib::HamlibClient;
 use splogbook::cat::native::elecraft::ElecraftCodec;
 use splogbook::cat::native::elecraft::codec::ElecraftCat;
 use splogbook::cat::native::flexradio::protocol::FlexCommand;
 use splogbook::cat::native::icom::codec::{IcomCiVCodec, IcomCiVFrame, command, subcommand};
 use splogbook::cat::native::kenwood::codec::KenwoodCat;
+use splogbook::cat::native::kenwood::models::KenwoodPttContract;
 use splogbook::cat::native::yaesu::codec::YaesuCat;
 use splogbook::cat::tci::TciProtocol;
 use tokio::io::AsyncReadExt;
@@ -27,6 +28,10 @@ use tokio::io::AsyncReadExt;
 #[path = "support/protocol_double.rs"]
 mod protocol_double;
 
+#[path = "support/flrig_wire.rs"]
+mod flrig_wire;
+
+use flrig_wire::{FlrigReply, spawn_flrig_wire};
 use protocol_double::{DocumentedPttProtocol, DoubleFaults, ProtocolDouble};
 
 /// The documented protocol table must cover every production PTT-capable backend exactly once,
@@ -114,8 +119,9 @@ fn yaesu_cat_documented_ptt_frames_match_the_production_codec() {
     assert_eq!(YaesuCat::parse_ptt_resp("TX9;"), None);
 }
 
-/// Kenwood PC CONTROL COMMAND Reference (B5A-0316-20/01, B5A-2944-00/01, B5A-3170-00):
-/// `TX;` keys the transmitter (P1 omitted = SEND/PTT) and `RX;` returns to receive.
+/// Kenwood PC CONTROL COMMAND Reference (B5A-0316-20/01 TS-590S/SG, B5A-2944-00/01 TS-890S,
+/// B5A-3170-00 TS-990S): `TX;` keys the transmitter (P1 omitted = SEND/PTT) and `RX;` returns to
+/// receive. Every supported model carries its own documented contract.
 #[test]
 fn kenwood_documented_ptt_frames_match_the_production_codec() {
     let documented = DocumentedPttProtocol::KENWOOD_CAT;
@@ -123,29 +129,45 @@ fn kenwood_documented_ptt_frames_match_the_production_codec() {
     assert_eq!(KenwoodCat::set_ptt_cmd(false), documented.ptt_off);
     assert_eq!(KenwoodCat::set_ptt_cmd(true), "TX;");
     assert_eq!(KenwoodCat::set_ptt_cmd(false), "RX;");
-    assert_eq!(KenwoodCat::parse_ptt_resp("TX;"), Some(true));
     assert_eq!(KenwoodCat::parse_ptt_resp("RX;"), Some(false));
-    // Documented Answer values: TX1 = DATA SEND (transmit), TX2 = TX Tune (transmit).
+    // Documented Answer values: TX0 = SEND, TX1 = DATA SEND, TX2 = TX Tune — all are transmit.
+    assert_eq!(KenwoodCat::parse_ptt_resp("TX0;"), Some(true));
     assert_eq!(KenwoodCat::parse_ptt_resp("TX1;"), Some(true));
     assert_eq!(KenwoodCat::parse_ptt_resp("TX2;"), Some(true));
+
+    // Per-model documented contracts (no brand-wide assumption).
+    let models = [
+        ("TS-590S", true),
+        ("TS-590SG", true),
+        ("TS-890S", false),
+        ("TS-990S", false),
+    ];
+    for (model_id, documents_if) in models {
+        let contract = KenwoodPttContract::for_model(model_id)
+            .unwrap_or_else(|| panic!("{model_id} has no documented PTT contract"));
+        assert_eq!(contract.ptt_on, KenwoodCat::set_ptt_cmd(true));
+        assert_eq!(contract.ptt_off, KenwoodCat::set_ptt_cmd(false));
+        assert_eq!(contract.documents_status_read(), documents_if, "{model_id}");
+        assert!(contract.document.contains("PC CONTROL COMMAND"));
+    }
+    assert!(KenwoodPttContract::for_model("TS-2000").is_none());
 }
 
-/// RECORDED CONFORMANCE DISCREPANCY (CAT-018): the official Kenwood references define `P1=0`
-/// as SEND/SEND-PTT, i.e. **transmit**. The production parser maps `TX0;` to receive. The path is
-/// currently unreachable because the backend never sends `TX0;` (it sends `RX;`), but the mapping
-/// is contradicted by the official documentation and is recorded here instead of being silently
-/// changed outside the F-14 source scope.
+/// CAT-018 (conformant after the fix): the official references define `TX P1;` with `P1 = 0` as
+/// SEND (transmit). The production parser now matches that documented Answer model; a bare `TX;`
+/// is **not** a documented Answer and yields no PTT state.
 #[test]
-fn kenwood_tx0_answer_is_a_recorded_conformance_discrepancy() {
+fn kenwood_tx0_answer_is_the_documented_send_answer() {
     assert_eq!(
         KenwoodCat::parse_ptt_resp("TX0;"),
-        Some(false),
-        "current production behaviour: TX0; is parsed as receive, contradicting P1=0=SEND"
+        Some(true),
+        "documented P1=0 = SEND = transmit"
     );
+    assert_eq!(KenwoodCat::parse_ptt_resp("TX;"), None);
     assert_eq!(
         KenwoodCat::set_ptt_cmd(false),
         "RX;",
-        "the release path uses the documented RX; command, so TX0; is never emitted"
+        "the release path uses the documented RX; command"
     );
 }
 
@@ -219,25 +241,35 @@ async fn hamlib_documented_ptt_frames_are_sent_by_the_production_client() {
 }
 
 /// FLRig 2.0.00 `xml_server.cxx`: `rig.set_ptt` is documented with the **integer** parameter
-/// type (`n:i`, "set PTT 1/0"), and `rig.get_ptt` returns `<int>`.
-#[test]
-fn flrig_documented_set_ptt_parameter_is_an_integer() {
+/// type (`n:i`, "set PTT 1/0"), and `rig.get_ptt` returns `<int>`. CAT-019 (conformant after the
+/// fix): the production client must put exactly the documented `<int>` payload on the wire.
+#[tokio::test]
+async fn flrig_documented_set_ptt_parameter_is_an_integer() {
     let documented_on = XmlRpcRequest::new("rig.set_ptt").param_int(1).to_xml();
     let documented_off = XmlRpcRequest::new("rig.set_ptt").param_int(0).to_xml();
     assert!(documented_on.contains("<int>1</int>"));
     assert!(documented_off.contains("<int>0</int>"));
     assert!(!documented_on.contains("<boolean>"));
 
-    // RECORDED CONFORMANCE DISCREPANCY (CAT-019): the production client builds the same call
-    // with a boolean parameter (src/cat/flrig.rs:744-745 `param_bool(ptt)`). FLRig's XmlRpc++
-    // type check rejects <boolean> for an int parameter with a "type error" fault, so PTT fails
-    // closed (error, no TX) instead of keying. Outside the F-14 source scope; recorded, not
-    // silently changed here.
-    let production_style = XmlRpcRequest::new("rig.set_ptt").param_bool(true).to_xml();
+    // The real production client against a test-only loopback XML-RPC daemon.
+    let wire = spawn_flrig_wire(FlrigReply::Nil).await;
+    let client = FlrigClient::new("127.0.0.1", wire.port());
+    for (ptt, expected) in [
+        (true, documented_on.clone()),
+        (false, documented_off.clone()),
+    ] {
+        let _ = client.set_ptt(ptt).await;
+        assert_eq!(
+            wire.last_body(),
+            expected,
+            "the production client must send the documented integer payload"
+        );
+    }
     assert!(
-        production_style.contains("<boolean>1</boolean>"),
-        "production currently sends a boolean parameter (documented discrepancy)"
+        !wire.last_body().contains("<boolean>"),
+        "no boolean parameter is ever sent"
     );
+    wire.shutdown().await;
 }
 
 /// Every documented double implements the documented ONâ†’OFF order and never keys PTT on a

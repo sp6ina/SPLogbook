@@ -86,7 +86,7 @@ impl DocumentedPttProtocol {
         ptt_off: "RX;",
         ptt_read: Some("IF;"),
         ack: DocumentedAck::None,
-        source: "Kenwood TS-590S/SG/890S/990S PC CONTROL COMMAND Reference (B5A-0316-20/01, 2019-01-30)",
+        source: "Kenwood PC CONTROL COMMAND Reference: B5A-0316-20/01 (TS-590S/SG, TX p.30, RX p.25, IF p.15), B5A-2944-00/01 (TS-890S, TX p.67, RX p.59, no IF) and B5A-3170-00 (TS-990S, TX p.61, RX p.51, no IF), 2019-01-30",
     };
 
     /// Elecraft `TX;` / `RX;` with `TQ;` status read (Rev. G5 / K4 Rev. D12).
