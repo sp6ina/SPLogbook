@@ -938,6 +938,29 @@ fn flatpak_health_check_writes_inside_the_sandbox() {
 }
 
 #[test]
+fn flatpak_gui_smoke_runs_on_an_installed_application() {
+    // Regresja M3-J #19 (run 43706862350): sekcja lifecycle kończy się
+    // odinstalowaniem aplikacji, a GUI smoke był wykonywany po niej bez
+    // ponownej instalacji — `flatpak run` kończył się
+    // `error: app/io.github.sp6ina.SPLogbook/x86_64/master not installed`.
+    let text = read_repo_file("scripts/verify_linux_flatpak.sh");
+    let smoke_at = text
+        .find("# 8. GUI smoke test")
+        .expect("weryfikator musi mieć sekcję GUI smoke");
+    let section = &text[smoke_at..];
+    let install_at = section
+        .find("install_bundle")
+        .expect("GUI smoke musi instalować bundle ponownie");
+    let run_at = section
+        .find("xvfb-run")
+        .expect("GUI smoke musi uruchamiać xvfb-run");
+    assert!(
+        install_at < run_at,
+        "bundle musi być zainstalowany przed uruchomieniem GUI smoke"
+    );
+}
+
+#[test]
 fn flatpak_negative_harness_covers_the_required_fixture_families() {
     let text = read_repo_file("scripts/verify_linux_flatpak_negative_fixture.sh");
     let cases = text.matches("expect_reject \"").count();

@@ -662,6 +662,9 @@ log "PASS: full lifecycle preserves user data; only the explicit removal deletes
 # ------------------------------------------------------------------
 # 8. GUI smoke test (headless X11 and, when available, Wayland)
 # ------------------------------------------------------------------
+# The lifecycle stage above ends with the application uninstalled (that is what
+# it proves), so the bundle has to be installed again before it can be run.
+install_bundle
 if command -v xvfb-run >/dev/null 2>&1; then
     GUI_LOG="${WORK_ROOT}/gui-smoke.log"
     set +e
