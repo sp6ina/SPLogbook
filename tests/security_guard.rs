@@ -7704,3 +7704,447 @@ fn cat018_cat019_documentation_and_gate_state_guard() {
         "CAT-018: the matrix must record that TS-890S/TS-990S have no IF command"
     );
 }
+
+// ============================================================================
+// STAGE-P1-F15-SOFTWARE -- HIL readiness independent-evidence guards (F-15)
+//
+// F-15 removed the self-certifiable readiness model. These guards pin the
+// software properties that make self-certification impossible:
+//   * no safety boolean defaults to true;
+//   * the test plan is not an evidence provider;
+//   * the operator attestation is not independent evidence;
+//   * independent evidence and the authorization decision are separate types
+//     that cannot be deserialised from an untrusted document;
+//   * a missing evidence document keeps hardware execution denied;
+//   * a test-only evidence provider lives exclusively in test scope;
+//   * there is no CLI, GUI, configuration, environment or feature bypass;
+//   * the ten hardware-in-the-loop tests stay ignored;
+//   * the public documentation records the software-only scope honestly.
+// The guards read only tracked repository files; they never depend on the
+// owner-local .local-work/ reports.
+// ============================================================================
+
+/// No HIL safety field may default to `true`, and no fallback may turn a missing value into an
+/// affirmative safety assertion.
+#[test]
+fn p1_f15_no_safety_field_defaults_to_true_guard() {
+    let manifest = fs::read_to_string("src/cat/hil/manifest.rs").expect("manifest.rs");
+    for forbidden in [
+        "fn default_true()",
+        "default = \"default_true\"",
+        "unwrap_or(true)",
+        "skip_deserializing",
+    ] {
+        assert!(
+            !manifest.contains(forbidden),
+            "F-15: src/cat/hil/manifest.rs must not contain '{forbidden}'"
+        );
+    }
+    // The interlock default function is gone as well: every safety flag is required.
+    assert!(
+        !manifest.contains("default_interlock_engaged"),
+        "F-15: the interlock flag must be required, never defaulted"
+    );
+
+    let session = fs::read_to_string("src/cat/hil/session.rs").expect("session.rs");
+    assert!(
+        !session.contains("unwrap_or(true)"),
+        "F-15: the transmit path must not treat a missing value as true"
+    );
+
+    // Every safety key in the shipped plan fixture is explicit.
+    let fixture = fs::read_to_string("tests/hil/ic7300_lab_bench.json").expect("HIL fixture");
+    for key in [
+        "\"interlock_engaged\"",
+        "\"smartlink_disabled\"",
+        "\"unattended_remote_tx_disabled\"",
+        "\"remote_endpoint_is_local_or_controlled\"",
+        "\"operator_has_immediate_stop_control\"",
+        "\"out_of_band_data_plane_disabled\"",
+        "\"antenna_disconnected\"",
+        "\"pa_disconnected_or_locked\"",
+        "\"tuner_bypassed\"",
+        "\"physical_stop_available\"",
+    ] {
+        assert!(
+            fixture.contains(key),
+            "F-15: the shipped HIL fixture must spell out {key} explicitly"
+        );
+    }
+}
+
+/// The test plan must not be able to produce or own an independent evidence document.
+#[test]
+fn p1_f15_manifest_is_not_an_evidence_provider_guard() {
+    let manifest = fs::read_to_string("src/cat/hil/manifest.rs").expect("manifest.rs");
+    // Documentation comments may explain the separation; no code may reference the evidence types.
+    let manifest_code: String = manifest
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim_start();
+            !trimmed.starts_with("//")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    for forbidden in [
+        "HilIndependentEvidence",
+        "HilAuthorizationDecision",
+        "HilEvidenceProvider",
+        "evidence_provider",
+    ] {
+        assert!(
+            !manifest_code.contains(forbidden),
+            "F-15: the test plan must not reference '{forbidden}' in code"
+        );
+    }
+
+    let authorization =
+        fs::read_to_string("src/cat/hil/authorization.rs").expect("authorization.rs");
+    for required in [
+        "pub struct HilIndependentEvidence",
+        "pub struct HilAttestationDocument",
+        "pub struct HilAuthorizationDecision",
+        "pub enum HilAuthorizationOutcome",
+        "pub struct HilHardwareExecutionAuthorizer",
+        "pub trait HilEvidenceProvider",
+        "pub const HIL_REQUIRED_MEASURED_FACTS",
+    ] {
+        assert!(
+            authorization.contains(required),
+            "F-15: authorization.rs must define {required}"
+        );
+    }
+
+    // Evidence and decision are deliberately NOT deserialisable: an untrusted JSON document
+    // cannot forge an authorization.
+    let evidence_derive_at = authorization
+        .find("pub struct HilIndependentEvidence {")
+        .expect("evidence struct");
+    let decision_derive_at = authorization
+        .find("pub struct HilAuthorizationDecision {")
+        .expect("decision struct");
+    for (name, position) in [
+        ("HilIndependentEvidence", evidence_derive_at),
+        ("HilAuthorizationDecision", decision_derive_at),
+    ] {
+        // Take the nearest preceding #[derive(...)] attribute that belongs to this struct.
+        let prefix = &authorization[..position];
+        let derive_at = prefix
+            .rfind("#[derive(")
+            .unwrap_or_else(|| panic!("F-15: {name} must have a derive attribute"));
+        let derive_end = prefix[derive_at..]
+            .find(")]")
+            .map(|offset| derive_at + offset + 2)
+            .unwrap_or(prefix.len());
+        let derive = &authorization[derive_at..derive_end];
+        assert!(
+            derive.contains("Serialize"),
+            "F-15: {name} must be serialisable for audit, got {derive}"
+        );
+        assert!(
+            !derive.contains("Deserialize"),
+            "F-15: {name} must not be deserialisable (forgery vector), got {derive}"
+        );
+        // No custom Deserialize impl may exist either.
+        assert!(
+            !authorization.contains(&format!("impl<'de> Deserialize<'de> for {name}")),
+            "F-15: {name} must not have a manual Deserialize implementation"
+        );
+    }
+}
+
+/// Configuration, operator attestation, independent evidence and the authorization decision are
+/// four distinct layers evaluated by a dedicated authority.
+#[test]
+fn p1_f15_evidence_and_authorization_are_separate_guard() {
+    let authorization =
+        fs::read_to_string("src/cat/hil/authorization.rs").expect("authorization.rs");
+    for required in [
+        "pub struct HilAuthorizationInputs",
+        "pub fn authorize_at(",
+        "pub fn dry_run_at(",
+        "EvidenceMissing",
+        "OperatorAttestationMissing",
+        "IndependentApprovalMissing",
+        "DryRunOnly",
+        "HardwareExecutionDenied",
+        "HardwareExecutionAuthorized",
+        "HIL_SUPPORTED_EVIDENCE_ISSUERS",
+        "is_supported_issuer(",
+        "pub struct HilAttemptRegistry",
+        "Replayed",
+    ] {
+        assert!(
+            authorization.contains(required),
+            "F-15: the evidence model requires {required}"
+        );
+    }
+    // The manifest digest is an integrity hash, never a signature.
+    assert!(
+        !authorization.contains("signature")
+            && !authorization.contains("ed25519")
+            && !authorization.contains("private_key"),
+        "F-15: a SHA-256 digest must not be presented as a cryptographic signature"
+    );
+    assert!(
+        authorization.contains("Jest to skrót integralności, **nie** podpis kryptograficzny"),
+        "F-15: the digest semantics must be documented explicitly"
+    );
+
+    let session = fs::read_to_string("src/cat/hil/session.rs").expect("session.rs");
+    for required in [
+        "pub fn with_authorization(",
+        "pub fn authorization_decision_at(",
+        "fn consume_authorization(",
+        "pub fn is_hardware_ptt_authorized(",
+        "pub fn has_independent_evidence(",
+    ] {
+        assert!(
+            session.contains(required),
+            "F-15: the session must expose {required}"
+        );
+    }
+    assert!(
+        session.contains("let decision = self.authorization_decision_at(evaluated_at);")
+            && session.contains("self.consume_authorization(&decision)?;"),
+        "F-15: the transmit path must consume an independent authorization before PTT ON"
+    );
+}
+
+/// Missing, invalid, expired or out-of-scope evidence keeps hardware execution denied; a dry run
+/// never authorizes PTT; and a readiness report is never an authorization.
+#[test]
+fn p1_f15_missing_evidence_denies_guard() {
+    let authorization =
+        fs::read_to_string("src/cat/hil/authorization.rs").expect("authorization.rs");
+    for required in [
+        "HilEvidenceError::Missing",
+        "HilEvidenceError::Expired",
+        "HilEvidenceError::NotYetValid",
+        "HilEvidenceError::PlanMismatch",
+        "HilEvidenceError::AttestationMismatch",
+        "HilEvidenceError::ScopeMismatch",
+        "HilEvidenceError::MissingMeasuredFact",
+        "HilEvidenceError::ProviderError",
+        "HilEvidenceError::ProviderTimeout",
+        "HilEvidenceError::Cancelled",
+    ] {
+        assert!(
+            authorization.contains(required),
+            "F-15: the fail-closed evidence model requires {required}"
+        );
+    }
+
+    let evidence = fs::read_to_string("src/cat/hil/evidence.rs").expect("evidence.rs");
+    let can_run_at = evidence
+        .find("pub fn can_run_hardware_ptt(&self) -> bool {")
+        .expect("can_run_hardware_ptt");
+    let can_run_body = &evidence[can_run_at..(can_run_at + 200).min(evidence.len())];
+    assert!(
+        can_run_body.contains("false"),
+        "F-15: a readiness report must never claim to authorize hardware PTT"
+    );
+    assert!(
+        !can_run_body.contains("Passed"),
+        "F-15: the readiness report must not derive PTT from a Passed status"
+    );
+
+    // No production code path constructs evidence or an authorized decision.
+    let authorization_constructors = authorization.matches("fn issue_test_evidence(").count();
+    assert_eq!(
+        authorization_constructors, 1,
+        "F-15: exactly one evidence constructor exists"
+    );
+    let test_scope = authorization
+        .find("#[cfg(test)]\npub(crate) mod test_evidence_support")
+        .or_else(|| authorization.find("#[cfg(test)]\r\npub(crate) mod test_evidence_support"))
+        .expect("the only evidence constructor lives in the cfg(test) module");
+    let constructor_at = authorization
+        .find("fn issue_test_evidence(")
+        .expect("constructor");
+    assert!(
+        constructor_at > test_scope,
+        "F-15: the test evidence constructor must live inside the cfg(test) module"
+    );
+}
+
+/// The test-only evidence provider is compiled exclusively in test scope and cannot be selected by
+/// the CLI, GUI, configuration, environment or a feature flag.
+#[test]
+fn p1_f15_test_evidence_provider_is_test_scope_only_guard() {
+    let cargo = fs::read_to_string("Cargo.toml").expect("Cargo.toml");
+    assert!(
+        !cargo.contains("[features]"),
+        "F-15: no feature flag may gate a test evidence provider"
+    );
+    for forbidden in [
+        "test-evidence",
+        "mock-evidence",
+        "fake-approval",
+        "force-ready",
+        "hil-bypass",
+        "unsafe-hil",
+        "developer-approval",
+    ] {
+        assert!(
+            !cargo.to_ascii_lowercase().contains(forbidden),
+            "F-15: Cargo.toml must not mention '{forbidden}'"
+        );
+    }
+
+    for path in [
+        "src/cat/hil/session.rs",
+        "src/cat/hil/manifest.rs",
+        "src/cat/hil/validator.rs",
+    ] {
+        let source = fs::read_to_string(path).expect(path);
+        for forbidden in [
+            "test-evidence",
+            "mock-evidence",
+            "fake-approval",
+            "force-ready",
+            "hil-bypass",
+            "unsafe-hil",
+            "developer-approval",
+        ] {
+            assert!(
+                !source.to_ascii_lowercase().contains(forbidden),
+                "{path} must not mention '{forbidden}'"
+            );
+        }
+    }
+
+    // No production entry point (GUI/CLI/config) references the HIL evidence types.
+    let listed = Command::new("git")
+        .args(["ls-files", "src"])
+        .output()
+        .expect("git ls-files src");
+    assert!(listed.status.success());
+    for path in String::from_utf8_lossy(&listed.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|path| path.ends_with(".rs"))
+        .filter(|path| !path.starts_with("src/cat/hil/"))
+        .filter(|path| *path != "src/cat/mod.rs" && *path != "src/lib.rs")
+    {
+        let source = fs::read_to_string(path).expect(path);
+        for forbidden in [
+            "HilIndependentEvidence",
+            "HilAuthorizationDecision",
+            "HilEvidenceProvider",
+            "HilHardwareExecutionAuthorizer",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "{path} must not reference {forbidden}: no production provider may exist"
+            );
+        }
+    }
+
+    // The production authorization chain never reads an evidence document from the environment or
+    // the filesystem.
+    let session = fs::read_to_string("src/cat/hil/session.rs").expect("session.rs");
+    for forbidden in [
+        "SPLOG_HIL_EVIDENCE",
+        "SPLOG_HIL_FORCE",
+        "SPLOG_HIL_BYPASS",
+        "from_file(\"evidence",
+        "serde_json::from_str::<HilIndependentEvidence>",
+    ] {
+        assert!(
+            !session.contains(forbidden),
+            "F-15: the session must not contain '{forbidden}'"
+        );
+    }
+}
+
+/// Neither workflow may execute the hardware HIL entry points, and the ten HIL tests stay ignored.
+#[test]
+fn p1_f15_hil_remains_not_executable_in_ci_guard() {
+    let hil = fs::read_to_string("tests/cat_native_7.rs").expect("tests/cat_native_7.rs");
+    assert_eq!(
+        hil.lines()
+            .filter(|line| line.trim_start().starts_with("#[ignore"))
+            .count(),
+        10,
+        "F-15: exactly ten hardware-in-the-loop tests stay ignored"
+    );
+    assert_eq!(
+        hil.matches("#[ignore = \"hardware-in-the-loop\"]").count(),
+        11,
+        "F-15: ten attributes plus the documentation mention"
+    );
+
+    for workflow in [
+        ".github/workflows/ci.yml",
+        ".github/workflows/build-and-release.yml",
+    ] {
+        let source = fs::read_to_string(workflow).expect(workflow);
+        for forbidden in [
+            "--ignored",
+            "hil_hardware",
+            "SPLOG_HIL_ENABLE",
+            "SPLOG_HIL_ALLOW_TX",
+            "SPLOG_HIL_SESSION",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "{workflow} must not run hardware HIL ('{forbidden}')"
+            );
+        }
+    }
+}
+
+/// The public documentation records the F-15 software remediation scope honestly and does not
+/// claim any physical readiness.
+#[test]
+fn p1_f15_documentation_records_software_only_scope_guard() {
+    let known = fs::read_to_string("docs/KNOWN_ISSUES.md").expect("KNOWN_ISSUES.md");
+    for required in [
+        "F-15 (P1)",
+        "F-15 software remediation = CLOSED",
+        "HIL readiness self-certification = REMOVED",
+        "Production default = DENIED",
+        "Hardware readiness = NOT_VERIFIED",
+        "F-14 software remediation = CLOSED",
+        "Hardware validation = NOT_EXECUTED",
+        "Protocol conformance software verification = COMPLETED",
+        "F-17 (P1)",
+        "NATIVE-7B = NOT_STARTED",
+        "SOFTWARE_ONLY_VERIFICATION",
+    ] {
+        assert!(
+            known.contains(required),
+            "KNOWN_ISSUES.md must record: {required}"
+        );
+    }
+    for forbidden in [
+        "HIL ready",
+        "hardware ready",
+        "dummy load verified",
+        "antenna disconnected verified",
+        "PA inhibited verified",
+        "NATIVE-7B completed",
+        "hardware readiness verified",
+    ] {
+        assert!(
+            !known.contains(forbidden),
+            "KNOWN_ISSUES.md must not claim: {forbidden}"
+        );
+    }
+
+    let baseline = fs::read_to_string("docs/VERIFICATION_BASELINE.md").expect("baseline");
+    for required in [
+        "HIL IGNORED TESTS",
+        "TOTAL REGISTERED TESTS",
+        "TOTAL EXECUTED TESTS",
+        "TOTAL PASSED TESTS",
+        "TOTAL FILTERED TESTS",
+        "Software-only verification",
+    ] {
+        assert!(
+            baseline.contains(required),
+            "docs/VERIFICATION_BASELINE.md must record {required}"
+        );
+    }
+}
