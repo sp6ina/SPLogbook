@@ -848,6 +848,59 @@ fn flatpak_verifier_reads_the_installed_commit_with_supported_commands() {
 }
 
 #[test]
+fn flatpak_build_hides_untracked_artefacts_from_the_embedded_identity() {
+    // Regresja M3-J #17 (run 43691509439): moduł buduje z kopii drzewa, w której
+    // powstają nieśledzone artefakty (vendored crates, toolchain, cache
+    // flatpak-buildera, log tee). build.rs liczy "dirty" z
+    // `git status --porcelain`, więc bez wykluczenia `--build-info` zgłasza
+    // dirty build, a weryfikator fail-closed odrzuca bundle.
+    let text = manifest();
+    assert!(
+        text.contains("git status --porcelain -z --untracked-files=normal"),
+        "manifest musi wykluczać nieśledzone artefakty z tożsamości builda"
+    );
+    assert!(
+        text.contains(">> .git/info/exclude"),
+        "wykluczenie musi trafiać do .git/info/exclude, a nie do plików śledzonych"
+    );
+    assert!(
+        !text.contains("SPLOGBOOK_GIT_DIRTY"),
+        "build nie może nadpisywać flagi dirty przez zmienną środowiskową"
+    );
+    let build_rs = read_repo_file("build.rs");
+    assert!(
+        build_rs.contains("\"status\", \"--porcelain\""),
+        "kontrakt dirty nadal pochodzi z `git status --porcelain` w build.rs"
+    );
+}
+
+#[test]
+fn flatpak_health_check_writes_inside_the_sandbox() {
+    // Regresja M3-J #18: sandbox nie widzi ścieżek hosta, a aplikacja ignoruje
+    // błąd zapisu i kończy się kodem 0 (`let _ = std::fs::write(...)`), więc
+    // dowód health checku musi powstać w sandboxie i być odczytany z prywatnego
+    // katalogu aplikacji po stronie hosta.
+    let text = read_repo_file("scripts/verify_linux_flatpak.sh");
+    assert!(
+        text.contains("--command=sh \"${APP_ID}\" -c 'printf %s \"$HOME\"'"),
+        "weryfikator musi ustalić HOME sandboxa, zanim przekaże ścieżkę dowodu"
+    );
+    assert!(
+        text.contains("HOST_HEALTH_PROOF=\"${APP_DATA_ROOT}/${HEALTH_PROOF_NAME}\""),
+        "dowód health checku musi być odczytany z prywatnego katalogu aplikacji"
+    );
+    assert!(
+        !text.contains("HEALTH_PATH=\"${HOME}/health-proof.txt\""),
+        "ścieżka hosta nie może być przekazywana do sandboxa jako cel zapisu"
+    );
+    let main_rs = read_repo_file("src/main.rs");
+    assert!(
+        main_rs.contains("let _ = std::fs::write(&target_proof_path"),
+        "kontrakt aplikacji: błąd zapisu dowodu jest ignorowany, kod wyjścia to 0"
+    );
+}
+
+#[test]
 fn flatpak_negative_harness_covers_the_required_fixture_families() {
     let text = read_repo_file("scripts/verify_linux_flatpak_negative_fixture.sh");
     let cases = text.matches("expect_reject \"").count();
