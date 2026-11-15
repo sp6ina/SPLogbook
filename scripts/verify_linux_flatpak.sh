@@ -562,6 +562,9 @@ SANDBOX_DATA_HOME="$(flatpak --user run --command=sh "${APP_ID}" -c 'printf %s "
 HEALTH_PROOF_NAME="splogbook-health-proof.txt"
 HEALTH_PATH="${SANDBOX_DATA_HOME}/splogbook/${HEALTH_PROOF_NAME}"
 HOST_HEALTH_PROOF="${DATA_DIR}/${HEALTH_PROOF_NAME}"
+# std::fs::write does not create parent directories and the application
+# discards the error, so the target directory has to exist first.
+install -d "${DATA_DIR}"
 rm -f "${HOST_HEALTH_PROOF}"
 run_app --check-health-startup --health-proof-path "${HEALTH_PATH}" \
     || fail "the startup health check failed"

@@ -919,6 +919,17 @@ fn flatpak_health_check_writes_inside_the_sandbox() {
         !text.contains("HEALTH_PATH=\"${SANDBOX_HOME}"),
         "HOME sandboxa nie jest zamontowany — dowód musi iść do zamontowanego XDG data dir"
     );
+    // std::fs::write nie tworzy katalogów nadrzędnych, a aplikacja ignoruje błąd,
+    // więc katalog docelowy musi istnieć PRZED wywołaniem health checku.
+    let created_before = text
+        .find("install -d \"${DATA_DIR}\"")
+        .zip(text.find("run_app --check-health-startup"))
+        .map(|(dir_at, run_at)| dir_at < run_at)
+        .unwrap_or(false);
+    assert!(
+        created_before,
+        "katalog danych musi powstać przed health checkiem"
+    );
     let main_rs = read_repo_file("src/main.rs");
     assert!(
         main_rs.contains("let _ = std::fs::write(&target_proof_path"),
