@@ -685,6 +685,18 @@ fn flatpak_verifier_checks_the_permission_contract_exactly() {
     );
     assert!(text.contains("SPLOG_FLATPAK_INSPECTION_ONLY"));
     assert!(text.contains("FLATPAK INSPECTION COMPLETED SUCCESSFULLY"));
+    // Regresja M3-J #15 (run 43646350783): flatpak build-finish rozwija
+    // --socket=fallback-x11 do `fallback-x11` ORAZ `x11` w metadanych.
+    // Weryfikator musi oczekiwać obu wpisów, a manifest nadal nie może
+    // deklarować --socket=x11 wprost (kontrakt DEVICE-01 bez zmian).
+    assert!(
+        text.contains("context.sockets x11"),
+        "oczekiwany zestaw uprawnień musi zawierać x11 — obowiązkowy towarzysz fallback-x11"
+    );
+    assert!(
+        !manifest_effective().contains("--socket=x11"),
+        "manifest nie może deklarować --socket=x11 wprost"
+    );
     // Weryfikator nie może publikować ani instalować systemowo.
     assert!(!text.contains("sudo "));
     assert!(!text.contains("flatpak install --system"));
