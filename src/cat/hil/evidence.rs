@@ -690,7 +690,12 @@ pub struct HilReadinessReport {
 }
 
 impl HilReadinessReport {
-    /// Zwraca true wtedy i tylko wtedy, gdy całościowy status to Passed.
+    /// Zwraca true wtedy i tylko wtedy, gdy całościowy status konfiguracji to `Passed`.
+    ///
+    /// **F-15:** nazwa jest zgodna historycznie, ale wynik opisuje wyłącznie kompletność
+    /// konfiguracji i deklaracji. Gotowość sprzętowa wymaga decyzji
+    /// [`crate::cat::hil::HilAuthorizationOutcome::HardwareExecutionAuthorized`], której ten
+    /// raport nie może wytworzyć. Sam `Passed` nigdy nie upoważnia PTT.
     pub fn is_hil_ready(&self) -> bool {
         self.overall_status == HilReadinessStatus::Passed
     }
@@ -709,10 +714,13 @@ impl HilReadinessReport {
     }
 
     /// Sprawdza, czy dopuszczalne jest wykonanie fizycznego nadawania (PTT).
-    /// Wymaga: fazy Stage7BHardware, pełnego HIL-READY (Passed) oraz braku jakichkolwiek blokad.
+    ///
+    /// **F-15:** zawsze `false`. Raport gotowości powstaje z planu testu i deklaracji operatora,
+    /// więc nie może upoważnić PTT. Upoważnienie wydaje wyłącznie
+    /// [`crate::cat::hil::HilHardwareExecutionAuthorizer`] na podstawie niezależnego dowodu;
+    /// brak tego dowodu oznacza brak PTT.
     pub fn can_run_hardware_ptt(&self) -> bool {
-        self.execution_stage == HilExecutionStage::Stage7BHardware
-            && self.overall_status == HilReadinessStatus::Passed
+        false
     }
 
     /// Wyszukuje pozycję kontrolną po jej identyfikatorze.

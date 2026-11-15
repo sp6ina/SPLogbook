@@ -36,11 +36,13 @@ pub use config::{
 };
 pub use factory::{FactoryError, RigBackendFactory};
 pub use hil::{
-    HilDummyLoadSpec, HilError, HilExecutionStage, HilHardwareSession, HilInstrumentMeasurement,
-    HilMatrixEntry, HilOperatorAttestation, HilProbeResult, HilPttConsentToken,
-    HilPttExecutionResult, HilReadinessCheck, HilReadinessEvidenceKind, HilReadinessReport,
-    HilReadinessStatus, HilReadinessValidator, HilRfSafetyConfig, HilRfTermination,
-    HilTestBenchManifest, HilTransportConfig,
+    HIL_AUTHORIZATION_SCHEMA_VERSION, HIL_REQUIRED_MEASURED_FACTS, HilAuthorizationDecision,
+    HilAuthorizationOutcome, HilDummyLoadSpec, HilError, HilEvidenceError, HilEvidenceScope,
+    HilExecutionStage, HilHardwareExecutionAuthorizer, HilHardwareSession, HilIndependentEvidence,
+    HilInstrumentMeasurement, HilMatrixEntry, HilOperatorAttestation, HilProbeResult,
+    HilPttConsentToken, HilPttExecutionResult, HilReadinessCheck, HilReadinessEvidenceKind,
+    HilReadinessReport, HilReadinessStatus, HilReadinessValidator, HilRfSafetyConfig,
+    HilRfTermination, HilTestBenchManifest, HilTransportConfig,
 };
 pub use hub::{PendingCommandGuard, RigHub, RigHubError, RigHubSnapshot};
 pub use probe::RigProbeRunner;

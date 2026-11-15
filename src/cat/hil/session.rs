@@ -2,11 +2,15 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+use super::authorization::{
+    HilAttemptRegistry, HilAttestationDocument, HilAuthorizationDecision, HilAuthorizationOutcome,
+    HilEvidenceProviderOutcome, HilHardwareExecutionAuthorizer, HilIndependentEvidence,
+};
 use super::error::HilError;
 use super::evidence::{HilExecutionStage, HilReadinessReport, HilReadinessStatus};
 use super::manifest::{HIL_MIN_TEST_DURATION_MS, HilRfTermination, HilTestBenchManifest};
@@ -374,24 +378,86 @@ pub fn default_hil_evaluation_time() -> chrono::DateTime<chrono::Utc> {
     chrono::Utc::now()
 }
 
+/// Źródło bramek środowiskowych HIL.
+///
+/// Produkcyjnie bramki są odczytywane ze zmiennych procesu (`from_process`). Bramki są
+/// **dodatkowymi warunkami**, a nie dowodem: nie mogą zastąpić niezależnego dowodu (F-15).
+/// W zakresie testowym bramki mogą zostać wstrzyknięte jawnie, dzięki czemu testy nie mutują
+/// globalnego środowiska procesu.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HilEnvironmentGates {
+    hil_enabled: bool,
+    session: Option<String>,
+    allow_tx: Option<String>,
+}
+
+impl HilEnvironmentGates {
+    /// Odczytuje bramki ze środowiska procesu (zachowanie produkcyjne).
+    pub fn from_process() -> Self {
+        Self {
+            hil_enabled: std::env::var("SPLOG_HIL_ENABLE").as_deref() == Ok("1"),
+            session: std::env::var("SPLOG_HIL_SESSION").ok(),
+            allow_tx: std::env::var("SPLOG_HIL_ALLOW_TX").ok(),
+        }
+    }
+
+    /// Czy bramka `SPLOG_HIL_ENABLE=1` jest spełniona.
+    pub fn hil_enabled(&self) -> bool {
+        self.hil_enabled
+    }
+
+    /// Wartość bramki `SPLOG_HIL_SESSION`.
+    pub fn session(&self) -> Option<&str> {
+        self.session.as_deref()
+    }
+
+    /// Wartość bramki `SPLOG_HIL_ALLOW_TX`.
+    pub fn allow_tx(&self) -> Option<&str> {
+        self.allow_tx.as_deref()
+    }
+
+    /// Bramki jawnie wstrzyknięte dla testów w zakresie `cfg(test)`.
+    #[cfg(test)]
+    pub(crate) fn for_tests(session: &str, allow_tx: &str) -> Self {
+        Self {
+            hil_enabled: true,
+            session: Some(session.to_string()),
+            allow_tx: Some(allow_tx.to_string()),
+        }
+    }
+}
+
 /// Bezpieczna sesja wykonawcza stanowiska laboratoryjnego HIL ([`HilHardwareSession`]).
 ///
 /// Gwarantuje:
 /// 1. Całkowity zakaz wykonania fizycznego PTT w fazie NATIVE-7A.
-/// 2. Całkowity zakaz wykonania fizycznego PTT bez pełnego statusu HIL-READY (Passed).
+/// 2. Całkowity zakaz wykonania fizycznego PTT bez niezależnego dowodu i decyzji
+///    autoryzacyjnej ([`HilAuthorizationDecision`], F-15).
 /// 3. Całkowity zakaz nadawania przy zakończeniu toru anteną.
 /// 4. Pojedynczą próbę załączenia PTT (Zero Retry Invariant).
 /// 5. Wymóg posiadania jawnego tokenu zgody operatora [`HilPttConsentToken`].
+///
+/// Sesja **nie** traktuje manifestu ani deklaracji operatora jako dowodu. Dowód jest osobnym
+/// dokumentem ([`HilIndependentEvidence`]) przekazanym jawnie przez [`Self::with_authorization`].
+/// W kodzie produkcyjnym nie istnieje żaden dostawca dowodu, więc sesja bez dowodu zawsze
+/// odmawia wykonania sprzętowego.
 pub struct HilHardwareSession {
     manifest: HilTestBenchManifest,
+    attestation: Option<HilAttestationDocument>,
+    evidence: Option<HilIndependentEvidence>,
     stage: HilExecutionStage,
     readiness_report: HilReadinessReport,
     session_state: Arc<AtomicU8>,
     reference_time: Option<chrono::DateTime<chrono::Utc>>,
+    attempt_registry: Arc<HilAttemptRegistry>,
+    authorization_consumed: AtomicBool,
+    environment: Option<HilEnvironmentGates>,
 }
 
 impl HilHardwareSession {
-    /// Inicjalizuje nową sesję HIL, przeprowadzając automatyczną ewaluację gotowości.
+    /// Inicjalizuje nową sesję HIL, przeprowadzając automatyczną walidację konfiguracji.
+    ///
+    /// Walidacja konfiguracji **nie** upoważnia wykonania sprzętowego.
     pub fn new(manifest: HilTestBenchManifest, stage: HilExecutionStage) -> Self {
         Self::new_with_reference_time(manifest, stage, None)
     }
@@ -405,16 +471,52 @@ impl HilHardwareSession {
         let readiness_report = HilReadinessValidator::validate(&manifest, stage);
         Self {
             manifest,
+            attestation: None,
+            evidence: None,
             stage,
             readiness_report,
             session_state: Arc::new(AtomicU8::new(SESSION_STATE_READY)),
             reference_time,
+            attempt_registry: Arc::new(HilAttemptRegistry::new()),
+            authorization_consumed: AtomicBool::new(false),
+            environment: None,
         }
     }
 
     /// Przypisuje jawny czas odniesienia (builder).
     pub fn with_reference_time(mut self, reference_time: chrono::DateTime<chrono::Utc>) -> Self {
         self.reference_time = Some(reference_time);
+        self
+    }
+
+    /// Przypisuje jawne bramki środowiskowe (nie zastępują niezależnego dowodu).
+    pub fn with_environment(mut self, environment: HilEnvironmentGates) -> Self {
+        self.environment = Some(environment);
+        self
+    }
+
+    /// Zwraca bramki środowiskowe: jawnie wstrzyknięte albo odczytane z procesu w chwili użycia.
+    ///
+    /// Odczyt w chwili użycia jest istotny dla determinizmu testów, które zakładają bramki
+    /// środowiskowe **przed** wywołaniem walidacji.
+    fn environment_gates(&self) -> HilEnvironmentGates {
+        self.environment
+            .clone()
+            .unwrap_or_else(HilEnvironmentGates::from_process)
+    }
+
+    /// Przypisuje jawny dokument oświadczenia operatora oraz niezależny dowód.
+    ///
+    /// W kodzie produkcyjnym dowód może pochodzić wyłącznie z zewnętrznego, zatwierdzonego
+    /// dostawcy; nie istnieje żaden wbudowany dostawca. Bez dokumentu dowodowego sesja odmawia
+    /// wykonania sprzętowego.
+    pub fn with_authorization(
+        mut self,
+        attestation: Option<HilAttestationDocument>,
+        evidence: Option<HilIndependentEvidence>,
+    ) -> Self {
+        self.attestation = attestation;
+        self.evidence = evidence;
         self
     }
 
@@ -439,9 +541,19 @@ impl HilHardwareSession {
         self.session_state.clone()
     }
 
-    /// Zwraca referencję do manifestu stanowiska.
+    /// Zwraca referencję do planu stanowiska.
     pub fn manifest(&self) -> &HilTestBenchManifest {
         &self.manifest
+    }
+
+    /// Zwraca jawny dokument oświadczenia operatora, jeśli został przekazany.
+    pub fn attestation(&self) -> Option<&HilAttestationDocument> {
+        self.attestation.as_ref()
+    }
+
+    /// Zwraca jawny dokument niezależnego dowodu, jeśli został przekazany.
+    pub fn evidence(&self) -> Option<&HilIndependentEvidence> {
+        self.evidence.as_ref()
     }
 
     /// Zwraca aktualną fazę wykonawczą.
@@ -449,28 +561,82 @@ impl HilHardwareSession {
         self.stage
     }
 
-    /// Zwraca raport gotowości HIL-READY.
+    /// Zwraca raport gotowości konfiguracji HIL.
+    ///
+    /// Raport jest diagnostyką planu. **Nie** jest autoryzacją sprzętową i nigdy nie upoważnia PTT.
     pub fn readiness_report(&self) -> &HilReadinessReport {
         &self.readiness_report
+    }
+
+    /// Oblicza decyzję autoryzacyjną dla bieżącej sesji względem jawnego czasu.
+    ///
+    /// Decyzja jest liczona z trzech rozłącznych wejść: planu, oświadczenia i dowodu.
+    pub fn authorization_decision_at(
+        &self,
+        evaluated_at: chrono::DateTime<chrono::Utc>,
+    ) -> HilAuthorizationDecision {
+        HilHardwareExecutionAuthorizer::authorize_at(
+            super::authorization::HilAuthorizationInputs {
+                plan: &self.manifest,
+                attestation: self.attestation.as_ref(),
+                evidence: self.evidence.as_ref(),
+            },
+            evaluated_at,
+        )
+    }
+
+    /// Oblicza decyzję autoryzacyjną dla bieżącej sesji.
+    pub fn authorization_decision(&self) -> HilAuthorizationDecision {
+        self.authorization_decision_at(self.evaluated_at())
+    }
+
+    /// Czy sesja posiada już zużyte upoważnienie (replay protection).
+    pub fn is_authorization_consumed(&self) -> bool {
+        self.authorization_consumed.load(Ordering::SeqCst)
+    }
+
+    /// Zużywa upoważnienie dokładnie raz, tuż przed logicznym PTT ON.
+    fn consume_authorization(&self, decision: &HilAuthorizationDecision) -> Result<(), HilError> {
+        if !decision.authorizes_hardware_ptt() {
+            return Err(HilError::NotHilReady(format!(
+                "hardware execution is not authorized: {} ({})",
+                decision.outcome(),
+                decision.reason()
+            )));
+        }
+        if self.authorization_consumed.swap(true, Ordering::SeqCst) {
+            return Err(HilError::UnauthorizedSession(format!(
+                "hardware authorization for attempt '{}' was already consumed; replay rejected",
+                self.manifest.attempt_id
+            )));
+        }
+        self.attempt_registry
+            .consume(&self.manifest.session_id, &self.manifest.attempt_id)
+            .map_err(HilError::from)
     }
 
     /// Weryfikuje wieloskładnikową autoryzację dostępu do fizycznego sprzętu laboratoryjnego.
     ///
     /// Wymaga JEDNOCZEŚNIE:
-    /// 1. Poprawnego manifestu.
-    /// 2. `hil_enabled: true` w manifeście.
+    /// 1. Poprawnego planu.
+    /// 2. `hil_enabled: true` w planie.
     /// 3. Zmiennej środowiskowej `SPLOG_HIL_ENABLE=1`.
     /// 4. Jawnego, niepustego `RigId`.
-    /// 5. Niewygasłego `session_id`.
-    /// 6. Zmiennej `SPLOG_HIL_SESSION` zgodnej z `manifest.session_id`.
-    /// 7. `operator_acknowledged: true`.
-    /// 8. Statusu HIL-READY `Passed`.
+    /// 5. Niewygasłej sesji.
+    /// 6. Zmiennej `SPLOG_HIL_SESSION` zgodnej z `session_id`.
+    /// 7. Niezależnej decyzji autoryzacyjnej `HardwareExecutionAuthorized` (F-15).
+    ///
+    /// Bramki środowiskowe są dodatkowymi warunkami, a nie dowodem. Bez niezależnego dowodu
+    /// funkcja zwraca kontrolowaną odmowę.
     pub fn verify_hardware_access_authorization(&self) -> Result<(), HilError> {
         self.verify_hardware_access_authorization_at(self.evaluated_at())
     }
 
-    /// Weryfikuje wieloskładnikową autoryzację dostępu do fizycznego sprzętu laboratoryjnego względem jawnego czasu.
-    pub fn verify_hardware_access_authorization_at(
+    /// Weryfikuje bramki sesji (plan, środowisko, identyfikatory, wygaśnięcie).
+    ///
+    /// Bramki te nie są dowodem gotowości i nie upoważniają PTT; stanowią wyłącznie warunki
+    /// wstępne dla dalszej walidacji.
+    fn verify_hardware_access_gates_at(
         &self,
         evaluated_at: chrono::DateTime<chrono::Utc>,
     ) -> Result<(), HilError> {
@@ -482,7 +648,7 @@ impl HilHardwareSession {
             ));
         }
 
-        if std::env::var("SPLOG_HIL_ENABLE").as_deref() != Ok("1") {
+        if !self.environment_gates().hil_enabled() {
             return Err(HilError::UnauthorizedSession(
                 "Environment variable SPLOG_HIL_ENABLE=1 is missing or not set to '1'".to_string(),
             ));
@@ -510,7 +676,8 @@ impl HilHardwareSession {
             )));
         }
 
-        let env_session = std::env::var("SPLOG_HIL_SESSION").map_err(|_| {
+        let gates = self.environment_gates();
+        let env_session = gates.session().ok_or_else(|| {
             HilError::UnauthorizedSession(
                 "Environment variable SPLOG_HIL_SESSION is not set".to_string(),
             )
@@ -521,29 +688,42 @@ impl HilHardwareSession {
                 self.manifest.session_id
             )));
         }
+        Ok(())
+    }
 
-        if !self.manifest.operator_attestation.operator_acknowledged {
-            return Err(HilError::UnauthorizedSession(
-                "Operator acknowledgement is required".to_string(),
-            ));
-        }
+    /// Weryfikuje wieloskładnikową autoryzację dostępu do fizycznego sprzętu laboratoryjnego
+    /// względem jawnego czasu.
+    pub fn verify_hardware_access_authorization_at(
+        &self,
+        evaluated_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), HilError> {
+        self.verify_hardware_access_gates_at(evaluated_at)?;
 
-        if self.readiness_report.overall_status != super::evidence::HilReadinessStatus::Passed {
-            return Err(HilError::NotHilReady(
-                "Test bench is not fully HIL-READY (readiness check not Passed)".to_string(),
-            ));
+        // F-15: niezależna decyzja autoryzacyjna jest obowiązkowa. Manifest, deklaracja
+        // operatora ani zmienne środowiskowe nie mogą jej zastąpić.
+        let decision = self.authorization_decision_at(evaluated_at);
+        if !decision.authorizes_hardware_ptt() {
+            return Err(HilError::NotHilReady(format!(
+                "hardware access denied: {} ({})",
+                decision.outcome(),
+                decision.reason()
+            )));
         }
 
         Ok(())
     }
 
     /// Weryfikuje wieloskładnikową autoryzację fizycznego nadawania (PTT).
+    ///
+    /// Obejmuje bramki środowiskowe, warunki TX **oraz** niezależną decyzję autoryzacyjną.
     pub fn verify_tx_authorization(
         &self,
         consent_token: &HilPttConsentToken,
         arbiter: &crate::cat::tx_arbiter::TxArbiter,
     ) -> Result<(), HilError> {
-        self.verify_tx_authorization_at(consent_token, arbiter, self.evaluated_at())
+        let evaluated_at = self.evaluated_at();
+        self.verify_tx_authorization_at(consent_token, arbiter, evaluated_at)?;
+        self.verify_hardware_access_authorization_at(evaluated_at)
     }
 
     /// Weryfikuje wieloskładnikową autoryzację fizycznego nadawania (PTT) względem jawnego czasu.
@@ -553,7 +733,10 @@ impl HilHardwareSession {
         arbiter: &crate::cat::tx_arbiter::TxArbiter,
         evaluated_at: chrono::DateTime<chrono::Utc>,
     ) -> Result<(), HilError> {
-        self.verify_hardware_access_authorization_at(evaluated_at)?;
+        // Bramki wstępne (plan, środowisko, sesja) oraz warunki TX (allow_tx, moc, czas,
+        // arbiter, token) są sprawdzane przed decyzją dowodową, aby zachować jednoznaczną
+        // diagnostykę odmowy. Żadna z tych bramek nie jest dowodem (F-15).
+        self.verify_hardware_access_gates_at(evaluated_at)?;
 
         if !self.manifest.allow_tx {
             return Err(HilError::UnauthorizedSession(
@@ -561,7 +744,8 @@ impl HilHardwareSession {
             ));
         }
 
-        let allow_tx_env = std::env::var("SPLOG_HIL_ALLOW_TX").map_err(|_| {
+        let gates = self.environment_gates();
+        let allow_tx_env = gates.allow_tx().ok_or_else(|| {
             HilError::UnauthorizedSession(
                 "Environment variable SPLOG_HIL_ALLOW_TX is not set".to_string(),
             )
@@ -707,6 +891,11 @@ impl HilHardwareSession {
             ));
         }
 
+        // F-15: ostatnia bramka przed logicznym PTT ON. Upoważnienie pochodzi wyłącznie
+        // z niezależnego dowodu i jest zużywane dokładnie raz (ochrona przed powtórzeniem).
+        let decision = self.authorization_decision_at(evaluated_at);
+        self.consume_authorization(&decision)?;
+
         let cmd_id = crate::cat::routing::RigCommandId::new(1);
         let rig_id = self.manifest.matrix.rig_id.clone();
 
@@ -811,21 +1000,15 @@ impl HilHardwareSession {
             return Err(HilError::PttForbiddenInStage7A);
         }
 
-        // Rygor 2: Pełne HIL-READY
-        if !self.readiness_report.can_run_hardware_ptt() {
-            return Err(HilError::NotHilReady(
-                "Hardware PTT blocked: test bench is not fully HIL-READY (readiness check failed or blocked)".to_string(),
-            ));
-        }
-
-        // Rygor 3: Brak anteny
+        // Rygor 2: Brak anteny
         if let HilRfTermination::Antenna { antenna_name } = &self.manifest.rf_safety.termination {
             return Err(HilError::SafetyViolation(format!(
                 "Fatal RF safety violation: attempt to execute PTT on antenna '{antenna_name}'. Dummy load strictly required."
             )));
         }
 
-        // Rygor 4: Wieloskładnikowa autoryzacja TX (środowisko, token, moc, arbiter idle)
+        // Rygor 3: Wieloskładnikowa autoryzacja TX (środowisko, token, moc, arbiter idle).
+        // Bramki środowiskowe pozostają dodatkowymi warunkami; nie są dowodem (F-15).
         self.verify_tx_authorization_at(consent_token, arbiter, evaluated_at)?;
 
         // F-14: totalna walidacja zakresu impulsu — bez `clamp`, bez paniki, przed PTT ON.
@@ -836,7 +1019,8 @@ impl HilHardwareSession {
 
         let start_time = Instant::now();
 
-        // Nabycie strażnika TX z weryfikacją początkowego RX oraz rejestracją w TxArbiter
+        // Nabycie strażnika TX z weryfikacją początkowego RX oraz rejestracją w TxArbiter.
+        // Upoważnienie jest zużywane tutaj, dokładnie raz, przed pierwszym SetPtt(true).
         let mut guard = self
             .acquire_tx_guard_at(backend, consent_token, arbiter, guard_timeout, evaluated_at)
             .await?;
@@ -864,6 +1048,50 @@ impl HilHardwareSession {
                 Err(e)
             }
         }
+    }
+
+    /// Wykonuje suchy przebieg: waliduje konfigurację i oświadczenie, nie wykonuje PTT.
+    pub fn dry_run(&self) -> HilAuthorizationDecision {
+        HilHardwareExecutionAuthorizer::dry_run_at(
+            &self.manifest,
+            self.attestation.as_ref(),
+            self.evaluated_at(),
+        )
+    }
+
+    /// Sprawdza, czy PTT jest upoważnione (bez wykonywania).
+    pub fn is_hardware_ptt_authorized(&self) -> bool {
+        self.authorization_decision().authorizes_hardware_ptt()
+    }
+
+    /// Zwraca powód odmowy autoryzacji w bezpiecznej, audytowalnej postaci.
+    pub fn authorization_denial_reason(&self) -> Option<String> {
+        let decision = self.authorization_decision();
+        if decision.authorizes_hardware_ptt() {
+            None
+        } else {
+            Some(format!("{}: {}", decision.outcome(), decision.reason()))
+        }
+    }
+
+    /// Zwraca oczekiwany wynik autoryzacji (diagnostyka, bez wykonywania).
+    pub fn authorization_outcome(&self) -> HilAuthorizationOutcome {
+        self.authorization_decision().outcome()
+    }
+
+    /// Zwraca informację, czy sesja ma jawny dowód (bez wykonywania).
+    pub fn has_independent_evidence(&self) -> bool {
+        self.evidence.is_some()
+    }
+
+    /// Zwraca informację, czy sesja ma jawny dokument oświadczenia.
+    pub fn has_operator_attestation(&self) -> bool {
+        self.attestation.is_some()
+    }
+
+    /// Pozwala jawnie sprawdzić wynik zapytania do dostawcy dowodu (fail-closed).
+    pub fn provider_outcome_is_authorized(outcome: &HilEvidenceProviderOutcome) -> bool {
+        matches!(outcome, HilEvidenceProviderOutcome::Evidence(_))
     }
 }
 
@@ -912,7 +1140,7 @@ pub fn run_isolated_hardware_dispatcher(
 /// Rzeczywista implementacja dyspozytora sprzętowego HIL względem jawnego czasu ewaluacji.
 pub fn run_isolated_hardware_dispatcher_at(
     manifest: &HilTestBenchManifest,
-    stage: HilExecutionStage,
+    _stage: HilExecutionStage,
     evaluated_at: chrono::DateTime<chrono::Utc>,
 ) -> HilDispatcherReport {
     let case_names = [
@@ -928,7 +1156,7 @@ pub fn run_isolated_hardware_dispatcher_at(
         "hil_hardware_shutdown_tx_01",
     ];
 
-    // Sprawdzenie integralności manifestu
+    // Sprawdzenie integralności planu
     if let Err(e) = manifest.validate_structure() {
         let cases = case_names
             .iter()
@@ -966,7 +1194,7 @@ pub fn run_isolated_hardware_dispatcher_at(
         };
     }
 
-    // Sprawdzenie wygaśnięcia sesji
+    // Sprawdzenie wygaśnięcia sesji względem jawnego czasu odniesienia.
     if let Some(exp_str) = &manifest.expires_at
         && let Ok(exp_time) = chrono::DateTime::parse_from_rfc3339(exp_str)
         && evaluated_at >= exp_time
@@ -991,37 +1219,709 @@ pub fn run_isolated_hardware_dispatcher_at(
         };
     }
 
-    // Ewaluacja gotowości HIL-READY
-    let report = HilReadinessValidator::validate(manifest, stage);
-
-    let is_blocked = stage == HilExecutionStage::Stage7AOffline
-        || report.overall_status == HilReadinessStatus::Blocked
-        || report.overall_status == HilReadinessStatus::Failed;
-
+    // F-15: dyspozytor nigdy nie upoważnia wykonania sprzętowego. Bez niezależnego dowodu
+    // (którego ten kod nie posiada i nie potrafi wytworzyć) wszystkie przypadki pozostają
+    // NOT RUN, a dyspozytor nie otwiera transportu i nie emituje PTT.
     let cases = case_names
         .iter()
         .map(|name| HilDispatcherCase {
             name: (*name).to_string(),
             status: HilReadinessStatus::NotRun,
-            reason: if is_blocked {
-                "HIL-READY runtime evidence blocked because no physical transceiver and validated dummy load were available.".to_string()
-            } else {
-                "Hardware case queued".to_string()
-            },
+            reason: "HIL-READY hardware evidence missing: no independent evidence provider is \
+                     configured, so no hardware case may run (F-15 fail-closed)"
+                .to_string(),
         })
         .collect();
 
-    let overall_status = if report.overall_status == HilReadinessStatus::Failed {
-        HilReadinessStatus::Failed
-    } else {
-        HilReadinessStatus::Blocked
-    };
-
     HilDispatcherReport {
         session_id: manifest.session_id.clone(),
-        overall_status,
+        overall_status: HilReadinessStatus::Blocked,
         cases,
         transport_opened: false,
         ptt_emitted: false,
+    }
+}
+
+#[cfg(test)]
+mod test_scope_tests {
+    //! Testy jednostkowe w zakresie `cfg(test)` — jedyne miejsce, w którym istnieje testowy
+    //! dostawca dowodu ([`super::super::authorization::test_evidence_support`]).
+
+    use super::super::authorization::test_evidence_support::{
+        authorized_decision, issue_test_attestation, issue_test_evidence, test_plan,
+    };
+    use super::super::authorization::{HilAuthorizationOutcome, HilEvidenceScope};
+    use super::*;
+    use crate::cat::backend::CatBackendKind;
+    use crate::cat::backend::RigProbeResult;
+    use crate::cat::hamlib::RigState;
+    use crate::cat::rig::RigError;
+    use crate::cat::routing::RigId;
+    use std::sync::atomic::{AtomicBool, AtomicUsize};
+
+    #[derive(Clone, Default)]
+    struct Counters {
+        ptt_on: Arc<AtomicUsize>,
+        ptt_off: Arc<AtomicUsize>,
+        last_ptt: Arc<AtomicBool>,
+    }
+
+    struct MockBackend {
+        counters: Counters,
+        stick_ptt: Arc<AtomicBool>,
+        fail_on: Arc<AtomicBool>,
+        fail_off: Arc<AtomicBool>,
+        poll_error_after_on: Arc<AtomicBool>,
+        sticky_after_on: Arc<AtomicBool>,
+    }
+
+    impl MockBackend {
+        fn new() -> Self {
+            Self {
+                counters: Counters::default(),
+                stick_ptt: Arc::new(AtomicBool::new(false)),
+                fail_on: Arc::new(AtomicBool::new(false)),
+                fail_off: Arc::new(AtomicBool::new(false)),
+                poll_error_after_on: Arc::new(AtomicBool::new(false)),
+                sticky_after_on: Arc::new(AtomicBool::new(false)),
+            }
+        }
+
+        fn with_fail_on() -> Self {
+            let backend = Self::new();
+            backend.fail_on.store(true, Ordering::SeqCst);
+            backend
+        }
+
+        fn with_fail_off() -> Self {
+            let backend = Self::new();
+            backend.fail_off.store(true, Ordering::SeqCst);
+            backend
+        }
+
+        fn with_sticky_after_on() -> Self {
+            let backend = Self::new();
+            backend.sticky_after_on.store(true, Ordering::SeqCst);
+            backend
+        }
+
+        fn with_poll_error_after_on() -> Self {
+            let backend = Self::new();
+            backend.poll_error_after_on.store(true, Ordering::SeqCst);
+            backend
+        }
+    }
+
+    impl RigBackend for MockBackend {
+        fn kind(&self) -> CatBackendKind {
+            CatBackendKind::IcomCiV
+        }
+
+        fn capabilities(&self) -> crate::cat::rig::RigCapabilities {
+            crate::cat::rig::RigCapabilities::default()
+        }
+
+        fn connect(&mut self) -> crate::cat::backend::BoxFuture<'_, Result<(), RigError>> {
+            Box::pin(async { Ok(()) })
+        }
+
+        fn poll(&mut self) -> crate::cat::backend::BoxFuture<'_, Result<RigState, RigError>> {
+            let ptt_on = self.counters.ptt_on.load(Ordering::SeqCst) > 0;
+            if ptt_on && self.sticky_after_on.load(Ordering::SeqCst) {
+                return Box::pin(async {
+                    Ok(RigState {
+                        ptt: true,
+                        ..Default::default()
+                    })
+                });
+            }
+            if ptt_on && self.poll_error_after_on.load(Ordering::SeqCst) {
+                return Box::pin(async {
+                    Err(RigError::Protocol {
+                        detail: "simulated poll error after ON".into(),
+                    })
+                });
+            }
+            let ptt = self.stick_ptt.load(Ordering::SeqCst)
+                || self.counters.last_ptt.load(Ordering::SeqCst);
+            Box::pin(async move {
+                Ok(RigState {
+                    ptt,
+                    ..Default::default()
+                })
+            })
+        }
+
+        fn execute<'a>(
+            &'a mut self,
+            command: &'a RigCommand,
+        ) -> crate::cat::backend::BoxFuture<'a, Result<(), RigError>> {
+            let counters = self.counters.clone();
+            let fail_on = self.fail_on.clone();
+            let fail_off = self.fail_off.clone();
+            Box::pin(async move {
+                if let RigCommand::SetPtt(state) = command {
+                    if *state {
+                        counters.ptt_on.fetch_add(1, Ordering::SeqCst);
+                        if fail_on.load(Ordering::SeqCst) {
+                            return Err(RigError::Protocol {
+                                detail: "simulated ON failure".into(),
+                            });
+                        }
+                    } else {
+                        counters.ptt_off.fetch_add(1, Ordering::SeqCst);
+                        if fail_off.load(Ordering::SeqCst) {
+                            return Err(RigError::Protocol {
+                                detail: "simulated OFF failure".into(),
+                            });
+                        }
+                    }
+                    counters.last_ptt.store(*state, Ordering::SeqCst);
+                }
+                Ok(())
+            })
+        }
+
+        fn disconnect(&mut self) -> crate::cat::backend::BoxFuture<'_, ()> {
+            Box::pin(async {})
+        }
+
+        fn probe(
+            &mut self,
+        ) -> crate::cat::backend::BoxFuture<'_, Result<RigProbeResult, RigError>> {
+            Box::pin(async {
+                Ok(RigProbeResult {
+                    reachable: true,
+                    identity: Some("Mock IC-7300".to_string()),
+                    model: Some("IC-7300".to_string()),
+                    firmware: Some("v1.42".to_string()),
+                    capabilities: crate::cat::rig::RigCapabilities::default(),
+                    state: None,
+                    safe_diagnostic: "mock probe".to_string(),
+                })
+            })
+        }
+    }
+
+    fn reference_time() -> chrono::DateTime<chrono::Utc> {
+        chrono::DateTime::parse_from_rfc3339("2026-10-18T12:00:00Z")
+            .expect("reference time")
+            .with_timezone(&chrono::Utc)
+    }
+
+    fn authorized_session() -> HilHardwareSession {
+        let plan = test_plan();
+        let attestation = issue_test_attestation(&plan);
+        let evidence = issue_test_evidence(&plan, &attestation);
+        HilHardwareSession::new_with_reference_time(
+            plan,
+            HilExecutionStage::Stage7BHardware,
+            Some(reference_time()),
+        )
+        .with_authorization(Some(attestation), Some(evidence))
+        .with_environment(test_gates())
+    }
+
+    #[test]
+    fn f15_session_without_evidence_is_denied_at_stage_7b() {
+        let plan = test_plan();
+        let attestation = issue_test_attestation(&plan);
+        let session = HilHardwareSession::new_with_reference_time(
+            plan,
+            HilExecutionStage::Stage7BHardware,
+            Some(reference_time()),
+        )
+        .with_authorization(Some(attestation), None);
+
+        let decision = session.authorization_decision();
+        assert_eq!(decision.outcome(), HilAuthorizationOutcome::EvidenceMissing);
+        assert!(!session.is_hardware_ptt_authorized());
+        assert!(!session.readiness_report().can_run_hardware_ptt());
+    }
+
+    #[test]
+    fn f15_session_with_full_evidence_is_authorized_in_test_scope() {
+        let session = authorized_session();
+        assert!(session.is_hardware_ptt_authorized());
+        assert!(session.authorization_denial_reason().is_none());
+    }
+
+    #[test]
+    fn f15_dry_run_never_authorizes_ptt() {
+        let plan = test_plan();
+        let attestation = issue_test_attestation(&plan);
+        let session = HilHardwareSession::new_with_reference_time(
+            plan,
+            HilExecutionStage::Stage7BHardware,
+            Some(reference_time()),
+        )
+        .with_authorization(Some(attestation), None);
+        let decision = session.dry_run();
+        assert_eq!(decision.outcome(), HilAuthorizationOutcome::DryRunOnly);
+        assert!(!decision.authorizes_hardware_ptt());
+        assert!(!session.is_hardware_ptt_authorized());
+    }
+
+    #[tokio::test]
+    async fn f15_authorized_session_keys_ptt_once_and_releases_once() {
+        let session = authorized_session();
+        let mut backend = MockBackend::new();
+        let counters = backend.counters.clone();
+        let token = HilPttConsentToken::new("SP6INA").expect("token");
+        let mut arbiter = crate::cat::tx_arbiter::TxArbiter::new();
+
+        let mut guard = session
+            .acquire_tx_guard_at(
+                &mut backend,
+                &token,
+                &mut arbiter,
+                Duration::from_millis(20),
+                reference_time(),
+            )
+            .await
+            .expect("authorized acquisition must succeed");
+
+        assert_eq!(counters.ptt_on.load(Ordering::SeqCst), 1);
+        assert!(guard.release_and_confirm_rx().await.is_ok());
+        assert_eq!(counters.ptt_off.load(Ordering::SeqCst), 1);
+        assert!(session.is_authorization_consumed());
+    }
+
+    #[tokio::test]
+    async fn f15_second_authorization_is_rejected_as_replay() {
+        let session = authorized_session();
+        let mut backend = MockBackend::new();
+        let counters = backend.counters.clone();
+        let token = HilPttConsentToken::new("SP6INA").expect("token");
+        let mut arbiter = crate::cat::tx_arbiter::TxArbiter::new();
+
+        let mut guard = session
+            .acquire_tx_guard_at(
+                &mut backend,
+                &token,
+                &mut arbiter,
+                Duration::from_millis(20),
+                reference_time(),
+            )
+            .await
+            .expect("first acquisition");
+        assert!(guard.release_and_confirm_rx().await.is_ok());
+        drop(guard);
+
+        let second = session
+            .acquire_tx_guard_at(
+                &mut backend,
+                &token,
+                &mut arbiter,
+                Duration::from_millis(20),
+                reference_time(),
+            )
+            .await;
+        assert!(second.is_err(), "replay must be rejected");
+        assert_eq!(counters.ptt_on.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn f15_expired_evidence_never_keys_ptt() {
+        let plan = test_plan();
+        let attestation = issue_test_attestation(&plan);
+        let mut evidence = issue_test_evidence(&plan, &attestation);
+        evidence.expires_at = Some("2026-10-18T10:00:00Z".to_string());
+        let decision = authorized_decision(&plan, &attestation, &evidence, reference_time());
+        assert_eq!(decision.outcome(), HilAuthorizationOutcome::EvidenceExpired);
+
+        let session = HilHardwareSession::new_with_reference_time(
+            plan,
+            HilExecutionStage::Stage7BHardware,
+            Some(reference_time()),
+        )
+        .with_authorization(Some(attestation), Some(evidence));
+        let mut backend = MockBackend::new();
+        let counters = backend.counters.clone();
+        let token = HilPttConsentToken::new("SP6INA").expect("token");
+        let mut arbiter = crate::cat::tx_arbiter::TxArbiter::new();
+
+        let res = session
+            .acquire_tx_guard_at(
+                &mut backend,
+                &token,
+                &mut arbiter,
+                Duration::from_millis(20),
+                reference_time(),
+            )
+            .await;
+        assert!(res.is_err());
+        assert_eq!(counters.ptt_on.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn f15_wrong_scope_evidence_never_keys_ptt() {
+        let plan = test_plan();
+        let attestation = issue_test_attestation(&plan);
+        let mut evidence = issue_test_evidence(&plan, &attestation);
+        evidence.scope = HilEvidenceScope::ConfigurationOnly;
+        let session = HilHardwareSession::new_with_reference_time(
+            plan,
+            HilExecutionStage::Stage7BHardware,
+            Some(reference_time()),
+        )
+        .with_authorization(Some(attestation), Some(evidence));
+        let mut backend = MockBackend::new();
+        let counters = backend.counters.clone();
+        let token = HilPttConsentToken::new("SP6INA").expect("token");
+        let mut arbiter = crate::cat::tx_arbiter::TxArbiter::new();
+
+        let res = session
+            .acquire_tx_guard_at(
+                &mut backend,
+                &token,
+                &mut arbiter,
+                Duration::from_millis(20),
+                reference_time(),
+            )
+            .await;
+        assert!(res.is_err());
+        assert_eq!(counters.ptt_on.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn f15_stage_7a_is_rejected_before_any_authorization_use() {
+        let plan = test_plan();
+        let attestation = issue_test_attestation(&plan);
+        let evidence = issue_test_evidence(&plan, &attestation);
+        let session = HilHardwareSession::new_with_reference_time(
+            plan,
+            HilExecutionStage::Stage7AOffline,
+            Some(reference_time()),
+        )
+        .with_authorization(Some(attestation), Some(evidence));
+        let mut backend = MockBackend::new();
+        let counters = backend.counters.clone();
+        let token = HilPttConsentToken::new("SP6INA").expect("token");
+        let mut arbiter = crate::cat::tx_arbiter::TxArbiter::new();
+
+        let res = session
+            .acquire_tx_guard_at(
+                &mut backend,
+                &token,
+                &mut arbiter,
+                Duration::from_millis(20),
+                reference_time(),
+            )
+            .await;
+        assert!(matches!(res, Err(HilError::PttForbiddenInStage7A)));
+        assert_eq!(counters.ptt_on.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn f15_dispatcher_never_emits_ptt_even_with_evidence() {
+        let plan = test_plan();
+        let report = run_isolated_hardware_dispatcher_at(
+            &plan,
+            HilExecutionStage::Stage7BHardware,
+            reference_time(),
+        );
+        assert_eq!(report.overall_status, HilReadinessStatus::Blocked);
+        assert!(!report.ptt_emitted);
+        assert!(!report.transport_opened);
+        assert!(
+            report
+                .cases
+                .iter()
+                .all(|c| c.status == HilReadinessStatus::NotRun)
+        );
+    }
+
+    #[test]
+    fn f15_authorized_decision_reports_attempt_and_scope() {
+        let plan = test_plan();
+        let attestation = issue_test_attestation(&plan);
+        let evidence = issue_test_evidence(&plan, &attestation);
+        let decision = authorized_decision(&plan, &attestation, &evidence, reference_time());
+        assert!(decision.authorizes_hardware_ptt());
+        let audit = decision.audit();
+        assert_eq!(audit.attempt_id.as_deref(), Some("ATTEMPT-F15-0001"));
+        assert_eq!(audit.scope.as_deref(), Some("hardware_ptt"));
+        assert_eq!(
+            audit.outcome,
+            HilAuthorizationOutcome::HardwareExecutionAuthorized
+        );
+    }
+
+    #[test]
+    fn f15_manifest_rig_identity_is_used_not_guessed() {
+        let session = authorized_session();
+        assert_eq!(
+            session.manifest().matrix.rig_id,
+            RigId::new("RIG-F15-01").unwrap()
+        );
+    }
+
+    // =====================================================================
+    // F-14 MECHANICS UNDER AN AUTHORIZED SESSION (test-scope evidence only)
+    //
+    // The integration suite `tests/cat_f14_fail_safe.rs` can no longer key PTT,
+    // because that file cannot obtain independent evidence (correct fail-closed
+    // behaviour). These in-crate tests keep the F-14 mechanical invariants
+    // covered: single ON, exactly one OFF on every post-ON path, failures are
+    // never success, Drop releases at most once, release is idempotent.
+    // =====================================================================
+
+    fn test_gates() -> HilEnvironmentGates {
+        HilEnvironmentGates::for_tests("SESSION-F15-01", "I_HAVE_DUMMY_LOAD")
+    }
+
+    fn authorized_session_with_duration(max_test_duration_ms: u64) -> HilHardwareSession {
+        let mut plan = test_plan();
+        plan.rf_safety.max_test_duration_ms = max_test_duration_ms;
+        let attestation = issue_test_attestation(&plan);
+        let evidence = issue_test_evidence(&plan, &attestation);
+        HilHardwareSession::new_with_reference_time(
+            plan,
+            HilExecutionStage::Stage7BHardware,
+            Some(reference_time()),
+        )
+        .with_authorization(Some(attestation), Some(evidence))
+        .with_environment(test_gates())
+    }
+
+    #[tokio::test]
+    async fn f14_authorized_valid_range_keys_once_and_releases_once() {
+        let session = authorized_session_with_duration(500);
+        let mut backend = MockBackend::new();
+        let counters = backend.counters.clone();
+        let token = HilPttConsentToken::new("SP6INA").expect("token");
+        let mut arbiter = crate::cat::tx_arbiter::TxArbiter::new();
+
+        let mut guard = session
+            .acquire_tx_guard_at(
+                &mut backend,
+                &token,
+                &mut arbiter,
+                Duration::from_millis(20),
+                reference_time(),
+            )
+            .await
+            .expect("authorized guard");
+        assert_eq!(counters.ptt_on.load(Ordering::SeqCst), 1, "exactly one ON");
+        assert!(guard.release_and_confirm_rx().await.is_ok());
+        assert_eq!(
+            counters.ptt_off.load(Ordering::SeqCst),
+            1,
+            "exactly one OFF"
+        );
+        assert!(!counters.last_ptt.load(Ordering::SeqCst), "device in RX");
+    }
+
+    #[tokio::test]
+    async fn f14_authorized_on_failure_attempts_emergency_release() {
+        let session = authorized_session_with_duration(500);
+        let mut backend = MockBackend::with_fail_on();
+        let counters = backend.counters.clone();
+        let token = HilPttConsentToken::new("SP6INA").expect("token");
+        let mut arbiter = crate::cat::tx_arbiter::TxArbiter::new();
+
+        let res = session
+            .acquire_tx_guard_at(
+                &mut backend,
+                &token,
+                &mut arbiter,
+                Duration::from_millis(20),
+                reference_time(),
+            )
+            .await;
+        assert!(res.is_err(), "ON failure must be a controlled error");
+        assert_eq!(counters.ptt_on.load(Ordering::SeqCst), 1, "one ON attempt");
+        assert_eq!(counters.ptt_off.load(Ordering::SeqCst), 1, "emergency OFF");
+        assert!(arbiter.is_idle(), "arbiter returns to Idle");
+    }
+
+    #[tokio::test]
+    async fn f14_authorized_off_failure_is_never_success() {
+        let session = authorized_session_with_duration(500);
+        let mut backend = MockBackend::with_fail_off();
+        let counters = backend.counters.clone();
+        let token = HilPttConsentToken::new("SP6INA").expect("token");
+        let mut arbiter = crate::cat::tx_arbiter::TxArbiter::new();
+
+        let mut guard = session
+            .acquire_tx_guard_at(
+                &mut backend,
+                &token,
+                &mut arbiter,
+                Duration::from_millis(20),
+                reference_time(),
+            )
+            .await
+            .expect("authorized guard");
+        let res = guard.release_and_confirm_rx().await;
+        assert!(res.is_err(), "OFF failure must not be success");
+        assert_eq!(counters.ptt_on.load(Ordering::SeqCst), 1);
+        assert_eq!(counters.ptt_off.load(Ordering::SeqCst), 1);
+        assert!(matches!(guard.release_outcome(), HilReleaseOutcome::Failed));
+    }
+
+    #[tokio::test]
+    async fn f14_authorized_unconfirmed_rx_is_never_success() {
+        let session = authorized_session_with_duration(500);
+        let mut backend = MockBackend::with_sticky_after_on();
+        let counters = backend.counters.clone();
+        let token = HilPttConsentToken::new("SP6INA").expect("token");
+        let mut arbiter = crate::cat::tx_arbiter::TxArbiter::new();
+
+        let mut guard = session
+            .acquire_tx_guard_at(
+                &mut backend,
+                &token,
+                &mut arbiter,
+                Duration::from_millis(20),
+                reference_time(),
+            )
+            .await
+            .expect("authorized guard");
+        let res = guard.release_and_confirm_rx().await;
+        assert!(matches!(res, Err(HilError::MissingConfirmedRx(_))));
+        assert_eq!(counters.ptt_on.load(Ordering::SeqCst), 1);
+        assert_eq!(counters.ptt_off.load(Ordering::SeqCst), 1);
+        assert!(matches!(
+            guard.release_outcome(),
+            HilReleaseOutcome::Unconfirmed
+        ));
+    }
+
+    #[tokio::test]
+    async fn f14_authorized_poll_error_after_on_is_never_success() {
+        let session = authorized_session_with_duration(500);
+        let mut backend = MockBackend::with_poll_error_after_on();
+        let counters = backend.counters.clone();
+        let token = HilPttConsentToken::new("SP6INA").expect("token");
+        let mut arbiter = crate::cat::tx_arbiter::TxArbiter::new();
+
+        let mut guard = session
+            .acquire_tx_guard_at(
+                &mut backend,
+                &token,
+                &mut arbiter,
+                Duration::from_millis(20),
+                reference_time(),
+            )
+            .await
+            .expect("authorized guard");
+        assert!(guard.release_and_confirm_rx().await.is_err());
+        assert_eq!(counters.ptt_on.load(Ordering::SeqCst), 1);
+        assert_eq!(counters.ptt_off.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn f14_authorized_duplicate_release_is_rejected() {
+        let session = authorized_session_with_duration(500);
+        let mut backend = MockBackend::new();
+        let counters = backend.counters.clone();
+        let token = HilPttConsentToken::new("SP6INA").expect("token");
+        let mut arbiter = crate::cat::tx_arbiter::TxArbiter::new();
+
+        let mut guard = session
+            .acquire_tx_guard_at(
+                &mut backend,
+                &token,
+                &mut arbiter,
+                Duration::from_millis(20),
+                reference_time(),
+            )
+            .await
+            .expect("authorized guard");
+        assert!(guard.release_and_confirm_rx().await.is_ok());
+        assert!(matches!(
+            guard.release_and_confirm_rx().await,
+            Err(HilError::ReleaseError(_))
+        ));
+        assert_eq!(counters.ptt_on.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            counters.ptt_off.load(Ordering::SeqCst),
+            1,
+            "no duplicate OFF"
+        );
+    }
+
+    #[tokio::test]
+    async fn f14_authorized_abandoned_guard_releases_once_without_fabricating_rx() {
+        let session = authorized_session_with_duration(500);
+        let mut backend = MockBackend::new();
+        let counters = backend.counters.clone();
+        let token = HilPttConsentToken::new("SP6INA").expect("token");
+        let mut arbiter = crate::cat::tx_arbiter::TxArbiter::new();
+
+        {
+            let guard = session
+                .acquire_tx_guard_at(
+                    &mut backend,
+                    &token,
+                    &mut arbiter,
+                    Duration::from_millis(20),
+                    reference_time(),
+                )
+                .await
+                .expect("authorized guard");
+            assert!(!guard.is_confirmed_rx());
+        }
+        assert_eq!(counters.ptt_on.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            counters.ptt_off.load(Ordering::SeqCst),
+            1,
+            "one emergency OFF"
+        );
+        assert_eq!(session.session_state(), HilSessionState::FailedOrUnknown);
+    }
+
+    #[tokio::test]
+    async fn f14_authorized_below_minimum_range_never_keys() {
+        for max_ms in 0..crate::cat::hil::manifest::HIL_MIN_TEST_DURATION_MS {
+            let session = authorized_session_with_duration(max_ms);
+            let mut backend = MockBackend::new();
+            let counters = backend.counters.clone();
+            let token = HilPttConsentToken::new("SP6INA").expect("token");
+            let mut arbiter = crate::cat::tx_arbiter::TxArbiter::new();
+            let res = session
+                .acquire_tx_guard_at(
+                    &mut backend,
+                    &token,
+                    &mut arbiter,
+                    Duration::from_millis(50),
+                    reference_time(),
+                )
+                .await;
+            assert!(res.is_err(), "max={max_ms} must be rejected");
+            assert_eq!(counters.ptt_on.load(Ordering::SeqCst), 0, "zero ON");
+        }
+    }
+
+    #[tokio::test]
+    async fn f14_authorized_full_width_pulse_times_out_but_releases() {
+        let session =
+            authorized_session_with_duration(crate::cat::hil::manifest::HIL_MIN_TEST_DURATION_MS);
+        let mut backend = MockBackend::new();
+        let counters = backend.counters.clone();
+        let token = HilPttConsentToken::new("SP6INA").expect("token");
+
+        let res = session
+            .execute_controlled_ptt(&mut backend, &token, Duration::from_millis(10))
+            .await;
+        assert!(matches!(res, Err(HilError::TimeoutToUnknown(_))));
+        assert_eq!(counters.ptt_on.load(Ordering::SeqCst), 1, "one ON");
+        assert_eq!(
+            counters.ptt_off.load(Ordering::SeqCst),
+            1,
+            "one OFF attempt"
+        );
+    }
+
+    #[test]
+    fn f14_authorized_suite_is_within_test_scope_only() {
+        // Ten moduł jest kompilowany wyłącznie pod `cfg(test)`; dowód testowy nie istnieje
+        // w kodzie produkcyjnym.
+        assert_eq!(
+            option_env!("CARGO_CRATE_NAME").unwrap_or("splogbook"),
+            "splogbook"
+        );
     }
 }

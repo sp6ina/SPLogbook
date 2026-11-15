@@ -1,10 +1,21 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
+//! Manifest stanowiska laboratoryjnego HIL — **wyłącznie plan testu**.
+//!
+//! Zasada bezpieczeństwa (F-15): ten dokument opisuje *co* ma zostać przetestowane. Nie jest
+//! dowodem gotowości i nie może sam siebie autoryzować. Wszystkie pola bezpieczeństwa są
+//! **wymagane** i muszą być jawnie zapisane w dokumencie — brak pola nigdy nie oznacza `true`.
+//!
+//! Niezależny dowód gotowości sprzętowej mieszka w osobnym dokumencie
+//! ([`super::authorization::HilIndependentEvidence`]), a decyzja autoryzacyjna powstaje
+//! wyłącznie w [`super::authorization::HilHardwareExecutionAuthorizer`].
+
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use super::authorization::sha256_hex;
 use super::error::HilError;
 use super::evidence::{HilEvidenceOrigin, HilExecutionContext};
 use crate::cat::backend::CatBackendKind;
@@ -14,6 +25,13 @@ use crate::cat::config::{
     RigConfig, TciConfig, YaesuConfig,
 };
 use crate::cat::routing::RigId;
+
+/// Wersja schematu planu testu HIL (F-15).
+///
+/// Wersja 2 wprowadza rozdzielenie planu, oświadczenia operatora i niezależnego dowodu.
+/// Dokument bez pola `schema_version` jest traktowany jako wersja 1 (legacy) i nie może
+/// uzyskać gotowości sprzętowej.
+pub const HIL_PLAN_SCHEMA_VERSION: u32 = 2;
 
 /// Minimalny dopuszczalny czas impulsu testowego PTT w milisekundach.
 ///
@@ -25,6 +43,43 @@ pub const HIL_MIN_TEST_DURATION_MS: u64 = 10;
 
 /// Maksymalny dopuszczalny czas impulsu testowego PTT w milisekundach (limit laboratoryjny).
 pub const HIL_MAX_TEST_DURATION_MS: u64 = 500;
+
+/// Błąd walidacji planu testu HIL (fail-closed).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HilPlanValidationError {
+    /// Plan pochodzi ze starszego formatu i wymaga jawnej migracji.
+    LegacySchemaRequiresMigration,
+    /// Pole jest puste, a musi być jawnie wypełnione.
+    MissingRequiredField(&'static str),
+    /// Nieobsługiwana wersja schematu.
+    UnsupportedSchemaVersion(u32),
+    /// Niedozwolona wartość parametru planu.
+    InvalidParameter(String),
+}
+
+impl std::fmt::Display for HilPlanValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::LegacySchemaRequiresMigration => write!(
+                f,
+                "HIL test plan has no schema_version (legacy v1); an explicit migration to v2 is \
+                 required and readiness stays denied until then"
+            ),
+            Self::MissingRequiredField(field) => {
+                write!(f, "HIL test plan is missing required field '{field}'")
+            }
+            Self::UnsupportedSchemaVersion(version) => write!(
+                f,
+                "unsupported HIL test plan schema version {version} (this build supports v{HIL_PLAN_SCHEMA_VERSION})"
+            ),
+            Self::InvalidParameter(reason) => {
+                write!(f, "invalid HIL test plan parameter: {reason}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for HilPlanValidationError {}
 
 /// Wymiary macierzy testowej HIL: backend x radio x transport x firmware.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -90,15 +145,19 @@ fn default_flow_control() -> String {
 }
 
 /// Specyfikacja sztucznego obciążenia 50 omów wymaganego do testów HIL.
+///
+/// Wartości w tym typie są **deklaracją planu**. Fizyczne podłączenie, impedancja i moc
+/// znamionowa obciążenia muszą zostać zmierzone i potwierdzone w niezależnym dowodzie
+/// ([`super::authorization::HilIndependentEvidence`]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HilDummyLoadSpec {
-    /// Dopuszczalna moc ciągła lub impulsowa sztucznego obciążenia (W).
+    /// Deklarowana dopuszczalna moc ciągła lub impulsowa sztucznego obciążenia (W).
     pub power_rating_watts: f64,
-    /// Maksymalny dopuszczalny współczynnik SWR obciążenia (np. 1.15).
+    /// Deklarowany maksymalny dopuszczalny współczynnik SWR obciążenia (np. 1.15).
     pub max_swr: f64,
     /// Numer seryjny lub oznaczenie laboratoryjne obciążenia.
     pub serial_number: String,
-    /// Impedancja znamionowa (omów, wymagane 50.0).
+    /// Deklarowana impedancja znamionowa (omów, wymagane 50.0).
     #[serde(default = "default_impedance_ohms")]
     pub impedance_ohms: f64,
 }
@@ -109,10 +168,9 @@ fn default_impedance_ohms() -> f64 {
 
 /// Zakończenie toru w.cz. (RF) podczas testów.
 ///
-/// Zasada bezpieczeństwa: Wszelkie testy nadawania (PTT) w warunkach HIL
-/// bezwzględnie wymagają zakończenia sztucznym obciążeniem. Zakończenie anteną
-/// jest dopuszczalne wyłącznie w trybie czystego nasłuchu (RX) i bezwzględnie
-/// blokuje jakiekolwiek załączenie PTT.
+/// Zasada bezpieczeństwa: Wszelkie testy nadawania (PTT) w warunkach HIL bezwzględnie wymagają
+/// zakończenia sztucznym obciążeniem. Zakończenie anteną jest dopuszczalne wyłącznie w trybie
+/// czystego nasłuchu (RX) i bezwzględnie blokuje jakiekolwiek załączenie PTT.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum HilRfTermination {
@@ -125,7 +183,10 @@ pub enum HilRfTermination {
     },
 }
 
-/// Konfiguracja bezpieczeństwa radiowego w.cz. (RF) stanowiska laboratoryjnego.
+/// Konfiguracja planu bezpieczeństwa radiowego w.cz. (RF) stanowiska laboratoryjnego.
+///
+/// Wszystkie pola są **wymagane**. Brak pola nie jest zgodą: dokument bez pola nie deserializuje
+/// się, a dokument z wartością `false` blokuje odpowiedni warunek gotowości.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HilRfSafetyConfig {
     /// Rodzaj zakończenia toru RF.
@@ -134,38 +195,29 @@ pub struct HilRfSafetyConfig {
     pub max_test_power_watts: f64,
     /// Dozwolony zakres częstotliwości testowej w Hz (początek, koniec).
     pub frequency_range_hz: (u64, u64),
-    /// Czy logiczna blokada interlock jest włączona.
-    #[serde(default = "default_interlock_engaged")]
+    /// Czy logiczna blokada interlock ma być włączona podczas testu (wymagane, bez wartości domyślnej).
     pub interlock_engaged: bool,
     /// Maksymalny dopuszczalny czas trwania impulsu testowego w milisekundach (<= 500 ms).
-    #[serde(default = "default_max_duration_ms")]
     pub max_test_duration_ms: u64,
-    /// Potwierdzenie wyłączenia SmartLink dla prób HIL (Warunek 25).
-    #[serde(default = "default_true")]
+    /// Deklaracja wyłączenia SmartLink dla prób HIL (wymagane, bez wartości domyślnej).
     pub smartlink_disabled: bool,
-    /// Potwierdzenie wyłączenia zdalnego, nienadzorowanego TX (Warunek 25).
-    #[serde(default = "default_true")]
+    /// Deklaracja wyłączenia zdalnego, nienadzorowanego TX (wymagane, bez wartości domyślnej).
     pub unattended_remote_tx_disabled: bool,
-    /// Potwierdzenie, że ewentualny endpoint sieciowy jest lokalny lub w pełni kontrolowany (Warunek 25).
-    #[serde(default = "default_true")]
+    /// Deklaracja, że ewentualny endpoint sieciowy jest lokalny lub w pełni kontrolowany.
     pub remote_endpoint_is_local_or_controlled: bool,
-    /// Potwierdzenie posiadania natychmiastowej fizycznej kontroli zatrzymania nadajnika (Warunek 25).
-    #[serde(default = "default_true")]
+    /// Deklaracja posiadania natychmiastowej fizycznej kontroli zatrzymania nadajnika.
     pub operator_has_immediate_stop_control: bool,
-    /// Potwierdzenie wyłączenia strumieni Data Plane (Audio, DAX, IQ, panadapter, waterfall) poza zakresem testu (Warunek 26).
-    #[serde(default = "default_true")]
+    /// Deklaracja wyłączenia strumieni Data Plane (Audio, DAX, IQ, panadapter, waterfall).
     pub out_of_band_data_plane_disabled: bool,
 }
 
-fn default_interlock_engaged() -> bool {
-    true
-}
-
-fn default_max_duration_ms() -> u64 {
-    500
-}
-
-/// Oświadczenie i potwierdzenie fizyczne operatora stanowiska laboratoryjnego.
+/// Oświadczenie i potwierdzenie fizyczne operatora stanowiska laboratoryjnego (legacy).
+///
+/// Zgodność wsteczna: dokumenty v1 mogły osadzać ten blok w manifeście. Blok jest wyłącznie
+/// **deklaracją** i nigdy nie jest dowodem. Autoryzacja sprzętowa używa osobnego dokumentu
+/// [`super::authorization::HilAttestationDocument`].
+///
+/// Wszystkie pola są wymagane (bez `default`), więc brak pola nie może zamienić się w `true`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HilOperatorAttestation {
     /// Potwierdzenie fizycznego dokręcenia i podłączenia sztucznego obciążenia 50 omów.
@@ -177,64 +229,43 @@ pub struct HilOperatorAttestation {
     /// Sygnatura czasowa atestacji operatora (ISO 8601).
     pub attestation_timestamp: String,
     /// Opis stanu stanowiska i procedury weryfikacji.
-    #[serde(default = "default_description")]
     pub description: String,
     /// Potwierdzenie fizycznego odłączenia anteny nadawczej.
-    #[serde(default = "default_true")]
     pub antenna_disconnected: bool,
     /// Potwierdzenie odłączenia lub zablokowania wzmacniacza mocy (PA).
-    #[serde(default = "default_true")]
     pub pa_disconnected_or_locked: bool,
     /// Potwierdzenie wyłączenia lub zbypassowania skrzynki antenowej (tuner).
-    #[serde(default = "default_true")]
     pub tuner_bypassed: bool,
     /// Dostępność fizycznego wyłącznika awaryjnego (STOP).
-    #[serde(default = "default_true")]
     pub physical_stop_available: bool,
     /// Udokumentowana procedura awaryjnego przerwania testu.
-    #[serde(default = "default_true")]
     pub abort_procedure_documented: bool,
     /// Formalne potwierdzenie zapoznania się operatora ze stanowiskiem.
-    #[serde(default = "default_true")]
     pub operator_acknowledged: bool,
     /// Jawne potwierdzenie gotowości stanowiska laboratoryjnego przez operatora (Warunek 20).
-    #[serde(default = "default_true")]
     pub bench_readiness_confirmed: bool,
     /// Potwierdzenie fizycznej obecności operatora przy stanowisku (HIL-X21).
-    #[serde(default = "default_true")]
     pub operator_present: bool,
     /// Potwierdzenie prowadzenia próby pod bezpośrednim nadzorem operatora (HIL-X22).
-    #[serde(default = "default_true")]
     pub supervised_trial_confirmed: bool,
     /// Potwierdzenie zgodności próby z regulaminem i zasadami laboratorium (Warunek 24).
-    #[serde(default = "default_true")]
     pub rules_compliance_attested: bool,
     /// Potwierdzenie posiadania wymaganych uprawnień operatorskich (Warunek 24).
-    #[serde(default = "default_true")]
     pub operator_privileges_attested: bool,
     /// Potwierdzenie dopuszczalności pasma częstotliwości (Warunek 24).
-    #[serde(default = "default_true")]
     pub allowed_band_attested: bool,
     /// Potwierdzenie dopuszczalności rodzaju emisji / modulacji (Warunek 24).
-    #[serde(default = "default_true")]
     pub allowed_mode_attested: bool,
     /// Potwierdzenie braku nieautoryzowanej emisji radiowej (Warunek 24).
-    #[serde(default = "default_true")]
     pub no_unauthorized_emission_attested: bool,
     /// Potwierdzenie znajomości procedury STOP przez osoby obecne przy stanowisku.
-    #[serde(default = "default_true")]
     pub personnel_know_stop_procedure: bool,
 }
 
-fn default_description() -> String {
-    "Verified laboratory test bench configuration".to_string()
-}
-
-fn default_true() -> bool {
-    true
-}
-
-/// Odczyt z certyfikowanego przyrządu pomiarowego (miernik mocy / SWR / analizator).
+/// Odczyt z przyrządu pomiarowego (miernik mocy / SWR / analizator).
+///
+/// Odczyt jest **deklaracją** dołączoną do planu. Nie jest niezależnym dowodem: dowód
+/// ([`super::authorization::HilIndependentEvidence`]) musi zostać wydany przez osobny podmiot.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HilInstrumentMeasurement {
     /// Identyfikator laboratoryjny przyrządu pomiarowego.
@@ -304,32 +335,53 @@ impl HilInstrumentMeasurement {
     }
 }
 
-/// Kompletny manifest stanowiska testowego Hardware-In-The-Loop (HIL).
+/// Kompletny plan testu Hardware-In-The-Loop (HIL).
+///
+/// **Plan testu nie jest dowodem gotowości.** Każde pole bezpieczeństwa jest wymagane i musi
+/// zostać jawnie zapisane; brak pola powoduje błąd deserializacji, a nie wartość `true`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HilTestBenchManifest {
+    /// Wersja schematu planu testu.
+    ///
+    /// `0` oznacza dokument bez pola `schema_version`, czyli legacy v1, który wymaga jawnej
+    /// migracji i nie może uzyskać gotowości sprzętowej.
+    #[serde(default)]
+    pub schema_version: u32,
     /// Unikalny identyfikator stanowiska laboratoryjnego (np. "LAB-BENCH-SP6INA-01").
     pub bench_id: String,
     /// Identyfikator sesji laboratoryjnej.
     #[serde(default)]
     pub session_id: String,
+    /// Identyfikator przypadku testowego, którego dotyczy plan.
+    #[serde(default)]
+    pub test_case_id: String,
+    /// Identyfikator próby (ochrona przed powtórzeniem dowodu).
+    #[serde(default)]
+    pub attempt_id: String,
     /// Czas utworzenia sesji (ISO 8601).
     #[serde(default)]
     pub created_at: String,
     /// Czas wygaśnięcia sesji (ISO 8601, opcjonalny).
     #[serde(default)]
     pub expires_at: Option<String>,
-    /// Pełny SHA testowanego commita Git.
+    /// Pełny SHA testowanego commita Git (deklaracja planu).
     #[serde(default)]
     pub tested_commit: Option<String>,
-    /// Opcjonalny oczekiwany pełny SHA commita do weryfikacji zgodności (Warunek 3).
+    /// Opcjonalny oczekiwany pełny SHA commita do weryfikacji zgodności.
     #[serde(default)]
     pub expected_commit: Option<String>,
-    /// Potwierdzenie czystego drzewa roboczego Git (Warunek 1).
-    #[serde(default = "default_true")]
-    pub working_tree_clean: bool,
-    /// Potwierdzenie przejścia wszystkich testów programowych (Warunek 2).
-    #[serde(default = "default_true")]
-    pub software_tests_passed: bool,
+    /// Legacy (v1) deklaracja czystego drzewa roboczego.
+    ///
+    /// Pole **nie jest** źródłem prawdy i nie wpływa na gotowość: czystość drzewa musi zostać
+    /// zmierzona i przeniesiona w niezależnym dowodzie.
+    #[serde(default)]
+    pub working_tree_clean: Option<bool>,
+    /// Legacy (v1) deklaracja przejścia testów programowych.
+    ///
+    /// Pole **nie jest** źródłem prawdy i nie wpływa na gotowość: wynik baseline musi zostać
+    /// zmierzony i przeniesiony w niezależnym dowodzie.
+    #[serde(default)]
+    pub software_tests_passed: Option<bool>,
     /// Identyfikator operatora (np. znak lub login).
     #[serde(default)]
     pub operator_id: String,
@@ -337,25 +389,28 @@ pub struct HilTestBenchManifest {
     pub operator_callsign: String,
     /// Imię i nazwisko operatora.
     pub operator_name: String,
-    /// Flaga zezwolenia na sesję HIL w manifeście.
+    /// Flaga zezwolenia na sesję HIL w manifeście (zakres wykonania, nie dowód).
     #[serde(default)]
     pub hil_enabled: bool,
-    /// Jawna flaga zezwolenia na próby nadawania (TX).
+    /// Jawna flaga zezwolenia na próby nadawania (TX) (zakres wykonania, nie dowód).
     #[serde(default)]
     pub allow_tx: bool,
     /// Wymiary macierzy testowej (backend x radio x transport x firmware).
     pub matrix: HilMatrixEntry,
-    /// Konfiguracja bezpieczeństwa toru RF.
+    /// Konfiguracja planu bezpieczeństwa toru RF.
     pub rf_safety: HilRfSafetyConfig,
-    /// Atestacja fizyczna operatora.
-    pub operator_attestation: HilOperatorAttestation,
-    /// Opcjonalna weryfikacja zewnętrznym instrumentem pomiarowym.
+    /// Legacy (v1) osadzone oświadczenie operatora — wyłącznie deklaracja, nigdy dowód.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operator_attestation: Option<HilOperatorAttestation>,
+    /// Opcjonalna deklaracja odczytu przyrządu pomiarowego (deklaracja, nie dowód).
     #[serde(default)]
     pub instrument_verification: Option<HilInstrumentMeasurement>,
 }
 
 impl HilTestBenchManifest {
-    /// Deserializuje manifest ze wskazanego ciągu znaków w formacie JSON.
+    /// Deserializuje plan testu ze wskazanego ciągu znaków w formacie JSON.
+    ///
+    /// Parsowanie nie nadaje żadnej gotowości: dokument jest wyłącznie planem.
     pub fn from_json(json_str: &str) -> Result<Self, HilError> {
         let manifest: Self = serde_json::from_str(json_str)
             .map_err(|e| HilError::InvalidManifest(format!("JSON parse error: {e}")))?;
@@ -363,20 +418,138 @@ impl HilTestBenchManifest {
         Ok(manifest)
     }
 
-    /// Wczytuje i parsuje manifest z pliku dyskowego.
+    /// Wczytuje i parsuje plan testu z pliku dyskowego.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, HilError> {
         let content = std::fs::read_to_string(path)
             .map_err(|e| HilError::IoError(format!("Cannot read manifest file: {e}")))?;
         Self::from_json(&content)
     }
 
-    /// Serializuje manifest do znormalizowanego formatu JSON z wcięciami.
+    /// Serializuje plan testu do znormalizowanego formatu JSON z wcięciami.
     pub fn to_json(&self) -> Result<String, HilError> {
         serde_json::to_string_pretty(self)
             .map_err(|e| HilError::InvalidManifest(format!("JSON serialization error: {e}")))
     }
 
-    /// Sprawdza formalną poprawność strukturalną manifestu.
+    /// Zwraca kanoniczną postać planu (posortowane klucze, stabilna kolejność).
+    ///
+    /// Kanoniczna postać **nie zawiera** osadzonego oświadczenia operatora ani odczytu
+    /// przyrządu: są to deklaracje dołączone do planu, a nie część planu testu.
+    pub fn canonical_plan_value(&self) -> serde_json::Value {
+        let mut value = serde_json::to_value(self).unwrap_or(serde_json::Value::Null);
+        if let serde_json::Value::Object(map) = &mut value {
+            map.remove("operator_attestation");
+            map.remove("instrument_verification");
+        }
+        value
+    }
+
+    /// Oblicza SHA-256 kanonicznej postaci planu testu.
+    ///
+    /// Jest to skrót integralności, **nie** podpis kryptograficzny. Dowód niezależny wiąże się
+    /// z planem tym skrótem; sam skrót nie nadaje żadnego uprawnienia.
+    pub fn plan_sha256(&self) -> String {
+        let canonical = serde_json::to_string(&self.canonical_plan_value())
+            .unwrap_or_else(|_| String::from("{}"));
+        let mut hasher_input = Vec::with_capacity(
+            super::authorization::HIL_PLAN_DIGEST_DOMAIN.len() + 1 + canonical.len(),
+        );
+        hasher_input.extend_from_slice(super::authorization::HIL_PLAN_DIGEST_DOMAIN.as_bytes());
+        hasher_input.push(b'\n');
+        hasher_input.extend_from_slice(canonical.as_bytes());
+        sha256_hex(&hasher_input)
+    }
+
+    /// Weryfikuje pełną poprawność planu (schemat + struktura + parametry).
+    pub fn validate_plan(&self) -> Result<(), HilPlanValidationError> {
+        if self.schema_version == 0 {
+            return Err(HilPlanValidationError::LegacySchemaRequiresMigration);
+        }
+        if self.schema_version != HIL_PLAN_SCHEMA_VERSION {
+            return Err(HilPlanValidationError::UnsupportedSchemaVersion(
+                self.schema_version,
+            ));
+        }
+        for (name, value) in [
+            ("bench_id", self.bench_id.as_str()),
+            ("session_id", self.session_id.as_str()),
+            ("test_case_id", self.test_case_id.as_str()),
+            ("attempt_id", self.attempt_id.as_str()),
+            ("operator_callsign", self.operator_callsign.as_str()),
+        ] {
+            if value.trim().is_empty() {
+                return Err(HilPlanValidationError::MissingRequiredField(name));
+            }
+        }
+        if self.matrix.model_name.trim().is_empty() {
+            return Err(HilPlanValidationError::MissingRequiredField(
+                "matrix.model_name",
+            ));
+        }
+        if self.matrix.rig_id.as_str().trim().is_empty() {
+            return Err(HilPlanValidationError::MissingRequiredField(
+                "matrix.rig_id",
+            ));
+        }
+        if self.matrix.firmware_version.trim().is_empty() {
+            return Err(HilPlanValidationError::MissingRequiredField(
+                "matrix.firmware_version",
+            ));
+        }
+        match &self.matrix.transport {
+            HilTransportConfig::Serial {
+                port_name,
+                baud_rate,
+                ..
+            } => {
+                let trimmed = port_name.trim();
+                if trimmed.is_empty() {
+                    return Err(HilPlanValidationError::MissingRequiredField(
+                        "matrix.transport.port_name",
+                    ));
+                }
+                let upper = trimmed.to_ascii_uppercase();
+                if upper == "AUTO" || upper == "FIRST" || upper == "DETECT" {
+                    return Err(HilPlanValidationError::InvalidParameter(
+                        "automatic port selection is forbidden for a HIL bench".to_string(),
+                    ));
+                }
+                if *baud_rate < 1200 {
+                    return Err(HilPlanValidationError::InvalidParameter(format!(
+                        "invalid baud_rate {baud_rate} (must be >= 1200)"
+                    )));
+                }
+            }
+            HilTransportConfig::Network { host, port } => {
+                if host.trim().is_empty() {
+                    return Err(HilPlanValidationError::MissingRequiredField(
+                        "matrix.transport.host",
+                    ));
+                }
+                if *port == 0 {
+                    return Err(HilPlanValidationError::InvalidParameter(
+                        "network port cannot be 0".to_string(),
+                    ));
+                }
+            }
+        }
+        self.validate_structure().map_err(|err| match err {
+            HilError::SafetyViolation(msg) | HilError::InvalidTransport(msg) => {
+                HilPlanValidationError::InvalidParameter(msg)
+            }
+            other => HilPlanValidationError::InvalidParameter(other.to_string()),
+        })?;
+        Ok(())
+    }
+
+    /// Czy dokument wymaga jawnej migracji z wersji 1.
+    pub fn requires_migration(&self) -> bool {
+        self.schema_version == 0
+    }
+
+    /// Sprawdza formalną poprawność strukturalną planu.
+    ///
+    /// Funkcja **nie** ocenia gotowości i nie odczytuje żadnej deklaracji jako dowodu.
     pub fn validate_structure(&self) -> Result<(), HilError> {
         if self.bench_id.trim().is_empty() {
             return Err(HilError::InvalidManifest(
@@ -484,20 +657,17 @@ impl HilTestBenchManifest {
             )));
         }
 
-        if self
-            .operator_attestation
-            .attestation_timestamp
-            .trim()
-            .is_empty()
-        {
-            return Err(HilError::InvalidConsent(
-                "operator_attestation attestation_timestamp cannot be empty".to_string(),
-            ));
-        }
-        if self.operator_attestation.description.trim().is_empty() {
-            return Err(HilError::InvalidConsent(
-                "operator_attestation description cannot be empty".to_string(),
-            ));
+        if let Some(attestation) = &self.operator_attestation {
+            if attestation.attestation_timestamp.trim().is_empty() {
+                return Err(HilError::InvalidConsent(
+                    "operator_attestation attestation_timestamp cannot be empty".to_string(),
+                ));
+            }
+            if attestation.description.trim().is_empty() {
+                return Err(HilError::InvalidConsent(
+                    "operator_attestation description cannot be empty".to_string(),
+                ));
+            }
         }
 
         if let Some(ref inst) = self.instrument_verification
@@ -529,7 +699,7 @@ impl HilTestBenchManifest {
         Ok(())
     }
 
-    /// Konwertuje manifest do formatu konfiguracji sesji radiowej [`RigConfig`].
+    /// Konwertuje plan do formatu konfiguracji sesji radiowej [`RigConfig`].
     pub fn to_rig_config(&self) -> Result<RigConfig, HilError> {
         let backend = match self.matrix.backend_kind {
             CatBackendKind::Hamlib => match &self.matrix.transport {
@@ -700,7 +870,7 @@ impl HilTestBenchManifest {
         })
     }
 
-    /// Zwraca zanonimizowaną kopię manifestu bez poufnych danych.
+    /// Zwraca zanonimizowaną kopię planu bez poufnych danych.
     pub fn redacted_manifest(&self) -> Self {
         let mut copy = self.clone();
         if let HilTransportConfig::Network { host, .. } = &mut copy.matrix.transport
@@ -717,17 +887,19 @@ impl HilTestBenchManifest {
 mod tests {
     use super::*;
 
-    #[test]
-    fn hil_manifest_to_rig_config_uses_profile_civ_address_for_ic7610_and_ic705() {
-        let manifest_7610 = HilTestBenchManifest {
+    fn base_manifest() -> HilTestBenchManifest {
+        HilTestBenchManifest {
+            schema_version: HIL_PLAN_SCHEMA_VERSION,
             bench_id: "LAB-BENCH-SP6INA-01".to_string(),
             session_id: "SESSION-01".to_string(),
+            test_case_id: "hil_hardware_ptt_01".to_string(),
+            attempt_id: "ATTEMPT-01".to_string(),
             created_at: "2026-10-18T09:30:00Z".to_string(),
             expires_at: None,
             tested_commit: None,
             expected_commit: None,
-            working_tree_clean: true,
-            software_tests_passed: true,
+            working_tree_clean: None,
+            software_tests_passed: None,
             operator_id: "SP6INA".to_string(),
             operator_callsign: "SP6INA".to_string(),
             operator_name: "Mariusz".to_string(),
@@ -764,31 +936,14 @@ mod tests {
                 operator_has_immediate_stop_control: true,
                 out_of_band_data_plane_disabled: true,
             },
-            operator_attestation: HilOperatorAttestation {
-                dummy_load_physically_connected: true,
-                rf_perimeter_secured: true,
-                ptt_consent_granted: true,
-                attestation_timestamp: "2026-10-18T09:30:00Z".to_string(),
-                description: "desc".to_string(),
-                antenna_disconnected: true,
-                pa_disconnected_or_locked: true,
-                tuner_bypassed: true,
-                physical_stop_available: true,
-                abort_procedure_documented: true,
-                operator_acknowledged: true,
-                bench_readiness_confirmed: true,
-                operator_present: true,
-                supervised_trial_confirmed: true,
-                rules_compliance_attested: true,
-                operator_privileges_attested: true,
-                allowed_band_attested: true,
-                allowed_mode_attested: true,
-                no_unauthorized_emission_attested: true,
-                personnel_know_stop_procedure: true,
-            },
+            operator_attestation: None,
             instrument_verification: None,
-        };
+        }
+    }
 
+    #[test]
+    fn hil_manifest_to_rig_config_uses_profile_civ_address_for_ic7610_and_ic705() {
+        let manifest_7610 = base_manifest();
         let cfg = manifest_7610.to_rig_config().expect("to_rig_config");
         if let RigBackendConfig::Icom(icom) = cfg.backend {
             assert_eq!(icom.civ_address, 0x98);
@@ -804,5 +959,84 @@ mod tests {
         } else {
             panic!("expected Icom config");
         }
+    }
+
+    #[test]
+    fn f15_plan_digest_is_deterministic_and_excludes_attestation() {
+        let manifest = base_manifest();
+        let first = manifest.plan_sha256();
+        let second = manifest.plan_sha256();
+        assert_eq!(first, second);
+        assert!(super::super::authorization::is_sha256_hex(&first));
+
+        let mut with_attestation = manifest.clone();
+        with_attestation.operator_attestation = Some(HilOperatorAttestation {
+            dummy_load_physically_connected: true,
+            rf_perimeter_secured: true,
+            ptt_consent_granted: true,
+            attestation_timestamp: "2026-10-18T09:30:00Z".to_string(),
+            description: "declaration".to_string(),
+            antenna_disconnected: true,
+            pa_disconnected_or_locked: true,
+            tuner_bypassed: true,
+            physical_stop_available: true,
+            abort_procedure_documented: true,
+            operator_acknowledged: true,
+            bench_readiness_confirmed: true,
+            operator_present: true,
+            supervised_trial_confirmed: true,
+            rules_compliance_attested: true,
+            operator_privileges_attested: true,
+            allowed_band_attested: true,
+            allowed_mode_attested: true,
+            no_unauthorized_emission_attested: true,
+            personnel_know_stop_procedure: true,
+        });
+        assert_eq!(
+            with_attestation.plan_sha256(),
+            first,
+            "an embedded attestation declaration must not change the plan digest"
+        );
+    }
+
+    #[test]
+    fn f15_legacy_plan_requires_migration() {
+        let mut manifest = base_manifest();
+        manifest.schema_version = 0;
+        assert!(manifest.requires_migration());
+        assert_eq!(
+            manifest.validate_plan(),
+            Err(HilPlanValidationError::LegacySchemaRequiresMigration)
+        );
+    }
+
+    #[test]
+    fn f15_plan_requires_explicit_test_case_and_attempt() {
+        let mut manifest = base_manifest();
+        manifest.test_case_id = "  ".to_string();
+        assert!(matches!(
+            manifest.validate_plan(),
+            Err(HilPlanValidationError::MissingRequiredField(_))
+        ));
+
+        let mut manifest = base_manifest();
+        manifest.attempt_id = String::new();
+        assert!(matches!(
+            manifest.validate_plan(),
+            Err(HilPlanValidationError::MissingRequiredField(_))
+        ));
+    }
+
+    #[test]
+    fn f15_legacy_boolean_declarations_do_not_change_the_plan_digest() {
+        let manifest = base_manifest();
+        let mut with_legacy = manifest.clone();
+        with_legacy.working_tree_clean = Some(true);
+        with_legacy.software_tests_passed = Some(true);
+        assert_ne!(
+            manifest.plan_sha256(),
+            with_legacy.plan_sha256(),
+            "legacy declarations are part of the plan document and must be digest-bound"
+        );
     }
 }

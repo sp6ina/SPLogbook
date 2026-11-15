@@ -1,13 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
+use std::collections::BTreeMap;
+
+use chrono::{DateTime, Utc};
+
+use super::authorization::{
+    HIL_REQUIRED_MEASURED_FACTS, HilAttemptRegistry, HilAttestationDocument,
+    HilAuthorizationDecision, HilAuthorizationInputs, HilAuthorizationOutcome, HilEvidenceProvider,
+    HilEvidenceScope, HilHardwareExecutionAuthorizer, HilIndependentEvidence,
+};
 use super::evidence::{
     CANONICAL_HIL_READY_DESCRIPTIONS, CANONICAL_HIL_READY_IDS, HilEvidenceOrigin,
     HilExecutionContext, HilExecutionStage, HilExtendedRequirement, HilImplementationCoverage,
     HilReadinessCheck, HilReadinessCondition, HilReadinessEvidenceKind, HilReadinessReport,
     HilReadinessStatus, HilRequirementAssessment,
 };
-use super::manifest::{HilRfTermination, HilTestBenchManifest, HilTransportConfig};
+use super::manifest::{
+    HilOperatorAttestation, HilRfTermination, HilTestBenchManifest, HilTransportConfig,
+};
 use crate::cat::backend::CatBackendKind;
 use crate::cat::native::profile::RigVendor;
 use crate::cat::native::registry::find_profile_by_model;
@@ -78,37 +89,64 @@ impl std::fmt::Display for HilProfileValidationError {
 
 impl std::error::Error for HilProfileValidationError {}
 
-/// Walidator gotowości laboratoryjnej Hardware-In-The-Loop ([`HilReadinessValidator`]).
+/// Walidator konfiguracji i modelu dowodowego Hardware-In-The-Loop ([`HilReadinessValidator`]).
+///
+/// **F-15:** walidator ocenia plan i deklaracje, ale **nie może** autoryzować wykonania
+/// sprzętowego. Autoryzacja sprzętowa wymaga niezależnego dowodu i jest wydawana wyłącznie
+/// przez [`HilHardwareExecutionAuthorizer`]. Metoda [`HilReadinessReport::can_run_hardware_ptt`]
+/// zwraca `false` dla każdego raportu, ponieważ raport nie jest upoważnieniem PTT.
 ///
 /// Implementuje rygorystyczne reguły bezpieczeństwa w.cz., sprawdzając każdy warunek
 /// pod kątem jednoznacznie przypisanej kategorii dowodu:
 /// - MachineVerified: sprawdzenia deterministyczne w kodzie,
 /// - OperatorAttested: manualne oświadczenia operatora o stanie fizycznym,
-/// - InstrumentVerified: odczyty z certyfikowanych przyrządów pomiarowych.
+/// - InstrumentVerified: odczyty z przyrządów pomiarowych.
 pub struct HilReadinessValidator;
 
 impl HilReadinessValidator {
-    /// Przeprowadza pełną walidację gotowości stanowiska HIL na podstawie manifestu i fazy.
+    /// Przeprowadza walidację konfiguracji stanowiska HIL na podstawie planu i fazy.
+    ///
+    /// Wynik jest **diagnostyką konfiguracji**, nie autoryzacją sprzętową.
     pub fn validate(
         manifest: &HilTestBenchManifest,
         stage: HilExecutionStage,
+    ) -> HilReadinessReport {
+        Self::evaluate_plan(manifest, stage, true)
+    }
+
+    /// Waliduje plan **bez** odczytywania osadzonych deklaracji operatora.
+    ///
+    /// Deklaracje osadzone w planie v1 nigdy nie są dowodem; ta ścieżka jawnie je pomija.
+    pub fn validate_without_declarations(
+        manifest: &HilTestBenchManifest,
+        stage: HilExecutionStage,
+    ) -> HilReadinessReport {
+        Self::evaluate_plan(manifest, stage, false)
+    }
+
+    fn evaluate_plan(
+        manifest: &HilTestBenchManifest,
+        stage: HilExecutionStage,
+        consider_embedded_declarations: bool,
     ) -> HilReadinessReport {
         let checks = vec![
             Self::check_rig_target(manifest),
             Self::check_transport(manifest),
             Self::check_rf_termination(manifest),
             Self::check_ptt_no_retry(),
-            Self::check_operator_dummy_load(manifest),
-            Self::check_operator_rf_perimeter(manifest),
-            Self::check_operator_ptt_consent(manifest),
+            Self::check_operator_dummy_load(manifest, consider_embedded_declarations),
+            Self::check_operator_rf_perimeter(manifest, consider_embedded_declarations),
+            Self::check_operator_ptt_consent(manifest, consider_embedded_declarations),
             Self::check_instrument_swr(manifest),
             Self::check_stage_gate(stage),
         ];
 
-        let conditions = Self::evaluate_all_conditions(manifest, stage);
-        let extended_requirements = Self::evaluate_extended_requirements(manifest, stage);
+        let conditions =
+            Self::evaluate_all_conditions(manifest, stage, consider_embedded_declarations);
+        let extended_requirements =
+            Self::evaluate_extended_requirements(manifest, stage, consider_embedded_declarations);
 
-        // Wyznaczenie całościowego statusu gotowości (zarówno z reguł jak i z 30 warunków)
+        // Wyznaczenie całościowego statusu gotowości na podstawie reguł i 30 warunków.
         let has_failed = checks
             .iter()
             .any(|c| c.status == HilReadinessStatus::Failed)
@@ -144,14 +182,17 @@ impl HilReadinessValidator {
     /// symbolami implementacyjnymi i testami offline.
     pub fn canonical_matrix() -> Vec<HilReadinessCondition> {
         let manifest = HilTestBenchManifest {
+            schema_version: super::manifest::HIL_PLAN_SCHEMA_VERSION,
             bench_id: "LAB-BENCH-SP6INA-01".to_string(),
             session_id: "SESSION-CANONICAL-01".to_string(),
+            test_case_id: "hil_hardware_live_test_bench".to_string(),
+            attempt_id: "ATTEMPT-CANONICAL-01".to_string(),
             created_at: "2026-10-18T09:30:00Z".to_string(),
             expires_at: Some("2026-10-18T23:59:59Z".to_string()),
             tested_commit: Some("e1ff373b5d264f3f3de2383c19936f45b2befe6a".to_string()),
             expected_commit: None,
-            working_tree_clean: true,
-            software_tests_passed: true,
+            working_tree_clean: None,
+            software_tests_passed: None,
             operator_id: "SP6INA".to_string(),
             operator_callsign: "SP6INA".to_string(),
             operator_name: "Mariusz Woźniak".to_string(),
@@ -190,31 +231,105 @@ impl HilReadinessValidator {
                 operator_has_immediate_stop_control: true,
                 out_of_band_data_plane_disabled: true,
             },
-            operator_attestation: crate::cat::hil::HilOperatorAttestation {
-                dummy_load_physically_connected: true,
-                rf_perimeter_secured: true,
-                ptt_consent_granted: true,
-                attestation_timestamp: "2026-10-18T09:30:00Z".to_string(),
-                description: "Canonical reference bench".to_string(),
-                antenna_disconnected: true,
-                pa_disconnected_or_locked: true,
-                tuner_bypassed: true,
-                physical_stop_available: true,
-                abort_procedure_documented: true,
-                operator_acknowledged: true,
-                bench_readiness_confirmed: true,
-                operator_present: true,
-                supervised_trial_confirmed: true,
-                rules_compliance_attested: true,
-                operator_privileges_attested: true,
-                allowed_band_attested: true,
-                allowed_mode_attested: true,
-                no_unauthorized_emission_attested: true,
-                personnel_know_stop_procedure: true,
-            },
+            operator_attestation: None,
             instrument_verification: None,
         };
-        Self::evaluate_all_conditions(&manifest, HilExecutionStage::Stage7AOffline)
+        Self::evaluate_all_conditions(&manifest, HilExecutionStage::Stage7AOffline, true)
+    }
+
+    /// Dokonuje pełnej walidacji autoryzacyjnej. Manifest nie jest authority dla samego siebie.
+    ///
+    /// To jedyna droga do uzyskania upoważnienia sprzętowego. Bez niezależnego dowodu wynik jest
+    /// kontrolowaną odmową.
+    pub fn authorize_hardware_execution_at(
+        manifest: &HilTestBenchManifest,
+        attestation: Option<&HilAttestationDocument>,
+        evidence: Option<&HilIndependentEvidence>,
+        evaluated_at: DateTime<Utc>,
+    ) -> HilAuthorizationDecision {
+        HilHardwareExecutionAuthorizer::authorize_at(
+            HilAuthorizationInputs {
+                plan: manifest,
+                attestation,
+                evidence,
+            },
+            evaluated_at,
+        )
+    }
+
+    /// Dokonuje walidacji suchego przebiegu (bez PTT, bez upoważnienia sprzętowego).
+    pub fn authorize_dry_run_at(
+        manifest: &HilTestBenchManifest,
+        attestation: Option<&HilAttestationDocument>,
+        evaluated_at: DateTime<Utc>,
+    ) -> HilAuthorizationDecision {
+        HilHardwareExecutionAuthorizer::dry_run_at(manifest, attestation, evaluated_at)
+    }
+
+    /// Pobiera dowód od dostawcy — fail-closed. Brak dostawcy ⇒ odmowa.
+    pub fn request_independent_evidence<P: HilEvidenceProvider>(
+        provider: Option<&P>,
+        manifest: &HilTestBenchManifest,
+        attestation: &HilAttestationDocument,
+    ) -> Result<HilIndependentEvidence, super::authorization::HilEvidenceError> {
+        super::authorization::request_evidence_or_deny(provider, manifest, attestation)
+    }
+
+    /// Sprawdza, czy plan i oświadczenie pozwalają na suchy przebieg. Nigdy nie upoważnia PTT.
+    pub fn dry_run_decision(
+        manifest: &HilTestBenchManifest,
+        attestation: Option<&HilAttestationDocument>,
+        evaluated_at: DateTime<Utc>,
+    ) -> HilAuthorizationDecision {
+        let decision = HilHardwareExecutionAuthorizer::authorize_at(
+            HilAuthorizationInputs {
+                plan: manifest,
+                attestation,
+                evidence: None,
+            },
+            evaluated_at,
+        );
+        // Suchy przebieg jest dozwolony tylko wtedy, gdy konfiguracja i oświadczenie są poprawne;
+        // dowód nie jest wymagany do suchego przebiegu, ale wynik nigdy nie upoważnia PTT.
+        if matches!(
+            decision.outcome(),
+            HilAuthorizationOutcome::EvidenceMissing
+                | HilAuthorizationOutcome::OperatorAttestationMissing
+        ) {
+            return HilHardwareExecutionAuthorizer::dry_run_at(manifest, attestation, evaluated_at);
+        }
+        decision
+    }
+
+    /// Ewaluuje rejestr wymaganych faktów zmierzonych (używane w diagnostyce i testach).
+    pub fn required_measured_facts() -> &'static [&'static str] {
+        &HIL_REQUIRED_MEASURED_FACTS
+    }
+
+    /// Zużywa próbę w rejestrze powtórzeń. Zwraca kontrolowaną odmowę przy powtórzeniu.
+    pub fn consume_attempt(
+        registry: &HilAttemptRegistry,
+        session_id: &str,
+        attempt_id: &str,
+    ) -> Result<(), super::authorization::HilEvidenceError> {
+        registry.consume(session_id, attempt_id)
+    }
+
+    /// Pomocniczo: pusty zestaw zmierzonych faktów (diagnostyka; nie upoważnia niczego).
+    pub fn empty_measured_facts() -> BTreeMap<String, bool> {
+        BTreeMap::new()
+    }
+
+    /// Pomocniczo: zakres wymagany do wykonania sprzętowego.
+    pub fn required_scope() -> HilEvidenceScope {
+        HilEvidenceScope::HardwarePtt
+    }
+
+    fn attestation_flag(
+        attestation: Option<&HilOperatorAttestation>,
+        field: impl Fn(&HilOperatorAttestation) -> bool,
+    ) -> bool {
+        attestation.is_some_and(field)
     }
 
     fn check_rig_target(manifest: &HilTestBenchManifest) -> HilReadinessCheck {
@@ -313,8 +428,7 @@ impl HilReadinessValidator {
                 if (spec.impedance_ohms - 50.0).abs() > 5.0 {
                     HilReadinessCheck {
                         id: "HIL-MACHINE-RF-TERMINATION".to_string(),
-                        title: "RF Termination Manifest Declaration (50 Ohm Dummy Load)"
-                            .to_string(),
+                        title: "RF Termination Plan Declaration (50 Ohm Dummy Load)".to_string(),
                         evidence_kind: HilReadinessEvidenceKind::MachineVerified,
                         status: HilReadinessStatus::Failed,
                         details: format!(
@@ -325,8 +439,7 @@ impl HilReadinessValidator {
                 } else if manifest.rf_safety.max_test_power_watts > spec.power_rating_watts {
                     HilReadinessCheck {
                         id: "HIL-MACHINE-RF-TERMINATION".to_string(),
-                        title: "RF Termination Manifest Declaration (50 Ohm Dummy Load)"
-                            .to_string(),
+                        title: "RF Termination Plan Declaration (50 Ohm Dummy Load)".to_string(),
                         evidence_kind: HilReadinessEvidenceKind::MachineVerified,
                         status: HilReadinessStatus::Failed,
                         details: format!(
@@ -337,12 +450,11 @@ impl HilReadinessValidator {
                 } else {
                     HilReadinessCheck {
                         id: "HIL-MACHINE-RF-TERMINATION".to_string(),
-                        title: "RF Termination Manifest Declaration (50 Ohm Dummy Load)"
-                            .to_string(),
+                        title: "RF Termination Plan Declaration (50 Ohm Dummy Load)".to_string(),
                         evidence_kind: HilReadinessEvidenceKind::MachineVerified,
                         status: HilReadinessStatus::Passed,
                         details: format!(
-                            "Verified manifest 50-ohm dummy load declaration S/N: '{}', rating: {:.1} W, max test power: {:.1} W (physical connection requires operator attestation)",
+                            "Plan declares a 50-ohm dummy load S/N: '{}', rating: {:.1} W, max test power: {:.1} W; physical connection and impedance require independent evidence",
                             spec.serial_number,
                             spec.power_rating_watts,
                             manifest.rf_safety.max_test_power_watts
@@ -352,7 +464,7 @@ impl HilReadinessValidator {
             }
             HilRfTermination::Antenna { antenna_name } => HilReadinessCheck {
                 id: "HIL-MACHINE-RF-TERMINATION".to_string(),
-                title: "RF Termination Manifest Declaration (50 Ohm Dummy Load)".to_string(),
+                title: "RF Termination Plan Declaration (50 Ohm Dummy Load)".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
                 status: HilReadinessStatus::Failed,
                 details: format!(
@@ -374,69 +486,83 @@ impl HilReadinessValidator {
         }
     }
 
-    fn check_operator_dummy_load(manifest: &HilTestBenchManifest) -> HilReadinessCheck {
-        if manifest
-            .operator_attestation
-            .dummy_load_physically_connected
-        {
+    fn check_operator_dummy_load(
+        manifest: &HilTestBenchManifest,
+        consider_embedded_declarations: bool,
+    ) -> HilReadinessCheck {
+        let declared = consider_embedded_declarations
+            && Self::attestation_flag(manifest.operator_attestation.as_ref(), |a| {
+                a.dummy_load_physically_connected
+            });
+        if declared {
             HilReadinessCheck {
                 id: "HIL-OPERATOR-DUMMY-LOAD".to_string(),
-                title: "Physical Dummy Load Connection Attestation".to_string(),
+                title: "Physical Dummy Load Connection Declaration".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::OperatorAttested,
-                status: HilReadinessStatus::Passed,
-                details: "Operator confirmed physical connection and torque of 50-ohm dummy load"
+                status: HilReadinessStatus::Blocked,
+                details: "Operator declared physical dummy load connection; an operator \
+                          declaration is not independent evidence, so hardware execution stays \
+                          denied without an independent evidence document"
                     .to_string(),
             }
         } else {
             HilReadinessCheck {
                 id: "HIL-OPERATOR-DUMMY-LOAD".to_string(),
-                title: "Physical Dummy Load Connection Attestation".to_string(),
+                title: "Physical Dummy Load Connection Declaration".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::OperatorAttested,
                 status: HilReadinessStatus::Blocked,
-                details: "Operator has not attested physical connection of dummy load".to_string(),
+                details: "Operator has not declared physical connection of dummy load".to_string(),
             }
         }
     }
 
-    fn check_operator_rf_perimeter(manifest: &HilTestBenchManifest) -> HilReadinessCheck {
-        if manifest.operator_attestation.rf_perimeter_secured {
-            HilReadinessCheck {
-                id: "HIL-OPERATOR-RF-PERIMETER".to_string(),
-                title: "RF Safety Perimeter Attestation".to_string(),
-                evidence_kind: HilReadinessEvidenceKind::OperatorAttested,
-                status: HilReadinessStatus::Passed,
-                details: "Operator confirmed RF safety perimeter is clear of personnel and hazards"
-                    .to_string(),
-            }
-        } else {
-            HilReadinessCheck {
-                id: "HIL-OPERATOR-RF-PERIMETER".to_string(),
-                title: "RF Safety Perimeter Attestation".to_string(),
-                evidence_kind: HilReadinessEvidenceKind::OperatorAttested,
-                status: HilReadinessStatus::Blocked,
-                details: "Operator has not confirmed RF safety perimeter clearance".to_string(),
-            }
+    fn check_operator_rf_perimeter(
+        manifest: &HilTestBenchManifest,
+        consider_embedded_declarations: bool,
+    ) -> HilReadinessCheck {
+        let declared = consider_embedded_declarations
+            && Self::attestation_flag(manifest.operator_attestation.as_ref(), |a| {
+                a.rf_perimeter_secured
+            });
+        HilReadinessCheck {
+            id: "HIL-OPERATOR-RF-PERIMETER".to_string(),
+            title: "RF Safety Perimeter Declaration".to_string(),
+            evidence_kind: HilReadinessEvidenceKind::OperatorAttested,
+            status: HilReadinessStatus::Blocked,
+            details: if declared {
+                "Operator declared RF safety perimeter clearance; independent measurement is \
+                 required before any hardware execution"
+                    .to_string()
+            } else {
+                "Operator has not declared RF safety perimeter clearance".to_string()
+            },
         }
     }
 
-    fn check_operator_ptt_consent(manifest: &HilTestBenchManifest) -> HilReadinessCheck {
-        if manifest.operator_attestation.ptt_consent_granted {
-            HilReadinessCheck {
-                id: "HIL-OPERATOR-PTT-CONSENT".to_string(),
-                title: "Explicit Operator Consent for PTT Test".to_string(),
-                evidence_kind: HilReadinessEvidenceKind::OperatorAttested,
-                status: HilReadinessStatus::Passed,
-                details: "Operator granted explicit written consent for controlled PTT execution"
-                    .to_string(),
-            }
-        } else {
-            HilReadinessCheck {
-                id: "HIL-OPERATOR-PTT-CONSENT".to_string(),
-                title: "Explicit Operator Consent for PTT Test".to_string(),
-                evidence_kind: HilReadinessEvidenceKind::OperatorAttested,
-                status: HilReadinessStatus::Blocked,
-                details: "Operator has not granted explicit consent for PTT test".to_string(),
-            }
+    fn check_operator_ptt_consent(
+        manifest: &HilTestBenchManifest,
+        consider_embedded_declarations: bool,
+    ) -> HilReadinessCheck {
+        let declared = consider_embedded_declarations
+            && Self::attestation_flag(manifest.operator_attestation.as_ref(), |a| {
+                a.ptt_consent_granted
+            });
+        HilReadinessCheck {
+            id: "HIL-OPERATOR-PTT-CONSENT".to_string(),
+            title: "Explicit Operator Consent for PTT Test".to_string(),
+            evidence_kind: HilReadinessEvidenceKind::OperatorAttested,
+            status: if declared {
+                HilReadinessStatus::Passed
+            } else {
+                HilReadinessStatus::Blocked
+            },
+            details: if declared {
+                "Operator granted explicit consent for controlled PTT execution (consent is an \
+                 authorization input, never evidence of bench state)"
+                    .to_string()
+            } else {
+                "Operator has not granted explicit consent for PTT test".to_string()
+            },
         }
     }
 
@@ -445,22 +571,23 @@ impl HilReadinessValidator {
             if inst.measured_swr <= 1.5 {
                 HilReadinessCheck {
                     id: "HIL-INSTRUMENT-SWR".to_string(),
-                    title: "Instrument-Verified SWR Measurement".to_string(),
+                    title: "Instrument SWR Declaration".to_string(),
                     evidence_kind: HilReadinessEvidenceKind::InstrumentVerified,
                     status: HilReadinessStatus::Passed,
                     details: format!(
-                        "Instrument '{}' ({}) verified SWR {:.2}:1 (within limit <= 1.50:1)",
+                        "Plan declares instrument '{}' ({}) SWR {:.2}:1 (within limit <= 1.50:1); \
+                         a declaration is not an independent measurement",
                         inst.instrument_id, inst.instrument_model, inst.measured_swr
                     ),
                 }
             } else {
                 HilReadinessCheck {
                     id: "HIL-INSTRUMENT-SWR".to_string(),
-                    title: "Instrument-Verified SWR Measurement".to_string(),
+                    title: "Instrument SWR Declaration".to_string(),
                     evidence_kind: HilReadinessEvidenceKind::InstrumentVerified,
                     status: HilReadinessStatus::Failed,
                     details: format!(
-                        "Instrument '{}' measured SWR {:.2}:1 exceeds safety threshold 1.50:1",
+                        "Declared instrument '{}' SWR {:.2}:1 exceeds safety threshold 1.50:1",
                         inst.instrument_id, inst.measured_swr
                     ),
                 }
@@ -468,10 +595,12 @@ impl HilReadinessValidator {
         } else {
             HilReadinessCheck {
                 id: "HIL-INSTRUMENT-SWR".to_string(),
-                title: "Instrument-Verified SWR Measurement".to_string(),
+                title: "Instrument SWR Declaration".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::InstrumentVerified,
                 status: HilReadinessStatus::NotRun,
-                details: "No digital instrument measurement recorded; relying on operator dummy load attestation".to_string(),
+                details: "No instrument measurement declared; an independent evidence document is \
+                          still required for hardware execution"
+                    .to_string(),
             }
         }
     }
@@ -593,8 +722,10 @@ impl HilReadinessValidator {
                 id: "HIL-STAGE-PTT-GATE".to_string(),
                 title: "Stage Execution Safety Gate".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
-                status: HilReadinessStatus::Passed,
-                details: "Stage NATIVE-7B permits hardware PTT execution subject to complete HIL-READY verification".to_string(),
+                status: HilReadinessStatus::Blocked,
+                details: "Stage NATIVE-7B permits hardware PTT only with an independent evidence \
+                          document; a test plan cannot authorize execution"
+                    .to_string(),
             },
         }
     }
@@ -742,12 +873,13 @@ impl HilReadinessValidator {
     }
 
     /// Weryfikuje bezpieczeństwo zdalnego TX oraz wyłączenie SmartLink (Warunek 25).
+    ///
+    /// Deklaracje w planie nie są dowodem; funkcja ocenia spójność planu.
     pub fn validate_remote_tx_safety(manifest: &HilTestBenchManifest) -> bool {
         if !manifest.rf_safety.smartlink_disabled
             || !manifest.rf_safety.unattended_remote_tx_disabled
             || !manifest.rf_safety.remote_endpoint_is_local_or_controlled
             || !manifest.rf_safety.operator_has_immediate_stop_control
-            || !manifest.operator_attestation.physical_stop_available
         {
             return false;
         }
@@ -762,6 +894,7 @@ impl HilReadinessValidator {
     fn evaluate_all_conditions(
         manifest: &HilTestBenchManifest,
         stage: HilExecutionStage,
+        consider_embedded_declarations: bool,
     ) -> Vec<HilReadinessCondition> {
         let is_7a = stage == HilExecutionStage::Stage7AOffline;
         let is_antenna = matches!(
@@ -773,28 +906,55 @@ impl HilReadinessValidator {
             HilRfTermination::Antenna { .. } => None,
         };
 
-        let has_timestamp_and_desc = !manifest
-            .operator_attestation
-            .attestation_timestamp
-            .trim()
-            .is_empty()
-            && !manifest.operator_attestation.description.trim().is_empty();
-
-        // Warunek 1: Working tree clean.
-        let cond1_status = if manifest.working_tree_clean {
-            HilReadinessStatus::Passed
+        let attestation = if consider_embedded_declarations {
+            manifest.operator_attestation.as_ref()
         } else {
-            HilReadinessStatus::Failed
+            None
         };
+        let flag = |field: fn(&HilOperatorAttestation) -> bool| -> bool {
+            Self::attestation_flag(attestation, field)
+        };
+        let has_timestamp_and_desc = attestation.is_some_and(|a| {
+            !a.attestation_timestamp.trim().is_empty() && !a.description.trim().is_empty()
+        });
 
-        // Warunek 2: Wszystkie testy programowe przechodzą.
-        let cond2_status = if manifest.software_tests_passed {
-            HilReadinessStatus::Passed
+        // Warunek 1: Working tree clean — pomiar repozytorium, nie deklaracja planu.
+        // Os offline jest wyłącznie deklaracją planu (diagnostyka); status runtime pozostaje
+        // Blocked, bo deklaracja nie jest niezależnym dowodem (F-15).
+        let cond1_offline = if consider_embedded_declarations {
+            match manifest.working_tree_clean {
+                Some(true) => HilReadinessStatus::Passed,
+                Some(false) => HilReadinessStatus::Failed,
+                None => HilReadinessStatus::Blocked,
+            }
         } else {
-            HilReadinessStatus::Failed
+            HilReadinessStatus::Blocked
         };
-
-        // Warunek 3: Pełny SHA testowanego commita jest zapisany.
+        // Sprzeczna deklaracja planu jest błędem konfiguracji; poprawna deklaracja pozostaje
+        // wyłącznie deklaracją i nie może ustawić statusu runtime na Passed (F-15).
+        let cond1_status = if cond1_offline == HilReadinessStatus::Failed {
+            HilReadinessStatus::Failed
+        } else {
+            HilReadinessStatus::Blocked
+        };
+        // Warunek 2: Wszystkie testy programowe przechodzą — pomiar baseline, nie deklaracja.
+        let cond2_offline = if consider_embedded_declarations {
+            match manifest.software_tests_passed {
+                Some(true) => HilReadinessStatus::Passed,
+                Some(false) => HilReadinessStatus::Failed,
+                None => HilReadinessStatus::Blocked,
+            }
+        } else {
+            HilReadinessStatus::Blocked
+        };
+        // Sprzeczna deklaracja planu jest błędem konfiguracji; poprawna deklaracja pozostaje
+        // wyłącznie deklaracją i nie może ustawić statusu runtime na Passed (F-15).
+        let cond2_status = if cond2_offline == HilReadinessStatus::Failed {
+            HilReadinessStatus::Failed
+        } else {
+            HilReadinessStatus::Blocked
+        };
+        // Warunek 3: Pełny SHA testowanego commita jest zapisany (deklaracja planu).
         let cond3_status = match &manifest.tested_commit {
             Some(sha) if sha.len() == 40 && sha.chars().all(|c| c.is_ascii_hexdigit()) => {
                 if let Some(exp) = &manifest.expected_commit
@@ -842,37 +1002,28 @@ impl HilReadinessValidator {
             HilReadinessStatus::Failed
         };
 
-        // Warunek 8: Antena jest fizycznie odłączona.
+        // Warunek 8: Antena jest fizycznie odłączona — deklaracja operatora, nie dowód.
         let cond8_offline = if is_antenna {
             HilReadinessStatus::Failed
-        } else if manifest.operator_attestation.antenna_disconnected && has_timestamp_and_desc {
+        } else if flag(|a| a.antenna_disconnected) && has_timestamp_and_desc {
             HilReadinessStatus::Passed
         } else {
             HilReadinessStatus::Blocked
         };
         let cond8_runtime = if is_antenna {
             HilReadinessStatus::Failed
-        } else if is_7a {
-            HilReadinessStatus::Blocked
         } else {
-            cond8_offline
+            HilReadinessStatus::Blocked
         };
 
-        // Warunek 9: Dummy load 50 ohm jest fizycznie podłączony.
-        let cond9_offline = if manifest
-            .operator_attestation
-            .dummy_load_physically_connected
-            && has_timestamp_and_desc
+        // Warunek 9: Dummy load 50 ohm jest fizycznie podłączony — deklaracja, nie dowód.
+        let cond9_offline = if flag(|a| a.dummy_load_physically_connected) && has_timestamp_and_desc
         {
             HilReadinessStatus::Passed
         } else {
             HilReadinessStatus::Blocked
         };
-        let cond9_runtime = if is_7a {
-            HilReadinessStatus::Blocked
-        } else {
-            cond9_offline
-        };
+        let cond9_runtime = HilReadinessStatus::Blocked;
 
         // Warunek 10: Dummy load obsługuje częstotliwość testową.
         let cond10_pass = manifest.rf_safety.frequency_range_hz.0
@@ -903,31 +1054,21 @@ impl HilReadinessValidator {
             HilReadinessStatus::Passed
         };
 
-        // Warunek 13: Wzmacniacz mocy jest odłączony albo zablokowany.
-        let cond13_offline =
-            if manifest.operator_attestation.pa_disconnected_or_locked && has_timestamp_and_desc {
-                HilReadinessStatus::Passed
-            } else {
-                HilReadinessStatus::Blocked
-            };
-        let cond13_runtime = if is_7a {
-            HilReadinessStatus::Blocked
+        // Warunek 13: Wzmacniacz mocy jest odłączony albo zablokowany — deklaracja, nie dowód.
+        let cond13_offline = if flag(|a| a.pa_disconnected_or_locked) && has_timestamp_and_desc {
+            HilReadinessStatus::Passed
         } else {
-            cond13_offline
+            HilReadinessStatus::Blocked
         };
+        let cond13_runtime = HilReadinessStatus::Blocked;
 
-        // Warunek 14: Tuner automatyczny jest wyłączony, jeśli nie jest częścią testu.
-        let cond14_offline =
-            if manifest.operator_attestation.tuner_bypassed && has_timestamp_and_desc {
-                HilReadinessStatus::Passed
-            } else {
-                HilReadinessStatus::Blocked
-            };
-        let cond14_runtime = if is_7a {
-            HilReadinessStatus::Blocked
+        // Warunek 14: Tuner automatyczny jest wyłączony — deklaracja, nie dowód.
+        let cond14_offline = if flag(|a| a.tuner_bypassed) && has_timestamp_and_desc {
+            HilReadinessStatus::Passed
         } else {
-            cond14_offline
+            HilReadinessStatus::Blocked
         };
+        let cond14_runtime = HilReadinessStatus::Blocked;
 
         // Warunek 15: Wszystkie pozostałe radia mają zablokowane PTT.
         let cond15_offline = if manifest.rf_safety.interlock_engaged && !rig_id_trimmed.is_empty() {
@@ -954,75 +1095,55 @@ impl HilReadinessValidator {
             HilReadinessStatus::Failed
         };
 
-        // Warunek 19: Dostępny jest fizyczny awaryjny STOP.
-        let cond19_offline =
-            if manifest.operator_attestation.physical_stop_available && has_timestamp_and_desc {
-                HilReadinessStatus::Passed
-            } else {
-                HilReadinessStatus::Blocked
-            };
-        let cond19_runtime = if is_7a {
-            HilReadinessStatus::Blocked
-        } else {
-            cond19_offline
-        };
-
-        // Warunek 20: Operator potwierdził gotowość stanowiska.
-        let cond20_valid = !manifest.operator_id.trim().is_empty()
-            && !manifest.session_id.trim().is_empty()
-            && has_timestamp_and_desc
-            && manifest.operator_attestation.operator_acknowledged
-            && manifest.operator_attestation.bench_readiness_confirmed;
-        let cond20_offline = if cond20_valid {
+        // Warunek 19: Dostępny jest fizyczny awaryjny STOP — deklaracja, nie dowód.
+        let cond19_offline = if flag(|a| a.physical_stop_available) && has_timestamp_and_desc {
             HilReadinessStatus::Passed
         } else {
             HilReadinessStatus::Blocked
         };
-        let cond20_runtime = if is_7a {
-            HilReadinessStatus::Blocked
+        let cond19_runtime = HilReadinessStatus::Blocked;
+
+        // Warunek 20: Operator potwierdził gotowość stanowiska — deklaracja, nie dowód.
+        let cond20_offline = if !manifest.operator_id.trim().is_empty()
+            && !manifest.session_id.trim().is_empty()
+            && has_timestamp_and_desc
+            && flag(|a| a.operator_acknowledged)
+            && flag(|a| a.bench_readiness_confirmed)
+        {
+            HilReadinessStatus::Passed
         } else {
-            cond20_offline
+            HilReadinessStatus::Blocked
         };
+        let cond20_runtime = HilReadinessStatus::Blocked;
 
         // Warunek 22: Czas pojedynczej transmisji jest ograniczony.
         let cond22_pass = manifest.rf_safety.max_test_duration_ms > 0
             && manifest.rf_safety.max_test_duration_ms <= 500;
 
-        // Warunek 23: Procedura przerwania jest zapisana.
-        let cond23_offline =
-            if manifest.operator_attestation.abort_procedure_documented && has_timestamp_and_desc {
-                HilReadinessStatus::Passed
-            } else {
-                HilReadinessStatus::Blocked
-            };
-        let cond23_runtime = if is_7a {
-            HilReadinessStatus::Blocked
+        // Warunek 23: Procedura przerwania jest zapisana — deklaracja, nie dowód.
+        let cond23_offline = if flag(|a| a.abort_procedure_documented) && has_timestamp_and_desc {
+            HilReadinessStatus::Passed
         } else {
-            cond23_offline
+            HilReadinessStatus::Blocked
         };
+        let cond23_runtime = HilReadinessStatus::Blocked;
 
-        // Warunek 24: Operator potwierdził zgodność próby z zasadami i posiadanymi uprawnieniami.
+        // Warunek 24: Zgodność z zasadami i uprawnieniami — deklaracja, nie dowód.
         let cond24_valid = !manifest.operator_id.trim().is_empty()
             && !manifest.session_id.trim().is_empty()
             && has_timestamp_and_desc
-            && manifest.operator_attestation.rules_compliance_attested
-            && manifest.operator_attestation.operator_privileges_attested
-            && manifest.operator_attestation.allowed_band_attested
-            && manifest.operator_attestation.allowed_mode_attested
-            && manifest
-                .operator_attestation
-                .no_unauthorized_emission_attested
-            && manifest.operator_attestation.ptt_consent_granted;
+            && flag(|a| a.rules_compliance_attested)
+            && flag(|a| a.operator_privileges_attested)
+            && flag(|a| a.allowed_band_attested)
+            && flag(|a| a.allowed_mode_attested)
+            && flag(|a| a.no_unauthorized_emission_attested)
+            && flag(|a| a.ptt_consent_granted);
         let cond24_offline = if cond24_valid {
             HilReadinessStatus::Passed
         } else {
             HilReadinessStatus::Blocked
         };
-        let cond24_runtime = if is_7a {
-            HilReadinessStatus::Blocked
-        } else {
-            cond24_offline
-        };
+        let cond24_runtime = HilReadinessStatus::Blocked;
 
         // Warunek 25: SmartLink oraz zdalny niekontrolowany TX są wyłączone.
         let cond25_pass = Self::validate_remote_tx_safety(manifest);
@@ -1054,19 +1175,14 @@ impl HilReadinessValidator {
             HilReadinessStatus::Passed
         };
 
-        // Warunek 30: Wszystkie osoby przy stanowisku znają procedurę STOP.
-        let cond30_offline = if manifest.operator_attestation.personnel_know_stop_procedure
-            && has_timestamp_and_desc
+        // Warunek 30: Wszystkie osoby przy stanowisku znają procedurę STOP — deklaracja.
+        let cond30_offline = if flag(|a| a.personnel_know_stop_procedure) && has_timestamp_and_desc
         {
             HilReadinessStatus::Passed
         } else {
             HilReadinessStatus::Blocked
         };
-        let cond30_runtime = if is_7a {
-            HilReadinessStatus::Blocked
-        } else {
-            cond30_offline
-        };
+        let cond30_runtime = HilReadinessStatus::Blocked;
 
         let config_origin = if is_7a {
             HilEvidenceOrigin::ConfigurationArtifact
@@ -1087,11 +1203,13 @@ impl HilReadinessValidator {
                 rule_id: "HIL-RULE-GIT".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
                 implementation_coverage: HilImplementationCoverage::Complete,
-                offline_test_status: cond1_status,
+                offline_test_status: cond1_offline,
                 runtime_evidence_status: cond1_status,
                 status: cond1_status,
                 evidence_origin: HilEvidenceOrigin::RepositoryMeasurement,
-                details: "Git repository working tree is clean".to_string(),
+                details: "Working tree cleanliness requires a repository measurement delivered by \
+                          independent evidence; a plan declaration is not accepted (F-15)"
+                    .to_string(),
             },
             HilReadinessCondition {
                 number: 2,
@@ -1100,11 +1218,13 @@ impl HilReadinessValidator {
                 rule_id: "HIL-RULE-SOFTWARE-SUITE".to_string(),
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
                 implementation_coverage: HilImplementationCoverage::Complete,
-                offline_test_status: cond2_status,
+                offline_test_status: cond2_offline,
                 runtime_evidence_status: cond2_status,
                 status: cond2_status,
                 evidence_origin: HilEvidenceOrigin::SoftwareBaselineArtifact,
-                details: "Full software test suite passed with 0 failures".to_string(),
+                details: "Software baseline success requires a measured baseline delivered by \
+                          independent evidence; a plan declaration is not accepted (F-15)"
+                    .to_string(),
             },
             HilReadinessCondition {
                 number: 3,
@@ -1233,14 +1353,12 @@ impl HilReadinessValidator {
                 status: cond8_runtime,
                 evidence_origin: HilEvidenceOrigin::OperatorDeclaration,
                 details: if is_antenna {
-                    "Antenna termination is configured in manifest (strictly forbidden for PTT)"
+                    "Antenna termination is configured in the plan (strictly forbidden for PTT)"
                         .to_string()
-                } else if is_7a {
-                    "Physical antenna disconnection attested in manifest; runtime evidence blocked in Stage 7A".to_string()
-                } else if manifest.operator_attestation.antenna_disconnected {
-                    "Operator attested physical disconnection of transmitting antenna".to_string()
                 } else {
-                    "Operator has not attested antenna disconnection".to_string()
+                    "Antenna disconnection is an operator declaration; independent evidence is \
+                     required before hardware execution (F-15)"
+                        .to_string()
                 },
             },
             HilReadinessCondition {
@@ -1254,17 +1372,10 @@ impl HilReadinessValidator {
                 runtime_evidence_status: cond9_runtime,
                 status: cond9_runtime,
                 evidence_origin: HilEvidenceOrigin::OperatorDeclaration,
-                details: if is_7a {
-                    "Dummy load attestation complete in offline model; physical connection blocked in Stage 7A".to_string()
-                } else if manifest
-                    .operator_attestation
-                    .dummy_load_physically_connected
-                {
-                    "Operator confirmed physical connection and torque of 50-ohm dummy load"
-                        .to_string()
-                } else {
-                    "Operator has not attested physical dummy load connection".to_string()
-                },
+                details: "Dummy load connection is an operator declaration; independent evidence \
+                          (measured load identity/impedance) is required before hardware execution \
+                          (F-15)"
+                    .to_string(),
             },
             HilReadinessCondition {
                 number: 10,
@@ -1351,12 +1462,9 @@ impl HilReadinessValidator {
                 runtime_evidence_status: cond13_runtime,
                 status: cond13_runtime,
                 evidence_origin: HilEvidenceOrigin::OperatorDeclaration,
-                details: if is_7a {
-                    "PA isolation attested offline; hardware verification blocked in Stage 7A"
-                        .to_string()
-                } else {
-                    "Operator attested power amplifier isolation".to_string()
-                },
+                details: "PA isolation is an operator declaration; independent evidence is \
+                          required before hardware execution (F-15)"
+                    .to_string(),
             },
             HilReadinessCondition {
                 number: 14,
@@ -1369,12 +1477,9 @@ impl HilReadinessValidator {
                 runtime_evidence_status: cond14_runtime,
                 status: cond14_runtime,
                 evidence_origin: HilEvidenceOrigin::OperatorDeclaration,
-                details: if is_7a {
-                    "Tuner bypass attested offline; hardware verification blocked in Stage 7A"
-                        .to_string()
-                } else {
-                    "Operator attested antenna tuner bypass".to_string()
-                },
+                details: "Tuner bypass is an operator declaration; independent evidence is \
+                          required before hardware execution (F-15)"
+                    .to_string(),
             },
             HilReadinessCondition {
                 number: 15,
@@ -1388,7 +1493,7 @@ impl HilReadinessValidator {
                 status: cond15_runtime,
                 evidence_origin: runtime_origin,
                 details: format!(
-                    "Multi-radio PTT interlock engaged: {}, active target: '{}'",
+                    "Multi-radio PTT interlock planned: {}, active target: '{}'",
                     manifest.rf_safety.interlock_engaged,
                     manifest.matrix.rig_id.as_str()
                 ),
@@ -1444,11 +1549,9 @@ impl HilReadinessValidator {
                 runtime_evidence_status: cond19_runtime,
                 status: cond19_runtime,
                 evidence_origin: HilEvidenceOrigin::OperatorDeclaration,
-                details: if is_7a {
-                    "Physical STOP availability attested offline; runtime verification blocked in Stage 7A".to_string()
-                } else {
-                    "Operator attested physical emergency STOP availability".to_string()
-                },
+                details: "Physical emergency STOP availability is an operator declaration; \
+                          independent evidence is required before hardware execution (F-15)"
+                    .to_string(),
             },
             HilReadinessCondition {
                 number: 20,
@@ -1461,11 +1564,9 @@ impl HilReadinessValidator {
                 runtime_evidence_status: cond20_runtime,
                 status: cond20_runtime,
                 evidence_origin: HilEvidenceOrigin::OperatorDeclaration,
-                details: if is_7a {
-                    "Bench readiness confirmation recorded offline; runtime verification blocked in Stage 7A".to_string()
-                } else {
-                    "Operator confirmed overall bench readiness".to_string()
-                },
+                details: "Operator bench readiness is a declaration; independent evidence is \
+                          required before hardware execution (F-15)"
+                    .to_string(),
             },
             HilReadinessCondition {
                 number: 21,
@@ -1519,12 +1620,9 @@ impl HilReadinessValidator {
                 runtime_evidence_status: cond23_runtime,
                 status: cond23_runtime,
                 evidence_origin: HilEvidenceOrigin::OperatorDeclaration,
-                details: if is_7a {
-                    "Abort procedure documented offline; site verification blocked in Stage 7A"
-                        .to_string()
-                } else {
-                    "Operator confirmed abort procedure documentation on site".to_string()
-                },
+                details: "Abort procedure documentation is an operator declaration; independent \
+                          evidence is required before hardware execution (F-15)"
+                    .to_string(),
             },
             HilReadinessCondition {
                 number: 24,
@@ -1537,13 +1635,9 @@ impl HilReadinessValidator {
                 runtime_evidence_status: cond24_runtime,
                 status: cond24_runtime,
                 evidence_origin: HilEvidenceOrigin::OperatorDeclaration,
-                details: if is_7a {
-                    "Operator rules and privileges attestation recorded offline; physical PTT blocked in Stage 7A"
-                        .to_string()
-                } else {
-                    "Operator attested rules compliance and license privileges for trial"
-                        .to_string()
-                },
+                details: "Rules compliance and privileges are an operator declaration; \
+                          independent evidence is required before hardware execution (F-15)"
+                    .to_string(),
             },
             HilReadinessCondition {
                 number: 25,
@@ -1627,11 +1721,10 @@ impl HilReadinessValidator {
                 runtime_evidence_status: cond30_runtime,
                 status: cond30_runtime,
                 evidence_origin: HilEvidenceOrigin::OperatorDeclaration,
-                details: if is_7a {
-                    "Personnel STOP briefing attested offline; runtime verification blocked in Stage 7A".to_string()
-                } else {
-                    "Operator attested laboratory personnel briefing on STOP procedure".to_string()
-                },
+                details:
+                    "Personnel STOP briefing is an operator declaration; independent evidence \
+                          is required before hardware execution (F-15)"
+                        .to_string(),
             },
         ]
     }
@@ -1640,6 +1733,7 @@ impl HilReadinessValidator {
     pub fn evaluate_extended_requirements(
         manifest: &HilTestBenchManifest,
         stage: HilExecutionStage,
+        consider_embedded_declarations: bool,
     ) -> Vec<HilExtendedRequirement> {
         let is_7a = stage == HilExecutionStage::Stage7AOffline;
         let origin = if is_7a {
@@ -1683,17 +1777,25 @@ impl HilReadinessValidator {
         } else {
             HilReadinessStatus::Failed
         };
-        let x18_offline = if manifest.operator_attestation.rf_perimeter_secured {
+        let attestation = if consider_embedded_declarations {
+            manifest.operator_attestation.as_ref()
+        } else {
+            None
+        };
+        let flag = |field: fn(&HilOperatorAttestation) -> bool| -> bool {
+            Self::attestation_flag(attestation, field)
+        };
+        let x18_offline = if flag(|a| a.rf_perimeter_secured) {
             HilReadinessStatus::Passed
         } else {
             HilReadinessStatus::Blocked
         };
-        let x21_offline = if manifest.operator_attestation.operator_present {
+        let x21_offline = if flag(|a| a.operator_present) {
             HilReadinessStatus::Passed
         } else {
             HilReadinessStatus::Blocked
         };
-        let x22_offline = if manifest.operator_attestation.supervised_trial_confirmed {
+        let x22_offline = if flag(|a| a.supervised_trial_confirmed) {
             HilReadinessStatus::Passed
         } else {
             HilReadinessStatus::Blocked
@@ -1711,15 +1813,13 @@ impl HilReadinessValidator {
                 offline_evaluation_status: HilReadinessStatus::Passed,
                 simulated_runtime_status: HilReadinessStatus::Passed,
                 physical_runtime_evidence_status: HilReadinessStatus::NotRun,
-                runtime_evidence_status: if is_7a {
-                    HilReadinessStatus::Blocked
-                } else {
-                    HilReadinessStatus::Passed
-                },
+                runtime_evidence_status: HilReadinessStatus::Blocked,
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
                 evidence_origin: origin,
                 execution_context: context,
-                details: "Session registry isolated; zero external competing sessions".to_string(),
+                details: "Session registry isolated; independent evidence is required to prove \
+                          zero external competing sessions"
+                    .to_string(),
             },
             HilExtendedRequirement {
                 id: "HIL-X02".to_string(),
@@ -1765,34 +1865,31 @@ impl HilReadinessValidator {
                 symbol: "splogbook::cat::hil::HilPttConsentToken::new".to_string(),
                 test: "hil_consent_token_alone_cannot_authorize_tx".to_string(),
                 implementation_coverage: HilImplementationCoverage::Complete,
-                offline_test_status: if manifest.operator_attestation.ptt_consent_granted {
+                offline_test_status: if flag(|a| a.ptt_consent_granted) {
                     HilReadinessStatus::Passed
                 } else {
                     HilReadinessStatus::Blocked
                 },
-                offline_evaluation_status: if manifest.operator_attestation.ptt_consent_granted {
+                offline_evaluation_status: if flag(|a| a.ptt_consent_granted) {
                     HilReadinessStatus::Passed
                 } else {
                     HilReadinessStatus::Blocked
                 },
-                simulated_runtime_status: if manifest.operator_attestation.ptt_consent_granted {
+                simulated_runtime_status: if flag(|a| a.ptt_consent_granted) {
                     HilReadinessStatus::Passed
                 } else {
                     HilReadinessStatus::Blocked
                 },
                 physical_runtime_evidence_status: HilReadinessStatus::NotRun,
-                runtime_evidence_status: if is_7a {
+                runtime_evidence_status: if is_7a || !flag(|a| a.ptt_consent_granted) {
                     HilReadinessStatus::Blocked
-                } else if manifest.operator_attestation.ptt_consent_granted {
-                    HilReadinessStatus::Passed
                 } else {
-                    HilReadinessStatus::Blocked
+                    HilReadinessStatus::Passed
                 },
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
                 evidence_origin: origin,
                 execution_context: context,
-                details: "PTT consent token requires explicit operator multi-factor attestation"
-                    .to_string(),
+                details: "PTT consent token requires explicit operator attestation".to_string(),
             },
             HilExtendedRequirement {
                 id: "HIL-X05".to_string(),
@@ -1960,11 +2057,13 @@ impl HilReadinessValidator {
                 offline_evaluation_status: HilReadinessStatus::Passed,
                 simulated_runtime_status: HilReadinessStatus::Passed,
                 physical_runtime_evidence_status: HilReadinessStatus::NotRun,
-                runtime_evidence_status: HilReadinessStatus::Passed,
+                runtime_evidence_status: HilReadinessStatus::Blocked,
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
                 evidence_origin: origin,
                 execution_context: context,
-                details: "Environment guard synchronization verified".to_string(),
+                details: "Environment gates are process-local assertions; they never replace \
+                          independent evidence (F-15)"
+                    .to_string(),
             },
             HilExtendedRequirement {
                 id: "HIL-X11".to_string(),
@@ -1977,11 +2076,11 @@ impl HilReadinessValidator {
                 offline_evaluation_status: HilReadinessStatus::Passed,
                 simulated_runtime_status: HilReadinessStatus::Passed,
                 physical_runtime_evidence_status: HilReadinessStatus::NotRun,
-                runtime_evidence_status: HilReadinessStatus::Passed,
+                runtime_evidence_status: HilReadinessStatus::Blocked,
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
                 evidence_origin: origin,
                 execution_context: context,
-                details: "SPLOG_HIL_ENABLE environment gate operational".to_string(),
+                details: "SPLOG_HIL_ENABLE is an additional gate, never an authorization".to_string(),
             },
             HilExtendedRequirement {
                 id: "HIL-X12".to_string(),
@@ -1994,11 +2093,12 @@ impl HilReadinessValidator {
                 offline_evaluation_status: HilReadinessStatus::Passed,
                 simulated_runtime_status: HilReadinessStatus::Passed,
                 physical_runtime_evidence_status: HilReadinessStatus::NotRun,
-                runtime_evidence_status: HilReadinessStatus::Passed,
+                runtime_evidence_status: HilReadinessStatus::Blocked,
                 evidence_kind: HilReadinessEvidenceKind::MachineVerified,
                 evidence_origin: origin,
                 execution_context: context,
-                details: "SPLOG_HIL_ALLOW_TX environment gate operational".to_string(),
+                details: "SPLOG_HIL_ALLOW_TX is an additional gate, never an authorization"
+                    .to_string(),
             },
             HilExtendedRequirement {
                 id: "HIL-X13".to_string(),
@@ -2100,20 +2200,14 @@ impl HilReadinessValidator {
                 offline_test_status: x18_offline,
                 offline_evaluation_status: x18_offline,
                 simulated_runtime_status: HilReadinessStatus::NotRun,
-                physical_runtime_evidence_status: if is_7a {
-                    HilReadinessStatus::Blocked
-                } else {
-                    x18_offline
-                },
-                runtime_evidence_status: if is_7a {
-                    HilReadinessStatus::Blocked
-                } else {
-                    x18_offline
-                },
+                physical_runtime_evidence_status: HilReadinessStatus::Blocked,
+                runtime_evidence_status: HilReadinessStatus::Blocked,
                 evidence_kind: HilReadinessEvidenceKind::OperatorAttested,
                 evidence_origin: HilEvidenceOrigin::OperatorDeclaration,
                 execution_context: HilExecutionContext::OfflineModel,
-                details: "RF safety perimeter clearance attested by operator".to_string(),
+                details: "RF safety perimeter clearance is an operator declaration; independent \
+                          evidence is required (F-15)"
+                    .to_string(),
             },
             HilExtendedRequirement {
                 id: "HIL-X19-PTT-ZERO-RETRY".to_string(),
@@ -2183,20 +2277,14 @@ impl HilReadinessValidator {
                 offline_test_status: x21_offline,
                 offline_evaluation_status: x21_offline,
                 simulated_runtime_status: HilReadinessStatus::NotRun,
-                physical_runtime_evidence_status: if is_7a {
-                    HilReadinessStatus::Blocked
-                } else {
-                    x21_offline
-                },
-                runtime_evidence_status: if is_7a {
-                    HilReadinessStatus::Blocked
-                } else {
-                    x21_offline
-                },
+                physical_runtime_evidence_status: HilReadinessStatus::Blocked,
+                runtime_evidence_status: HilReadinessStatus::Blocked,
                 evidence_kind: HilReadinessEvidenceKind::OperatorAttested,
                 evidence_origin: HilEvidenceOrigin::OperatorDeclaration,
                 execution_context: HilExecutionContext::OfflineModel,
-                details: "Operator physical presence at laboratory bench attested".to_string(),
+                details: "Operator physical presence is an operator declaration; independent \
+                          evidence is required (F-15)"
+                    .to_string(),
             },
             HilExtendedRequirement {
                 id: "HIL-X22-NO-UNSUPERVISED-TRIAL".to_string(),
@@ -2208,20 +2296,14 @@ impl HilReadinessValidator {
                 offline_test_status: x22_offline,
                 offline_evaluation_status: x22_offline,
                 simulated_runtime_status: HilReadinessStatus::NotRun,
-                physical_runtime_evidence_status: if is_7a {
-                    HilReadinessStatus::Blocked
-                } else {
-                    x22_offline
-                },
-                runtime_evidence_status: if is_7a {
-                    HilReadinessStatus::Blocked
-                } else {
-                    x22_offline
-                },
+                physical_runtime_evidence_status: HilReadinessStatus::Blocked,
+                runtime_evidence_status: HilReadinessStatus::Blocked,
                 evidence_kind: HilReadinessEvidenceKind::OperatorAttested,
                 evidence_origin: HilEvidenceOrigin::OperatorDeclaration,
                 execution_context: HilExecutionContext::OfflineModel,
-                details: "Direct operator supervision of HIL trial confirmed".to_string(),
+                details: "Direct operator supervision is an operator declaration; independent \
+                          evidence is required (F-15)"
+                    .to_string(),
             },
         ]
     }
