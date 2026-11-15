@@ -552,20 +552,21 @@ fi
 log "PASS: --build-info reports ${EXPECTED_BUILD_COMMIT}"
 
 # The sandbox cannot see host paths: a host-side `--health-proof-path` is
-# silently ignored (main.rs discards the write error and exits 0), so the proof
-# must be written inside the sandbox HOME and read back from the host-side
-# private application directory that HOME maps to.
-SANDBOX_HOME="$(flatpak --user run --command=sh "${APP_ID}" -c 'printf %s "$HOME"' 2>/dev/null)" \
-    || fail "cannot read the sandbox HOME"
-[ -n "${SANDBOX_HOME}" ] || fail "the sandbox HOME is empty"
+# silently ignored (main.rs discards the write error and exits 0). HOME inside
+# the sandbox is the inherited host path and is not mounted, so the proof is
+# written into the private XDG data directory - which flatpak does mount - and
+# read back from the host-side directory it maps to.
+SANDBOX_DATA_HOME="$(flatpak --user run --command=sh "${APP_ID}" -c 'printf %s "$XDG_DATA_HOME"' 2>/dev/null)" \
+    || fail "cannot read the sandbox XDG_DATA_HOME"
+[ -n "${SANDBOX_DATA_HOME}" ] || fail "the sandbox XDG_DATA_HOME is empty"
 HEALTH_PROOF_NAME="splogbook-health-proof.txt"
-HEALTH_PATH="${SANDBOX_HOME}/${HEALTH_PROOF_NAME}"
-HOST_HEALTH_PROOF="${APP_DATA_ROOT}/${HEALTH_PROOF_NAME}"
+HEALTH_PATH="${SANDBOX_DATA_HOME}/splogbook/${HEALTH_PROOF_NAME}"
+HOST_HEALTH_PROOF="${DATA_DIR}/${HEALTH_PROOF_NAME}"
 rm -f "${HOST_HEALTH_PROOF}"
 run_app --check-health-startup --health-proof-path "${HEALTH_PATH}" \
     || fail "the startup health check failed"
 [ -s "${HOST_HEALTH_PROOF}" ] \
-    || fail "the startup health check wrote no proof (sandbox HOME=${SANDBOX_HOME}, host=${HOST_HEALTH_PROOF})"
+    || fail "the startup health check wrote no proof (sandbox XDG_DATA_HOME=${SANDBOX_DATA_HOME}, host=${HOST_HEALTH_PROOF})"
 grep -q '^OK$' "${HOST_HEALTH_PROOF}" \
     || fail "unexpected health-proof content: $(cat "${HOST_HEALTH_PROOF}")"
 log "PASS: startup health check produced OK"

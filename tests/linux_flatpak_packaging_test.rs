@@ -904,16 +904,20 @@ fn flatpak_health_check_writes_inside_the_sandbox() {
     // katalogu aplikacji po stronie hosta.
     let text = read_repo_file("scripts/verify_linux_flatpak.sh");
     assert!(
-        text.contains("--command=sh \"${APP_ID}\" -c 'printf %s \"$HOME\"'"),
-        "weryfikator musi ustalić HOME sandboxa, zanim przekaże ścieżkę dowodu"
+        text.contains("--command=sh \"${APP_ID}\" -c 'printf %s \"$XDG_DATA_HOME\"'"),
+        "weryfikator musi ustalić XDG_DATA_HOME sandboxa, zanim przekaże ścieżkę dowodu"
     );
     assert!(
-        text.contains("HOST_HEALTH_PROOF=\"${APP_DATA_ROOT}/${HEALTH_PROOF_NAME}\""),
-        "dowód health checku musi być odczytany z prywatnego katalogu aplikacji"
+        text.contains("HOST_HEALTH_PROOF=\"${DATA_DIR}/${HEALTH_PROOF_NAME}\""),
+        "dowód health checku musi być odczytany z prywatnego katalogu danych aplikacji"
     );
     assert!(
         !text.contains("HEALTH_PATH=\"${HOME}/health-proof.txt\""),
         "ścieżka hosta nie może być przekazywana do sandboxa jako cel zapisu"
+    );
+    assert!(
+        !text.contains("HEALTH_PATH=\"${SANDBOX_HOME}"),
+        "HOME sandboxa nie jest zamontowany — dowód musi iść do zamontowanego XDG data dir"
     );
     let main_rs = read_repo_file("src/main.rs");
     assert!(
