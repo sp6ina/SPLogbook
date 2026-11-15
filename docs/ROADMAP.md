@@ -53,6 +53,17 @@ Rawhide, backports, release candidates) never set the minimum.
 
 ## 4. Closed risks
 
+- `CAT-018` (Kenwood PTT answer semantics): **CLOSED** (2026-11-15,
+  `STAGE-CAT-018-019-SOFTWARE`, `COMPLETED_KENWOOD_PTT_PROTOCOL_CONFORMANCE_VERIFIED`). The
+  official PC CONTROL COMMAND references define `TX P1;` with `P1=0` as `SEND`, so every
+  documented `P1` means transmit; the parser, the model-specific confirmation channel (`IF` only
+  for TS-590S/SG), the documented `?;`/`E;`/`O;` errors and the release obligation now match the
+  documents per model. Software-only verification; hardware behaviour = NOT_VERIFIED.
+- `CAT-019` (FLRig XML-RPC PTT type): **CLOSED** (2026-11-15, same gate,
+  `COMPLETED_FLRIG_XMLRPC_PTT_CONFORMANCE_VERIFIED`). FLRig 2.0.00 documents `rig.set_ptt` as
+  `n:i`; the client sends the documented `<int>`, accepts only the documented nil response,
+  enforces the `<int>` type for `rig.get_ptt`, rejects non-200 HTTP statuses and has no
+  boolean/int fallback. Software-only verification; real FLRig/hardware behaviour = NOT_VERIFIED.
 - `F-14` (P0, panic after PTT is engaged): **F-14 software remediation = CLOSED** (2026-11-15,
   `STAGE-P0-F14-SOFTWARE`). The inverted-range panic was removed with a total, typed range
   validation executed before PTT ON, a manifest minimum (`HIL_MIN_TEST_DURATION_MS = 10`), and
