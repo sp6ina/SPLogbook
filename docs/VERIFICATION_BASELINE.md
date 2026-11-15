@@ -26,15 +26,15 @@ cargo test --workspace --all-targets -j 1 -- --skip powershell_real_execution_fu
 
 | Metric | Value |
 |---|---|
-| TOTAL REGISTERED TESTS: | 2801 |
-| TOTAL EXECUTED TESTS: | 2790 |
-| TOTAL PASSED TESTS: | 2790 |
+| TOTAL REGISTERED TESTS: | 2845 |
+| TOTAL EXECUTED TESTS: | 2834 |
+| TOTAL PASSED TESTS: | 2834 |
 | TOTAL FAILED TESTS: | 0 |
 | TOTAL IGNORED TESTS: | 10 |
 | HIL IGNORED TESTS: | 10 |
 | TOTAL FILTERED TESTS: | 1 |
 | Doc-tests | 0 |
-| Test binaries | 24 |
+| Test binaries | 26 |
 
 The single filtered test is `windows_helper_test::powershell_real_execution_full_cycle_success`.
 It can block on a Windows security prompt in an interactive sandbox, so it is filtered in the
@@ -45,7 +45,9 @@ a product defect.
 
 | Suite | Value |
 |---|---|
-| `security_guard` | 128 / 128 |
+| `security_guard` | 133 / 133 |
+| `cat_f14_fail_safe` | 28 / 28 |
+| `protocol_conformance` | 11 / 11 |
 | `linux_flatpak_packaging_test` | 29 / 29 |
 | `linux_xdg_data_preservation_test` | 7 / 7 |
 | `process_environment_isolation_test` | 12 / 12 |
@@ -140,3 +142,32 @@ documents that exception.
 | Hardware-in-the-loop tests executed | 0 |
 | PTT / RF operations | 0 / 0 |
 | Flatpak (`M3-J`) | delivered and verified in CI: pinned `org.freedesktop` 26.08 runtime/SDK, exact minimal sandbox, offline locked Cargo build from 662 pinned crates, 48 negative fixtures, full lifecycle and payload-reproducible builds (see `installer/linux/flatpak/README.md`) |
+
+## 8. P0-F14 software verification (2026-11-15)
+
+Measured on the P0-F14 tree with the canonical command from section 1 (local -j 1, one host
+filter as documented above).
+
+| Item | Value |
+|---|---|
+| Registered / executed / passed | 2845 / 2834 / 2834 |
+| Failed | 0 |
+| Ignored (all hardware-in-the-loop) | 10 |
+| Filtered locally | 1 (windows_helper_test::powershell_real_execution_full_cycle_success) |
+| Test binaries | 26 |
+| New F-14 suite | cat_f14_fail_safe 28 / 28 |
+| Protocol conformance suite | protocol_conformance 11 / 11 |
+| Security guard (incl. 5 p0_f14_* rules) | 133 / 133 |
+| F-14 reproduction before the fix | reproduced: ssertion failed: min <= max after PTT ON |
+| F-14 after the fix | controlled Result::Err, zero PTT ON, zero panic |
+| SOFTWARE_ONLY_VERIFICATION | true |
+| HARDWARE_CONNECTED / REAL_TRANSCEIVER_CONNECTED | false / false |
+| REAL_PTT_EXECUTED / RF_TRANSMISSION_EXECUTED | false / false |
+| HIL_EXECUTED | false (10 #[ignore = "hardware-in-the-loop"] unchanged) |
+| TEST_DOUBLE_PRODUCTION_EXCLUSION_VERIFIED | true (release binary scanned: no test-double symbols) |
+| Cargo.toml / Cargo.lock | unchanged |
+
+The P0-F14 tests drive the real production HilHardwareSession against test-only protocol
+doubles in 	ests/support/protocol_double.rs; they never open a port, a device or a real
+
+igctld, never key a transmitter and never emit RF.

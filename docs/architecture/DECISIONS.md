@@ -174,6 +174,14 @@ All decisions are **IMPLEMENTED** and verified by `tests/linux_flatpak_packaging
 | — | `quinn-proto 0.11.19` / `quinn-udp 0.5.16` to remove `RUSTSEC-2026-0523`, `-0524`, `-0538` | IMPLEMENTED |
 | — | `rusqlite 0.41.1` / `libsqlite3-sys 0.39.1` to remove `RUSTSEC-2026-0459` | IMPLEMENTED |
 
+### 2.9 P0-F14 safety decisions
+
+| ID | Decision | Status |
+|---|---|---|
+| `DEC-P0-F14-RANGE-01` | The HIL transmit pulse range is validated by a total, `Result`-returning helper **before** PTT ON. An inverted or below-minimum range is a typed `SafetyViolation`, never a `clamp` panic. `HIL_MIN_TEST_DURATION_MS = 10` and `HIL_MAX_TEST_DURATION_MS = 500` are manifest constants, and the manifest rejects values outside them plus non-finite power/SWR limits. | IMPLEMENTED |
+| `DEC-P0-F14-RELEASE-01` | Every controlled path after logical PTT ON attempts exactly one PTT OFF. A failed, timed-out or unconfirmed release is reported as an error (`HilReleaseOutcome::{Failed,Unconfirmed}`), never as success. A cancelled/abandoned transmit guard performs one non-blocking emergency release in `Drop` (single poll with `Waker::noop()`; no runtime creation, no blocking I/O, no fabricated `ConfirmedRx`), because `panic = "abort"` makes unwind-based cleanup unavailable in release. | IMPLEMENTED |
+| `DEC-P0-F14-DOUBLES-01` | Test-only protocol doubles are confined to `tests/`/`tests/support/` and `#[cfg(test)]`. No production enum variant, feature flag, GUI/CLI entry, configuration key, environment variable or fallback may select them; they cannot be compiled into a release artifact. | IMPLEMENTED |
+
 ## 3. Update state machine and data classification (reference)
 
 - 20 states with strict transitions; `Committed` is the only terminal-success state. A

@@ -216,3 +216,42 @@ Rules:
 4. Working notes, prompts, session handoffs, gate evidence logs and owner-local plans
    belong outside the repository, not in the public tree.
 5. Documents are written in UTF-8. Do not introduce re-encoded (mojibake) text.
+
+## P0-F14 — PTT fail-safe invariants (software-only)
+
+The HIL transmit path is required to hold these invariants, and they are enforced by
+`tests/cat_f14_fail_safe.rs`, `tests/protocol_conformance.rs` and the `p0_f14_*` rules in
+`tests/security_guard.rs`:
+
+1. **No panicking range arithmetic.** The pulse bound is produced by
+   `bounded_test_duration(requested, max_ms) -> Result<Duration, HilError>`, which rejects a
+   maximum below `HIL_MIN_TEST_DURATION_MS` (10 ms) and clamps with explicit comparisons. The
+   legacy `Duration::clamp(10 ms, max_ms)` call is forbidden (it panics on `min > max`).
+2. **Validation before PTT ON.** The bounded duration is computed before the first
+   `SetPtt(true)`; an invalid manifest or range yields a typed error and zero PTT ON.
+3. **Every controlled post-ON path attempts exactly one PTT OFF**: ON command error, arbiter
+   confirmation error, pulse deadline, poll error, transport loss, and cancellation. A
+   cancellation or abandoned guard triggers one non-blocking emergency release from `Drop`
+   (single `poll` with `Waker::noop()`; no runtime, no blocking I/O, no fabricated `ConfirmedRx`).
+4. **Failures are never success.** A failed, timed-out or unconfirmed release returns an error;
+   `HilReleaseOutcome` records `Failed`/`Unconfirmed` and the session state stays
+   `FailedOrUnknown`.
+
+Test-only protocol doubles live **only** in `tests/support/protocol_double.rs` and are included
+explicitly with `#[path = "support/protocol_double.rs"]`. They implement the real `RigBackend`
+trait and simulate only documented device behaviour; they never replace the production parser,
+frame builder, validation, `TxArbiter`, cleanup, timeout or cancellation logic. There is no
+`CatBackendKind` variant, feature flag, GUI/CLI entry, configuration key, environment variable
+or automatic fallback that can select them, and `cargo build --release` cannot compile them.
+
+Run the focused gates with:
+
+```
+cargo test --test cat_f14_fail_safe
+cargo test --test protocol_conformance
+cargo test --test security_guard p0_f14
+```
+
+Hardware-in-the-loop validation remains **NOT_EXECUTED**: the ten
+`#[ignore = "hardware-in-the-loop"]` tests are never run by CI and no real PTT, RF transmission
+or transceiver connection is part of the baseline.

@@ -16,10 +16,13 @@ Kolumna „Wykryte i naprawione defekty protokołu” jest **rekordem historyczn
 wymieniony defekt (`CAT-00x`) został naprawiony w kodzie i jest strażony testami w
 `tests/cat_native_*` oraz `src/cat/**`. Nie opisuje ona bieżącego stanu blokad.
 
-Pozostającą blokadą walidacji sprzętowej jest **dostępność fizycznych transceiverów** oraz
-otwarte znalezisko **F-14 (P0)** — panika w ścieżce HIL po załączeniu PTT. Dopóki F-14 nie
-jest zamknięte, żaden test HIL nie może zostać uruchomiony, a wszystkie 10 testów pozostaje
-`#[ignore = "hardware-in-the-loop"]`.
+Pozostającą blokadą walidacji sprzętowej jest **dostępność fizycznych transceiverów**.
+Otwarte znalezisko **F-14 (P0)** — panika w ścieżce HIL po załączeniu PTT — zostało
+**zamknięte programowo** 2026-11-15 (`STAGE-P0-F14-SOFTWARE`): odwrócony zakres jest odrzucany
+przed logicznym PTT ON, a każda kontrolowana ścieżka błędu po ON podejmuje próbę PTT OFF.
+To **nie** jest walidacja sprzętowa: `HARDWARE_BEHAVIOUR_NOT_VERIFIED`, a wszystkie 10 testów
+pozostaje `#[ignore = "hardware-in-the-loop"]`, dopóki NATIVE-7B nie zostanie jawnie
+autoryzowane przez właściciela.
 
 Kolumnę „Co wymaga fizycznego transceivera” należy czytać jako listę wymagań sprzętowych,
 a nie jako listę zadań do wykonania w repozytorium.
@@ -62,3 +65,53 @@ Przed podłączeniem fizycznego transceivera do procedury HIL należy obowiązko
 3. Naprawić kodowanie Big-Endian BCD dla S-metra/mocy oraz komendy `0x21` (RIT/XIT) w `IcomCiVBackend` (`CAT-004`, `CAT-011`) oraz rezolucję adresu CI-V w `HilTestBenchManifest::to_rig_config` (`CAT-016`).
 4. Naprawić `RigHub::resync_tx_arbiter` (`last_state_update` + `StateFreshness::Stale`, `CAT-006`).
 5. Zabezpieczyć `HilHardwareSession::execute_controlled_ptt` poprzez pełne użycie `acquire_tx_guard` i `release_and_confirm_rx` (`CAT-015`).
+
+---
+
+## 4. Macierz zgodności protokołów — weryfikacja programowa (P0-F14, 2026-11-15)
+
+Sekcja dodana przez `STAGE-P0-F14-SOFTWARE`. Zapisuje **programową** weryfikację ramek PTT
+wobec oficjalnej dokumentacji producentów. Nie jest dowodem zachowania sprzętu.
+
+Flagi tej sekcji:
+
+- `SOFTWARE_ONLY_VERIFICATION=true`
+- `HARDWARE_BEHAVIOUR_NOT_VERIFIED=true`
+- `TEST_DOUBLE_PRODUCTION_EXCLUSION_VERIFIED=true`
+- `REAL_PTT_EXECUTED=false`, `RF_TRANSMISSION_EXECUTED=false`, `HIL_EXECUTED=false`
+
+Legenda statusów: `OFFICIAL_MODEL_SPECIFIC_VERIFIED`, `OFFICIAL_FAMILY_LEVEL_VERIFIED`,
+`OFFICIAL_PROTOCOL_LEVEL_VERIFIED`, `DOCUMENTATION_NOT_FOUND`.
+
+| Producent | Model / rodzina | Backend | Transport | PTT ON | PTT OFF | Dokument oficjalny (rewizja) | Odpowiedź / potwierdzenie | Timeout | Cleanup po ON | Test | Status dokumentacyjny |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Icom | IC-7610 | `IcomCiV` | Serial CI-V | `1C 00 01` | `1C 00 00` | CI-V Reference Guide **A7380-7EX-4**, Sep. 2025 | ramka statusu `1C 00 <00/01>`; `*1` auto-output tylko gdy `1C 04`=ON | `write_timeout`/`read_timeout` konfiguracji | `RX` + `poll()` (ConfirmedRx) | `protocol_conformance`, `cat_f14_fail_safe` | `OFFICIAL_MODEL_SPECIFIC_VERIFIED` |
+| Icom | IC-7300 | `IcomCiV` | Serial CI-V | `1C 00 01` | `1C 00 00` | 補足説明書 CI-V **A7290-2J-8**, 2023-12 | ramka `1C` (00=受信, 01=送信) | j.w. | j.w. | `protocol_conformance` | `OFFICIAL_MODEL_SPECIFIC_VERIFIED` |
+| Icom | IC-705 | `IcomCiV` | Serial CI-V | `1C 00 01` | `1C 00 00` | CI-V Reference Guide **A7560-8EX-4b**, Mar. 2021 (dokument pobrany i zidentyfikowany; wiersz tabeli nieodczytany — PDF AES-256) | j.w. (poziom protokołu CI-V) | j.w. | j.w. | `protocol_conformance` | `DOCUMENTATION_NOT_FOUND` (treść wiersza) / protokół zweryfikowany na IC-7610 i IC-7300 |
+| Icom | IC-706MKIIG | `IcomCiV` | Serial CI-V | `1C 00 01` (protokół CI-V) | `1C 00 00` | instrukcja modelu niezlokalizowana w tej bramce | j.w. | j.w. | j.w. | — | `DOCUMENTATION_NOT_FOUND` |
+| Yaesu | FT-891 | `Yaesu` | Serial | `TX1;` | `TX0;` | CAT Operation Reference **1909-C** (2019) | Answer `TX P1;` (P1=1 TX, 0 RX, 2 „RADIO TX ON, CAT TX OFF”) | brak reguły w dokumencie; `CAT TOT` 10 ms (menu) | `TX0;` + `TX;` (ConfirmedRx) | `protocol_conformance` | `OFFICIAL_MODEL_SPECIFIC_VERIFIED` |
+| Yaesu | FT-991A | `Yaesu` | Serial | `TX1;` | `TX0;` | CAT Operation Reference **1711-D** (2017) / **1808-D** (DG-ID) | j.w. | j.w. | j.w. | `protocol_conformance` | `OFFICIAL_MODEL_SPECIFIC_VERIFIED` |
+| Yaesu | FT-710 | `Yaesu` | Serial (CAT-1) | `TX1;` | `TX0;` | CAT Operation Reference **2306-C** (2023) | j.w. + AI push po zmianie stanu | j.w. | j.w. | `protocol_conformance` | `OFFICIAL_MODEL_SPECIFIC_VERIFIED` |
+| Yaesu | FTDX10 | `Yaesu` | Serial (Enhanced COM) | `TX1;` | `TX0;` | CAT Operation Reference **2308-F** (2023) | j.w. | j.w. | j.w. | `protocol_conformance` | `OFFICIAL_MODEL_SPECIFIC_VERIFIED` |
+| Kenwood | TS-590S / TS-590SG | `Kenwood` | Serial / USB | `TX;` | `RX;` | PC CONTROL COMMAND **B5A-0316-20/01** (2019-01-30) | odpowiedź tylko gdy AI ON; status `IF` P8 (0=RX, 1=TX) | brak reguły w dokumencie | `RX;` + status | `protocol_conformance` | `OFFICIAL_MODEL_SPECIFIC_VERIFIED` |
+| Kenwood | TS-890S | `Kenwood` | Serial / LAN | `TX;` | `RX;` | PC CONTROL COMMAND **B5A-2944-00/01** (2019-01-30) | odpowiedź tylko gdy AI ON; brak `IF` w referencji | brak reguły | `RX;` | `protocol_conformance` | `OFFICIAL_MODEL_SPECIFIC_VERIFIED` (keying) / `DOCUMENTATION_NOT_FOUND` (odczyt statusu) |
+| Kenwood | TS-990S | `Kenwood` | Serial / LAN | `TX;` | `RX;` | PC CONTROL COMMAND **B5A-3170-00** (2019-01-30) | j.w. | brak reguły | `RX;` | `protocol_conformance` | `OFFICIAL_MODEL_SPECIFIC_VERIFIED` (keying) / `DOCUMENTATION_NOT_FOUND` (odczyt statusu) |
+| Elecraft | K3 / K3S / KX3 / KX2 | `Elecraft` | Serial | `TX;` | `RX;` | Programmer's Reference **Rev. G5** (2019-02-20) | `TQ;` → `TQ0;`/`TQ1;` | dokument: typowa odpowiedź <10 ms, najgorsza ~100 ms; brak reguły retry | `RX;` + `TQ;` | `protocol_conformance` | `OFFICIAL_MODEL_SPECIFIC_VERIFIED` (K3) / `OFFICIAL_FAMILY_LEVEL_VERIFIED` (K3S/KX3/KX2) |
+| Elecraft | K4 / K4D / K4HD | `Elecraft` | TCP (K4) | `TX;` | `RX;` | K4 Programmer's Reference **Rev. D12** (2026-05-04) | `TQ;` → `TQ1;` (TQX od Rev. C10) | PING 1 s / drop po 10 s | `RX;` + `TQ;` | `protocol_conformance` | `OFFICIAL_MODEL_SPECIFIC_VERIFIED` (K4) / `OFFICIAL_FAMILY_LEVEL_VERIFIED` (K4D/K4HD) |
+| FlexRadio | FLEX-6400/6600/8400/8600M | `FlexRadio` | TCP 4992 | `xmit 1` | `xmit 0` | SmartSDR TCP/IP API, `TCPIP xmit` rev `177f09f` (2024-07-01) + `interlock` status (2026-10-06) | `R<seq>|0|`; stan wyłącznie przez `S…|interlock state=… tx_allowed=…` | keepalive 1 s / 15 s | `xmit 0` + interlock RX | `protocol_conformance` | `OFFICIAL_FAMILY_LEVEL_VERIFIED` |
+| Expert Electronics | TCI (SunSDR / Thetis) | `Tci` | WebSocket | `trx:0,true;` | `trx:0,false;` | TCI Protocol **2.1** (Sep. 2026) | `TRX:arg1,arg2;` (broadcast 30 ms tick; 200 ms monopoly) | brak wymaganego ack/timeout w specyfikacji | `trx:…,false;` + potwierdzenie | `protocol_conformance` | `OFFICIAL_PROTOCOL_LEVEL_VERIFIED` |
+| Hamlib | `rigctld` (dowolny model backendu) | `Hamlib` | TCP | `T 1` | `T 0` | `rigctld(1)` @ **4.7.2** + `rig.h` | `RPRT x` (0 = OK, ujemne = kod błędu); `t` → 0/1/2/3 | brak timeoutu po stronie klienta w dokumentacji | `T 0` + `t` | `protocol_conformance` | `OFFICIAL_PROTOCOL_LEVEL_VERIFIED` |
+| FLRig | FLRig 2.0.00 | `Flrig` | TCP XML-RPC 12345 | `rig.set_ptt` `<int>1</int>` | `rig.set_ptt` `<int>0</int>` | `xml_server.cxx` (metoda `n:i`), `rig.get_ptt` `i:n` | wynik `rig.set_ptt` nieokreślony; `rig.get_ptt` → `<int>` | brak timeoutu XML-RPC w dokumentacji | `rig.set_ptt 0` + `rig.get_ptt` | `protocol_conformance` (dokument) + `CAT-019` (rozbieżność) | `OFFICIAL_PROTOCOL_LEVEL_VERIFIED` |
+| K1EL | WinKeyer USB (WK3) | `Winkeyer` | Serial (brak sterownika I/O — `FUNC-004`) | nie dotyczy: PTT sterowane sprzętowo przez klawer | `PTT On/Off 0x18` tylko gdy PTT wyłączone | WinKeyer3 IC Manual **Rev. 1.3** (2019-03-19), WKUSB **Rev. 1.4** (2023-09-02) | brak komendy hosta bezpośrednio załączającej PTT | tune watchdog 100 s | n/d (brak ścieżki hosta) | — | `OFFICIAL_PROTOCOL_LEVEL_VERIFIED` / `PTT_NOT_SUPPORTED` (host) |
+
+Uwagi:
+
+1. Parser Kenwooda mapuje `TX0;` na odbiór, podczas gdy oficjalne referencje definiują `P1=0`
+   jako `SEND` (nadawanie) — zapisane jako `CAT-018` w [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md);
+   ścieżka jest nieosiągalna, bo backend wysyła `RX;`.
+2. Klient FLRig wysyła parametr `<boolean>` zamiast udokumentowanego `<int>` — zapisane jako
+   `CAT-019`; błąd typu w FLRig kończy się błędem (fail-closed), nie transmisją.
+3. Testowe implementacje protokołów istnieją wyłącznie w `tests/support/protocol_double.rs`
+   i `#[cfg(test)]`; nie są kompilowane do wersji release, nie są dostępne z GUI/CLI/konfiguracji/
+   środowiska i nie ma na nie automatycznego fallbacku
+   (`TEST_DOUBLE_PRODUCTION_EXCLUSION_VERIFIED=true`).

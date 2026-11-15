@@ -10,16 +10,57 @@ behaviour with user-visible impact; **P2** — limitation with a workaround; **P
 
 ## 1. Open defects
 
-### F-14 (P0) — panic after PTT is engaged
+### F-14 (P0) — panic after PTT is engaged — F-14 software remediation = CLOSED
 
-A clamp computation in the HIL transmit path can receive an inverted range and panic while
-PTT is keyed. This is the highest-severity open item and a **hard prerequisite** for any
-hardware-in-the-loop (NATIVE-7B) validation: transmitting hardware must never be left keyed
-because of a host-side panic.
+A `Duration::clamp` computation in the HIL transmit path could receive an inverted range and
+panic while PTT was keyed. The manifest accepted `max_test_duration_ms` in `1..=500`, while the
+transmit path clamped against a hard-coded lower bound of 10 ms: a value in `1..=9` made
+`min > max`, and `Ord::clamp` panics on that precondition. In `acquire_tx_guard_at` the clamp ran
+**after** `SetPtt(true)` but **before** the `HilTxGuard` existed, so the panic left the
+transmitter keyed with no release path; `panic = "abort"` in the release profile removed even the
+unwinding `Drop`.
 
-- Impact: physical — keyed transmitter without a software-confirmed release.
-- Status: open. HIL tests remain not executed (10 `#[ignore = "hardware-in-the-loop"]`).
-- Files: `src/cat/hil/session.rs`, `src/cat/hil/manifest.rs`.
+Software remediation (2026-11-15, `STAGE-P0-F14-SOFTWARE`, software-only verification):
+
+- the range is now total and validated **before** PTT ON (`bounded_test_duration` returns
+  `Result`; reversed/empty ranges are typed `SafetyViolation`, never a panic);
+- the manifest rejects a maximum below the documented minimum (`HIL_MIN_TEST_DURATION_MS = 10`)
+  and non-finite power/SWR limits;
+- every controlled post-ON path attempts exactly one PTT OFF (ON error, arbiter-confirmation
+  error, deadline, poll error, disconnect, cancellation), and the emergency `Drop` release is
+  non-blocking and never fabricates `ConfirmedRx`;
+- a failed, timed-out or unconfirmed release is reported as an error, never as success;
+- the old panic path is guarded by `security_guard` plus the `cat_f14_fail_safe` suite
+  (range matrix, fault injection, combinatorial invariants, deterministic stress).
+
+Verification boundaries recorded by this gate:
+
+- F-14 software remediation = CLOSED
+- Protocol conformance software verification = COMPLETED
+- Hardware validation = NOT_EXECUTED
+- NATIVE-7B = NOT_STARTED
+
+The software fix does **not** prove any physical behaviour: no transceiver, serial port, dummy
+load, real PTT or RF transmission was used. The 10 hardware tests remain
+`#[ignore = "hardware-in-the-loop"]`.
+
+Files: `src/cat/hil/session.rs`, `src/cat/hil/manifest.rs`.
+
+### Recorded protocol-conformance discrepancies (not F-14 blockers)
+
+These were found while verifying the production PTT frames against the official documents. Each
+path fails **closed** (an error, never an unrequested transmission) and each is outside the
+minimal F-14 source scope, so they are recorded here instead of being silently changed:
+
+- **CAT-018 (Kenwood, latent):** the official PC CONTROL COMMAND references define `TX P1` with
+  `P1=0` as `SEND`/`SEND-PTT`, i.e. transmit, but `KenwoodCat::parse_ptt_resp` maps `TX0;` to
+  receive. The production release path sends the documented `RX;`, so `TX0;` is never emitted;
+  the parser mapping is contradicted by the documentation and must be corrected in a dedicated
+  protocol-conformance change.
+- **CAT-019 (FLRig, functional):** `rig.set_ptt` is documented with an **integer** parameter
+  (`n:i`, "set PTT 1/0"), while the client sends an XML-RPC `<boolean>`. FLRig rejects the type
+  with a `type error` fault, so PTT fails closed (error, no TX) rather than keying. Requires a
+  dedicated conformance change plus real FLRig verification.
 
 ### F-15 (P1) — HIL readiness is self-certifiable
 
@@ -116,7 +157,7 @@ Recorded decision identifiers and where each one is implemented are listed in
 | Area | State |
 |---|---|
 | Flathub submission of the Flatpak | not submitted; the package is a local/CI artifact installed from a bundle |
-| Hardware-in-the-loop validation (NATIVE-7B) | not executed; 10 `#[ignore]` tests; blocked by F-14 |
+| Hardware-in-the-loop validation (NATIVE-7B) | not executed; 10 `#[ignore]` tests; F-14 software remediation is closed but hardware validation remains NOT_EXECUTED and requires a separate owner authorisation |
 | Package signing for DEB/RPM | not implemented; integrity comes from the release manifest and SHA-256 |
 | Package signing for the Flatpak | not applicable to a local bundle; integrity comes from the bundle SHA-256 sidecar and the per-file payload manifest |
 | Signed installers for Windows | not implemented; installer artifacts are unsigned test artifacts |
