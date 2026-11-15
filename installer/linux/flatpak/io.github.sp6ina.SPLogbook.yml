@@ -170,11 +170,22 @@ modules:
         # the tee'd build log), so without this exclusion `--build-info`
         # reported a dirty build and the verifier rejected the bundle.
         # `info/exclude` only hides untracked paths: a modification of a
-        # tracked file still reports dirty.
-        git status --porcelain -z --untracked-files=normal \
-          | tr '\0' '\n' \
-          | sed -n 's/^?? //p' \
-          | sed 's#^#/#' >> .git/info/exclude
+        # tracked file still reports dirty. The leading newline keeps the
+        # appended patterns separate even when the copied exclude file has no
+        # trailing newline, and the result is asserted so the build fails here
+        # with the offending paths instead of producing a dirty bundle.
+        {
+          printf '\n'
+          git status --porcelain -z --untracked-files=normal \
+            | tr '\0' '\n' \
+            | sed -n 's/^?? //p' \
+            | sed 's#^#/#'
+        } >> .git/info/exclude
+        remaining="$(git status --porcelain)"
+        [ -z "${remaining}" ] || {
+          printf 'FAIL: the module tree is not clean before the build:\n%s\n' "${remaining}" >&2
+          exit 1
+        }
         rustc --version
         cargo --version
         cargo build --release --locked --offline --bin SPLogbook \
