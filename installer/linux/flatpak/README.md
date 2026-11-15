@@ -185,6 +185,14 @@ The build identity (`--build-info` and the in-bundle marker) comes from the
 `.git` directory of the source tree, which is the single source of truth for
 the commit. The builder never injects a synthetic commit.
 
+`build.rs` derives the embedded "dirty" flag from `git status --porcelain`, and
+the module tree is a copy of the tracked repository plus the untracked
+artefacts the build itself materialises (vendored crates, the pinned toolchain,
+the flatpak-builder cache and the tee'd build log). Before `cargo build` the
+manifest therefore appends those untracked paths to `.git/info/exclude`; that
+only hides untracked entries, so a modification of a tracked file still reports
+a dirty build and the verifier rejects it.
+
 ## 6. Sandboxed functionality and hardware limits
 
 | Capability | In the Flatpak sandbox |

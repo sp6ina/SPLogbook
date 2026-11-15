@@ -163,6 +163,18 @@ modules:
             '[term]' \
             'color = "never"'
         } > .cargo/config.toml
+        # build.rs derives the embedded "dirty" identity from
+        # `git status --porcelain`. The module tree is a copy of the tracked
+        # repository plus the untracked artefacts this build materialises
+        # (vendored crates, the pinned toolchain, the flatpak-builder cache and
+        # the tee'd build log), so without this exclusion `--build-info`
+        # reported a dirty build and the verifier rejected the bundle.
+        # `info/exclude` only hides untracked paths: a modification of a
+        # tracked file still reports dirty.
+        git status --porcelain -z --untracked-files=normal \
+          | tr '\0' '\n' \
+          | sed -n 's/^?? //p' \
+          | sed 's#^#/#' >> .git/info/exclude
         rustc --version
         cargo --version
         cargo build --release --locked --offline --bin SPLogbook \
