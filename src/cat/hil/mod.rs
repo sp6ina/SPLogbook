@@ -24,13 +24,14 @@ pub use evidence::{
     HilReadinessReport, HilReadinessStatus, HilRequirementAssessment, HilSoftwareBaselineEvidence,
 };
 pub use manifest::{
-    HilDummyLoadSpec, HilInstrumentMeasurement, HilMatrixEntry, HilOperatorAttestation,
-    HilRfSafetyConfig, HilRfTermination, HilTestBenchManifest, HilTransportConfig,
+    HIL_MAX_TEST_DURATION_MS, HIL_MIN_TEST_DURATION_MS, HilDummyLoadSpec, HilInstrumentMeasurement,
+    HilMatrixEntry, HilOperatorAttestation, HilRfSafetyConfig, HilRfTermination,
+    HilTestBenchManifest, HilTransportConfig,
 };
 pub use session::{
     HilDispatcherCase, HilDispatcherReport, HilHardwareSession, HilProbeResult, HilPttConsentToken,
-    HilPttExecutionResult, HilSessionState, HilTxGuard, default_hil_evaluation_time,
-    run_isolated_hardware_dispatcher, run_isolated_hardware_dispatcher_at,
-    run_isolated_hardware_test,
+    HilPttExecutionResult, HilReleaseOutcome, HilSessionState, HilTxGuard,
+    default_hil_evaluation_time, run_isolated_hardware_dispatcher,
+    run_isolated_hardware_dispatcher_at, run_isolated_hardware_test,
 };
 pub use validator::HilReadinessValidator;

@@ -15,6 +15,17 @@ use crate::cat::config::{
 };
 use crate::cat::routing::RigId;
 
+/// Minimalny dopuszczalny czas impulsu testowego PTT w milisekundach.
+///
+/// Jest to jednocześnie dolna granica zakresu używanego przez ścieżkę nadawczą HIL
+/// ([`crate::cat::hil::session::HilHardwareSession::acquire_tx_guard_at`]). Manifest, który
+/// deklaruje krótszy impuls, tworzy odwrócony zakres (dolna granica > górna) i jest odrzucany
+/// **przed** logicznym załączeniem PTT.
+pub const HIL_MIN_TEST_DURATION_MS: u64 = 10;
+
+/// Maksymalny dopuszczalny czas impulsu testowego PTT w milisekundach (limit laboratoryjny).
+pub const HIL_MAX_TEST_DURATION_MS: u64 = 500;
+
 /// Wymiary macierzy testowej HIL: backend x radio x transport x firmware.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HilMatrixEntry {
@@ -426,6 +437,12 @@ impl HilTestBenchManifest {
             }
         }
 
+        if !self.rf_safety.max_test_power_watts.is_finite() {
+            return Err(HilError::SafetyViolation(
+                "max_test_power_watts must be a finite number (NaN and infinity are forbidden)"
+                    .to_string(),
+            ));
+        }
         if self.rf_safety.max_test_power_watts <= 0.0 {
             return Err(HilError::SafetyViolation(
                 "max_test_power_watts must be positive and non-zero".to_string(),
@@ -436,10 +453,20 @@ impl HilTestBenchManifest {
                 "max_test_duration_ms cannot be zero".to_string(),
             ));
         }
-        if self.rf_safety.max_test_duration_ms > 500 {
+        // F-14 (P0): the transmit path bounds the pulse with an explicit lower limit
+        // (`HIL_MIN_TEST_DURATION_MS`). A manifest below that limit would make the clamp range
+        // inverted, so it must be rejected here — before any PTT ON is even considered.
+        if self.rf_safety.max_test_duration_ms < HIL_MIN_TEST_DURATION_MS {
             return Err(HilError::SafetyViolation(format!(
-                "max_test_duration_ms ({}) exceeds laboratory safety limit 500 ms",
-                self.rf_safety.max_test_duration_ms
+                "max_test_duration_ms ({}) is below the transmit-path minimum of {} ms; \
+                 an inverted PTT pulse range is forbidden",
+                self.rf_safety.max_test_duration_ms, HIL_MIN_TEST_DURATION_MS
+            )));
+        }
+        if self.rf_safety.max_test_duration_ms > HIL_MAX_TEST_DURATION_MS {
+            return Err(HilError::SafetyViolation(format!(
+                "max_test_duration_ms ({}) exceeds laboratory safety limit {} ms",
+                self.rf_safety.max_test_duration_ms, HIL_MAX_TEST_DURATION_MS
             )));
         }
         if self.rf_safety.frequency_range_hz.0 >= self.rf_safety.frequency_range_hz.1 {
@@ -473,6 +500,13 @@ impl HilTestBenchManifest {
             ));
         }
 
+        if let Some(ref inst) = self.instrument_verification
+            && !inst.measured_swr.is_finite()
+        {
+            return Err(HilError::SafetyViolation(
+                "measured_swr must be a finite number (NaN and infinity are forbidden)".to_string(),
+            ));
+        }
         if let Some(ref inst) = self.instrument_verification
             && inst.measured_swr <= 0.0
         {

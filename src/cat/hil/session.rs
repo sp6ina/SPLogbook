@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use super::error::HilError;
 use super::evidence::{HilExecutionStage, HilReadinessReport, HilReadinessStatus};
-use super::manifest::{HilRfTermination, HilTestBenchManifest};
+use super::manifest::{HIL_MIN_TEST_DURATION_MS, HilRfTermination, HilTestBenchManifest};
 use super::validator::HilReadinessValidator;
 use crate::cat::backend::RigBackend;
 use crate::cat::config::RigConfig;
@@ -94,6 +94,53 @@ pub struct HilPttExecutionResult {
     pub timestamp_iso: String,
 }
 
+/// Wynik jawnej próby zwolnienia nadajnika (PTT OFF) w ścieżce HIL.
+///
+/// Śledzi, czy próba zwolnienia została w ogóle podjęta i czy została potwierdzona świeżym
+/// odczytem RX. Dzięki temu błąd PTT OFF nie jest ukrywany, a niepotwierdzone zwolnienie nigdy
+/// nie jest raportowane jako sukces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HilReleaseOutcome {
+    /// Żadna próba PTT OFF nie została jeszcze podjęta.
+    NotAttempted,
+    /// PTT OFF wysłane i potwierdzone świeżym odczytem RX.
+    Confirmed,
+    /// Próba PTT OFF zakończyła się błędem transportu/protokołu — nadajnik może być załączony.
+    Failed,
+    /// PTT OFF wysłane (lub podjęte awaryjnie), ale brak potwierdzenia RX.
+    Unconfirmed,
+}
+
+/// Wylicza ograniczony czas impulsu PTT bez użycia `Ord::clamp`.
+///
+/// Funkcja jest totalna (zwraca [`Result`], nigdy nie panikuje) i odrzuca odwrócony zakres:
+/// gdy górna granica z manifestu jest mniejsza niż [`HIL_MIN_TEST_DURATION_MS`], zwraca
+/// kontrolowany [`HilError::SafetyViolation`] zamiast wywoływać `clamp(min > max)`.
+///
+/// `min == max` jest jawne i dozwolone — zwraca dokładnie tę wartość.
+fn bounded_test_duration(
+    requested: Duration,
+    max_test_duration_ms: u64,
+) -> Result<Duration, HilError> {
+    if max_test_duration_ms < HIL_MIN_TEST_DURATION_MS {
+        return Err(HilError::SafetyViolation(format!(
+            "max_test_duration_ms ({max_test_duration_ms}) is below the transmit-path minimum of \
+             {HIL_MIN_TEST_DURATION_MS} ms; refusing to build an inverted PTT pulse range"
+        )));
+    }
+    let lower = Duration::from_millis(HIL_MIN_TEST_DURATION_MS);
+    let upper = Duration::from_millis(max_test_duration_ms);
+    // `upper >= lower` is guaranteed by the check above, so the comparisons below are total.
+    let bounded = if requested < lower {
+        lower
+    } else if requested > upper {
+        upper
+    } else {
+        requested
+    };
+    Ok(bounded)
+}
+
 /// Bezpieczny strażnik nadawania TX dla prób laboratoryjnych HIL ([`HilTxGuard`]).
 ///
 /// Gwarantuje:
@@ -101,7 +148,9 @@ pub struct HilPttExecutionResult {
 /// - Jawny deadline operacji.
 /// - Dokładnie jedną jawną asynchroniczną próbę powrotu do RX (`release_and_confirm_rx()`).
 /// - Wymóg świeżego ConfirmedRx — test otrzymuje Passed wyłącznie po rzeczywistym potwierdzeniu RX.
-/// - Bezpieczną semantykę Drop: brak jawnego release pozostawia stan niepotwierdzony (nigdy Passed).
+/// - Bezpieczną semantykę Drop: brak jawnego release pozostawia stan niepotwierdzony (nigdy Passed)
+///   i podejmuje **jedną** nieblokującą próbę awaryjnego PTT OFF, jeżeli zwolnienie nie zostało
+///   wcześniej zainicjowane (np. przy anulowaniu przyszłości w trakcie impulsu TX).
 ///   Drop NIE fabrykuje ConfirmedRx, NIE wykonuje blokującego I/O, NIE tworzy runtime Tokio.
 pub struct HilTxGuard<'a> {
     rig_id: crate::cat::routing::RigId,
@@ -110,6 +159,7 @@ pub struct HilTxGuard<'a> {
     released: bool,
     confirmed_rx: bool,
     attempted_release: bool,
+    release_outcome: HilReleaseOutcome,
     session_state: Option<Arc<AtomicU8>>,
 }
 
@@ -127,6 +177,7 @@ impl<'a> HilTxGuard<'a> {
             released: false,
             confirmed_rx: false,
             attempted_release: false,
+            release_outcome: HilReleaseOutcome::NotAttempted,
             session_state: None,
         }
     }
@@ -146,6 +197,7 @@ impl<'a> HilTxGuard<'a> {
             released: false,
             confirmed_rx: false,
             attempted_release: false,
+            release_outcome: HilReleaseOutcome::NotAttempted,
             session_state: Some(session_state),
         }
     }
@@ -189,6 +241,14 @@ impl<'a> HilTxGuard<'a> {
         self.confirmed_rx
     }
 
+    /// Wynik ostatniej (lub awaryjnej) próby zwolnienia nadajnika.
+    ///
+    /// Pozwala odróżnić brak próby od błędu i od niepotwierdzonego zwolnienia — dzięki temu
+    /// błąd PTT OFF nie jest ukrywany, a niepotwierdzone PTT OFF nie jest raportowane jako sukces.
+    pub fn release_outcome(&self) -> HilReleaseOutcome {
+        self.release_outcome
+    }
+
     /// Jawna, asynchroniczna procedura zwalniania nadajnika z weryfikacją ConfirmedRx.
     pub async fn release_and_confirm_rx(&mut self) -> Result<HilPttExecutionResult, HilError> {
         if self.attempted_release {
@@ -199,7 +259,14 @@ impl<'a> HilTxGuard<'a> {
         self.attempted_release = true;
 
         if Instant::now() > self.deadline {
-            let _ = self.backend.execute(&RigCommand::SetPtt(false)).await;
+            // Deadline exceeded: dokładnie jedna próba PTT OFF jest nadal podejmowana
+            // (fail-closed), ale stan pozostaje Unknown i nigdy nie jest raportowany jako sukces.
+            let off_res = self.backend.execute(&RigCommand::SetPtt(false)).await;
+            self.release_outcome = if off_res.is_ok() {
+                HilReleaseOutcome::Unconfirmed
+            } else {
+                HilReleaseOutcome::Failed
+            };
             if let Some(st) = &self.session_state {
                 st.store(SESSION_STATE_FAILED_OR_UNKNOWN, Ordering::SeqCst);
             }
@@ -210,6 +277,7 @@ impl<'a> HilTxGuard<'a> {
 
         // Dokładnie jedna próba wysłania SetPtt(false)
         if let Err(e) = self.backend.execute(&RigCommand::SetPtt(false)).await {
+            self.release_outcome = HilReleaseOutcome::Failed;
             if let Some(st) = &self.session_state {
                 st.store(SESSION_STATE_FAILED_OR_UNKNOWN, Ordering::SeqCst);
             }
@@ -220,6 +288,7 @@ impl<'a> HilTxGuard<'a> {
         let state = match self.backend.poll().await {
             Ok(s) => s,
             Err(e) => {
+                self.release_outcome = HilReleaseOutcome::Unconfirmed;
                 if let Some(st) = &self.session_state {
                     st.store(SESSION_STATE_FAILED_OR_UNKNOWN, Ordering::SeqCst);
                 }
@@ -228,6 +297,7 @@ impl<'a> HilTxGuard<'a> {
         };
 
         if state.ptt {
+            self.release_outcome = HilReleaseOutcome::Unconfirmed;
             if let Some(st) = &self.session_state {
                 st.store(SESSION_STATE_FAILED_OR_UNKNOWN, Ordering::SeqCst);
             }
@@ -238,6 +308,7 @@ impl<'a> HilTxGuard<'a> {
 
         self.released = true;
         self.confirmed_rx = true;
+        self.release_outcome = HilReleaseOutcome::Confirmed;
         if let Some(st) = &self.session_state {
             st.store(SESSION_STATE_COMPLETED_CLEANLY, Ordering::SeqCst);
         }
@@ -247,6 +318,26 @@ impl<'a> HilTxGuard<'a> {
             rx_restored_cleanly: true,
             timestamp_iso: chrono::Utc::now().to_rfc3339(),
         })
+    }
+
+    /// Awaryjna, **nieblokująca** próba PTT OFF wykonywana z `Drop`.
+    ///
+    /// Polluje przyszłość backendu dokładnie raz z `Waker::noop()`:
+    /// - `Ready(Ok)` / `Pending` → próba została wysłana, ale nie jest potwierdzona (`Unconfirmed`),
+    /// - `Ready(Err)` → próba zakończyła się błędem (`Failed`).
+    ///
+    /// Nie tworzy runtime, nie blokuje wątku i nie fabrykuje `ConfirmedRx`.
+    fn emergency_release_ptt(&mut self) -> HilReleaseOutcome {
+        use std::task::{Context, Poll, Waker};
+
+        let command = RigCommand::SetPtt(false);
+        let mut future = self.backend.execute(&command);
+        let waker = Waker::noop();
+        let mut cx = Context::from_waker(waker);
+        match future.as_mut().poll(&mut cx) {
+            Poll::Ready(Ok(())) | Poll::Pending => HilReleaseOutcome::Unconfirmed,
+            Poll::Ready(Err(_)) => HilReleaseOutcome::Failed,
+        }
     }
 }
 
@@ -259,6 +350,13 @@ impl Drop for HilTxGuard<'_> {
             self.confirmed_rx = false;
             if let Some(state) = &self.session_state {
                 state.store(SESSION_STATE_FAILED_OR_UNKNOWN, Ordering::SeqCst);
+            }
+            // F-14: jeżeli zwolnienie nie zostało wcześniej zainicjowane (porzucony strażnik,
+            // anulowanie przyszłości w trakcie impulsu TX), podejmij dokładnie jedną
+            // nieblokującą próbę awaryjnego PTT OFF. Brak potwierdzenia nigdy nie jest sukcesem.
+            if !self.attempted_release {
+                self.attempted_release = true;
+                self.release_outcome = self.emergency_release_ptt();
             }
         }
     }
@@ -594,6 +692,11 @@ impl HilHardwareSession {
 
         self.verify_tx_authorization_at(consent_token, arbiter, evaluated_at)?;
 
+        // F-14: zakres impulsu jest wyliczany i walidowany **przed** jakimkolwiek logicznym
+        // PTT ON. Odwrócony zakres kończy się kontrolowanym błędem, nie paniką i nie TX.
+        let bounded_duration =
+            bounded_test_duration(duration, self.manifest.rf_safety.max_test_duration_ms)?;
+
         // Weryfikacja, że radio jest w stanie RX przed rozpoczęciem testu TX
         let initial_state = backend.poll().await.map_err(|e| {
             HilError::BackendError(format!("Initial poll() before PTT failed: {e:?}"))
@@ -613,20 +716,30 @@ impl HilHardwareSession {
 
         // Dokładnie jedno wysłanie SetPtt(true) — brak jakichkolwiek ponowień
         if let Err(e) = backend.execute(&RigCommand::SetPtt(true)).await {
+            // Fail-closed: polecenie ON mogło zostać częściowo wykonane (np. timeout po zapisie
+            // ramki). Podejmij dokładnie jedną próbę PTT OFF, zamiast zostawiać nadajnik
+            // w nieznanym stanie.
+            let _ = backend.execute(&RigCommand::SetPtt(false)).await;
             let _ = arbiter.reject_request(&rig_id, cmd_id);
             return Err(HilError::BackendError(format!(
-                "SetPtt(true) failed: {e:?}"
+                "SetPtt(true) failed: {e:?}; emergency PTT OFF attempted"
             )));
         }
 
-        arbiter.confirm_tx(&rig_id, cmd_id).map_err(|e| {
-            HilError::TxArbiterBusy(format!("TxArbiter confirm tx rejected: {e:?}"))
-        })?;
-
-        let bounded_duration = duration.clamp(
-            Duration::from_millis(10),
-            Duration::from_millis(self.manifest.rf_safety.max_test_duration_ms),
-        );
+        if let Err(e) = arbiter.confirm_tx(&rig_id, cmd_id) {
+            // Potwierdzenie TX w arbitrze nie powiodło się po wysłaniu SetPtt(true):
+            // dokładnie jedna próba PTT OFF, arbiter w Unknown, błąd jawnie zgłoszony.
+            let _ = backend.execute(&RigCommand::SetPtt(false)).await;
+            arbiter.set_unknown(
+                Some(rig_id.clone()),
+                crate::cat::tx_arbiter::TxUnknownReason::BackendError(format!(
+                    "TxArbiter confirm tx rejected: {e:?}"
+                )),
+            );
+            return Err(HilError::TxArbiterBusy(format!(
+                "TxArbiter confirm tx rejected: {e:?}; emergency PTT OFF attempted"
+            )));
+        }
 
         Ok(HilTxGuard::new_with_state(
             self.manifest.matrix.rig_id.clone(),
@@ -715,10 +828,9 @@ impl HilHardwareSession {
         // Rygor 4: Wieloskładnikowa autoryzacja TX (środowisko, token, moc, arbiter idle)
         self.verify_tx_authorization_at(consent_token, arbiter, evaluated_at)?;
 
-        let bounded_duration = pulse_duration.clamp(
-            Duration::from_millis(10),
-            Duration::from_millis(self.manifest.rf_safety.max_test_duration_ms),
-        );
+        // F-14: totalna walidacja zakresu impulsu — bez `clamp`, bez paniki, przed PTT ON.
+        let bounded_duration =
+            bounded_test_duration(pulse_duration, self.manifest.rf_safety.max_test_duration_ms)?;
 
         let guard_timeout = Duration::from_millis(self.manifest.rf_safety.max_test_duration_ms);
 
