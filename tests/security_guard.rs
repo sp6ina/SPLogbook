@@ -7410,3 +7410,297 @@ fn p0_f14_documentation_separates_software_and_hardware_guard() {
         );
     }
 }
+
+// ============================================================================
+// STAGE-CAT-018-019-SOFTWARE -- protocol conformance guards
+// ============================================================================
+
+/// CAT-018: the Kenwood PTT mapping is model-specific and documented per model. There is no
+/// brand-wide command assumption and no model may be served by another model's document.
+#[test]
+fn cat018_kenwood_ptt_contract_is_model_specific_guard() {
+    let models = fs::read_to_string("src/cat/native/kenwood/models.rs").expect("models.rs");
+    assert!(
+        models.contains("pub struct KenwoodPttContract"),
+        "CAT-018: an explicit per-model PTT contract type is required"
+    );
+    assert!(
+        models.contains("pub fn for_model("),
+        "CAT-018: the contract must be resolved by model id"
+    );
+    assert!(
+        models.contains("KENWOOD_PTT_CONTRACTS: &[KenwoodPttContract]"),
+        "CAT-018: the documented contract table must be explicit"
+    );
+    for model in ["TS-590S", "TS-590SG", "TS-890S", "TS-990S"] {
+        assert!(
+            models.contains(&format!("model_id: \"{model}\"")),
+            "CAT-018: {model} must have its own documented contract entry"
+        );
+    }
+    for document in [
+        "B5A-0316-20/01",
+        "B5A-2944-00/01",
+        "B5A-3170-00",
+        "2019-01-30",
+    ] {
+        assert!(
+            models.contains(document),
+            "CAT-018: the official document reference '{document}' is required"
+        );
+    }
+    assert!(
+        models.contains("status_read: Some(\"IF;\")"),
+        "CAT-018: IF is documented only for the TS-590S/SG contracts"
+    );
+    assert!(
+        models.contains("status_read: None"),
+        "CAT-018: the TS-890S/TS-990S contracts document no status read"
+    );
+    assert!(
+        models.contains("KENWOOD_DOC_VERIFIED"),
+        "CAT-018: every shipped contract must record its verification status"
+    );
+
+    let backend = fs::read_to_string("src/cat/native/kenwood/backend.rs").expect("backend.rs");
+    assert!(
+        backend.contains("fn ptt_contract(") && backend.contains("contract.status_read"),
+        "CAT-018: the backend must use the model contract, not a brand-wide command set"
+    );
+    assert!(
+        !backend.contains("read_if_cmd()"),
+        "CAT-018: IF; must not be sent unconditionally (documented for two models only)"
+    );
+    assert!(
+        backend.contains("\"ID\""),
+        "CAT-018: the documented ID; probe replaces the undocumented IF; fallback"
+    );
+
+    let codec = fs::read_to_string("src/cat/native/kenwood/codec.rs").expect("codec.rs");
+    assert!(
+        codec.contains("\"TX0\" | \"TX1\" | \"TX2\" => Some(true)"),
+        "CAT-018: TX P1; answers with P1=0/1/2 all mean transmit"
+    );
+    assert!(
+        !codec.contains("fn read_ptt_cmd("),
+        "CAT-018: TX; is a documented transmit command, not a PTT read command"
+    );
+}
+
+/// CAT-018: documented error messages and no undocumented command guesses.
+#[test]
+fn cat018_documented_errors_and_undocumented_commands_guard() {
+    let codec = fs::read_to_string("src/cat/native/kenwood/codec.rs").expect("codec.rs");
+    for frame in [
+        "\"?\" => Some(KenwoodErrorFrame::Syntax)",
+        "\"E\" => Some(KenwoodErrorFrame::Communication)",
+        "\"O\" => Some(KenwoodErrorFrame::BufferOverrun)",
+    ] {
+        assert!(
+            codec.contains(frame),
+            "CAT-018: the documented error frame mapping is missing: {frame}"
+        );
+    }
+
+    let backend = fs::read_to_string("src/cat/native/kenwood/backend.rs").expect("backend.rs");
+    assert!(
+        backend.contains("fn documented_error(")
+            && backend.contains("Self::documented_error(&frame)"),
+        "CAT-018: documented error frames must fail the operation closed"
+    );
+    // The client never sends TX0;/TX1;/TX2;: the documented set command is TX; (P1 omitted) and
+    // the backend writes exactly the model contract command.
+    assert!(
+        codec.contains("if ptt { \"TX;\" } else { \"RX;\" }"),
+        "CAT-018: the documented set commands are TX; / RX;"
+    );
+    assert!(
+        backend.contains("let command = if ptt {")
+            && backend.contains("contract.ptt_on")
+            && backend.contains("contract.ptt_off"),
+        "CAT-018: the backend writes exactly the documented per-model command"
+    );
+    let backend_production = backend.split("#[cfg(test)]").next().unwrap_or(&backend);
+    assert!(
+        !backend_production.contains("write_all(b\"TX"),
+        "CAT-018: no hard-coded TX0;/TX1;/TX2; is ever written in production code"
+    );
+}
+
+/// CAT-018: write success is never a confirmed TX, and the release obligation survives an
+/// unconfirmed ON (disconnect still writes the documented RX;).
+#[test]
+fn cat018_no_write_success_confirmed_tx_guard() {
+    let backend = fs::read_to_string("src/cat/native/kenwood/backend.rs").expect("backend.rs");
+    assert!(
+        backend.contains("if confirmed {"),
+        "CAT-018: state may be confirmed only by a documented answer"
+    );
+    let index = backend.find("if confirmed {").expect("confirm block");
+    let confirm_block = &backend[index..(index + 200).min(backend.len())];
+    assert!(
+        confirm_block.contains("self.state.ptt = true;"),
+        "CAT-018: state.ptt is set only inside the documented-confirmation branch"
+    );
+    assert!(
+        backend.contains("ptt_commanded = true"),
+        "CAT-018: an accepted TX; must leave a release obligation"
+    );
+    assert!(
+        backend.contains("if self.confirmed_ptt || self.ptt_commanded {"),
+        "CAT-018: disconnect must release both confirmed and unconfirmed TX"
+    );
+    assert!(
+        backend.contains("KenwoodCat::set_ptt_cmd(false)"),
+        "CAT-018: the release command is the documented RX;"
+    );
+    assert!(
+        backend.contains("operation: \"ptt_status_read\""),
+        "CAT-018: a missing documented status answer is a timeout (fail-closed)"
+    );
+}
+
+/// CAT-019: rig.set_ptt uses the documented integer parameter, the documented nil response is
+/// accepted, HTTP errors fail closed and there is no boolean/int fallback.
+#[test]
+fn cat019_flrig_set_ptt_documented_type_guard() {
+    let source = fs::read_to_string("src/cat/flrig.rs").expect("flrig.rs");
+    assert!(
+        source.contains("XmlRpcRequest::new(\"rig.set_ptt\").param_int(i64::from(ptt))"),
+        "CAT-019: rig.set_ptt is documented as n:i (one integer parameter)"
+    );
+    assert!(
+        !source.contains("rig.set_ptt\").param_bool"),
+        "CAT-019: no boolean parameter may be sent to rig.set_ptt"
+    );
+    assert!(
+        source.contains("pub fn parse_nil_response("),
+        "CAT-019: the documented nil response must be parsed explicitly"
+    );
+    assert!(
+        source.contains("self.call_nil(&req).await"),
+        "CAT-019: rig.set_ptt accepts only the documented nil response"
+    );
+    assert!(
+        source.contains("ExpectedResponse::Nil => 1"),
+        "CAT-019: a PTT command is never retried (no two PTT ON)"
+    );
+    assert!(
+        source.contains("XmlRpcValue::Int(0) => Ok(false)"),
+        "CAT-019: rig.get_ptt accepts only the documented integer type"
+    );
+    assert!(
+        source.contains("undocumented response type"),
+        "CAT-019: undocumented response types are rejected (no implicit coercion)"
+    );
+    assert!(
+        source.contains("Some(200) => {}"),
+        "CAT-019: only the documented HTTP 200 response is accepted"
+    );
+    assert!(
+        source.contains("FLRig HTTP error status"),
+        "CAT-019: HTTP errors fail closed"
+    );
+    assert!(
+        !source.contains("param_bool(true)") && !source.contains("param_bool(ptt)"),
+        "CAT-019: no boolean/int fallback for PTT ON"
+    );
+}
+
+/// Test doubles added by CAT-018/CAT-019 live only in tests/ and are explicitly included.
+#[test]
+fn cat018_cat019_test_doubles_are_test_scope_only_guard() {
+    for double in [
+        "tests/support/kenwood_wire.rs",
+        "tests/support/flrig_wire.rs",
+    ] {
+        let source = fs::read_to_string(double).expect(double);
+        assert!(
+            source.contains("TEST-ONLY"),
+            "{double} must declare its test-only scope"
+        );
+        assert!(
+            source.contains("127.0.0.1") || source.contains("duplex"),
+            "{double} must be a loopback/in-memory double (no hardware, no public network)"
+        );
+        assert!(
+            !source.contains("open_serial_stream") && !source.contains("tokio_serial"),
+            "{double} must never open a real serial port"
+        );
+    }
+
+    for consumer in [
+        "tests/cat_018_kenwood_conformance.rs",
+        "tests/cat_019_flrig_conformance.rs",
+        "tests/protocol_conformance.rs",
+    ] {
+        let source = fs::read_to_string(consumer).expect(consumer);
+        assert!(
+            source.contains("#[path = \"support/"),
+            "{consumer} must include its test double explicitly"
+        );
+    }
+
+    for entry in walkdir::WalkDir::new("src")
+        .into_iter()
+        .filter_map(Result::ok)
+    {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+            continue;
+        }
+        let source = fs::read_to_string(path).expect("readable source");
+        for forbidden in [
+            "kenwood_wire",
+            "flrig_wire",
+            "KenwoodWire",
+            "FlrigWire",
+            "spawn_kenwood_wire",
+            "spawn_flrig_wire",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "CAT-018/019: {} must not reference the test double token '{forbidden}'",
+                path.display()
+            );
+        }
+    }
+}
+
+/// CAT-018/CAT-019 closure documentation and the unchanged follow-up gate state.
+#[test]
+fn cat018_cat019_documentation_and_gate_state_guard() {
+    let known = fs::read_to_string("docs/KNOWN_ISSUES.md").expect("KNOWN_ISSUES.md");
+    for required in [
+        "CAT-018",
+        "CAT-019",
+        "COMPLETED_KENWOOD_PTT_PROTOCOL_CONFORMANCE_VERIFIED",
+        "COMPLETED_FLRIG_XMLRPC_PTT_CONFORMANCE_VERIFIED",
+        "F-15 (P1)",
+        "F-17 (P1)",
+        "NATIVE-7B",
+        "SOFTWARE_ONLY_VERIFICATION",
+    ] {
+        assert!(
+            known.contains(required),
+            "KNOWN_ISSUES.md must record: {required}"
+        );
+    }
+    assert!(
+        !known.contains("the parser maps `TX0;` to receive"),
+        "CAT-018: the recorded discrepancy must be replaced by the verified contract"
+    );
+    let matrix = fs::read_to_string("docs/HARDWARE_VALIDATION_MATRIX.md")
+        .expect("HARDWARE_VALIDATION_MATRIX");
+    assert!(
+        !matrix.contains("Parser Kenwooda mapuje `TX0;` na odbiór"),
+        "CAT-018: the hardware matrix must record the corrected mapping"
+    );
+    assert!(
+        matrix.contains("brak `IF`"),
+        "CAT-018: the matrix must record that TS-890S/TS-990S have no IF command"
+    );
+}
