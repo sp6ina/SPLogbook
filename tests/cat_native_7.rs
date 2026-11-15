@@ -95,14 +95,17 @@ fn valid_test_manifest() -> HilTestBenchManifest {
     // albo `HilHardwareSession::new_with_reference_time`, więc wynik nie zależy od
     // równoległego zapisu `SPLOG_HIL_REFERENCE_TIME` w innym teście.
     HilTestBenchManifest {
+        schema_version: splogbook::cat::hil::HIL_PLAN_SCHEMA_VERSION,
         bench_id: "LAB-BENCH-SP6INA-01".to_string(),
         session_id: "SESSION-TEST-01".to_string(),
+        test_case_id: "hil_hardware_live_test_bench".to_string(),
+        attempt_id: "ATTEMPT-TEST-01".to_string(),
         created_at: "2026-10-18T09:30:00Z".to_string(),
         expires_at: Some("2026-10-18T23:59:59Z".to_string()),
         tested_commit: Some("e1ff373b5d264f3f3de2383c19936f45b2befe6a".to_string()),
         expected_commit: Some("e1ff373b5d264f3f3de2383c19936f45b2befe6a".to_string()),
-        working_tree_clean: true,
-        software_tests_passed: true,
+        working_tree_clean: Some(true),
+        software_tests_passed: Some(true),
         operator_id: "SP6INA".to_string(),
         operator_callsign: "SP6INA".to_string(),
         operator_name: "Mariusz Woźniak".to_string(),
@@ -139,7 +142,7 @@ fn valid_test_manifest() -> HilTestBenchManifest {
             operator_has_immediate_stop_control: true,
             out_of_band_data_plane_disabled: true,
         },
-        operator_attestation: HilOperatorAttestation {
+        operator_attestation: Some(HilOperatorAttestation {
             dummy_load_physically_connected: true,
             rf_perimeter_secured: true,
             ptt_consent_granted: true,
@@ -160,7 +163,7 @@ fn valid_test_manifest() -> HilTestBenchManifest {
             allowed_mode_attested: true,
             no_unauthorized_emission_attested: true,
             personnel_know_stop_procedure: true,
-        },
+        }),
         instrument_verification: Some(HilInstrumentMeasurement {
             instrument_id: "BIRD-43".to_string(),
             instrument_model: "Bird 43 Thruline".to_string(),
@@ -454,6 +457,8 @@ fn test_10_validator_missing_operator_dummy_load_attestation_blocks() {
     let mut manifest = valid_test_manifest();
     manifest
         .operator_attestation
+        .as_mut()
+        .expect("attestation")
         .dummy_load_physically_connected = false;
 
     let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7BHardware);
@@ -469,7 +474,7 @@ fn test_10_validator_missing_operator_dummy_load_attestation_blocks() {
     assert!(
         check
             .details
-            .contains("has not attested physical connection")
+            .contains("Operator has not declared physical connection")
     );
     assert_eq!(report.overall_status, HilReadinessStatus::Blocked);
     assert!(!report.can_run_hardware_ptt());
@@ -478,7 +483,11 @@ fn test_10_validator_missing_operator_dummy_load_attestation_blocks() {
 #[test]
 fn test_11_validator_missing_operator_consent_blocks() {
     let mut manifest = valid_test_manifest();
-    manifest.operator_attestation.ptt_consent_granted = false;
+    manifest
+        .operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .ptt_consent_granted = false;
 
     let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7BHardware);
     let check = report
@@ -497,7 +506,11 @@ fn test_11_validator_missing_operator_consent_blocks() {
 #[test]
 fn test_12_validator_missing_rf_perimeter_attestation_blocks() {
     let mut manifest = valid_test_manifest();
-    manifest.operator_attestation.rf_perimeter_secured = false;
+    manifest
+        .operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .rf_perimeter_secured = false;
 
     let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7BHardware);
     let check = report
@@ -512,7 +525,7 @@ fn test_12_validator_missing_rf_perimeter_attestation_blocks() {
     assert!(
         check
             .details
-            .contains("has not confirmed RF safety perimeter")
+            .contains("Operator has not declared RF safety perimeter")
     );
     assert_eq!(report.overall_status, HilReadinessStatus::Blocked);
 }
@@ -587,9 +600,11 @@ fn test_16_validator_stage_7b_full_ready_passes() {
     let manifest = valid_test_manifest();
     let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7BHardware);
 
-    assert_eq!(report.overall_status, HilReadinessStatus::Passed);
-    assert!(report.is_hil_ready());
-    assert!(report.can_run_hardware_ptt());
+    // F-15: kompletny plan i deklaracja nie są niezależnym dowodem, więc stanowisko pozostaje
+    // nierunowalne sprzętowo, a raport nie może upoważnić PTT.
+    assert_eq!(report.overall_status, HilReadinessStatus::Blocked);
+    assert!(!report.is_hil_ready());
+    assert!(!report.can_run_hardware_ptt());
     assert!(report.can_run_probe());
     assert_eq!(report.conditions.len(), 30);
 }
@@ -644,6 +659,8 @@ async fn test_20_session_ptt_strictly_rejected_without_hil_ready() {
     let mut manifest = valid_test_manifest();
     manifest
         .operator_attestation
+        .as_mut()
+        .expect("attestation")
         .dummy_load_physically_connected = false;
     let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
     let mut mock_backend = MockHilBackend::new();
@@ -653,7 +670,13 @@ async fn test_20_session_ptt_strictly_rejected_without_hil_ready() {
         .execute_controlled_ptt(&mut mock_backend, &token, Duration::from_millis(50))
         .await
         .unwrap_err();
-    assert!(matches!(err, HilError::NotHilReady(_)));
+    assert!(
+        matches!(
+            err,
+            HilError::NotHilReady(_) | HilError::UnauthorizedSession(_)
+        ),
+        "F-15: an incomplete declaration must never authorize hardware PTT, got {err:?}"
+    );
     assert_eq!(mock_backend.ptt_count(), 0);
 }
 
@@ -746,14 +769,14 @@ async fn test_25_session_executes_single_shot_ptt_in_stage_7b_mock() {
         ("SPLOG_HIL_ALLOW_TX", Some("I_HAVE_DUMMY_LOAD")),
     ]);
 
+    // F-15: kompletny manifest i bramki środowiskowe nie wystarczają. Bez niezależnego
+    // dokumentu dowodowego PTT pozostaje zablokowane.
     let result = session
         .execute_controlled_ptt(&mut mock_backend, &token, Duration::from_millis(50))
-        .await
-        .expect("Execution on mock backend must succeed");
-
-    assert_eq!(mock_backend.ptt_count(), 1);
-    assert!(!mock_backend.last_ptt_state()); // verified RX returned
-    assert!(result.rx_restored_cleanly);
+        .await;
+    assert!(result.is_err(), "F-15: no evidence must mean no PTT");
+    assert_eq!(mock_backend.ptt_count(), 0);
+    assert!(!mock_backend.last_ptt_state()); // device never left RX
 }
 
 // =========================================================================
@@ -787,14 +810,21 @@ fn hil_requires_explicit_rig_id() {
 fn hil_requires_operator_acknowledgement() {
     let _lock = ENV_LOCK.blocking_lock();
     let mut manifest = valid_test_manifest();
-    manifest.operator_attestation.operator_acknowledged = false;
+    manifest
+        .operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .operator_acknowledged = false;
     let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
     let _env = EnvGuard::new(&[
         ("SPLOG_HIL_ENABLE", Some("1")),
         ("SPLOG_HIL_SESSION", Some("SESSION-TEST-01")),
     ]);
+    // F-15: potwierdzenie operatora jest deklaracją, a nie dowodem; brak niezależnego dowodu
+    // oznacza kontrolowaną odmowę dostępu do sprzętu.
     let res = session.verify_hardware_access_authorization();
-    assert!(matches!(res, Err(HilError::UnauthorizedSession(_))));
+    assert!(res.is_err());
+    assert!(!session.is_hardware_ptt_authorized());
 }
 
 #[test]
@@ -802,6 +832,8 @@ fn hil_requires_dummy_load_confirmation() {
     let mut manifest = valid_test_manifest();
     manifest
         .operator_attestation
+        .as_mut()
+        .expect("attestation")
         .dummy_load_physically_connected = false;
     let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7BHardware);
     let cond9 = report.find_condition(9).expect("Condition 9 must exist");
@@ -904,28 +936,21 @@ async fn hil_ptt_uses_tx_arbiter() {
     ]);
 
     let counters = mock_backend.counters();
-    let mut guard = session
+    // F-15: bez niezależnego dowodu strażnik TX nie może powstać i arbiter pozostaje Idle.
+    let guard = session
         .acquire_tx_guard(
             &mut mock_backend,
             &token,
             &mut arbiter,
             Duration::from_millis(50),
         )
-        .await
-        .expect("Acquire TX guard must succeed");
-
+        .await;
+    assert!(guard.is_err(), "F-15: no evidence must mean no TX guard");
     assert_eq!(
         counters.ptt_count.load(std::sync::atomic::Ordering::SeqCst),
-        1
+        0
     );
-    assert!(matches!(
-        arbiter.state(),
-        splogbook::cat::tx_arbiter::TxArbiterState::Owned { .. }
-    ));
-
-    let res = guard.release_and_confirm_rx().await;
-    assert!(res.is_ok());
-    assert!(guard.is_confirmed_rx());
+    assert!(arbiter.is_idle());
 }
 
 #[tokio::test]
@@ -944,8 +969,9 @@ async fn hil_ptt_has_no_retry() {
     let res = session
         .execute_controlled_ptt(&mut mock_backend, &token, Duration::from_millis(20))
         .await;
-    assert!(res.is_ok());
-    assert_eq!(mock_backend.ptt_count(), 1); // Dokładnie jedno żądanie, brak ponowień
+    // F-15: bez niezależnego dowodu nie wolno wysłać żadnego SetPtt(true).
+    assert!(res.is_err());
+    assert_eq!(mock_backend.ptt_count(), 0);
 }
 
 #[test]
@@ -1088,7 +1114,11 @@ fn hil_session_is_valid_before_expiration() {
         ("SPLOG_HIL_ENABLE", Some("1")),
         ("SPLOG_HIL_SESSION", Some("SESSION-TEST-01")),
     ]);
-    assert!(session.verify_hardware_access_authorization().is_ok());
+    // F-15: poprawna sesja bez niezależnego dowodu nie uzyskuje dostępu do sprzętu.
+    assert!(session.verify_hardware_access_authorization().is_err());
+    assert!(!session.is_hardware_ptt_authorized());
+    assert!(!session.has_independent_evidence());
+    assert!(session.authorization_denial_reason().is_some());
 }
 
 #[test]
@@ -1169,10 +1199,12 @@ fn hil_offline_tests_do_not_depend_on_wall_clock() {
         ("SPLOG_HIL_SESSION", Some("SESSION-TEST-01")),
     ]);
 
+    // F-15: brak niezależnego dowodu oznacza odmowę niezależnie od czasu odniesienia,
+    // a wygaśnięcie sesji pozostaje jawnym, kontrolowanym błędem.
     assert!(
         session
             .verify_hardware_access_authorization_at(past_valid_time)
-            .is_ok()
+            .is_err()
     );
     let res = session.verify_hardware_access_authorization_at(expired_ref_time);
     assert!(matches!(res, Err(HilError::SessionExpired(_))));
@@ -1224,6 +1256,8 @@ fn hil_readiness_distinguishes_failed_from_blocked() {
     let mut manifest_blocked = valid_test_manifest();
     manifest_blocked
         .operator_attestation
+        .as_mut()
+        .expect("attestation")
         .dummy_load_physically_connected = false;
     let report_blocked =
         HilReadinessValidator::validate(&manifest_blocked, HilExecutionStage::Stage7BHardware);
@@ -1236,7 +1270,11 @@ fn hil_readiness_distinguishes_failed_from_blocked() {
 #[test]
 fn hil_operator_attestation_requires_timestamp() {
     let mut manifest = valid_test_manifest();
-    manifest.operator_attestation.attestation_timestamp = "   ".to_string();
+    manifest
+        .operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .attestation_timestamp = "   ".to_string();
     assert!(matches!(
         manifest.validate_structure(),
         Err(HilError::InvalidConsent(_))
@@ -1246,7 +1284,11 @@ fn hil_operator_attestation_requires_timestamp() {
 #[test]
 fn hil_operator_attestation_requires_description() {
     let mut manifest = valid_test_manifest();
-    manifest.operator_attestation.description = "".to_string();
+    manifest
+        .operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .description = "".to_string();
     assert!(matches!(
         manifest.validate_structure(),
         Err(HilError::InvalidConsent(_))
@@ -1563,7 +1605,11 @@ fn hil_hardware_case_remains_not_run_when_gate_is_blocked() {
     assert_eq!(dispatcher_report.cases.len(), 10);
     for case in &dispatcher_report.cases {
         assert_eq!(case.status, HilReadinessStatus::NotRun);
-        assert!(case.reason.contains("HIL-READY runtime evidence blocked"));
+        assert!(
+            case.reason.contains("HIL-READY hardware evidence missing"),
+            "dispatcher reason must name the missing independent evidence, got: {}",
+            case.reason
+        );
     }
 }
 
@@ -2339,6 +2385,7 @@ async fn hil_canonical_28_rejects_stale_rx() {
         ("SPLOG_HIL_SESSION", Some("SESSION-TEST-01")),
         ("SPLOG_HIL_ALLOW_TX", Some("I_HAVE_DUMMY_LOAD")),
     ]);
+    let counters = mock_backend.counters();
     let guard = session
         .acquire_tx_guard(
             &mut mock_backend,
@@ -2346,9 +2393,11 @@ async fn hil_canonical_28_rejects_stale_rx() {
             &mut arbiter,
             Duration::from_millis(10),
         )
-        .await
-        .unwrap();
-    assert!(!guard.is_confirmed_rx());
+        .await;
+    // F-15: bez niezależnego dowodu nie można nabyć strażnika TX.
+    assert!(guard.is_err(), "F-15: no evidence must mean no TX guard");
+    drop(guard);
+    assert_eq!(counters.ptt_count.load(Ordering::SeqCst), 0);
 }
 
 #[test]
@@ -2468,7 +2517,11 @@ fn hil_canonical_21_rejects_unwritable_log_destination() {
 #[test]
 fn hil_canonical_23_requires_documented_abort_procedure() {
     let mut manifest = valid_test_manifest();
-    manifest.operator_attestation.abort_procedure_documented = false;
+    manifest
+        .operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .abort_procedure_documented = false;
     let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
     let cond23 = report.find_condition(23).unwrap();
     assert_eq!(cond23.offline_test_status, HilReadinessStatus::Blocked);
@@ -2486,7 +2539,11 @@ fn hil_canonical_23_requires_nonempty_abort_steps() {
 #[test]
 fn hil_canonical_30_requires_personnel_attestation() {
     let mut manifest = valid_test_manifest();
-    manifest.operator_attestation.personnel_know_stop_procedure = false;
+    manifest
+        .operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .personnel_know_stop_procedure = false;
     let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
     let cond30 = report.find_condition(30).unwrap();
     assert_eq!(cond30.offline_test_status, HilReadinessStatus::Blocked);
@@ -2496,7 +2553,11 @@ fn hil_canonical_30_requires_personnel_attestation() {
 #[test]
 fn hil_canonical_30_requires_attestation_timestamp() {
     let mut manifest = valid_test_manifest();
-    manifest.operator_attestation.attestation_timestamp = "   ".to_string();
+    manifest
+        .operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .attestation_timestamp = "   ".to_string();
     let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
     assert_eq!(report.overall_status, HilReadinessStatus::Blocked);
 }
@@ -2504,7 +2565,11 @@ fn hil_canonical_30_requires_attestation_timestamp() {
 #[test]
 fn hil_canonical_30_requires_attestation_description() {
     let mut manifest = valid_test_manifest();
-    manifest.operator_attestation.description = "   ".to_string();
+    manifest
+        .operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .description = "   ".to_string();
     let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
     assert_eq!(report.overall_status, HilReadinessStatus::Blocked);
 }
@@ -3184,22 +3249,41 @@ fn hil_abort_procedure_contains_power_disconnect() {
 #[test]
 fn hil_operator_acknowledges_abort_procedure() {
     let manifest = valid_test_manifest();
-    assert!(manifest.operator_attestation.abort_procedure_documented);
+    assert!(
+        manifest
+            .operator_attestation
+            .as_ref()
+            .expect("attestation")
+            .abort_procedure_documented
+    );
     assert!(
         !manifest
             .operator_attestation
+            .as_ref()
+            .expect("attestation")
             .attestation_timestamp
             .is_empty()
     );
     assert!(!manifest.operator_id.is_empty());
-    assert!(!manifest.operator_attestation.description.is_empty());
+    assert!(
+        !manifest
+            .operator_attestation
+            .as_ref()
+            .expect("attestation")
+            .description
+            .is_empty()
+    );
 }
 
 #[test]
 fn hil_document_presence_does_not_imply_operator_acknowledgement() {
     assert!(HilAbortProcedure::canonical().is_nonempty());
     let mut manifest = valid_test_manifest();
-    manifest.operator_attestation.abort_procedure_documented = false;
+    manifest
+        .operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .abort_procedure_documented = false;
     let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
     let cond23 = report.find_condition(23).unwrap();
     assert_ne!(cond23.status, HilReadinessStatus::Passed);
@@ -3483,7 +3567,7 @@ fn hil_software_baseline_evidence_validates_all_suites() {
         HilEvidenceOrigin::SoftwareBaselineArtifact
     );
 
-    manifest.software_tests_passed = false;
+    manifest.software_tests_passed = Some(false);
     let report_fail = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
     let cond2_fail = report_fail.find_condition(2).unwrap();
     assert_eq!(cond2_fail.offline_test_status, HilReadinessStatus::Failed);
@@ -3702,7 +3786,11 @@ fn hil_canonical_13_requires_pa_disconnected_or_locked() {
         HilReadinessStatus::Blocked
     );
 
-    manifest.operator_attestation.pa_disconnected_or_locked = false;
+    manifest
+        .operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .pa_disconnected_or_locked = false;
     let rep_blocked = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
     let cond13_blocked = rep_blocked.find_condition(13).unwrap();
     assert_eq!(
@@ -3722,7 +3810,11 @@ fn hil_canonical_14_requires_tuner_bypassed() {
         HilReadinessStatus::Blocked
     );
 
-    manifest.operator_attestation.tuner_bypassed = false;
+    manifest
+        .operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .tuner_bypassed = false;
     let rep_blocked = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
     let cond14_blocked = rep_blocked.find_condition(14).unwrap();
     assert_eq!(
@@ -3908,7 +4000,11 @@ fn hil_canonical_19_requires_physical_emergency_stop() {
 #[test]
 fn hil_canonical_19_blocks_when_emergency_stop_not_attested() {
     let mut manifest = valid_test_manifest();
-    manifest.operator_attestation.physical_stop_available = false;
+    manifest
+        .operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .physical_stop_available = false;
     let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
     let cond19 = report.find_condition(19).unwrap();
     assert_eq!(cond19.offline_test_status, HilReadinessStatus::Blocked);
@@ -3954,7 +4050,10 @@ fn hil_canonical_20_requires_operator_bench_readiness() {
 fn hil_canonical_20_blocks_without_operator_readiness() {
     // 1. Brak potwierdzenia gotowości stanowiska
     let mut m1 = valid_test_manifest();
-    m1.operator_attestation.bench_readiness_confirmed = false;
+    m1.operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .bench_readiness_confirmed = false;
     let r1 = HilReadinessValidator::validate(&m1, HilExecutionStage::Stage7AOffline);
     assert_eq!(
         r1.find_condition(20).unwrap().offline_test_status,
@@ -3981,7 +4080,10 @@ fn hil_canonical_20_blocks_without_operator_readiness() {
 
     // 4. Brak znacznika czasu atestacji
     let mut m4 = valid_test_manifest();
-    m4.operator_attestation.attestation_timestamp = " ".to_string();
+    m4.operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .attestation_timestamp = " ".to_string();
     let r4 = HilReadinessValidator::validate(&m4, HilExecutionStage::Stage7AOffline);
     assert_eq!(
         r4.find_condition(20).unwrap().offline_test_status,
@@ -4026,7 +4128,11 @@ fn hil_canonical_24_requires_rules_and_privileges_attestation() {
 #[test]
 fn hil_canonical_24_blocks_when_attestation_incomplete() {
     let mut m_rules = valid_test_manifest();
-    m_rules.operator_attestation.rules_compliance_attested = false;
+    m_rules
+        .operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .rules_compliance_attested = false;
     assert_eq!(
         HilReadinessValidator::validate(&m_rules, HilExecutionStage::Stage7AOffline)
             .find_condition(24)
@@ -4036,7 +4142,11 @@ fn hil_canonical_24_blocks_when_attestation_incomplete() {
     );
 
     let mut m_priv = valid_test_manifest();
-    m_priv.operator_attestation.operator_privileges_attested = false;
+    m_priv
+        .operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .operator_privileges_attested = false;
     assert_eq!(
         HilReadinessValidator::validate(&m_priv, HilExecutionStage::Stage7AOffline)
             .find_condition(24)
@@ -4046,7 +4156,11 @@ fn hil_canonical_24_blocks_when_attestation_incomplete() {
     );
 
     let mut m_band = valid_test_manifest();
-    m_band.operator_attestation.allowed_band_attested = false;
+    m_band
+        .operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .allowed_band_attested = false;
     assert_eq!(
         HilReadinessValidator::validate(&m_band, HilExecutionStage::Stage7AOffline)
             .find_condition(24)
@@ -4056,7 +4170,11 @@ fn hil_canonical_24_blocks_when_attestation_incomplete() {
     );
 
     let mut m_mode = valid_test_manifest();
-    m_mode.operator_attestation.allowed_mode_attested = false;
+    m_mode
+        .operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .allowed_mode_attested = false;
     assert_eq!(
         HilReadinessValidator::validate(&m_mode, HilExecutionStage::Stage7AOffline)
             .find_condition(24)
@@ -4068,6 +4186,8 @@ fn hil_canonical_24_blocks_when_attestation_incomplete() {
     let mut m_emission = valid_test_manifest();
     m_emission
         .operator_attestation
+        .as_mut()
+        .expect("attestation")
         .no_unauthorized_emission_attested = false;
     assert_eq!(
         HilReadinessValidator::validate(&m_emission, HilExecutionStage::Stage7AOffline)
@@ -4081,9 +4201,21 @@ fn hil_canonical_24_blocks_when_attestation_incomplete() {
 #[test]
 fn hil_canonical_24_ptt_consent_alone_is_insufficient() {
     let mut manifest = valid_test_manifest();
-    manifest.operator_attestation.ptt_consent_granted = true;
-    manifest.operator_attestation.rules_compliance_attested = false;
-    manifest.operator_attestation.operator_privileges_attested = false;
+    manifest
+        .operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .ptt_consent_granted = true;
+    manifest
+        .operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .rules_compliance_attested = false;
+    manifest
+        .operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .operator_privileges_attested = false;
 
     let report = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
     let cond24 = report.find_condition(24).unwrap();
@@ -4239,7 +4371,11 @@ fn hil_extended_x18_requires_rf_perimeter_secured() {
         HilEvidenceOrigin::OperatorDeclaration
     );
 
-    manifest.operator_attestation.rf_perimeter_secured = false;
+    manifest
+        .operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .rf_perimeter_secured = false;
     let report_blocked =
         HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
     let x18_blocked = report_blocked.find_extended_requirement("HIL-X18").unwrap();
@@ -4287,8 +4423,8 @@ async fn hil_extended_x19_enforces_zero_retry_for_set_ptt_true() {
     assert!(res.is_err());
     assert_eq!(
         counters.ptt_count.load(Ordering::SeqCst),
-        1,
-        "SetPtt(true) must be attempted at most once (zero retry)"
+        0,
+        "F-15: without independent evidence SetPtt(true) is never sent"
     );
 }
 
@@ -4340,7 +4476,11 @@ fn hil_extended_x21_requires_operator_physical_presence() {
         HilEvidenceOrigin::OperatorDeclaration
     );
 
-    manifest.operator_attestation.operator_present = false;
+    manifest
+        .operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .operator_present = false;
     let report_blocked =
         HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
     let x21_blocked = report_blocked.find_extended_requirement("HIL-X21").unwrap();
@@ -4366,7 +4506,11 @@ fn hil_extended_x22_rejects_unsupervised_trial() {
         HilEvidenceOrigin::OperatorDeclaration
     );
 
-    manifest.operator_attestation.supervised_trial_confirmed = false;
+    manifest
+        .operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .supervised_trial_confirmed = false;
     let report_blocked =
         HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
     let x22_blocked = report_blocked.find_extended_requirement("HIL-X22").unwrap();
@@ -4897,7 +5041,11 @@ fn hil_canonical_19_requires_physical_stop_attestation() {
 #[test]
 fn hil_canonical_19_requires_timestamp() {
     let mut manifest = valid_test_manifest();
-    manifest.operator_attestation.attestation_timestamp = "   ".to_string();
+    manifest
+        .operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .attestation_timestamp = "   ".to_string();
     let rep = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
     assert_eq!(
         rep.find_condition(19).unwrap().offline_test_status,
@@ -4908,7 +5056,11 @@ fn hil_canonical_19_requires_timestamp() {
 #[test]
 fn hil_canonical_19_requires_description() {
     let mut manifest = valid_test_manifest();
-    manifest.operator_attestation.description = "   ".to_string();
+    manifest
+        .operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .description = "   ".to_string();
     let rep = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
     assert_eq!(
         rep.find_condition(19).unwrap().offline_test_status,
@@ -4955,7 +5107,12 @@ fn hil_canonical_20_requires_session_binding() {
 #[test]
 fn hil_canonical_20_requires_timestamp() {
     let mut manifest = valid_test_manifest();
-    manifest.operator_attestation.attestation_timestamp.clear();
+    manifest
+        .operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .attestation_timestamp
+        .clear();
     let rep = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
     assert_eq!(
         rep.find_condition(20).unwrap().offline_test_status,
@@ -4966,7 +5123,12 @@ fn hil_canonical_20_requires_timestamp() {
 #[test]
 fn hil_canonical_20_requires_nonempty_check_description() {
     let mut manifest = valid_test_manifest();
-    manifest.operator_attestation.description.clear();
+    manifest
+        .operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .description
+        .clear();
     let rep = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
     assert_eq!(
         rep.find_condition(20).unwrap().offline_test_status,
@@ -4996,7 +5158,11 @@ fn hil_canonical_20_fixture_does_not_prove_operator_readiness() {
 #[test]
 fn hil_canonical_24_requires_rules_attestation() {
     let mut manifest = valid_test_manifest();
-    manifest.operator_attestation.rules_compliance_attested = false;
+    manifest
+        .operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .rules_compliance_attested = false;
     let rep = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
     assert_eq!(
         rep.find_condition(24).unwrap().offline_test_status,
@@ -5007,7 +5173,11 @@ fn hil_canonical_24_requires_rules_attestation() {
 #[test]
 fn hil_canonical_24_requires_operator_privileges_attestation() {
     let mut manifest = valid_test_manifest();
-    manifest.operator_attestation.operator_privileges_attested = false;
+    manifest
+        .operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .operator_privileges_attested = false;
     let rep = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
     assert_eq!(
         rep.find_condition(24).unwrap().offline_test_status,
@@ -5018,7 +5188,11 @@ fn hil_canonical_24_requires_operator_privileges_attestation() {
 #[test]
 fn hil_canonical_24_requires_band_attestation() {
     let mut manifest = valid_test_manifest();
-    manifest.operator_attestation.allowed_band_attested = false;
+    manifest
+        .operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .allowed_band_attested = false;
     let rep = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
     assert_eq!(
         rep.find_condition(24).unwrap().offline_test_status,
@@ -5029,7 +5203,11 @@ fn hil_canonical_24_requires_band_attestation() {
 #[test]
 fn hil_canonical_24_requires_mode_attestation() {
     let mut manifest = valid_test_manifest();
-    manifest.operator_attestation.allowed_mode_attested = false;
+    manifest
+        .operator_attestation
+        .as_mut()
+        .expect("attestation")
+        .allowed_mode_attested = false;
     let rep = HilReadinessValidator::validate(&manifest, HilExecutionStage::Stage7AOffline);
     assert_eq!(
         rep.find_condition(24).unwrap().offline_test_status,
@@ -5370,7 +5548,7 @@ async fn hil_execute_controlled_ptt_requires_env_gates_arbiter_and_confirmed_rx(
             .store(false, Ordering::SeqCst);
     }
 
-    // 3. Clean execution restores RX cleanly
+    // 3. Bramki środowiskowe bez niezależnego dowodu nie upoważniają PTT (F-15)
     {
         let _env = EnvGuard::new(&[
             ("SPLOG_HIL_ENABLE", Some("1")),
@@ -5380,10 +5558,8 @@ async fn hil_execute_controlled_ptt_requires_env_gates_arbiter_and_confirmed_rx(
         let res = session
             .execute_controlled_ptt(&mut mock_backend, &token, Duration::from_millis(20))
             .await;
-        assert!(res.is_ok());
-        let outcome = res.unwrap();
-        assert!(outcome.rx_restored_cleanly);
-        assert_eq!(mock_backend.ptt_count(), 1);
+        assert!(res.is_err(), "F-15: no evidence must mean no PTT");
+        assert_eq!(mock_backend.ptt_count(), 0);
         assert!(!mock_backend.last_ptt_state());
     }
 }
@@ -5441,23 +5617,20 @@ async fn hil_session_enters_owned_only_after_confirmation() {
     ]);
 
     assert!(arbiter.is_idle());
-    let mut guard = session
+    // F-15: kompletny manifest i bramki środowiskowe nie zastępują niezależnego dowodu.
+    let counters = mock_backend.counters();
+    let guard = session
         .acquire_tx_guard(
             &mut mock_backend,
             &token,
             &mut arbiter,
             Duration::from_millis(50),
         )
-        .await
-        .expect("Acquire TX guard must succeed");
-
-    assert!(matches!(
-        arbiter.state(),
-        splogbook::cat::tx_arbiter::TxArbiterState::Owned { .. }
-    ));
-    let res = guard.release_and_confirm_rx().await;
-    assert!(res.is_ok());
-    assert!(guard.is_confirmed_rx());
+        .await;
+    assert!(guard.is_err(), "F-15: no evidence must mean no TX guard");
+    drop(guard);
+    assert!(arbiter.is_idle());
+    assert_eq!(counters.ptt_count.load(Ordering::SeqCst), 0);
 }
 
 #[tokio::test]

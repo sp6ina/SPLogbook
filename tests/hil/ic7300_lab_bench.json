@@ -1,6 +1,9 @@
 {
+  "schema_version": 2,
   "bench_id": "SP6INA-LAB-BENCH-01",
   "session_id": "SESSION-SP6INA-LAB-01",
+  "test_case_id": "hil_hardware_live_test_bench",
+  "attempt_id": "ATTEMPT-SP6INA-LAB-01",
   "created_at": "2026-10-18T09:30:00Z",
   "expires_at": "2026-10-18T23:59:59Z",
   "tested_commit": "2de969a6b1db36de4f517c3addc23af8bbf34e8d",
@@ -38,20 +41,33 @@
       14350000
     ],
     "interlock_engaged": true,
-    "max_test_duration_ms": 500
+    "max_test_duration_ms": 500,
+    "smartlink_disabled": true,
+    "unattended_remote_tx_disabled": true,
+    "remote_endpoint_is_local_or_controlled": true,
+    "operator_has_immediate_stop_control": true,
+    "out_of_band_data_plane_disabled": true
   },
   "operator_attestation": {
     "dummy_load_physically_connected": true,
     "rf_perimeter_secured": true,
     "ptt_consent_granted": true,
     "attestation_timestamp": "2026-10-17T20:56:06Z",
-    "description": "Verified laboratory test bench configuration",
+    "description": "Declared laboratory test bench configuration; an operator declaration is not independent evidence",
     "antenna_disconnected": true,
     "pa_disconnected_or_locked": true,
     "tuner_bypassed": true,
     "physical_stop_available": true,
     "abort_procedure_documented": true,
     "operator_acknowledged": true,
+    "bench_readiness_confirmed": true,
+    "operator_present": true,
+    "supervised_trial_confirmed": true,
+    "rules_compliance_attested": true,
+    "operator_privileges_attested": true,
+    "allowed_band_attested": true,
+    "allowed_mode_attested": true,
+    "no_unauthorized_emission_attested": true,
     "personnel_know_stop_procedure": true
   },
   "instrument_verification": {

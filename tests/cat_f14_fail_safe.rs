@@ -1,16 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 Mariusz WoĹşniak (SP6INA)
-//! F-14 software remediation tests â€” PTT panic, fail-closed range handling and release ordering.
+// Copyright (C) 2026 Mariusz Woźniak (SP6INA)
+//! F-14 software regression suite under the F-15 fail-closed authorization model.
 //!
-//! These tests drive the **real** production `HilHardwareSession` logic against TEST-ONLY
-//! protocol doubles. No hardware, no serial port, no USB device, no `rigctld`, no real PTT and
-//! no RF is involved. The ten `#[ignore = "hardware-in-the-loop"]` tests stay untouched.
+//! F-14 invariants (no panicking range arithmetic, validation before PTT ON, exactly one PTT OFF on
+//! every controlled post-ON path, failed/unconfirmed release is never success) are preserved and
+//! verified in two complementary layers:
 //!
-//! Safety invariants asserted throughout:
-//! * an invalid/reversed range never reaches the device (`PTT ON == 0`);
-//! * `PTT ON >= 1` implies `PTT OFF >= 1` (every controlled post-ON path attempts a release);
-//! * a failed or unconfirmed release is never reported as success;
-//! * no analysed input causes a panic.
+//! 1. **In-crate mechanical tests** (`src/cat/hil/session.rs`, `#[cfg(test)]`): they obtain a
+//!    TEST-ONLY independent evidence document (compiled only under `cfg(test)`) and drive the real
+//!    production `HilHardwareSession` against test doubles. That is the only scope where PTT can be
+//!    keyed at all, and it never touches hardware, a serial port, `rigctld` or RF.
+//! 2. **This integration suite**: it drives the very same production entry points with **no**
+//!    independent evidence, which is exactly the production configuration. Every former F-14 fault
+//!    scenario must now stay fail-closed: a controlled error, zero `SetPtt(true)`, no RF, no panic.
+//!
+//! The ten `#[ignore = "hardware-in-the-loop"]` tests in `tests/cat_native_7.rs` stay untouched.
 
 use std::ffi::OsStr;
 use std::task::{Context, Waker};
@@ -45,17 +49,20 @@ fn reference_time() -> chrono::DateTime<chrono::Utc> {
 
 fn manifest_with_duration(max_test_duration_ms: u64) -> HilTestBenchManifest {
     HilTestBenchManifest {
+        schema_version: splogbook::cat::hil::HIL_PLAN_SCHEMA_VERSION,
         bench_id: "LAB-BENCH-SP6INA-01".to_string(),
         session_id: "SESSION-F14-01".to_string(),
+        test_case_id: "hil_hardware_ptt_01".to_string(),
+        attempt_id: "ATTEMPT-F14-01".to_string(),
         created_at: "2026-10-18T09:30:00Z".to_string(),
         expires_at: Some("2026-10-18T23:59:59Z".to_string()),
         tested_commit: Some("e1ff373b5d264f3f3de2383c19936f45b2befe6a".to_string()),
         expected_commit: Some("e1ff373b5d264f3f3de2383c19936f45b2befe6a".to_string()),
-        working_tree_clean: true,
-        software_tests_passed: true,
+        working_tree_clean: Some(true),
+        software_tests_passed: Some(true),
         operator_id: "SP6INA".to_string(),
         operator_callsign: "SP6INA".to_string(),
-        operator_name: "Mariusz WoĹşniak".to_string(),
+        operator_name: "Mariusz Woźniak".to_string(),
         hil_enabled: true,
         allow_tx: true,
         matrix: HilMatrixEntry {
@@ -89,12 +96,12 @@ fn manifest_with_duration(max_test_duration_ms: u64) -> HilTestBenchManifest {
             operator_has_immediate_stop_control: true,
             out_of_band_data_plane_disabled: true,
         },
-        operator_attestation: HilOperatorAttestation {
+        operator_attestation: Some(HilOperatorAttestation {
             dummy_load_physically_connected: true,
             rf_perimeter_secured: true,
             ptt_consent_granted: true,
             attestation_timestamp: "2026-10-17T20:56:00Z".to_string(),
-            description: "Software-only F-14 verification bench".to_string(),
+            description: "Software-only F-14/F-15 verification bench".to_string(),
             antenna_disconnected: true,
             pa_disconnected_or_locked: true,
             tuner_bypassed: true,
@@ -110,7 +117,7 @@ fn manifest_with_duration(max_test_duration_ms: u64) -> HilTestBenchManifest {
             allowed_mode_attested: true,
             no_unauthorized_emission_attested: true,
             personnel_know_stop_procedure: true,
-        },
+        }),
         instrument_verification: Some(HilInstrumentMeasurement {
             instrument_id: "BIRD-43".to_string(),
             instrument_model: "Bird 43 Thruline".to_string(),
@@ -118,11 +125,13 @@ fn manifest_with_duration(max_test_duration_ms: u64) -> HilTestBenchManifest {
             measured_power_watts: Some(9.8),
             calibration_valid_until: Some("2027-12-31".to_string()),
             measurement_timestamp: Some("2026-10-17T20:55:00Z".to_string()),
-            origin: HilEvidenceOrigin::PhysicalMeasurement,
+            origin: HilEvidenceOrigin::SyntheticOfflineFixture,
         }),
     }
 }
 
+/// Production configuration: a complete plan and a complete operator declaration, but **no**
+/// independent evidence document. This is exactly what the shipped binary can produce.
 fn session(max_test_duration_ms: u64) -> HilHardwareSession {
     HilHardwareSession::new_with_reference_time(
         manifest_with_duration(max_test_duration_ms),
@@ -135,9 +144,8 @@ fn token() -> HilPttConsentToken {
     HilPttConsentToken::new("SP6INA").expect("consent token")
 }
 
-/// Environment gates required by the real `verify_hardware_access_authorization_at` and
-/// `verify_tx_authorization_at` paths. The shared `tests/support/process_env.rs` guard is the
-/// only sanctioned way to mutate process environment in this repository.
+/// Environment gates required by the production authorization chain. These are additional gates,
+/// never evidence, so they cannot authorize PTT on their own (F-15).
 fn env_gates() -> EnvGuard {
     EnvGuard::new(&[
         ("SPLOG_HIL_ENABLE", Some(OsStr::new("1"))),
@@ -146,26 +154,29 @@ fn env_gates() -> EnvGuard {
     ])
 }
 
-/// Acquires the real TX guard and immediately performs the real explicit release.
-async fn acquire_and_release(
-    session: &HilHardwareSession,
-    double: &mut ProtocolDouble,
-    requested: Duration,
-) -> Result<splogbook::cat::hil::HilPttExecutionResult, HilError> {
-    let mut arbiter = TxArbiter::new();
-    let mut guard = session
-        .acquire_tx_guard_at(double, &token(), &mut arbiter, requested, reference_time())
-        .await?;
-    guard.release_and_confirm_rx().await
+/// Asserts the complete fail-closed outcome of a denied PTT attempt.
+fn assert_denied_without_ptt(
+    label: &str,
+    result: Result<splogbook::cat::hil::HilPttExecutionResult, HilError>,
+    counters: &std::sync::Arc<protocol_double::DoubleCounters>,
+) {
+    if let Err(err) = result {
+        assert!(
+            !matches!(err, HilError::PttForbiddenInStage7A),
+            "{label}: unexpected stage error {err:?}"
+        );
+    } else {
+        panic!("{label}: PTT must never be authorized without independent evidence");
+    }
+    assert_eq!(counters.ptt_on_count(), 0, "{label}: zero PTT ON");
+    assert!(!counters.last_ptt_state(), "{label}: device stays in RX");
 }
 
 // =========================================================================
-// PHASE 7 â€” SOFTWARE REPRODUCTION OF F-14
+// PHASE 7 — F-15 GATE OVER THE F-14 REPRODUCTION
 // =========================================================================
 
-/// F-14 reproduction: `max_test_duration_ms` (5 ms) below the transmit path's lower bound must
-/// never reach a clamp and must never key PTT. Before the fix this test panicked inside
-/// `acquire_tx_guard_at` **after** `SetPtt(true)`.
+/// F-14 reproduction under F-15: a below-minimum range never reaches a clamp and never keys PTT.
 #[tokio::test]
 async fn f14_reversed_range_is_rejected_before_any_ptt_on() {
     let _env = env_gates();
@@ -184,6 +195,7 @@ async fn f14_reversed_range_is_rejected_before_any_ptt_on() {
         )
         .await;
 
+    // The range validation is total and runs before any PTT ON: a controlled error, never a panic.
     assert!(
         res.is_err(),
         "F-14: reversed range must be a controlled error"
@@ -218,7 +230,7 @@ async fn f14_reversed_range_is_rejected_in_controlled_ptt_path() {
 }
 
 // =========================================================================
-// PHASE 8/11 â€” RANGE VALIDATION
+// PHASE 8/11 — RANGE VALIDATION
 // =========================================================================
 
 /// Empty (0) and every representable sub-minimum range (1..=9) are rejected before PTT ON.
@@ -249,10 +261,10 @@ async fn f14_empty_and_below_min_ranges_never_key_ptt() {
     }
 }
 
-/// `min == max` is explicit: a maximum equal to the clamp floor is legal, bounded exactly, and
-/// the pulse deadline expires first, which must still attempt a release and never report success.
+/// `min == max` is explicit in the type system: the range is legal, so the only reason PTT stays
+/// blocked is the missing independent evidence (F-15) — never a panic and never a keyed device.
 #[tokio::test]
-async fn f14_min_equals_max_range_is_explicit_and_releases() {
+async fn f14_min_equals_max_range_is_explicit_and_blocks_without_evidence() {
     let _env = env_gates();
     let mut double = ProtocolDouble::new(DocumentedPttProtocol::ICOM_CI_V);
     let counters = double.counters();
@@ -265,55 +277,48 @@ async fn f14_min_equals_max_range_is_explicit_and_releases() {
         )
         .await;
 
-    match res {
-        Err(HilError::TimeoutToUnknown(_)) => {}
-        other => panic!("expected TimeoutToUnknown for a full-width pulse, got {other:?}"),
-    }
-    assert_eq!(counters.ptt_on_count(), 1, "exactly one ON");
-    assert_eq!(counters.ptt_off_count(), 1, "exactly one OFF attempt");
+    assert_denied_without_ptt("min==max", res, &counters);
 }
 
-/// A valid range keeps working: exactly one ON and one OFF, in the documented frame order.
+/// A valid range is not enough: without independent evidence PTT is never keyed.
 #[tokio::test]
-async fn f14_valid_range_transmits_once_and_releases_once() {
+async fn f14_valid_range_without_evidence_never_keys_ptt() {
     let _env = env_gates();
     let mut double = ProtocolDouble::new(DocumentedPttProtocol::ICOM_CI_V);
     let counters = double.counters();
     let session = session(500);
+    let mut arbiter = TxArbiter::new();
 
-    let res = acquire_and_release(&session, &mut double, Duration::from_millis(50))
-        .await
-        .expect("valid range must succeed");
-
-    assert!(res.rx_restored_cleanly);
-    assert_eq!(counters.ptt_on_count(), 1, "exactly one ON");
-    assert_eq!(counters.ptt_off_count(), 1, "exactly one OFF");
-    assert!(!counters.last_ptt_state(), "device returned to RX");
-    assert_eq!(
-        counters.sequence(),
-        vec![
-            DocumentedPttProtocol::ICOM_CI_V.ptt_on.to_string(),
-            DocumentedPttProtocol::ICOM_CI_V.ptt_off.to_string()
-        ],
-        "documented ON then OFF frames, in that order"
-    );
+    let res = session
+        .acquire_tx_guard_at(
+            &mut double,
+            &token(),
+            &mut arbiter,
+            Duration::from_millis(50),
+            reference_time(),
+        )
+        .await;
+    assert!(res.is_err(), "F-15: no evidence must mean no TX guard");
+    assert_eq!(counters.ptt_on_count(), 0);
+    assert_eq!(counters.ptt_off_count(), 0);
+    assert!(arbiter.is_idle());
 }
 
-/// A zero pulse duration is bounded up to the documented minimum and never panics.
+/// A zero pulse duration is bounded by the total helper and never panics; PTT stays blocked.
 #[tokio::test]
 async fn f14_zero_duration_is_bounded_to_minimum() {
     let _env = env_gates();
     let mut double = ProtocolDouble::new(DocumentedPttProtocol::ICOM_CI_V);
     let counters = double.counters();
     let session = session(500);
-    let res = acquire_and_release(&session, &mut double, Duration::ZERO).await;
-    assert!(res.is_ok(), "zero pulse must be bounded, not rejected");
-    assert_eq!(counters.ptt_on_count(), 1);
-    assert_eq!(counters.ptt_off_count(), 1);
+    let res = session
+        .execute_controlled_ptt(&mut double, &token(), Duration::ZERO)
+        .await;
+    assert_denied_without_ptt("zero duration", res, &counters);
 }
 
-/// A pulse above the manifest maximum is bounded down; `Duration::MAX` is representable and
-/// must not overflow or panic.
+/// A pulse above the manifest maximum is bounded down; `Duration::MAX` is representable and must
+/// not overflow or panic. PTT stays blocked without evidence.
 #[tokio::test]
 async fn f14_oversized_and_type_bound_durations_are_bounded() {
     let _env = env_gates();
@@ -328,9 +333,7 @@ async fn f14_oversized_and_type_bound_durations_are_bounded() {
         let res = session
             .execute_controlled_ptt(&mut double, &token(), requested)
             .await;
-        assert!(res.is_err(), "full-width pulse must expire, not panic");
-        assert_eq!(counters.ptt_on_count(), 1);
-        assert_eq!(counters.ptt_off_count(), 1);
+        assert_denied_without_ptt("oversized duration", res, &counters);
     }
 }
 
@@ -387,8 +390,118 @@ fn f14_manifest_rejects_out_of_range_and_non_finite_limits() {
 }
 
 // =========================================================================
-// PHASE 8/11 â€” POST-PTT-ON PATHS AND CLEANUP
+// PHASE 9 — F-15 FAIL-CLOSED GATE ON EVERY F-14 FAULT CLASS
 // =========================================================================
+
+/// Every injectable device fault is unreachable without independent evidence: the gate denies
+/// before the device sees anything, so `SetPtt(true)` count is zero for every fault class.
+#[tokio::test]
+async fn f14_fault_injection_matrix_stays_fail_closed_without_evidence() {
+    let _env = env_gates();
+    let faults = [
+        ("success", DoubleFaults::default(), 500),
+        (
+            "fail_on",
+            DoubleFaults {
+                fail_on: true,
+                ..Default::default()
+            },
+            500,
+        ),
+        (
+            "silent_on",
+            DoubleFaults {
+                silent_on: true,
+                ..Default::default()
+            },
+            500,
+        ),
+        (
+            "reject_on",
+            DoubleFaults {
+                reject_on: true,
+                ..Default::default()
+            },
+            500,
+        ),
+        (
+            "fail_off",
+            DoubleFaults {
+                fail_off: true,
+                ..Default::default()
+            },
+            500,
+        ),
+        (
+            "silent_off",
+            DoubleFaults {
+                silent_off: true,
+                ..Default::default()
+            },
+            500,
+        ),
+        (
+            "malformed_off",
+            DoubleFaults {
+                malformed_off: true,
+                ..Default::default()
+            },
+            500,
+        ),
+        (
+            "sticky_ptt",
+            DoubleFaults {
+                sticky_ptt: true,
+                ..Default::default()
+            },
+            500,
+        ),
+        (
+            "sticky_after_on",
+            DoubleFaults {
+                sticky_after_on: true,
+                ..Default::default()
+            },
+            500,
+        ),
+        (
+            "poll_error",
+            DoubleFaults {
+                poll_error: true,
+                ..Default::default()
+            },
+            500,
+        ),
+        (
+            "poll_error_after_on",
+            DoubleFaults {
+                poll_error_after_on: true,
+                ..Default::default()
+            },
+            500,
+        ),
+        (
+            "disconnect_after_on",
+            DoubleFaults {
+                disconnect_after_on: true,
+                ..Default::default()
+            },
+            500,
+        ),
+        ("reversed_range", DoubleFaults::default(), 5),
+    ];
+
+    for (label, fault, max_ms) in faults {
+        let mut double = ProtocolDouble::with_faults(DocumentedPttProtocol::ICOM_CI_V, fault);
+        let counters = double.counters();
+        let session = session(max_ms);
+        let result = session
+            .execute_controlled_ptt(&mut double, &token(), Duration::from_millis(20))
+            .await;
+        assert_denied_without_ptt(label, result, &counters);
+        assert_eq!(counters.ptt_off_count(), 0, "{label}: zero OFF without ON");
+    }
+}
 
 /// A measurement error before PTT ON never keys the transmitter.
 #[tokio::test]
@@ -403,60 +516,43 @@ async fn f14_measurement_error_before_on_never_keys() {
     );
     let counters = double.counters();
     let session = session(500);
-    let res = acquire_and_release(&session, &mut double, Duration::from_millis(20)).await;
+    let res = session
+        .execute_controlled_ptt(&mut double, &token(), Duration::from_millis(20))
+        .await;
     assert!(res.is_err());
     assert_eq!(counters.ptt_on_count(), 0);
 }
 
-/// A measurement error **after** PTT ON must attempt PTT OFF and report failure.
+/// A radio that is already transmitting is rejected before any authorization consumption.
 #[tokio::test]
-async fn f14_measurement_error_after_on_attempts_release() {
+async fn f14_sticky_ptt_preflight_is_rejected_without_evidence_or_transmit() {
     let _env = env_gates();
     let mut double = ProtocolDouble::with_faults(
         DocumentedPttProtocol::ICOM_CI_V,
         DoubleFaults {
-            poll_error_after_on: true,
+            sticky_ptt: true,
             ..Default::default()
         },
     );
     let counters = double.counters();
-    let session = session(500);
-    let mut arbiter = TxArbiter::new();
-    let mut guard = session
-        .acquire_tx_guard_at(
-            &mut double,
-            &token(),
-            &mut arbiter,
-            Duration::from_millis(20),
-            reference_time(),
-        )
-        .await
-        .expect("ON path is valid");
-    assert_eq!(counters.ptt_on_count(), 1);
-    let res = guard.release_and_confirm_rx().await;
-    assert!(res.is_err(), "unconfirmed RX must not be success");
-    assert_eq!(counters.ptt_off_count(), 1, "release attempted");
-    assert!(matches!(
-        guard.release_outcome(),
-        HilReleaseOutcome::Unconfirmed
-    ));
-}
-
-/// A device error on the ON command still triggers exactly one emergency PTT OFF.
-#[tokio::test]
-async fn f14_on_failure_attempts_emergency_release() {
-    let _env = env_gates();
-    let mut double = ProtocolDouble::with_faults(
-        DocumentedPttProtocol::ICOM_CI_V,
-        DoubleFaults {
-            fail_on: true,
-            ..Default::default()
-        },
-    );
-    let counters = double.counters();
-    let mut arbiter = TxArbiter::new();
     let session = session(500);
     let res = session
+        .execute_controlled_ptt(&mut double, &token(), Duration::from_millis(20))
+        .await;
+    assert!(res.is_err(), "already-transmitting radio is rejected");
+    assert_eq!(counters.ptt_on_count(), 0);
+}
+
+/// The explicit guard/release API cannot be reached without evidence: no guard is created.
+#[tokio::test]
+async fn f14_guard_cannot_be_acquired_without_evidence() {
+    let _env = env_gates();
+    let mut double = ProtocolDouble::new(DocumentedPttProtocol::ICOM_CI_V);
+    let counters = double.counters();
+    let mut arbiter = TxArbiter::new();
+    let session = session(500);
+
+    let guard = session
         .acquire_tx_guard_at(
             &mut double,
             &token(),
@@ -465,472 +561,46 @@ async fn f14_on_failure_attempts_emergency_release() {
             reference_time(),
         )
         .await;
-    assert!(res.is_err());
-    assert_eq!(counters.ptt_on_count(), 1);
-    assert_eq!(
-        counters.ptt_off_count(),
-        1,
-        "fail-closed: the ON error path must attempt a release"
-    );
-    assert!(arbiter.is_idle(), "arbiter returns to Idle");
+    assert!(guard.is_err(), "F-15: no evidence must mean no TX guard");
+    assert_eq!(counters.ptt_on_count(), 0);
+    assert!(arbiter.is_idle());
 }
 
-/// A rejected ON command never keys the device and still performs the safety release attempt.
-#[tokio::test]
-async fn f14_rejected_on_never_keys_and_is_fail_closed() {
-    let _env = env_gates();
-    let mut double = ProtocolDouble::with_faults(
-        DocumentedPttProtocol::ICOM_CI_V,
-        DoubleFaults {
-            reject_on: true,
-            ..Default::default()
-        },
-    );
-    let counters = double.counters();
-    let mut arbiter = TxArbiter::new();
-    let session = session(500);
-    let res = session
-        .acquire_tx_guard_at(
-            &mut double,
-            &token(),
-            &mut arbiter,
-            Duration::from_millis(20),
-            reference_time(),
-        )
-        .await;
-    assert!(res.is_err());
-    assert_eq!(counters.ptt_on_count(), 1);
-    assert_eq!(counters.ptt_off_count(), 1);
-    assert!(!counters.last_ptt_state());
-}
-
-/// A failed OFF is an error, never success, and the release outcome records the failure.
-#[tokio::test]
-async fn f14_off_failure_is_not_reported_as_success() {
-    let _env = env_gates();
-    let mut double = ProtocolDouble::with_faults(
-        DocumentedPttProtocol::ICOM_CI_V,
-        DoubleFaults {
-            fail_off: true,
-            ..Default::default()
-        },
-    );
-    let counters = double.counters();
-    let session = session(500);
-    let mut arbiter = TxArbiter::new();
-    let mut guard = session
-        .acquire_tx_guard_at(
-            &mut double,
-            &token(),
-            &mut arbiter,
-            Duration::from_millis(20),
-            reference_time(),
-        )
-        .await
-        .expect("ON path is valid");
-    let res = guard.release_and_confirm_rx().await;
-    assert!(
-        res.is_err(),
-        "F-14: OFF failure must be an error, never success"
-    );
-    assert_eq!(counters.ptt_on_count(), 1);
-    assert_eq!(counters.ptt_off_count(), 1, "one release attempt is made");
-    assert!(matches!(guard.release_outcome(), HilReleaseOutcome::Failed));
-    assert!(
-        counters.last_ptt_state(),
-        "the double still holds TX; the result must not claim RX"
-    );
-}
-
-/// A release timeout is an error, never success.
-#[tokio::test]
-async fn f14_off_timeout_is_not_reported_as_success() {
-    let _env = env_gates();
-    let mut double = ProtocolDouble::with_faults(
-        DocumentedPttProtocol::ICOM_CI_V,
-        DoubleFaults {
-            silent_off: true,
-            ..Default::default()
-        },
-    );
-    let counters = double.counters();
-    let session = session(500);
-    let mut arbiter = TxArbiter::new();
-    let mut guard = session
-        .acquire_tx_guard_at(
-            &mut double,
-            &token(),
-            &mut arbiter,
-            Duration::from_millis(20),
-            reference_time(),
-        )
-        .await
-        .expect("ON path is valid");
-    assert!(guard.release_and_confirm_rx().await.is_err());
-    assert_eq!(counters.ptt_off_count(), 1);
-    assert!(matches!(guard.release_outcome(), HilReleaseOutcome::Failed));
-}
-
-/// A malformed/truncated OFF answer is an error, never success.
-#[tokio::test]
-async fn f14_malformed_off_response_is_not_reported_as_success() {
-    let _env = env_gates();
-    let mut double = ProtocolDouble::with_faults(
-        DocumentedPttProtocol::ICOM_CI_V,
-        DoubleFaults {
-            malformed_off: true,
-            ..Default::default()
-        },
-    );
-    let counters = double.counters();
-    let session = session(500);
-    let mut arbiter = TxArbiter::new();
-    let mut guard = session
-        .acquire_tx_guard_at(
-            &mut double,
-            &token(),
-            &mut arbiter,
-            Duration::from_millis(20),
-            reference_time(),
-        )
-        .await
-        .expect("ON path is valid");
-    assert!(guard.release_and_confirm_rx().await.is_err());
-    assert_eq!(counters.ptt_off_count(), 1);
-}
-
-/// A device that keeps reporting TX after the OFF command must produce
-/// `MissingConfirmedRx`, not a clean release.
-#[tokio::test]
-async fn f14_unconfirmed_rx_is_not_success() {
-    let _env = env_gates();
-    let mut double = ProtocolDouble::with_faults(
-        DocumentedPttProtocol::ICOM_CI_V,
-        DoubleFaults {
-            sticky_after_on: true,
-            ..Default::default()
-        },
-    );
-    let counters = double.counters();
-    let session = session(500);
-    let res = acquire_and_release(&session, &mut double, Duration::from_millis(20)).await;
-    match res {
-        Err(HilError::MissingConfirmedRx(_)) => {}
-        other => panic!("expected MissingConfirmedRx, got {other:?}"),
-    }
-    assert_eq!(counters.ptt_on_count(), 1, "the ON command was sent");
-    assert_eq!(counters.ptt_off_count(), 1, "the OFF command was sent");
-}
-
-/// Transport loss immediately after PTT ON: the release attempt fails and the result is an
-/// error that names the failure; it is never a success.
-#[tokio::test]
-async fn f14_disconnect_after_on_reports_release_failure() {
-    let _env = env_gates();
-    let mut double = ProtocolDouble::with_faults(
-        DocumentedPttProtocol::ICOM_CI_V,
-        DoubleFaults {
-            disconnect_after_on: true,
-            ..Default::default()
-        },
-    );
-    let counters = double.counters();
-    let session = session(500);
-    let mut arbiter = TxArbiter::new();
-    let mut guard = session
-        .acquire_tx_guard_at(
-            &mut double,
-            &token(),
-            &mut arbiter,
-            Duration::from_millis(20),
-            reference_time(),
-        )
-        .await
-        .expect("ON path is valid");
-    let res = guard.release_and_confirm_rx().await;
-    assert!(res.is_err());
-    assert_eq!(counters.ptt_on_count(), 1);
-    assert_eq!(counters.ptt_off_count(), 1, "release still attempted");
-    assert!(matches!(guard.release_outcome(), HilReleaseOutcome::Failed));
-}
-
-/// Duplicate cleanup is rejected explicitly and the first outcome is preserved.
-#[tokio::test]
-async fn f14_duplicate_release_is_rejected() {
-    let _env = env_gates();
-    let mut double = ProtocolDouble::new(DocumentedPttProtocol::ICOM_CI_V);
-    let counters = double.counters();
-    let session = session(500);
-    let mut arbiter = TxArbiter::new();
-    let mut guard = session
-        .acquire_tx_guard_at(
-            &mut double,
-            &token(),
-            &mut arbiter,
-            Duration::from_millis(20),
-            reference_time(),
-        )
-        .await
-        .expect("ON path is valid");
-    assert!(guard.release_and_confirm_rx().await.is_ok());
-    let second = guard.release_and_confirm_rx().await;
-    assert!(matches!(second, Err(HilError::ReleaseError(_))));
-    assert_eq!(counters.ptt_on_count(), 1, "no retry of ON");
-    assert_eq!(counters.ptt_off_count(), 1, "no duplicate OFF");
-    assert!(matches!(
-        guard.release_outcome(),
-        HilReleaseOutcome::Confirmed
-    ));
-}
-
-// =========================================================================
-// PHASE 11/12 â€” CANCELLATION AND DROP
-// =========================================================================
-
-/// Deterministic cancellation: the future is polled exactly once, which drives the real path up
-/// to the pulse await, and then dropped. The guard's Drop must attempt exactly one PTT OFF.
-#[tokio::test]
-async fn f14_cancellation_after_ptt_on_attempts_release() {
-    let _env = env_gates();
-    let mut double = ProtocolDouble::new(DocumentedPttProtocol::ICOM_CI_V);
-    let counters = double.counters();
-    let session = session(500);
-    let mut arbiter = TxArbiter::new();
-    let token = token();
-
-    let mut future = Box::pin(session.execute_controlled_ptt_with_arbiter_at(
-        &mut double,
-        &token,
-        &mut arbiter,
-        Duration::from_millis(50),
-        reference_time(),
-    ));
-    let waker = Waker::noop();
-    let mut cx = Context::from_waker(waker);
-    assert!(
-        future.as_mut().poll(&mut cx).is_pending(),
-        "the pulse await must park the future"
-    );
-    assert_eq!(counters.ptt_on_count(), 1, "PTT ON happened before parking");
-    drop(future);
-
-    assert_eq!(counters.ptt_on_count(), 1, "no retry of ON");
-    assert_eq!(
-        counters.ptt_off_count(),
-        1,
-        "cancellation must attempt exactly one PTT OFF"
-    );
-    assert!(!counters.last_ptt_state(), "device returned to RX");
-    assert!(
-        !arbiter.is_idle(),
-        "the arbiter is left in a non-Idle safety state after cancellation"
-    );
-}
-
-/// Dropping an unreleased guard performs exactly one best-effort OFF and never fabricates
-/// a confirmed RX.
-#[tokio::test]
-async fn f14_abandoned_guard_attempts_one_release_without_fabricating_rx() {
-    let _env = env_gates();
-    let mut double = ProtocolDouble::new(DocumentedPttProtocol::ICOM_CI_V);
-    let counters = double.counters();
-    let state = std::sync::Arc::new(std::sync::atomic::AtomicU8::new(0));
-    {
-        let guard = splogbook::cat::hil::HilTxGuard::new_with_state(
-            RigId::new("RIG-F14-01").unwrap(),
-            &mut double,
-            Duration::from_millis(50),
-            state.clone(),
-        );
-        assert!(!guard.is_confirmed_rx());
-        assert_eq!(guard.release_outcome(), HilReleaseOutcome::NotAttempted);
-    }
-    assert_eq!(counters.ptt_off_count(), 1, "one emergency attempt");
-    assert_eq!(
-        state.load(std::sync::atomic::Ordering::SeqCst),
-        3,
-        "session state is FailedOrUnknown, never CompletedCleanly"
-    );
-}
-
-/// The emergency attempt must not block on an unresponsive device future.
+/// The session refuses hardware access at the authorization boundary, with an auditable reason.
 #[test]
-fn f14_emergency_release_does_not_block_on_pending_future() {
-    let double = ProtocolDouble::with_faults(
-        DocumentedPttProtocol::ICOM_CI_V,
-        DoubleFaults {
-            pending_off: true,
-            ..Default::default()
-        },
-    );
-    let counters = double.counters();
-    let mut double = double;
-    {
-        let guard = splogbook::cat::hil::HilTxGuard::new(
-            RigId::new("RIG-F14-01").unwrap(),
-            &mut double,
-            Duration::from_millis(50),
-        );
-        drop(guard);
-    }
-    assert_eq!(counters.ptt_off_count(), 1);
-}
-
-// =========================================================================
-// PHASE 12 â€” FAULT INJECTION MATRIX
-// =========================================================================
-
-/// Every injectable fault preserves the safety invariants:
-/// invalid preflight â†’ 0 ON; ON â‰Ą 1 â†’ OFF â‰Ą 1; OFF failure/timeout/disconnect â†’ not success.
-#[tokio::test]
-async fn f14_fault_injection_matrix_keeps_safety_invariants() {
+fn f14_hardware_access_requires_independent_evidence() {
     let _env = env_gates();
-    // (label, faults, max_test_duration_ms, expected PTT ON count)
-    let faults = [
-        ("success", DoubleFaults::default(), 500, 1),
-        (
-            "fail_on",
-            DoubleFaults {
-                fail_on: true,
-                ..Default::default()
-            },
-            500,
-            1,
-        ),
-        (
-            "silent_on",
-            DoubleFaults {
-                silent_on: true,
-                ..Default::default()
-            },
-            500,
-            1,
-        ),
-        (
-            "reject_on",
-            DoubleFaults {
-                reject_on: true,
-                ..Default::default()
-            },
-            500,
-            1,
-        ),
-        (
-            "fail_off",
-            DoubleFaults {
-                fail_off: true,
-                ..Default::default()
-            },
-            500,
-            1,
-        ),
-        (
-            "silent_off",
-            DoubleFaults {
-                silent_off: true,
-                ..Default::default()
-            },
-            500,
-            1,
-        ),
-        (
-            "malformed_off",
-            DoubleFaults {
-                malformed_off: true,
-                ..Default::default()
-            },
-            500,
-            1,
-        ),
-        (
-            "sticky_ptt_preflight",
-            DoubleFaults {
-                sticky_ptt: true,
-                ..Default::default()
-            },
-            500,
-            0,
-        ),
-        (
-            "sticky_after_on",
-            DoubleFaults {
-                sticky_after_on: true,
-                ..Default::default()
-            },
-            500,
-            1,
-        ),
-        (
-            "poll_error",
-            DoubleFaults {
-                poll_error: true,
-                ..Default::default()
-            },
-            500,
-            0,
-        ),
-        (
-            "poll_error_after_on",
-            DoubleFaults {
-                poll_error_after_on: true,
-                ..Default::default()
-            },
-            500,
-            1,
-        ),
-        (
-            "disconnect_after_on",
-            DoubleFaults {
-                disconnect_after_on: true,
-                ..Default::default()
-            },
-            500,
-            1,
-        ),
-        ("reversed_range", DoubleFaults::default(), 5, 0),
-    ];
+    let session = session(500);
+    let res = session.verify_hardware_access_authorization_at(reference_time());
+    assert!(res.is_err(), "F-15: hardware access must be denied");
+    assert!(!session.is_hardware_ptt_authorized());
+    assert!(!session.has_independent_evidence());
+    let reason = session
+        .authorization_denial_reason()
+        .expect("a denial must carry an auditable reason");
+    assert!(
+        reason.contains("OperatorAttestationMissing") || reason.contains("EvidenceMissing"),
+        "the denial must name the missing independent authorization input, got: {reason}"
+    );
+}
 
-    for (label, fault, max_ms, expected_on) in faults {
-        let mut double = ProtocolDouble::with_faults(DocumentedPttProtocol::ICOM_CI_V, fault);
-        let counters = double.counters();
-        let session = session(max_ms);
-        let result = session
-            .execute_controlled_ptt(&mut double, &token(), Duration::from_millis(20))
-            .await;
-
-        assert_eq!(
-            counters.ptt_on_count(),
-            expected_on,
-            "{label}: unexpected PTT ON count"
-        );
-        if counters.ptt_on_count() >= 1 {
-            assert_eq!(
-                counters.ptt_off_count(),
-                1,
-                "{label}: exactly one release attempt after any ON"
-            );
-        } else {
-            assert_eq!(counters.ptt_off_count(), 0, "{label}: zero OFF without ON");
-        }
-        if let Ok(res) = result {
-            assert!(
-                res.rx_restored_cleanly,
-                "{label}: success implies confirmed RX"
-            );
-            assert!(!counters.last_ptt_state(), "{label}: success implies RX");
-        }
-    }
+/// A denied attempt does not consume the attempt registry: denial is not authorization.
+#[test]
+fn f14_denied_attempt_is_not_recorded_as_consumed() {
+    let _env = env_gates();
+    let session = session(500);
+    let _ = session.verify_hardware_access_authorization_at(reference_time());
+    assert!(!session.is_authorization_consumed());
 }
 
 // =========================================================================
-// PHASE 10 â€” TEST-ONLY PROTOCOL DOUBLES (documented behaviour)
+// PHASE 10 — TEST-ONLY PROTOCOL DOUBLES (documented behaviour)
 // =========================================================================
 
-/// Each documented protocol double drives the same real HIL session to a clean, single ON/OFF
-/// sequence using exactly the documented ON and OFF frames.
+/// Each documented protocol double emits exactly the documented ON and OFF frames when driven
+/// directly (no session, no authorization, no hardware). Frame-level conformance is unchanged.
 #[tokio::test]
 async fn f14_protocol_doubles_round_trip_documented_frames() {
-    let _env = env_gates();
     let protocols = [
         DocumentedPttProtocol::ICOM_CI_V,
         DocumentedPttProtocol::YAESU_CAT,
@@ -944,13 +614,14 @@ async fn f14_protocol_doubles_round_trip_documented_frames() {
     for protocol in protocols {
         let mut double = ProtocolDouble::new(protocol);
         let counters = double.counters();
-        let session = session(500);
-        let res = acquire_and_release(&session, &mut double, Duration::from_millis(20)).await;
-        assert!(
-            res.is_ok(),
-            "{}: documented double must succeed",
-            protocol.source
-        );
+        double
+            .execute(&RigCommand::SetPtt(true))
+            .await
+            .expect("ON frame");
+        double
+            .execute(&RigCommand::SetPtt(false))
+            .await
+            .expect("OFF frame");
         assert_eq!(counters.ptt_on_count(), 1, "{}: one ON", protocol.source);
         assert_eq!(counters.ptt_off_count(), 1, "{}: one OFF", protocol.source);
         assert_eq!(
@@ -976,16 +647,22 @@ async fn f14_protocol_double_ignores_non_ptt_commands() {
 }
 
 // =========================================================================
-// PHASE 13 â€” DETERMINISTIC STRESS
+// PHASE 12/13 — DETERMINISTIC STRESS ON THE FAIL-CLOSED PATH
 // =========================================================================
 
-/// 2000 reversed-range attempts and 2000 valid-range attempts, deterministic, no sleep.
+/// 2000 denied attempts over every fault class: deterministic, no sleep, no PTT, no panic.
 #[tokio::test]
-async fn f14_stress_range_validation_2000_plus_2000() {
+async fn f14_stress_denied_attempts_2000() {
     let _env = env_gates();
-    let mut rejected = 0usize;
+    let mut denied = 0usize;
     for i in 0..2000u64 {
-        let max_ms = i % HIL_MIN_TEST_DURATION_MS;
+        let max_ms = if i % 3 == 0 {
+            500
+        } else if i % 3 == 1 {
+            HIL_MIN_TEST_DURATION_MS
+        } else {
+            i % HIL_MIN_TEST_DURATION_MS
+        };
         let mut double = ProtocolDouble::new(DocumentedPttProtocol::ICOM_CI_V);
         let counters = double.counters();
         let mut arbiter = TxArbiter::new();
@@ -995,204 +672,21 @@ async fn f14_stress_range_validation_2000_plus_2000() {
                 &mut double,
                 &token(),
                 &mut arbiter,
-                Duration::from_millis(50),
+                Duration::from_millis(20),
                 reference_time(),
             )
             .await;
-        assert!(res.is_err(), "iteration {i}: must be rejected");
+        assert!(res.is_err(), "iteration {i}: must be denied");
         assert_eq!(counters.ptt_on_count(), 0, "iteration {i}: zero ON");
-        rejected += 1;
+        assert_eq!(counters.ptt_off_count(), 0, "iteration {i}: zero OFF");
+        denied += 1;
     }
-    assert_eq!(rejected, 2000);
-
-    let session = session(500);
-    let mut accepted = 0usize;
-    for _ in 0..2000 {
-        let mut double = ProtocolDouble::new(DocumentedPttProtocol::ICOM_CI_V);
-        let counters = double.counters();
-        let mut arbiter = TxArbiter::new();
-        let guard = session
-            .acquire_tx_guard_at(
-                &mut double,
-                &token(),
-                &mut arbiter,
-                Duration::from_millis(20),
-                reference_time(),
-            )
-            .await
-            .expect("valid range must be accepted");
-        drop(guard);
-        assert_eq!(counters.ptt_on_count(), 1);
-        assert_eq!(counters.ptt_off_count(), 1);
-        accepted += 1;
-    }
-    assert_eq!(accepted, 2000);
+    assert_eq!(denied, 2000);
 }
 
-/// 1000 iterations of every post-ON / cleanup path, deterministic, no sleep.
+/// 1000 denied controlled-PTT attempts across all documented protocol doubles: zero PTT frames.
 #[tokio::test]
-async fn f14_stress_post_on_paths_1000_each() {
-    let _env = env_gates();
-
-    // cleanup success
-    for _ in 0..1000 {
-        let mut double = ProtocolDouble::new(DocumentedPttProtocol::ICOM_CI_V);
-        let counters = double.counters();
-        let session = session(500);
-        assert!(
-            acquire_and_release(&session, &mut double, Duration::from_millis(20))
-                .await
-                .is_ok()
-        );
-        assert_eq!(counters.ptt_on_count(), 1);
-        assert_eq!(counters.ptt_off_count(), 1);
-    }
-
-    // cleanup error
-    for _ in 0..1000 {
-        let mut double = ProtocolDouble::with_faults(
-            DocumentedPttProtocol::ICOM_CI_V,
-            DoubleFaults {
-                fail_off: true,
-                ..Default::default()
-            },
-        );
-        let counters = double.counters();
-        let session = session(500);
-        assert!(
-            acquire_and_release(&session, &mut double, Duration::from_millis(20))
-                .await
-                .is_err()
-        );
-        assert_eq!(counters.ptt_on_count(), 1);
-        assert_eq!(counters.ptt_off_count(), 1);
-    }
-
-    // cleanup timeout
-    for _ in 0..1000 {
-        let mut double = ProtocolDouble::with_faults(
-            DocumentedPttProtocol::ICOM_CI_V,
-            DoubleFaults {
-                silent_off: true,
-                ..Default::default()
-            },
-        );
-        let counters = double.counters();
-        let session = session(500);
-        assert!(
-            acquire_and_release(&session, &mut double, Duration::from_millis(20))
-                .await
-                .is_err()
-        );
-        assert_eq!(counters.ptt_on_count(), 1);
-        assert_eq!(counters.ptt_off_count(), 1);
-    }
-
-    // post-ON failure (ON acknowledgement lost)
-    for _ in 0..1000 {
-        let mut double = ProtocolDouble::with_faults(
-            DocumentedPttProtocol::ICOM_CI_V,
-            DoubleFaults {
-                fail_on: true,
-                ..Default::default()
-            },
-        );
-        let counters = double.counters();
-        let mut arbiter = TxArbiter::new();
-        let session = session(500);
-        let res = session
-            .acquire_tx_guard_at(
-                &mut double,
-                &token(),
-                &mut arbiter,
-                Duration::from_millis(20),
-                reference_time(),
-            )
-            .await;
-        assert!(res.is_err());
-        assert_eq!(counters.ptt_on_count(), 1);
-        assert_eq!(counters.ptt_off_count(), 1);
-    }
-
-    // preflight failure: zero ON
-    for _ in 0..1000 {
-        let mut double = ProtocolDouble::with_faults(
-            DocumentedPttProtocol::ICOM_CI_V,
-            DoubleFaults {
-                poll_error: true,
-                ..Default::default()
-            },
-        );
-        let counters = double.counters();
-        let mut arbiter = TxArbiter::new();
-        let session = session(500);
-        let res = session
-            .acquire_tx_guard_at(
-                &mut double,
-                &token(),
-                &mut arbiter,
-                Duration::from_millis(20),
-                reference_time(),
-            )
-            .await;
-        assert!(res.is_err());
-        assert_eq!(counters.ptt_on_count(), 0);
-    }
-
-    // disconnect after ON
-    for _ in 0..1000 {
-        let mut double = ProtocolDouble::with_faults(
-            DocumentedPttProtocol::ICOM_CI_V,
-            DoubleFaults {
-                disconnect_after_on: true,
-                ..Default::default()
-            },
-        );
-        let counters = double.counters();
-        let mut arbiter = TxArbiter::new();
-        let session = session(500);
-        let res = session
-            .acquire_tx_guard_at(
-                &mut double,
-                &token(),
-                &mut arbiter,
-                Duration::from_millis(20),
-                reference_time(),
-            )
-            .await;
-        let mut guard = res.expect("ON path is valid");
-        assert!(guard.release_and_confirm_rx().await.is_err());
-        assert_eq!(counters.ptt_on_count(), 1);
-        assert_eq!(counters.ptt_off_count(), 1);
-    }
-
-    // cancellation
-    for _ in 0..1000 {
-        let mut double = ProtocolDouble::new(DocumentedPttProtocol::ICOM_CI_V);
-        let counters = double.counters();
-        let mut arbiter = TxArbiter::new();
-        let session = session(500);
-        let token = token();
-        let mut future = Box::pin(session.execute_controlled_ptt_with_arbiter_at(
-            &mut double,
-            &token,
-            &mut arbiter,
-            Duration::from_millis(20),
-            reference_time(),
-        ));
-        let waker = Waker::noop();
-        let mut cx = Context::from_waker(waker);
-        assert!(future.as_mut().poll(&mut cx).is_pending());
-        drop(future);
-        assert_eq!(counters.ptt_on_count(), 1);
-        assert_eq!(counters.ptt_off_count(), 1);
-    }
-}
-
-/// 500 documented protocol-double round trips, 50 CAT ordering rounds and 200 full HIL software
-/// scenarios â€” all deterministic and hardware-free.
-#[tokio::test]
-async fn f14_stress_protocol_doubles_500_cat_50_hil_200() {
+async fn f14_stress_documented_doubles_1000() {
     let _env = env_gates();
     let protocols = [
         DocumentedPttProtocol::ICOM_CI_V,
@@ -1204,53 +698,65 @@ async fn f14_stress_protocol_doubles_500_cat_50_hil_200() {
         DocumentedPttProtocol::HAMLIB_RIGCTLD,
         DocumentedPttProtocol::FLRIG,
     ];
-    let session = session(500);
-
-    for i in 0..500usize {
+    for i in 0..1000usize {
         let protocol = protocols[i % protocols.len()];
         let mut double = ProtocolDouble::new(protocol);
         let counters = double.counters();
+        let session = session(500);
+        let res = session
+            .execute_controlled_ptt(&mut double, &token(), Duration::from_millis(10))
+            .await;
         assert!(
-            acquire_and_release(&session, &mut double, Duration::from_millis(10))
-                .await
-                .is_ok(),
-            "iteration {i} ({})",
+            res.is_err(),
+            "iteration {i} ({}) must be denied",
             protocol.source
         );
-        assert_eq!(counters.ptt_on_count(), 1);
-        assert_eq!(counters.ptt_off_count(), 1);
+        assert_eq!(counters.ptt_on_count(), 0, "iteration {i}: zero ON");
+        assert_eq!(counters.ptt_off_count(), 0, "iteration {i}: zero OFF");
     }
+}
 
-    for _ in 0..50 {
-        for protocol in protocols {
-            let mut double = ProtocolDouble::new(protocol);
-            let counters = double.counters();
-            assert!(
-                acquire_and_release(&session, &mut double, Duration::from_millis(10))
-                    .await
-                    .is_ok()
-            );
-            assert_eq!(
-                counters.sequence(),
-                vec![protocol.ptt_on.to_string(), protocol.ptt_off.to_string()]
-            );
-        }
-    }
+/// Cancelling the controlled-PTT future before any PTT ON is safe: zero frames, no panic.
+#[tokio::test]
+async fn f14_cancellation_before_ptt_on_is_safe() {
+    let _env = env_gates();
+    let mut double = ProtocolDouble::new(DocumentedPttProtocol::ICOM_CI_V);
+    let counters = double.counters();
+    let mut arbiter = TxArbiter::new();
+    let session = session(500);
+    let token = token();
 
-    for _ in 0..200 {
-        let mut double = ProtocolDouble::new(DocumentedPttProtocol::ICOM_CI_V);
-        let counters = double.counters();
-        let probe = session.execute_safe_probe_backend(&mut double).await;
-        assert!(probe.is_ok(), "software-only probe path");
-        assert_eq!(counters.ptt_on_count(), 0, "probe never keys PTT");
-        assert!(
-            acquire_and_release(&session, &mut double, Duration::from_millis(10))
-                .await
-                .is_ok()
-        );
-        assert_eq!(counters.ptt_on_count(), 1);
-        assert_eq!(counters.ptt_off_count(), 1);
-    }
+    let mut future = Box::pin(session.execute_controlled_ptt_with_arbiter_at(
+        &mut double,
+        &token,
+        &mut arbiter,
+        Duration::from_millis(50),
+        reference_time(),
+    ));
+    let waker = Waker::noop();
+    let mut cx = Context::from_waker(waker);
+    let first_poll = future.as_mut().poll(&mut cx);
+    assert!(
+        first_poll.is_ready(),
+        "denial is synchronous, no pulse await"
+    );
+    drop(future);
+    assert_eq!(counters.ptt_on_count(), 0);
+    assert_eq!(counters.ptt_off_count(), 0);
+}
+
+/// Release semantics remain explicit in the type system: `NotAttempted` is the initial state and
+/// the guard API cannot confirm RX without a real release call.
+#[test]
+fn f14_release_outcome_starts_not_attempted() {
+    assert_eq!(
+        format!("{:?}", HilReleaseOutcome::NotAttempted),
+        "NotAttempted"
+    );
+    assert_ne!(
+        HilReleaseOutcome::NotAttempted,
+        HilReleaseOutcome::Confirmed
+    );
 }
 
 /// The production backend kind enumeration never exposes a test double.
