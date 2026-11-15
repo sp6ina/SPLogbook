@@ -330,6 +330,11 @@ arbitrary working directory run, `ldd` inside the runtime, the read-only `/app`
 proof, the XDG mapping, the full lifecycle and a headless X11 GUI smoke test.
 It prints `FLATPAK VERIFICATION COMPLETED SUCCESSFULLY` only at the end.
 
+The static payload allowlist and the dynamic comparison of the deployed tree
+are not identical by construction: flatpak writes `/app/.ref` into the
+deployment, a file the bundle does not contain. The dynamic comparison excludes
+that single name explicitly; it is never added to the allowlist.
+
 `SPLOG_FLATPAK_STAGE=permissions|lifecycle` restricts the run to the
 corresponding stage and prints a stage-specific banner.
 `SPLOG_FLATPAK_INSPECTION_ONLY=1` stops after the static checks and prints

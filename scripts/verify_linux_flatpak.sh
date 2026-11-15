@@ -482,7 +482,10 @@ DEPLOY_ROOT="${FLATPAK_USER_DIR}/app/${APP_ID}/x86_64/${BRANCH}/${INSTALLED_COMM
 [ -d "${DEPLOY_ROOT}" ] || fail "cannot locate the deployed files: ${DEPLOY_ROOT}"
 
 EXPECTED_FILES="$(APP_ALLOWLIST | LC_ALL=C sort)"
-ACTUAL_FILES="$(cd "${DEPLOY_ROOT}" && find . -type f | LC_ALL=C sort)"
+# flatpak itself writes `/app/.ref` into the *deployed* tree; it is not part of
+# the exported payload (the bundle does not contain it), so it is excluded from
+# the dynamic comparison but must never be allowlisted statically.
+ACTUAL_FILES="$(cd "${DEPLOY_ROOT}" && find . -type f ! -name '.ref' | LC_ALL=C sort)"
 [ "${ACTUAL_FILES}" = "${EXPECTED_FILES}" ] || {
     show_mismatch "${EXPECTED_FILES}" "${ACTUAL_FILES}"
     fail "the deployed /app tree is not the approved allowlist"
