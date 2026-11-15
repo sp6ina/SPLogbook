@@ -450,6 +450,14 @@ normalize_permissions() {
     ' "$1" | LC_ALL=C sort
 }
 
+# `--socket=fallback-x11` is expanded by flatpak build-finish into BOTH the
+# `fallback-x11` marker and the `x11` socket: the X11 socket has to be listed
+# for the fallback to be able to bind it when Wayland is absent. The generated
+# metadata therefore contains `sockets=x11;wayland;pulseaudio;fallback-x11;`
+# even though the manifest declares only --socket=wayland and
+# --socket=fallback-x11. That single extra socket is the mandatory companion of
+# the approved fallback permission, not an additional grant; anything else is
+# still a contract violation.
 EXPECTED_PERMISSIONS="$(printf '%s\n' \
     'context.devices dri' \
     'context.shared ipc' \
@@ -457,6 +465,7 @@ EXPECTED_PERMISSIONS="$(printf '%s\n' \
     'context.sockets fallback-x11' \
     'context.sockets pulseaudio' \
     'context.sockets wayland' \
+    'context.sockets x11' \
     'session-bus.org.freedesktop.secrets talk')"
 ACTUAL_PERMISSIONS="$(normalize_permissions "${WORK_ROOT}/permissions.txt")"
 [ "${ACTUAL_PERMISSIONS}" = "${EXPECTED_PERMISSIONS}" ] || {

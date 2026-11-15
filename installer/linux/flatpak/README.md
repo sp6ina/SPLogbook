@@ -97,8 +97,17 @@ context.shared           network
 context.sockets          fallback-x11
 context.sockets          pulseaudio
 context.sockets          wayland
+context.sockets          x11
 session-bus.…secrets     talk
 ```
+
+`x11` is the mandatory companion of `--socket=fallback-x11`, not an extra
+grant: `flatpak build-finish` expands the fallback permission into both the
+`fallback-x11` marker and the `x11` socket, because the fallback has to be able
+to bind the X11 socket when Wayland is absent. The generated metadata is
+`sockets=x11;wayland;pulseaudio;fallback-x11;` even though the manifest
+declares only `--socket=wayland` and `--socket=fallback-x11`, and the manifest
+must never declare `--socket=x11` explicitly.
 
 ## 5. Sources, offline build and reproducibility
 
