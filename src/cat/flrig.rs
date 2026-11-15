@@ -147,8 +147,13 @@ pub struct XmlRpcFault {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum XmlRpcParseError {
     Xml(String),
-    Fault { code: i64, message: String },
+    Fault {
+        code: i64,
+        message: String,
+    },
     NoValue,
+    /// Odpowiedź zawiera `<value>`, choć udokumentowany kontrakt metody zwraca `nil`.
+    UnexpectedValue(String),
 }
 
 impl std::fmt::Display for XmlRpcParseError {
@@ -157,17 +162,20 @@ impl std::fmt::Display for XmlRpcParseError {
             Self::Xml(e) => write!(f, "XML parse error: {e}"),
             Self::Fault { code, message } => write!(f, "Fault {code}: {message}"),
             Self::NoValue => write!(f, "Empty XML-RPC response (missing <value>)"),
+            Self::UnexpectedValue(value) => write!(
+                f,
+                "XML-RPC response carried '{value}' although the documented method returns nil"
+            ),
         }
     }
 }
 
 impl std::error::Error for XmlRpcParseError {}
 
-/// Parsuje dokument XML-RPC (methodResponse) i zwraca pierwszą wartość
-/// lub błąd `<fault>`. Obsługuje zarówno surowe XML, jak i odpowiedzi z nagłówkami HTTP.
-pub fn parse_response(xml: &str) -> Result<XmlRpcValue, XmlRpcParseError> {
+/// Usuwa opcjonalne nagłówki HTTP z surowej odpowiedzi i zwraca treść XML.
+fn body_after_http_headers(xml: &str) -> &str {
     let trimmed_input = xml.trim_start();
-    let body = if trimmed_input.starts_with("HTTP/") {
+    if trimmed_input.starts_with("HTTP/") {
         if let Some(idx) = trimmed_input.find("\r\n\r\n") {
             &trimmed_input[idx + 4..]
         } else if let Some(idx) = trimmed_input.find("\n\n") {
@@ -177,7 +185,13 @@ pub fn parse_response(xml: &str) -> Result<XmlRpcValue, XmlRpcParseError> {
         }
     } else {
         trimmed_input
-    };
+    }
+}
+
+/// Parsuje dokument XML-RPC (methodResponse) i zwraca pierwszą wartość
+/// lub błąd `<fault>`. Obsługuje zarówno surowe XML, jak i odpowiedzi z nagłówkami HTTP.
+pub fn parse_response(xml: &str) -> Result<XmlRpcValue, XmlRpcParseError> {
+    let body = body_after_http_headers(xml);
 
     let mut reader = Reader::from_str(body);
     reader.config_mut().trim_text(true);
@@ -287,6 +301,39 @@ pub fn parse_response(xml: &str) -> Result<XmlRpcValue, XmlRpcParseError> {
     value.ok_or(XmlRpcParseError::NoValue)
 }
 
+/// Parsuje **udokumentowaną** odpowiedź `nil` (metoda o sygnaturze `n:…`).
+///
+/// FLRig 2.0.00 `XmlRpcServer::generateResponse(resultValue.toXml())`: metoda, która nie przypisuje
+/// wyniku (`rig.set_ptt`, sygnatura `n:i`), zwraca `<methodResponse><params><param>` **bez**
+/// elementu `<value>`. Taka odpowiedź jest poprawnym wynikiem wykonania komendy.
+///
+/// Każda wartość (`<value>`), `<fault>`, uszkodzony XML albo brak obwiedni `methodResponse` jest
+/// błędem. W szczególności odpowiedź `<int>0</int>` — którą FLRig zwraca, gdy transceiver jest
+/// offline albo XML-RPC jest wyłączone — oznacza, że komenda **nie** została wykonana.
+pub fn parse_nil_response(xml: &str) -> Result<(), XmlRpcParseError> {
+    match parse_response(xml) {
+        Ok(value) => Err(XmlRpcParseError::UnexpectedValue(format!("{value:?}"))),
+        Err(XmlRpcParseError::NoValue) => {
+            let body = body_after_http_headers(xml).trim();
+            let documented_envelope = body.starts_with("<?xml")
+                && body.contains("<methodResponse>")
+                && body.contains("</methodResponse>")
+                && body.contains("<params>")
+                && body.contains("<param>")
+                && body.contains("</param>")
+                && !body.contains("<value");
+            if documented_envelope {
+                Ok(())
+            } else {
+                Err(XmlRpcParseError::Xml(
+                    "expected the documented nil <methodResponse> envelope".to_string(),
+                ))
+            }
+        }
+        Err(error) => Err(error),
+    }
+}
+
 /// Odczytuje do końca bieżącego elementu i zwraca jego treść tekstową.
 fn read_text(reader: &mut Reader<&[u8]>, buf: &mut Vec<u8>) -> Result<String, quick_xml::Error> {
     let mut txt = String::new();
@@ -315,6 +362,15 @@ struct FlrigConnection {
     stream: TcpStream,
     buf: Vec<u8>,
     generation: u64,
+}
+
+/// Oczekiwany kształt odpowiedzi XML-RPC (zgodny z udokumentowaną sygnaturą metody).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExpectedResponse {
+    /// Metoda zwraca wartość (`<value>`).
+    Value,
+    /// Metoda ma sygnaturę `n:…` — zwraca `nil` (brak elementu `<value>`).
+    Nil,
 }
 
 pub struct FlrigClient {
@@ -454,10 +510,31 @@ impl FlrigClient {
         let status_line = lines.next().ok_or_else(|| RigError::Protocol {
             detail: "empty HTTP response from FLRig".to_string(),
         })?;
-        if !status_line.starts_with("HTTP/1.") {
+        // Udokumentowana odpowiedź FLRig 2.0.00 to `HTTP/1.1 200 OK`
+        // (`XmlRpcServer::generateHeader`). Każdy inny kod statusu jest błędem HTTP i kończy
+        // operację fail-closed — nigdy nie jest sukcesem PTT.
+        let mut status_parts = status_line.split_whitespace();
+        let protocol = status_parts.next().unwrap_or_default();
+        let status_code = status_parts
+            .next()
+            .and_then(|code| code.parse::<u16>().ok());
+        if !protocol.starts_with("HTTP/1.") {
             return Err(RigError::Protocol {
                 detail: format!("invalid HTTP status line: {status_line}"),
             });
+        }
+        match status_code {
+            Some(200) => {}
+            Some(code) => {
+                return Err(RigError::Protocol {
+                    detail: format!("FLRig HTTP error status {code}: {status_line}"),
+                });
+            }
+            None => {
+                return Err(RigError::Protocol {
+                    detail: format!("malformed HTTP status line: {status_line}"),
+                });
+            }
         }
 
         let mut content_length: Option<usize> = None;
@@ -553,6 +630,26 @@ impl FlrigClient {
 
     /// Wysyla zadanie HTTP/1.1 XML-RPC i czyta odpowiedz z zachowaniem framingu HTTP/1.1 keep-alive.
     pub async fn call(&self, req: &XmlRpcRequest) -> Result<XmlRpcValue, RigError> {
+        self.call_with(req, ExpectedResponse::Value)
+            .await?
+            .ok_or_else(|| RigError::Protocol {
+                detail: "expected an XML-RPC value but the method returned nil".to_string(),
+            })
+    }
+
+    /// Wywołuje metodę o udokumentowanej sygnaturze `n:…` (brak wartości zwracanej).
+    ///
+    /// Nigdy nie jest ponawiana: owner wymaga, aby komenda PTT nie została wysłana dwukrotnie
+    /// (`NO two PTT ON`), a jedynym udokumentowanym wynikiem jest `nil`.
+    pub async fn call_nil(&self, req: &XmlRpcRequest) -> Result<(), RigError> {
+        self.call_with(req, ExpectedResponse::Nil).await.map(|_| ())
+    }
+
+    async fn call_with(
+        &self,
+        req: &XmlRpcRequest,
+        expected: ExpectedResponse,
+    ) -> Result<Option<XmlRpcValue>, RigError> {
         let endpoint = self.endpoint();
         let xml = req.to_xml();
         let http_req = format!(
@@ -565,7 +662,13 @@ impl FlrigClient {
 
         let mut conn_guard = self.connection.lock().await;
 
-        for attempt in 0..2 {
+        // PTT (odpowiedź `nil`) nie jest ponawiane — brak dwóch PTT ON.
+        let attempts = match expected {
+            ExpectedResponse::Value => 2,
+            ExpectedResponse::Nil => 1,
+        };
+
+        for attempt in 0..attempts {
             if conn_guard.is_none() {
                 let stream = tokio::time::timeout(self.timeout, TcpStream::connect(&endpoint))
                     .await
@@ -630,7 +733,11 @@ impl FlrigClient {
                     if conn_close {
                         *conn_guard = None;
                     }
-                    return parse_response(&body).map_err(|detail| {
+                    let parsed = match expected {
+                        ExpectedResponse::Value => parse_response(&body).map(Some),
+                        ExpectedResponse::Nil => parse_nil_response(&body).map(|()| None),
+                    };
+                    return parsed.map_err(|detail| {
                         *conn_guard = None;
                         RigError::Protocol {
                             detail: detail.to_string(),
@@ -733,18 +840,29 @@ impl FlrigClient {
 
     pub async fn get_ptt_typed(&self) -> Result<bool, RigError> {
         let req = XmlRpcRequest::new("rig.get_ptt");
-        self.call(&req)
-            .await?
-            .as_bool()
-            .ok_or_else(|| RigError::Protocol {
-                detail: "invalid PTT value in FLRig response".to_string(),
-            })
+        match self.call(&req).await? {
+            // Udokumentowana sygnatura `i:n`: `result = int(PTT)`.
+            XmlRpcValue::Int(0) => Ok(false),
+            XmlRpcValue::Int(1) => Ok(true),
+            XmlRpcValue::Int(other) => Err(RigError::Protocol {
+                detail: format!("rig.get_ptt returned an undocumented PTT value: {other}"),
+            }),
+            other => Err(RigError::Protocol {
+                detail: format!(
+                    "rig.get_ptt is documented as i:n; undocumented response type: {other:?}"
+                ),
+            }),
+        }
     }
 
+    /// `rig.set_ptt` — udokumentowana sygnatura `n:i`: jeden parametr `<int>` (1 = ON, 0 = OFF),
+    /// brak wartości zwracanej.
+    ///
+    /// Wartość `int` jest zgodna z implementacją FLRig 2.0.00 (`PTT = int(params[0]);`).
+    /// Nie istnieje fallback boolean↔int: błąd typu kończy operację fail-closed.
     pub async fn set_ptt_typed(&self, ptt: bool) -> Result<(), RigError> {
-        let req = XmlRpcRequest::new("rig.set_ptt").param_bool(ptt);
-        self.call(&req).await?;
-        Ok(())
+        let req = XmlRpcRequest::new("rig.set_ptt").param_int(i64::from(ptt));
+        self.call_nil(&req).await
     }
 
     pub async fn get_smeter_typed(&self) -> Result<f32, RigError> {
@@ -1134,6 +1252,14 @@ mod tests {
         ))
     }
 
+    /// Dokumentowana odpowiedź `nil` metody o sygnaturze `n:i` (`rig.set_ptt`): FLRig 2.0.00
+    /// `XmlRpcServer::generateResponse(resultValue.toXml())` nie emituje wtedy elementu `<value>`.
+    fn nil_response() -> String {
+        xmlrpc_response(
+            "<?xml version=\"1.0\"?><methodResponse><params><param></param></params></methodResponse>",
+        )
+    }
+
     fn fault_response(code: i32, msg: &str) -> String {
         xmlrpc_response(&format!(
             "<?xml version=\"1.0\"?><methodResponse><fault><value><struct><member><name>faultCode</name><value><int>{code}</int></value></member><member><name>faultString</name><value><string>{msg}</string></value></member></struct></value></fault></methodResponse>"
@@ -1244,8 +1370,9 @@ mod tests {
             let (mut stream, _) = listener.accept().await.expect("accept 5");
             let (method, _) = read_xmlrpc_request(&mut stream).await;
             assert_eq!(method, "rig.get_ptt");
+            // Udokumentowana sygnatura `i:n` — odpowiedź jest liczbą całkowitą.
             stream
-                .write_all(ok_bool_response(true).as_bytes())
+                .write_all(ok_int_response(1).as_bytes())
                 .await
                 .unwrap();
         })
@@ -1307,21 +1434,18 @@ mod tests {
             let (mut stream, _) = listener.accept().await.expect("accept set_ptt true");
             let (method, body) = read_xmlrpc_request(&mut stream).await;
             assert_eq!(method, "rig.set_ptt");
-            assert!(body.contains("<boolean>1</boolean>"));
-            stream
-                .write_all(ok_bool_response(true).as_bytes())
-                .await
-                .unwrap();
+            // Udokumentowana sygnatura `n:i` — parametr jest liczbą całkowitą, wynik jest `nil`.
+            assert!(body.contains("<int>1</int>"));
+            assert!(!body.contains("<boolean>"));
+            stream.write_all(nil_response().as_bytes()).await.unwrap();
 
             // 5. SetPtt(false)
             let (mut stream, _) = listener.accept().await.expect("accept set_ptt false");
             let (method, body) = read_xmlrpc_request(&mut stream).await;
             assert_eq!(method, "rig.set_ptt");
-            assert!(body.contains("<boolean>0</boolean>"));
-            stream
-                .write_all(ok_bool_response(false).as_bytes())
-                .await
-                .unwrap();
+            assert!(body.contains("<int>0</int>"));
+            assert!(!body.contains("<boolean>"));
+            stream.write_all(nil_response().as_bytes()).await.unwrap();
         })
         .await;
 
@@ -2328,5 +2452,67 @@ mod tests {
 
         client.disconnect().await;
         server_task.await.unwrap();
+    }
+
+    /// Stress CAT-019: 1000 timeoutów i 1000 zerwanych połączeń przez klienta o krótkim limicie
+    /// czasu. Każda próba kończy się błędem — nigdy fałszywym sukcesem PTT.
+    #[tokio::test]
+    async fn cat019_stress_timeout_and_disconnect_1000_each() {
+        // 1. Serwer przyjmuje połączenie i nigdy nie odpowiada (timeout klienta).
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind silent listener");
+        let port = listener.local_addr().expect("local addr").port();
+        let server = tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    break;
+                };
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 1024];
+                    while let Ok(n) = stream.read(&mut buf).await {
+                        if n == 0 {
+                            break;
+                        }
+                    }
+                });
+            }
+        });
+
+        let client = FlrigClient::with_timeout("127.0.0.1", port, Duration::from_millis(5));
+        for iteration in 0..1000 {
+            let outcome = client.set_ptt(true).await;
+            assert!(
+                outcome.is_err(),
+                "timeout iteration {iteration}: {outcome:?}"
+            );
+        }
+        client.disconnect().await;
+        server.abort();
+
+        // 2. Serwer zamyka połączenie bez odpowiedzi (disconnect podczas odczytu).
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind closing listener");
+        let port = listener.local_addr().expect("local addr").port();
+        let server = tokio::spawn(async move {
+            loop {
+                let Ok((stream, _)) = listener.accept().await else {
+                    break;
+                };
+                drop(stream);
+            }
+        });
+
+        let client = FlrigClient::with_timeout("127.0.0.1", port, Duration::from_millis(50));
+        for iteration in 0..1000 {
+            let outcome = client.set_ptt(true).await;
+            assert!(
+                outcome.is_err(),
+                "disconnect iteration {iteration}: {outcome:?}"
+            );
+        }
+        client.disconnect().await;
+        server.abort();
     }
 }
