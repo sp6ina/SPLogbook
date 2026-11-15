@@ -90,6 +90,9 @@ Artifacts are produced and verified by CI only.
   now deterministic (virtual time, permit counters) instead of wall-clock dependent.
 - The updater journal, lock and transaction records are validated on load and fail closed
   on an unknown version.
+- The PowerShell compatibility fallback now restarts the restored `current_executable`
+  after a failed health check, never the rejected staging candidate. A regression test
+  pins the rollback branch and the real PowerShell fixture uses a valid PE.
 
 ### Known limitations
 

@@ -4,7 +4,7 @@ Single source of truth for verified test counters and dependency-audit state. Co
 only here; every other document links to this file. Never update a counter without a real
 measurement, and always record the measurement date.
 
-**Data pomiaru:** 2026-11-14
+**Data pomiaru:** 2026-11-15
 **Środowisko:** Windows 10/11 x86_64, `rustc 1.99.0`, `cargo 1.99.0`, `-j 1`
 **HEAD pomiaru:** commit zawierający ten plik (`git log -1 --format=%H`)
 
@@ -26,9 +26,9 @@ cargo test --workspace --all-targets -j 1 -- --skip powershell_real_execution_fu
 
 | Metric | Value |
 |---|---|
-| TOTAL REGISTERED TESTS: | 2791 |
-| TOTAL EXECUTED TESTS: | 2780 |
-| TOTAL PASSED TESTS: | 2780 |
+| TOTAL REGISTERED TESTS: | 2801 |
+| TOTAL EXECUTED TESTS: | 2790 |
+| TOTAL PASSED TESTS: | 2790 |
 | TOTAL FAILED TESTS: | 0 |
 | TOTAL IGNORED TESTS: | 10 |
 | HIL IGNORED TESTS: | 10 |
@@ -46,7 +46,7 @@ a product defect.
 | Suite | Value |
 |---|---|
 | `security_guard` | 128 / 128 |
-| `linux_flatpak_packaging_test` | 20 / 20 |
+| `linux_flatpak_packaging_test` | 29 / 29 |
 | `linux_xdg_data_preservation_test` | 7 / 7 |
 | `process_environment_isolation_test` | 12 / 12 |
 | `linux_deb_packaging_test` | 17 / 17 |
@@ -55,7 +55,7 @@ a product defect.
 | `linux_appimage_packaging_test` | 14 / 14 |
 | `linux_portable_tar_gz_test` | 7 / 7 |
 | `linux_multi_distribution_compatibility_test` | 5 / 5 |
-| `windows_helper_test` | 33 / 33 |
+| `windows_helper_test` | 33 / 33 executed (+1 host-filtered; 34 registered) |
 | `windows_inno_setup_test` | 14 / 14 |
 | `windows_msi_test` | 18 / 18 |
 | `inno_user_data_safety_test` | 8 / 8 |

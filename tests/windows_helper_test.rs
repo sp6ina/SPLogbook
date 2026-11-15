@@ -22,7 +22,8 @@ use splogbook::cloud::updater::helper_protocol::{
     StagingFileExpectation, UpdatePlanIdentity, WindowsHelperExitCode, WindowsHelperRequest,
 };
 use splogbook::cloud::updater::powershell_fallback::{
-    generate_powershell_from_request_file, generate_powershell_update_script,
+    generate_powershell_from_request, generate_powershell_from_request_file,
+    generate_powershell_update_script,
 };
 use splogbook::cloud::updater::windows_helper::{
     CandidateLauncher, HelperCandidateChild, HelperFileOperations, ProcessMonitor,
@@ -1567,6 +1568,70 @@ fn windows_helper_fault_injection_rollback_idempotency() {
 // Obszar 4: Rzeczywiste testy wykonania PowerShell na Windows
 // ============================================================================
 
+/// Regresja: po nieudanym health checku i rollbacku fallback PowerShell musi
+/// uruchomić przywrócony `current_executable`, a nie odrzuconego kandydata ze
+/// stagingu. Uruchomienie kandydata pod nazwą `SPLogbook.exe` prowadziło do
+/// pozostawienia procesu i okna konsoli oraz do ponownego wykonania odrzuconej
+/// binarki.
+#[test]
+fn powershell_rollback_restarts_restored_executable_not_staging_candidate() {
+    let dir = tempdir().expect("tempdir");
+    let root = dir.path();
+    let staging = root.join(".staging");
+    fs::create_dir_all(&staging).expect("staging dir");
+    fs::write(root.join("SPLogbook.exe"), b"ORIGINAL_EXE").expect("root exe");
+    fs::write(staging.join("SPLogbook.exe"), b"CANDIDATE_EXE").expect("staging exe");
+
+    let plan = UpdatePlan {
+        replace_files: vec![(PathBuf::from("SPLogbook.exe"), root.join("SPLogbook.exe"))],
+        create_files: Vec::new(),
+        preserve_files: Vec::new(),
+        rejected_files: Vec::new(),
+    };
+    let attempt = UpdateAttemptId::generate();
+    let req = create_test_request(root, attempt, &plan);
+
+    let scripts = [
+        (
+            "generate_powershell_from_request_file",
+            generate_powershell_from_request_file(&root.join("helper_request.json")),
+        ),
+        (
+            "generate_powershell_from_request",
+            generate_powershell_from_request(&req),
+        ),
+    ];
+
+    for (kind, script) in scripts {
+        assert!(
+            script.contains("$currentExe = $req.current_executable"),
+            "{kind}: generator musi wiązać ścieżkę przywróconej binarki z current_executable"
+        );
+        assert!(
+            script.contains("Start-Process -FilePath $currentExe"),
+            "{kind}: po rollbacku musi zostać uruchomiony przywrócony current_executable"
+        );
+        assert_eq!(
+            script.matches("Start-Process -FilePath $candExe").count(),
+            1,
+            "{kind}: kandydat może być uruchomiony wyłącznie raz, do health checku"
+        );
+
+        let rollback_tail = script
+            .split("Write-HelperResult 9")
+            .nth(1)
+            .unwrap_or_else(|| panic!("{kind}: brak gałęzi rollbacku"));
+        assert!(
+            rollback_tail.contains("Start-Process -FilePath $currentExe"),
+            "{kind}: gałąź rollbacku musi uruchomić przywrócony current_executable"
+        );
+        assert!(
+            !rollback_tail.contains("Start-Process -FilePath $candExe"),
+            "{kind}: gałąź rollbacku nie może ponownie uruchamiać odrzuconego kandydata"
+        );
+    }
+}
+
 #[test]
 fn powershell_real_execution_full_cycle_success() {
     if !cfg!(windows) {
@@ -1665,7 +1730,17 @@ fn powershell_real_execution_candidate_failure_triggers_rollback() {
 
     let root_exe = root.join("SPLogbook.exe");
     let staging_exe = staging.join("SPLogbook.exe");
-    fs::write(&root_exe, b"ORIGINAL_EXE_V1").expect("write root exe");
+
+    // Po rollbacku fallback uruchamia przywrócony current_executable. Fixture
+    // musi więc być prawdziwym PE; plik tekstowy z rozszerzeniem .exe wywołuje
+    // modalne okno "Otwieranie pliku - ostrzeżenie o zabezpieczeniach" i zawiesza test.
+    let system_where = PathBuf::from("C:\\Windows\\System32\\where.exe");
+    assert!(
+        system_where.exists(),
+        "where.exe is required as a valid PE fixture"
+    );
+    let original_exe_bytes = fs::read(&system_where).expect("read where.exe");
+    fs::copy(&system_where, &root_exe).expect("copy root exe");
 
     let system_cmd = PathBuf::from("C:\\Windows\\System32\\cmd.exe");
     if system_cmd.exists() {
@@ -1717,7 +1792,7 @@ fn powershell_real_execution_candidate_failure_triggers_rollback() {
     );
     assert_eq!(
         fs::read(&root_exe).expect("read exe"),
-        b"ORIGINAL_EXE_V1",
+        original_exe_bytes,
         "Original executable must be restored from .rollback"
     );
     assert!(

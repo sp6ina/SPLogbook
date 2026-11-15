@@ -3709,6 +3709,13 @@ fn m3_c_powershell_fallback_strict_mode_and_no_eval_guard() {
 
     assert!(script.contains("Set-StrictMode -Version Latest"));
     assert!(script.contains("$ErrorActionPreference = 'Stop'"));
+    assert!(script.contains("$currentExe = $req.current_executable"));
+    assert!(script.contains("Start-Process -FilePath $currentExe"));
+    assert_eq!(
+        script.matches("Start-Process -FilePath $candExe").count(),
+        1,
+        "kandydat może być uruchomiony wyłącznie raz, do health checku"
+    );
     assert!(!script.contains("Invoke-Expression"));
     assert!(!script.contains("iex"));
     assert!(!script.contains("cmd /c"));

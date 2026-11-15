@@ -160,6 +160,7 @@ pub fn generate_powershell_from_request_file(request_path: &Path) -> String {
          \n\
          $root = $req.installation_root\n\
          $candExe = $req.candidate_executable\n\
+         $currentExe = $req.current_executable\n\
          $staging = Split-Path -Path $candExe -Parent\n\
          $rollback = Join-Path $root '.rollback'\n\
          $parentPid = $req.expected_parent_pid\n\
@@ -298,7 +299,8 @@ pub fn generate_powershell_from_request_file(request_path: &Path) -> String {
                  }}\n\
              }}\n\
              Write-HelperResult 9 'FailedRollbackSucceeded' 'FailedPostApply' 'Success' 'TimedOut' $totalOps 'Health verification failed - rollback succeeded'\n\
-             Start-Process -FilePath $candExe -ErrorAction SilentlyContinue\n\
+             # Po rollbacku uruchamiamy przywrocona wersje, nigdy odrzuconego kandydata.\n\
+             Start-Process -FilePath $currentExe -ErrorAction SilentlyContinue\n\
              exit 9\n\
          }}\n"
     )
@@ -326,6 +328,7 @@ pub fn generate_powershell_from_request(req: &WindowsHelperRequest) -> String {
          \n\
          $root = $req.installation_root\n\
          $candExe = $req.candidate_executable\n\
+         $currentExe = $req.current_executable\n\
          $staging = Split-Path -Path $candExe -Parent\n\
          $rollback = Join-Path $root '.rollback'\n\
          $parentPid = $req.expected_parent_pid\n\
@@ -464,7 +467,8 @@ pub fn generate_powershell_from_request(req: &WindowsHelperRequest) -> String {
                  }}\n\
              }}\n\
              Write-HelperResult 9 'FailedRollbackSucceeded' 'FailedPostApply' 'Success' 'TimedOut' $totalOps 'Health verification failed - rollback succeeded'\n\
-             Start-Process -FilePath $candExe -ErrorAction SilentlyContinue\n\
+             # Po rollbacku uruchamiamy przywrocona wersje, nigdy odrzuconego kandydata.\n\
+             Start-Process -FilePath $currentExe -ErrorAction SilentlyContinue\n\
              exit 9\n\
          }}\n"
     )
