@@ -531,7 +531,7 @@ Program HIL został podzielony na dwie niezależne bramki jakościowe:
    - Parser i walidator manifestu laboratoryjnego (`HilTestBenchManifest`),
    - Walidator gotowości laboratoryjnej (`HilReadinessValidator`) odwzorowujący wszystkie 30 nienaruszalnych warunków HIL-READY oraz 22 wymagania rozszerzone `HIL-X01`..`HIL-X22`,
    - Ścisła kategoryzacja dowodów (`HilReadinessEvidenceKind`), pochodzenia (`HilEvidenceOrigin` — 8 wariantów), kontekstów wykonania (`HilExecutionContext`) i statusów (`HilReadinessStatus`),
-   - Zestaw 279 deterministycznych testów integracyjnych offline (`tests/cat_native_7.rs`),
+   - Zestaw 297 deterministycznych testów integracyjnych offline (`tests/cat_native_7.rs`),
    - 10 hermetycznie odizolowanych punktów wejścia do testów fizycznych z blokadą w CI (`#[ignore = "hardware-in-the-loop"]`),
    - Dokumentacja procedur laboratoryjnych i synchronizacja dokumentów projektu.
    - **Bramka NATIVE-7A jest w pełni zrealizowana i niezależna od dostępności fizycznego radia.**
@@ -541,6 +541,8 @@ Program HIL został podzielony na dwie niezależne bramki jakościowe:
    - Dopuszczalne wyłącznie po uzyskaniu pełnego statusu **HIL-READY** (`HilReadinessStatus::Passed`),
    - Wymaga fizycznego podłączenia atestowanego sztucznego obciążenia 50 Ω,
    - Wymaga jawnego tokenu autoryzacji operatora (`HilPttConsentToken`),
+   - Wymaga niezależnego dokumentu dowodowego (`HilIndependentEvidence`) powiązanego z planem i
+     oświadczeniem operatora; sam manifest i sama deklaracja operatora nie autoryzują PTT (F-15),
    - 10 odizolowanych punktów wejścia (`hil_hardware_*`),
    - Odizolowane od standardowych testów regresyjnych i CI.
    - **W środowiskach bez podłączonego fizycznego transceivera bramka NATIVE-7B posiada status BLOCKED, a 10 przypadków testów sprzętowych status NOT RUN bez fałszowania wyników.**
@@ -602,6 +604,34 @@ pub enum HilReadinessEvidenceKind {
     InstrumentVerified,
 }
 ```
+
+### 18.3.1. Niezależny dowód gotowości i fail-closed autoryzacja (F-15)
+
+Gotowość HIL nie może być samocertyfikowana przez manifest (F-15, naprawione programowo
+2026-11-15, `STAGE-P1-F15-SOFTWARE`). Obowiązuje czterowarstwowy model:
+
+1. **Konfiguracja** — `HilTestBenchManifest` opisuje wyłącznie plan testu. Każde pole
+   bezpieczeństwa jest **wymagane**; brak pola jest błędem parsowania, nigdy wartością `true`.
+   Dokument bez `schema_version` to legacy v1: wymaga jawnej migracji i pozostaje odmową.
+2. **Oświadczenie operatora** — `HilAttestationDocument` to deklaracja. Nie jest obiektywnym
+   dowodem sprzętowym i samo nie autoryzuje wykonania.
+3. **Niezależny dowód** — `HilIndependentEvidence` pochodzi z osobnego dokumentu i podmiotu
+   wydającego. Jest związany skrótem SHA-256 z planem **oraz** z oświadczeniem i wskazuje test,
+   radio, sesję, próbę, zakres oraz okno ważności. Skrót jest sumą kontrolną integralności,
+   **nie** podpisem kryptograficznym.
+4. **Decyzja autoryzacyjna** — `HilHardwareExecutionAuthorizer` zwraca domkniętą
+   `HilAuthorizationDecision`. Wartość domyślna to `NotEvaluated`; brak dowodu, dowód błędny,
+   wygasły, jeszcze nieważny, o złym zakresie, powtórzony albo błąd/timeout/anulowanie dostawcy
+   to kontrolowana odmowa. `DryRunOnly` nigdy nie załącza PTT.
+
+Dodatkowo: `HilIndependentEvidence` i `HilAuthorizationDecision` **nie** implementują
+`Deserialize`, więc niezaufany dokument JSON nie może sfałszować upoważnienia. W tej bramce nie
+istnieje żaden produkcyjny dostawca dowodu — dostawca testowy jest kompilowany wyłącznie pod
+`#[cfg(test)]` i nie może zostać wybrany przez CLI, GUI, konfigurację, zmienną środowiskową ani
+feature flag. Produkcyjna wartość domyślna = **DENIED**.
+
+Stan sprzętowy pozostaje **NOT_VERIFIED**: brak dowodu sprzętowego oznacza brak PTT,
+`NATIVE-7B = NOT_STARTED`, a 10 testów sprzętowych pozostaje `#[ignore = "hardware-in-the-loop"]`.
 
 #### Kanoniczna macierz 30 warunków HIL-READY (`1..=30`):
 
@@ -756,7 +786,7 @@ W falach NATIVE-0 do NATIVE-6A interfejs GUI nie ulega modyfikacji runtime, co g
 | **NATIVE-6** | Fala nadrzędna: Multi-Radio Execution Core, fabryka backendów, migracja i integracja UI | Fala nadrzędna podzielona formalnie na NATIVE-6A i NATIVE-6B (decyzja AD-NATIVE-6-SPLIT). Brak osobnych kryteriów wykonawczych. |
 | **NATIVE-6A** | Multi-Radio Execution Core, RigHub i bezpieczny arbitraż TX | Zaimplementowanie bezgłowej, produkcyjnej warstwy wykonawczej (RigService, RigHub, TxArbiter, routing, bounded queues, lifecycle, shutdown) bez zmian w GUI. [zrealizowano] |
 | **NATIVE-6B** | Fabryka backendów, migracja konfiguracji i UI | Podłączenie istniejących backendów i warstwy wykonawczej do GUI (`cat_settings.rs`), dynamiczne panele konfiguracji, fabryka backendów, walidacja i18n, migracja `AppConfig`. [zrealizowano] |
-| **NATIVE-7A** | Funkcjonalny harness HIL, walidator HIL-READY i audyt | Kompletna domena HIL (`src/cat/hil/`), parser manifestu, walidator gotowości laboratoryjnej (30 nienaruszalnych warunków HIL-READY), zestaw rozszerzony `HIL-X01`..`HIL-X22`, 279 testów offline, synchronizacja podręcznika i audyt ARCH-CAT. [zrealizowano] |
+| **NATIVE-7A** | Funkcjonalny harness HIL, walidator HIL-READY i audyt | Kompletna domena HIL (`src/cat/hil/`), parser manifestu, walidator gotowości laboratoryjnej (30 nienaruszalnych warunków HIL-READY), zestaw rozszerzony `HIL-X01`..`HIL-X22`, 297 testów offline, synchronizacja podręcznika i audyt ARCH-CAT. [zrealizowano] |
 | **NATIVE-7B** | Kontrolowane wykonanie na fizycznym sprzęcie | Uruchomienie testów na rzeczywistym transceiverze wyłącznie po spełnieniu HIL-READY i zgodzie operatora; w środowisku bez fizycznego radia bramka posiada status BLOCKED, a 10 przypadków sprzętowych status NOT RUN. [gotowość procedur, oczekiwanie na fizyczne stanowisko] |
 
 ### 24.1. Łańcuch zależności fal realizacyjnych
@@ -1092,7 +1122,7 @@ NATIVE-0 -> NATIVE-1 -> NATIVE-2 -> NATIVE-3 -> NATIVE-4 -> NATIVE-5 (5A-5E) -> 
 
 ### Końcowy werdykt programu NATIVE-CAT (zaktualizowany po Etapie 10 — 2026-11-06):
 
-1. **NATIVE-CAT SOFTWARE**: **PASSED** (8 backendów, RigHub, TxArbiter, CatRuntime, CatStationConfig, migracja v0->v1 z rollbackiem, FormVariantCache, Hamlib Proxy per-rig port binding, PhysicalEndpointRegistry, 2883 aktywnych testów programowych passed w całym projekcie, 2894 zarejestrowanych testów we workspace, 10 testów ignorowanych sprzętowych HIL, 0 doc testów, 0 ostrzeżeń `cargo clippy --workspace --all-targets --all-features -- -D warnings`).
+1. **NATIVE-CAT SOFTWARE**: **PASSED** (8 backendów, RigHub, TxArbiter, CatRuntime, CatStationConfig, migracja v0->v1 z rollbackiem, FormVariantCache, Hamlib Proxy per-rig port binding, PhysicalEndpointRegistry, 2947 aktywnych testów programowych passed w całym projekcie, 2958 zarejestrowanych testów we workspace, 10 testów ignorowanych sprzętowych HIL, 0 doc testów, 0 ostrzeżeń `cargo clippy --workspace --all-targets --all-features -- -D warnings`).
 2. **NATIVE-7A OFFLINE**: **PASSED** (kompletny harness HIL, wieloosiowy model dowodowy, walidator 30 nienaruszalnych kanonicznych warunków HIL-READY, zestaw rozszerzony `HIL-X01`..`HIL-X22`, 297 testów offline passed w `tests/cat_native_7.rs`, 165 w `tests/cat_native_6a.rs`, 99 w `tests/cat_native_6b.rs`, 0 ostrzeżeń).
 3. **NATIVE-7B HARDWARE**: **BLOCKED** (brak fizycznego stanowiska laboratoryjnego i sztucznego obciążenia 50 Ω w środowisku CI/dev).
 4. **HARDWARE TEST CASES**: **NOT RUN** (10 izolowanych przypadków sprzętowych w stanie NotRun z powodu blokady bramki HIL-READY).

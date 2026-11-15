@@ -95,11 +95,54 @@ Kenwood wire (`tests/support/kenwood_wire.rs`) and the synthetic FLRig XML-RPC d
 (`tests/support/flrig_wire.rs`) exist only in the test scope and are not an application feature.
 
 
-### F-15 (P1) — HIL readiness is self-certifiable
+### F-15 (P1) — HIL readiness is self-certifiable — F-15 software remediation = CLOSED
 
 Readiness booleans default to true, so a manifest can declare itself HIL-READY without
 independent evidence. Operator attestations (antenna disconnected, 50 Ω dummy load, PA
 inhibited) are therefore the only real barrier.
+
+Software remediation (2026-11-15, `STAGE-P1-F15-SOFTWARE`, software-only verification):
+
+- the self-certifiable model is gone: every safety field is **required** and must be written
+  explicitly, so a missing field is a parse error, never `true`;
+- the test plan (`HilTestBenchManifest`), the operator declaration
+  (`HilAttestationDocument`), the independent evidence (`HilIndependentEvidence`) and the
+  authorization decision (`HilAuthorizationDecision`) are four separate layers;
+- hardware execution is authorized only by `HilHardwareExecutionAuthorizer`, which requires an
+  independent evidence document bound by SHA-256 to the plan **and** to the operator
+  declaration, scoped to the test, rig, session, attempt and validity window, and covering every
+  required measured fact;
+- missing, malformed, expired, not-yet-valid, out-of-scope, replayed or provider-failed evidence
+  is a controlled denial; a dry run never authorizes PTT;
+- the evidence and decision types are deliberately **not** deserialisable, so an untrusted JSON
+  document cannot forge an authorization;
+- **no production evidence provider exists**: the test-only provider lives exclusively under
+  `#[cfg(test)]`, and there is no CLI flag, GUI control, configuration key, environment variable
+  or feature flag that can select it;
+- the ten hardware tests remain `#[ignore = "hardware-in-the-loop"]`.
+
+Verification boundaries recorded by this gate:
+
+- F-15 software remediation = CLOSED
+- HIL readiness self-certification = REMOVED
+- Production default = DENIED
+- Hardware readiness = NOT_VERIFIED
+- SOFTWARE_ONLY_VERIFICATION
+- F-14 software remediation = CLOSED
+- Hardware validation = NOT_EXECUTED
+- Protocol conformance software verification = COMPLETED
+- F-17 (P1) = still open
+- NATIVE-7B = NOT_STARTED
+
+SPLogbook cannot confirm the physical preparation of a test bench from a manifest or an operator
+declaration alone. Without hardware in the current environment, HIL stays unavailable:
+`HARDWARE_CONNECTED=false`, `REAL_TRANSCEIVER_CONNECTED=false`, `REAL_PTT_EXECUTED=false`,
+`RF_TRANSMISSION_EXECUTED=false`, `HIL_EXECUTED=false`. The operator declaration describes what
+the operator reports; it is never objective hardware evidence.
+
+Files: `src/cat/hil/authorization.rs`, `src/cat/hil/manifest.rs`, `src/cat/hil/session.rs`,
+`src/cat/hil/validator.rs`, `tests/cat_f15_independent_evidence.rs`,
+`tests/cat_f14_fail_safe.rs`, `tests/security_guard.rs`.
 
 ### F-16 (P1) — GUI panic in logbook paging
 

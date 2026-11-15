@@ -71,6 +71,17 @@ Rawhide, backports, release candidates) never set the minimum.
   non-blocking `Drop` release). Verified software-only: protocol conformance software
   verification = COMPLETED, hardware validation = NOT_EXECUTED. It must not be reopened without
   a reproducible regression.
+- `F-15` (P1, HIL readiness was self-certifiable): **F-15 software remediation = CLOSED**
+  (2026-11-15, `STAGE-P1-F15-SOFTWARE`,
+  `COMPLETED_HIL_READINESS_INDEPENDENT_EVIDENCE_REMEDIATION_VERIFIED`). No safety field defaults
+  to `true` any more; the test plan, the operator declaration, the independent evidence and the
+  authorization decision are separate layers, and hardware execution requires an evidence
+  document bound by SHA-256 to the plan and the declaration, scoped to the test, rig, session,
+  attempt and validity window. Missing/malformed/expired/out-of-scope/replayed evidence is a
+  controlled denial, a dry run never keys PTT, and no production evidence provider exists
+  (test-only provider confined to `#[cfg(test)]`). Production default = DENIED; hardware
+  readiness = NOT_VERIFIED; NATIVE-7B remains NOT_STARTED. It must not be reopened without a
+  reproducible regression.
 - `F-03` (fail-closed native Linux verification): **CLOSED**. `scripts/verify_linux_container.sh`
   treats ELF type, `ldd`, `--version`, `--build-info` and the required `GLIBC_2.43` symbol as
   assertions, installs runtime libraries from the official package manager of each pinned
@@ -90,7 +101,7 @@ Rawhide, backports, release candidates) never set the minimum.
 | Flathub submission of the Flatpak | **NOT_STARTED** | deliberately out of scope; the package is a local/CI artifact only and is installed from a bundle |
 | Publishing of Windows Inno Setup and MSI installers | **OPEN** (finding `F-05`) | implemented and locally verified; CI builds and publishes only the portable ZIP |
 | MSI prerelease versioning for `1.3.0-alpha.2`+ | **OPEN** (decision `OWNER-M3-E-MSI-VERSIONING-01`) | Windows Installer rejects the prerelease version mapping with error 1638 |
-| Hardware-in-the-loop validation (NATIVE-7B) | **NOT_STARTED** | 10 tests remain `#[ignore = "hardware-in-the-loop"]`; the software blocker `F-14` is closed, but hardware validation is still NOT_EXECUTED and NATIVE-7B = NOT_STARTED requires a separate owner authorisation |
+| Hardware-in-the-loop validation (NATIVE-7B) | **NOT_STARTED** | 10 tests remain `#[ignore = "hardware-in-the-loop"]`; the software blockers `F-14` and `F-15` are closed, but hardware validation is still NOT_EXECUTED and NATIVE-7B = NOT_STARTED requires a separate owner authorisation and a future approved independent evidence provider |
 | Signed packages for DEB/RPM | **NOT_STARTED** | integrity is provided by the release manifest and SHA-256, not by package signatures |
 
 Open defects and limitations are tracked in [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md).

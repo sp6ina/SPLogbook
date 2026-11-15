@@ -193,6 +193,18 @@ All decisions are **IMPLEMENTED** and verified by `tests/linux_flatpak_packaging
 | `DEC-CAT-019-01` | FLRig 2.0.00 is the version contract. `rig.set_ptt` (`n:i`) is sent with one `<int>` parameter (`1`/`0`); the documented nil response is the only success shape; any `<value>` (including the `<int>0</int>` "transceiver offline" answer), a fault, malformed XML, a non-200 HTTP status or a timeout is an error. No boolean/int fallback and no type-based retry exist. | IMPLEMENTED |
 | `DEC-CAT-019-02` | `rig.get_ptt` (`i:n`) accepts only the documented `<int>` `0`/`1`; other XML-RPC types are rejected as protocol errors (no implicit coercion). `rig.set_verify_ptt` (`n:i`) and the deprecated `rig.set_ptt_fast` (`n:i`) are recorded but not adopted. | IMPLEMENTED |
 
+### 2.11 P1-F15 HIL readiness and independent-evidence decisions
+
+| ID | Decision | Status |
+|---|---|---|
+| `DEC-P1-F15-DEFAULTS-01` | No HIL safety field may default to `true`. Every safety boolean is a required field, so an absent value is a deserialisation error, never an affirmative assertion. `#[serde(default = "default_true")]`, `unwrap_or(true)` and equivalent fallbacks are forbidden in the HIL safety types and pinned by `security_guard`. | IMPLEMENTED |
+| `DEC-P1-F15-SEPARATION-01` | The test plan (`HilTestBenchManifest`), the operator declaration (`HilAttestationDocument`), the independent evidence (`HilIndependentEvidence`) and the authorization decision (`HilAuthorizationDecision`) are four separate layers. The plan cannot create, hold or validate evidence; the operator declaration is never objective evidence. | IMPLEMENTED |
+| `DEC-P1-F15-AUTHORITY-01` | Hardware execution is authorized only by `HilHardwareExecutionAuthorizer::authorize_at`, which requires an evidence document bound by SHA-256 to the plan **and** to the declaration, scoped to the test case, rig, session, attempt and validity window, covering every `HIL_REQUIRED_MEASURED_FACTS` entry, and issued by a listed authority. A SHA-256 digest is an integrity hash, never a signature. | IMPLEMENTED |
+| `DEC-P1-F15-DENY-01` | The authorization default is `NotEvaluated`. Missing, malformed, expired, not-yet-valid, out-of-scope, replayed, provider-error, provider-timeout and cancelled evidence are controlled denials. `DryRunOnly` never keys PTT, and a readiness report never authorizes PTT. | IMPLEMENTED |
+| `DEC-P1-F15-FORGERY-01` | `HilIndependentEvidence` and `HilAuthorizationDecision` are deliberately **not** `Deserialize`, so an untrusted document cannot forge an authorization. No production evidence provider exists in this gate; the test-only evidence constructor lives exclusively under `#[cfg(test)]`, and no CLI flag, GUI control, configuration key, environment variable or feature flag can select it. | IMPLEMENTED |
+| `DEC-P1-F15-MIGRATION-01` | A document without `schema_version` is legacy v1: it still parses as a plan, requires an explicit migration and stays denied. Migration never promotes a missing field to `true`, never creates evidence and never converts a historical `true` into a current consent. | IMPLEMENTED |
+| `DEC-P1-F15-SCOPE-01` | The remediation is software-only. Production default = DENIED, hardware readiness = NOT_VERIFIED, `NATIVE-7B = NOT_STARTED`; the ten hardware-in-the-loop tests stay `#[ignore = "hardware-in-the-loop"]` and no real PTT or RF is executed. | IMPLEMENTED |
+
 ## 3. Update state machine and data classification (reference)
 
 - 20 states with strict transitions; `Committed` is the only terminal-success state. A

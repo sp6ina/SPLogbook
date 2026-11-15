@@ -72,7 +72,8 @@ manifest (Ed25519, raw bytes) → select_manifest_asset (SHA-256 + size)
 4. Brak `sudo`/`doas`/`pkexec`/`runas` w kodzie aplikacji (`OWNER-M2-07`).
 5. Brak shell injection w fallbacku PowerShell (bez wildcardów i `iex`).
 6. Instalatory nigdy nie usuwają danych użytkownika (seed `NeverOverwrite`, uninstall `dirifempty`, brak wildcardów).
-7. HIL: 10 testów `#[ignore]`; PTT wymaga bramek środowiskowych i zgody; RF = 0.
+7. HIL: 10 testów `#[ignore]`; PTT wymaga niezależnego dowodu, bramek środowiskowych i zgody;
+   manifest testu nie jest dowodem gotowości; RF = 0.
 
 ## 6. Mapa testów (cele i liczność)
 

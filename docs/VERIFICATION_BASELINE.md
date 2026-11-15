@@ -4,7 +4,7 @@ Single source of truth for verified test counters and dependency-audit state. Co
 only here; every other document links to this file. Never update a counter without a real
 measurement, and always record the measurement date.
 
-**Data pomiaru:** 2026-11-15 (ostatni pomiar: po `STAGE-CAT-018-019-SOFTWARE`)
+**Data pomiaru:** 2026-11-15 (ostatni pomiar: po `STAGE-P1-F15-SOFTWARE`)
 **Środowisko:** Windows 10/11 x86_64, `rustc 1.99.0`, `cargo 1.99.0`, `-j 1`
 **HEAD pomiaru:** commit zawierający ten plik (`git log -1 --format=%H`)
 
@@ -26,15 +26,15 @@ cargo test --workspace --all-targets -j 1 -- --skip powershell_real_execution_fu
 
 | Metric | Value |
 |---|---|
-| TOTAL REGISTERED TESTS: | 2894 |
-| TOTAL EXECUTED TESTS: | 2883 |
-| TOTAL PASSED TESTS: | 2883 |
+| TOTAL REGISTERED TESTS: | 2958 |
+| TOTAL EXECUTED TESTS: | 2947 |
+| TOTAL PASSED TESTS: | 2947 |
 | TOTAL FAILED TESTS: | 0 |
 | TOTAL IGNORED TESTS: | 10 |
 | HIL IGNORED TESTS: | 10 |
 | TOTAL FILTERED TESTS: | 1 |
 | Doc-tests | 0 |
-| Test binaries | 28 |
+| Test binaries | 29 |
 
 The single filtered test is `windows_helper_test::powershell_real_execution_full_cycle_success`.
 It can block on a Windows security prompt in an interactive sandbox, so it is filtered in the
@@ -45,8 +45,9 @@ a product defect.
 
 | Suite | Value |
 |---|---|
-| `security_guard` | 139 / 139 |
-| `cat_f14_fail_safe` | 28 / 28 |
+| `security_guard` | 146 / 146 |
+| `cat_f14_fail_safe` | 21 / 21 |
+| `cat_f15_independent_evidence` | 9 / 9 |
 | `protocol_conformance` | 11 / 11 |
 | `cat_018_kenwood_conformance` | 22 / 22 |
 | `cat_019_flrig_conformance` | 19 / 19 |
@@ -59,12 +60,13 @@ a product defect.
 | `linux_appimage_packaging_test` | 14 / 14 |
 | `linux_portable_tar_gz_test` | 7 / 7 |
 | `linux_multi_distribution_compatibility_test` | 5 / 5 |
+| `splogbook-updater` unit tests | 5 / 5 |
 | `windows_helper_test` | 33 / 33 executed (+1 host-filtered; 34 registered) |
 | `windows_inno_setup_test` | 14 / 14 |
 | `windows_msi_test` | 18 / 18 |
 | `inno_user_data_safety_test` | 8 / 8 |
 | `msi_user_data_safety_test` | 6 / 6 |
-| `cat_native_6a` / `cat_native_6b` / `cat_native_7` | 165 / 99 / 307 executed + 10 `#[ignore]` w `cat_native_7` |
+| `cat_native_6a` / `cat_native_6b` / `cat_native_7` | 165 / 99 / 307 registered (297 executed + 10 `#[ignore]`) |
 | `i18n_guard` | 15 / 15 |
 | `theme_guard` | 1 / 1 |
 
@@ -207,3 +209,46 @@ The new suites drive the real production codecs/clients through test-only double
 (`tests/support/kenwood_wire.rs` in-memory `tokio::io::duplex`, `tests/support/flrig_wire.rs`
 loopback `127.0.0.1:0` XML-RPC daemon). They never open a serial port, never connect to a real
 FLRig, never key a transmitter and never emit RF.
+
+## 10. P1-F15 HIL readiness independent-evidence remediation (2026-11-15)
+
+Measured on the `STAGE-P1-F15-SOFTWARE` tree with the canonical command from section 1 and
+`cargo test --workspace --all-targets -j 1 -- --list` for the registered count. Software-only
+verification: no transceiver, serial port, dummy load, real PTT or RF was used, and no evidence
+provider exists in the production code.
+
+| Item | Value |
+|---|---|
+| Registered / executed / passed | 2958 / 2947 / 2947 |
+| Failed | 0 |
+| Ignored (all hardware-in-the-loop) | 10 |
+| Filtered locally | 1 (`windows_helper_test::powershell_real_execution_full_cycle_success`) |
+| Test binaries | 29 |
+| New F-15 integration suite | `cat_f15_independent_evidence` 9 / 9 |
+| F-14 fail-safe suite (fail-closed contract) | `cat_f14_fail_safe` 21 / 21 |
+| F-14/F-15 mechanical and stress tests under `cfg(test)` | 56 / 56 (`cargo test --lib hil::`) |
+| Native CAT offline suite | `cat_native_7` 297 executed + 10 `#[ignore]` |
+| Security guard (incl. 7 `p1_f15_*` rules) | 146 / 146 |
+| Deserialisation matrix | 24 mandatory cases (empty, missing, false, true-without-evidence, null, wrong types, duplicate, unknown, alias/case, empty/partial object, legacy schema, future schema, malformed JSON, missing nested objects, partial attestations, `serde(default)`, `Default::default()`, custom defaults, migration) |
+| Self-certification reproduction before the fix | manifest with default-true booleans produced `overall_status = Passed` and reachable PTT |
+| Self-certification after the fix | every self-certified case → controlled denial, `PTT_ON_COUNT = 0` |
+| Evidence matrix (test scope only) | valid, missing, malformed, expired, not-yet-valid, wrong scope/digest/test/rig/session/attempt, replay, unsupported schema/issuer, provider error/timeout/cancellation |
+| Combinatorial matrix | 48 deterministic combinations, every one denied |
+| Stress | 2000 missing-evidence PTT attempts, 2000 missing fields, 2000 self-certification, 2000 all-booleans-true, 2000 missing evidence, 1000 malformed/expired/wrong-scope/wrong-digest/replay/provider-timeout/provider-error/cancellation/migration, 500 test-only-provider issuances, 1000 malformed manifests; deterministic, no sleep |
+| `SOFTWARE_ONLY_VERIFICATION` | true |
+| `PRODUCTION_HIL_DEFAULT_DENIED` | true |
+| `HARDWARE_READINESS_NOT_VERIFIED` | true |
+| `HARDWARE_CONNECTED` / `REAL_TRANSCEIVER_CONNECTED` | false / false |
+| `REAL_PTT_EXECUTED` / `RF_TRANSMISSION_EXECUTED` / `HIL_EXECUTED` | false / false / false |
+| `HIL_TESTS_REMAIN_IGNORED` | true (10 `#[ignore = "hardware-in-the-loop"]`) |
+| `TEST_EVIDENCE_PROVIDER_TEST_SCOPE_ONLY` | true (`#[cfg(test)]` only) |
+| `TEST_EVIDENCE_PROVIDER_COMPILED_IN_PRODUCTION` | false |
+| `Cargo.toml` / `Cargo.lock` | unchanged |
+| `F-14` / `CAT-018` / `CAT-019` | remain CLOSED |
+| `F-17` / `NATIVE-7B` | OPEN / NOT_STARTED |
+
+The F-15 suites drive the **production** authorization chain. Without an independent evidence
+document every entry point (controlled PTT, TX guard, explicit arbiter, verification APIs) is a
+controlled denial with `SetPtt(true)` count 0; the mechanical F-14 invariants are additionally
+verified in `src/cat/hil/session.rs` under `#[cfg(test)]`, where a test-scope evidence document is
+available. The ten hardware-in-the-loop tests stay ignored and are never run by CI.

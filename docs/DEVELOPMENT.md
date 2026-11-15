@@ -256,6 +256,47 @@ Hardware-in-the-loop validation remains **NOT_EXECUTED**: the ten
 `#[ignore = "hardware-in-the-loop"]` tests are never run by CI and no real PTT, RF transmission
 or transceiver connection is part of the baseline.
 
+## P1-F15 — independent HIL readiness evidence (software-only)
+
+HIL readiness used to be self-certifiable: the safety booleans of the manifest defaulted to
+`true`, so the same hand-written document that declared the bench ready was also treated as the
+proof. The F-15 remediation separates four layers and makes the production default a denial.
+
+1. **Configuration** — `HilTestBenchManifest` describes the planned test (identity, transport,
+   matrix, RF parameters and limits). Every safety flag is required; a missing field is a parse
+   error, never `true`. `schema_version` is mandatory for the current format; a document without
+   it is legacy v1, requires an explicit migration and stays denied.
+2. **Operator attestation** — `HilAttestationDocument` carries the operator's statements. It is a
+   declaration, not objective evidence, and it never authorizes hardware execution on its own.
+3. **Independent evidence** — `HilIndependentEvidence` comes from a separate document issued by
+   an authority outside the test plan. It is bound by SHA-256 to the plan **and** to the
+   attestation, and it names the test case, rig, session, attempt, scope and validity window. The
+   digest is an integrity hash, **not** a cryptographic signature.
+4. **Authorization decision** — `HilHardwareExecutionAuthorizer` evaluates the three inputs and
+   returns a closed `HilAuthorizationDecision`. The default is `NotEvaluated`; missing,
+   malformed, expired, not-yet-valid, out-of-scope, replayed or provider-failed evidence is a
+   controlled denial. `DryRunOnly` never keys PTT.
+
+`HilReadinessValidator::authorize_hardware_execution_at` is the only path that can produce
+`HardwareExecutionAuthorized`. The evidence and decision types are deliberately **not**
+`Deserialize`, so an untrusted JSON document cannot forge an authorization, and there is no
+production evidence provider at all: the test-only provider lives exclusively under
+`#[cfg(test)]` in `src/cat/hil/authorization.rs`. No CLI flag, GUI control, configuration key,
+environment variable or feature flag can select it.
+
+Focused gates:
+
+```
+cargo test --test cat_f15_independent_evidence
+cargo test --test cat_f14_fail_safe
+cargo test --test security_guard p1_f15
+```
+
+`cat_f14_fail_safe` now asserts the fail-closed contract on the production API (a complete plan
+and declaration without evidence still produce zero PTT), while the F-14 mechanical invariants
+are verified in `src/cat/hil/session.rs` under `#[cfg(test)]`, where test-scope evidence is
+available. Hardware behaviour remains **NOT_VERIFIED**.
+
 ## CAT-018 / CAT-019 — protocol-conformance suites (software-only)
 
 Two dedicated suites verify the production PTT frames against the official documentation without

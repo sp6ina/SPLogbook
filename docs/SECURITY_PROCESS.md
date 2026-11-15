@@ -174,6 +174,28 @@ never proof of a distribution kernel, and `uname -r` inside a container is not n
 change, the guard changes with it — and only to become stricter or to follow a recorded
 decision.
 
+### 7.1 HIL readiness evidence and authorization (F-15)
+
+Hardware-in-the-loop readiness is a trust boundary, not a configuration flag. The production
+default is **denied**, and the following rules are enforced by code and by `p1_f15_*` guards:
+
+- no safety field of the HIL plan defaults to `true`; a missing value is a parse error;
+- the test plan is not an evidence provider; the operator declaration is not objective evidence;
+- the independent evidence document and the authorization decision are separate types that are
+  deliberately not deserialisable, so an untrusted document cannot forge an authorization;
+- an evidence document is bound by SHA-256 to the plan and to the declaration, scoped to the
+  test, rig, session, attempt and validity window, and must cover every required measured fact;
+- expired, not-yet-valid, out-of-scope, replayed, provider-error, provider-timeout and cancelled
+  evidence are controlled denials; a dry run never keys PTT;
+- there is no production evidence provider, and no CLI flag, GUI control, configuration key,
+  environment variable or feature flag can select a test provider;
+- audit records contain the outcome, the denial reason, the missing element, the evidence id,
+  the scope, a truncated plan digest and the attempt id — never secrets or credentials, and an
+  audit failure can never turn a denial into an authorization.
+
+The software remediation does **not** prove any physical behaviour: `HARDWARE_READINESS_NOT_VERIFIED`,
+`HIL_EXECUTED=false`, `REAL_PTT_EXECUTED=false`, `RF_TRANSMISSION_EXECUTED=false`.
+
 ## 8. Reviewing a security-sensitive change
 
 1. Confirm the change does not alter trust, data classification or physical-safety behaviour
