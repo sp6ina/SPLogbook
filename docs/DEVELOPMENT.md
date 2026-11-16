@@ -384,3 +384,67 @@ sleep-free. The recording port double exists only under `#[cfg(test)]` and in `t
 never compiled into the release binary and cannot be selected from the GUI, the CLI, the
 configuration or the environment. Hardware behaviour remains **NOT_VERIFIED**: no transceiver,
 CAT transport, PTT line or RF was used.
+
+## P1-F16 — panic-free logbook pagination (software-only)
+
+The logbook table used to compute `start = page * page_size` in the renderer and to slice the
+filtered index list with `sorted_indices[start..end]`. A stale page after a search, an
+advanced filter, a journal switch, a deletion, an import or a sync could produce a reversed or
+out-of-bounds range, and `page * page_size` could overflow. Pagination is now a pure,
+GUI-independent model.
+
+1. **One model.** `src/gui/pagination.rs` exposes
+   `PaginationInput { requested_page, page_size, total_items }` and a total
+   `paginate()` returning `PaginationWindow { total_items, normalized_page, page_count, start,
+   end, effective_page_size, mode, was_clamped, arithmetic_guard_triggered }`. No other place
+   computes a page count or a page range.
+2. **Normalization.** `LogViewState::pagination_window` clamps the requested page to
+   `0..page_count` and writes the normalized value back before anything is sliced. A stale page
+   becomes the last existing page; a still-valid page is preserved (a filtering expansion does
+   not jump to page 0). Filter contraction, journal switch, deletion, import and sync all pass
+   through this method.
+3. **Empty result and `page_size = 0`.** An empty result is `page_count = 0`, page 0, range
+   `0..0`, and the GUI shows the existing “no results” state. The existing “all rows” mode
+   (`page_size = 0`) is a defined single-page window with `effective_page_size >= 1`; it never
+   calls `div_ceil(0)` and never divides by zero.
+4. **Checked arithmetic.** `checked_mul` and `checked_add` replace the raw multiplication and
+   addition. For a normalized page `start < total_items`, so overflow is mathematically
+   impossible; a defensive `None` branch produces a safe window with
+   `arithmetic_guard_triggered = true` instead of a panic or a wrapped index. `saturating_*` is
+   not used to hide an invalid state.
+5. **Safe slice access.** `PaginationWindow::slice_of` is `items.get(start..end)` (Rust 1.99.0
+   `slice::get` returns `Option` and never panics). `LogViewState::select_page_indices` rebuilds
+   an inconsistent cache once and otherwise returns a controlled empty view; the table uses
+   `page_indices.get(row.index())` and `recent_qsos.get(idx)`, never direct indexing,
+   `get_unchecked` or `catch_unwind`.
+6. **Selection.** Selection is keyed by the stable QSO `id` (`INTEGER PRIMARY KEY
+   AUTOINCREMENT`), never by a page or filtered index. Deleting a record removes exactly that
+   ID; a filtered-out record stays selected by ID and can never be replaced by another QSO.
+7. **Coverage.** Pages partition the filtered result: no duplicated rows, no omitted rows, no
+   overlapping ranges, and the union of all pages equals the filtered result.
+
+Invariants (software-verified):
+`effective_page_size >= 1`; `start <= end`; `end <= total_items`; `start <= total_items`;
+`page_count == 0` implies `start == end == 0`; `page_count > 0` implies
+`normalized_page < page_count`; in paged mode `start == normalized_page * page_size` and
+`end == min(start + page_size, total_items)`; an empty result is `0..0`; the model is pure,
+deterministic, time-independent and never mutates user data.
+
+Focused gates:
+
+```
+cargo test --test p1_f16_logbook_pagination
+cargo test --lib gui::pagination
+cargo test --lib gui::state::log_view
+cargo test --test security_guard p1_f16
+```
+
+The integration suite drives the production `SpLogApp` + `render_logbook_body` through
+`egui::Context::run_ui` with an in-memory database and synthetic `TST…` records only. It covers
+the empty dataset, one row, one full page, a partial page, an exact multiple, `usize::MAX` page
+and page size, filter/sort/journal/deletion/import/sync transitions, selection stability,
+fault injection, the coverage proof and deterministic stress (5000/5000 stale-page and empty
+series, 3000/3000 deletion and filter series, 200/200 GUI frames, plus a 100 000+ combination
+model matrix). No real user data, hardware, PTT or RF is used. F-14, CAT-018, CAT-019, F-15 and
+F-17 remain CLOSED; hardware readiness and hardware PTT remain NOT_VERIFIED and NATIVE-7B
+remains NOT_STARTED.

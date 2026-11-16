@@ -4,7 +4,7 @@ Single source of truth for verified test counters and dependency-audit state. Co
 only here; every other document links to this file. Never update a counter without a real
 measurement, and always record the measurement date.
 
-**Data pomiaru:** 2026-11-16 (ostatni pomiar: po `STAGE-P1-F17-SOFTWARE`)
+**Data pomiaru:** 2026-11-16 (ostatni pomiar: po `STAGE-P1-F16-SOFTWARE`)
 **Środowisko:** Windows 10/11 x86_64, `rustc 1.99.0`, `cargo 1.99.0`, `-j 1`
 **HEAD pomiaru:** commit zawierający ten plik (`git log -1 --format=%H`)
 
@@ -26,15 +26,15 @@ cargo test --workspace --all-targets -j 1 -- --skip powershell_real_execution_fu
 
 | Metric | Value |
 |---|---|
-| TOTAL REGISTERED TESTS: | 3063 |
-| TOTAL EXECUTED TESTS: | 3052 |
-| TOTAL PASSED TESTS: | 3052 |
+| TOTAL REGISTERED TESTS: | 3152 |
+| TOTAL EXECUTED TESTS: | 3141 |
+| TOTAL PASSED TESTS: | 3141 |
 | TOTAL FAILED TESTS: | 0 |
 | TOTAL IGNORED TESTS: | 10 |
 | HIL IGNORED TESTS: | 10 |
 | TOTAL FILTERED TESTS: | 1 |
 | Doc-tests | 0 |
-| Test binaries | 30 |
+| Test binaries | 31 |
 
 The single filtered test is `windows_helper_test::powershell_real_execution_full_cycle_success`.
 It can block on a Windows security prompt in an interactive sandbox, so it is filtered in the
@@ -45,7 +45,10 @@ a product defect.
 
 | Suite | Value |
 |---|---|
-| `security_guard` | 161 / 161 |
+| `security_guard` | 167 / 167 |
+| `p1_f16_logbook_pagination` | 55 / 55 |
+| pagination model (`gui::pagination`, lib) | 23 / 23 |
+| logbook pagination state (`gui::state::log_view`, lib) | 6 / 6 |
 | `p1_f17_ptt_gating` | 30 / 30 |
 | `cat_f14_fail_safe` | 21 / 21 |
 | `cat_f15_independent_evidence` | 9 / 9 |
@@ -299,3 +302,37 @@ unchanged. Without an F-15 authorization decision every PTT ON is a controlled d
 `SetPtt(true)` count 0; PTT OFF never requires authorization and remains available while the
 arbiter confirms local transmission. The recording port double exists only in test scope and is
 absent from the release binary. Hardware behaviour remains **NOT_VERIFIED**.
+## 12. P1-F16 panic-free logbook pagination (2026-11-16)
+
+Measured on the `STAGE-P1-F16-SOFTWARE` tree with the canonical command from section 1
+(`-j 1`, `--skip powershell_real_execution_full_cycle_success`) and
+`cargo test --workspace --all-targets -j 1 -- --list` for the registered count. Software-only
+verification: the suite uses an in-memory database and synthetic `TST…` records; no real user
+log, callsign, journal, production profile, hardware, PTT or RF was used.
+
+| Item | Value |
+|---|---|
+| `p1_f16_logbook_pagination` | 55 / 55 |
+| Pagination model unit tests (`gui::pagination`, lib) | 23 / 23 |
+| Logbook pagination state tests (`gui::state::log_view`, lib) | 6 / 6 |
+| `security_guard` (incl. 6 `p1_f16_*` rules) | 167 / 167 |
+| Panic reproduced before the fix | 3 / 3 controlled reproductions: `range start index 100 out of range for slice of length 1` and `range start index 50 out of range for slice of length 0` at `src/gui/logbook_table.rs:442`; `attempt to multiply with overflow` at `src/gui/logbook_table.rs:724` |
+| Panic after the fix | 0 panic; every window satisfies `start <= end <= total` |
+| Deterministic combinatorial matrix | 162 408 model combinations + 1 000 transition combinations, all invariants held |
+| Stress (deterministic, sleep-free) | 5 000 stale-page, 5 000 empty-dataset, 5 000 page-size, 3 000 deletion-on-last-page, 3 000 rapid-filter, 3 000 filter+sort, 2 000 journal-switch, 2 000 selection-stabilization, 5 000 arithmetic-boundary iterations and 200 GUI frames |
+| Coverage proof | page ranges partition the filtered result: no duplicates, no omitted rows, no overlapping ranges |
+| Selection | stable QSO `id` (`AUTOINCREMENT`); deleting a record removes exactly that ID |
+| `SOFTWARE_ONLY_VERIFICATION` | true |
+| `REAL_USER_DATA_USED` | false |
+| `HARDWARE_CONNECTED` / `REAL_TRANSCEIVER_CONNECTED` | false / false |
+| `REAL_PTT_EXECUTED` / `RF_TRANSMISSION_EXECUTED` / `HIL_EXECUTED` | false / false / false |
+| `HIL_TESTS_REMAIN_IGNORED` | true (10 `#[ignore = "hardware-in-the-loop"]`) |
+| `CARGO_TOML_UNCHANGED` / `CARGO_LOCK_UNCHANGED` | true / true |
+| `F-14` / `CAT-018` / `CAT-019` / `F-15` / `F-17` | remain CLOSED |
+| `F-16` | CLOSED — `COMPLETED_LOGBOOK_PAGINATION_PANIC_REMEDIATION_VERIFIED` |
+| `NATIVE-7B` | NOT_STARTED |
+
+Logbook pagination is `PANIC_FREE_SOFTWARE_VERIFIED` under the tested synthetic conditions:
+stale page normalization, filter transitions, selection stability and the documented
+`F-16 = CLOSED` status are verified. This does **not** verify any real user database or any
+corrupted production database.

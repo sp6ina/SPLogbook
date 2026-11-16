@@ -22,7 +22,7 @@
 | Moduł | Pliki | Linie | Zawartość | Status | Ryzyko / następna akcja |
 |---|---:|---:|---|---|---|
 | `src/cat` | 56 | 41 148 | 8 backendów CAT, 5 kodeków natywnych, HIL harness, TCI | `CURRENT` | F-14 (P0, hardware-gated), F-15 (HIL self-cert) — poza tą bramką; F-17 (PTT) naprawione programowo 2026-11-16 |
-| `src/gui` | 107 | 31 602 | `SpLogApp`, 28 modułów stanu, ~78 widoków, motywy | `CURRENT` | F-16 (panic `page_range`), F-19 (SOTA/POTA) — poza tą bramką; F-17 (bramka intencji TX) naprawione programowo 2026-11-16 |
+| `src/gui` | 107 | 31 602 | `SpLogApp`, 28 modułów stanu, ~78 widoków, motywy | `CURRENT` | F-16 (panic `page_range`) naprawione programowo 2026-11-16: centralny model `gui::pagination`, `slice::get`, checked arithmetic; F-19 (SOTA/POTA) — poza tą bramką; F-17 (bramka intencji TX) naprawione programowo 2026-11-16 |
 | `src/core` | 49 | 27 780 | domena QSO, SQLite, ADIF/Cabrillo, XDG, i18n | `CURRENT` | F-20/F-21 (eksport/upload) — poza tą bramką |
 | `src/cloud` | 27 | 18 769 | updater (9 431), LoTW/eQSL/QRZ/CloudLog, scheduler | `CURRENT` | F-06 (integralność danych referencyjnych), F-22 (system-managed bez locka) |
 | `src/sync` | 12 | 5 661 | protokół P2P/LAN v2, handshake, szyfrowanie, catch-up | `CURRENT` | F-23 naprawione w bramce QA (testy deterministyczne) |
@@ -79,6 +79,12 @@ manifest (Ed25519, raw bytes) → select_manifest_asset (SHA-256 + size)
    modyfikatorów i są blokowane przy fokusie tekstowym, kompozycji IME, braku fokusu okna i przy
    otwartym oknie modalnym; PTT ON wymaga wyniku F-15, PTT OFF nigdy nie jest przez F-15
    blokowane; stan TX w GUI pochodzi wyłącznie z telemetrii.
+9. GUI (F-16, `PANIC_FREE_SOFTWARE_VERIFIED`): paginacja logbooka wyłącznie przez czysty model
+   `gui::pagination` (`PaginationInput` → `PaginationWindow`). Liczniki stron, normalizacja
+   indeksu i zakres `start..end` są liczone w jednym miejscu, przed slicingiem; dostęp do
+   zakresu wyłącznie przez `slice::get`; brak `get_unchecked`, brak `catch_unwind`; pusty wynik
+   i `page_size = 0` mają jawny stan; zaznaczenie QSO opiera się na stabilnym `id`, nie na
+   indeksie strony. Szczegóły: [`docs/DEVELOPMENT.md`](../DEVELOPMENT.md) §P1-F16.
 
 ## 6. Mapa testów (cele i liczność)
 

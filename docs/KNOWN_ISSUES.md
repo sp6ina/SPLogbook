@@ -144,10 +144,69 @@ Files: `src/cat/hil/authorization.rs`, `src/cat/hil/manifest.rs`, `src/cat/hil/s
 `src/cat/hil/validator.rs`, `tests/cat_f15_independent_evidence.rs`,
 `tests/cat_f14_fail_safe.rs`, `tests/security_guard.rs`.
 
-### F-16 (P1) — GUI panic in logbook paging
+### F-16 (P1) — GUI panic in logbook paging — F-16 software remediation = CLOSED
 
-`src/gui/logbook_table.rs` computes the page start without clamping, so a stale page index
-after a filter change can produce an invalid range and panic.
+`src/gui/logbook_table.rs` computed the page start as `page * page_size` without clamping,
+and the renderer sliced `cache.sorted_indices[page_start..page_end]` directly. The page index
+was normalized only against the **unfiltered** row buffer and only when that buffer was
+non-empty, while the renderer used the **filtered** index length. A stale page after a search,
+an advanced filter, a journal switch, a deletion, an import or a sync could therefore produce
+`start > end`, `start > len` or a multiplication overflow. The reproduced failures were
+`range start index 100 out of range for slice of length 1`, `range start index 50 out of range
+for slice of length 0` and `attempt to multiply with overflow` at
+`src/gui/logbook_table.rs:442` / `:724`.
+
+Software remediation (2026-11-16, `STAGE-P1-F16-SOFTWARE`, software-only verification):
+
+- one pure, GUI-independent model (`src/gui/pagination.rs`) is the only place that computes
+  the page count, the normalized page and the `start..end` window:
+  `PaginationInput { requested_page, page_size, total_items }` →
+  `PaginationWindow { normalized_page, page_count, start, end, effective_page_size, mode,
+  was_clamped, arithmetic_guard_triggered }`;
+- `LogViewState::pagination_window` normalizes the page before every slice and writes the
+  normalized value back; `LogViewState::select_page_indices` obtains the page through
+  `slice::get` and rebuilds an inconsistent cache once instead of panicking;
+- the empty result has an explicit state (`page_count = 0`, page 0, range `0..0`); the existing
+  `page_size = 0` mode (“all rows”) is a defined single-page window with `effective_page_size
+  >= 1`, never a division by zero;
+- multiplication and addition use `checked_mul` / `checked_add`; overflow is impossible for a
+  normalized page (proof in the model report) and the defensive branch is signalled instead of
+  wrapping, panicking or silently truncating;
+- slicing goes through `slice::get`; the GUI no longer indexes `sorted_indices` or
+  `recent_qsos` directly, and there is no `get_unchecked`, no `catch_unwind` and no `unwrap` /
+  `expect` on a page range;
+- selection remains keyed by the stable `id` (`INTEGER PRIMARY KEY AUTOINCREMENT`, IDs are not
+  reused); deleting a record removes exactly that ID and never selects another QSO;
+- filter contraction normalizes to the last existing page, filter expansion keeps a still-valid
+  page, sorting keeps the page, page-size changes and empty journals are range-safe.
+
+Verification boundaries recorded by this gate:
+
+```
+F-16 = CLOSED
+COMPLETED_LOGBOOK_PAGINATION_PANIC_REMEDIATION_VERIFIED
+Logbook pagination = PANIC_FREE_SOFTWARE_VERIFIED
+Stale page normalization = VERIFIED
+Filter transitions = VERIFIED
+Selection stability = VERIFIED
+Empty result = DEFINED
+Page size zero = ALL_ROWS_SAFE
+Checked arithmetic = VERIFIED
+Safe slice access = VERIFIED
+Real user data = NOT_USED
+SOFTWARE_ONLY_VERIFICATION=true
+```
+
+Files: `src/gui/pagination.rs`, `src/gui/logbook_table.rs`,
+`src/gui/state/log_view.rs`, `src/gui/app_qso.rs`, `src/gui/app_layout.rs`,
+`tests/p1_f16_logbook_pagination.rs`, `tests/security_guard.rs`.
+
+The verification is software-only and uses synthetic records only. It does **not** prove any
+real user database, corrupted database or GUI session on real data: `REAL_USER_DATA_USED=false`,
+no real log, callsign, journal or production profile was read. F-14, CAT-018, CAT-019, F-15 and
+F-17 remain CLOSED, hardware readiness and hardware PTT remain NOT_VERIFIED, the ten
+hardware-in-the-loop tests remain `#[ignore = "hardware-in-the-loop"]` and NATIVE-7B remains
+NOT_STARTED. This defect must not be reopened without a reproducible regression.
 
 ### F-17 (P1) — single-key PTT toggle — F-17 software remediation = CLOSED
 

@@ -236,3 +236,14 @@ All decisions are **IMPLEMENTED** and verified by `tests/linux_flatpak_packaging
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the module map and
 [`../security/RELEASE_SECURITY.md`](../security/RELEASE_SECURITY.md) for the release
 security contract.
+
+### 2.13 P1-F16 panic-free logbook pagination decisions
+
+| ID | Decision | Status |
+|---|---|---|
+| `DEC-P1-F16-MODEL-01` | Page count, normalized page and the `start..end` window are produced by one pure, GUI-independent model (`PaginationInput` → `PaginationWindow` in `src/gui/pagination.rs`). No renderer, reload path or filter path computes its own page count or range. | IMPLEMENTED |
+| `DEC-P1-F16-NORMALIZE-01` | `LogViewState::pagination_window` normalizes the page before slicing and writes it back. A stale page becomes the last existing page; a still-valid page is preserved (filtering expansion does not reset to page 0); an empty result is page 0 with `page_count = 0` and range `0..0`; `page_size = 0` is the defined all-rows mode with `effective_page_size >= 1`. Existing explicit resets (`drill_down`, `clear_drill_down`, page-size change) stay explicit. | IMPLEMENTED |
+| `DEC-P1-F16-ARITH-01` | Page arithmetic uses `checked_mul` / `checked_add`. Overflow is impossible for a normalized page; the defensive `None` branch returns a safe window with `arithmetic_guard_triggered = true`, never a panic, a wrapped index or a silent truncation. `saturating_*` is not used as a substitute for a correct state. | IMPLEMENTED |
+| `DEC-P1-F16-SLICE-01` | All page access uses `slice::get` (`PaginationWindow::slice_of`, `page_indices.get(row.index())`, `recent_qsos.get(idx)`). Direct indexing of `sorted_indices`/`recent_qsos` with a page range, `get_unchecked`, `catch_unwind` and `unwrap`/`expect` on a checked access are forbidden. An inconsistent cache is rebuilt once and otherwise yields a controlled empty view with a diagnostic. | IMPLEMENTED |
+| `DEC-P1-F16-SELECTION-01` | Selection is keyed by the stable QSO `id` (`INTEGER PRIMARY KEY AUTOINCREMENT`), never by a page or filtered index. Deleting a record removes exactly that ID; a filtered-out selection is preserved by ID and is never replaced by a different QSO. | IMPLEMENTED |
+| `DEC-P1-F16-SCOPE-01` | The remediation is software-only and uses synthetic data only. `REAL_USER_DATA_USED=false`; hardware readiness and hardware PTT remain NOT_VERIFIED; the ten HIL tests stay `#[ignore = "hardware-in-the-loop"]`; `NATIVE-7B = NOT_STARTED`; F-14, CAT-018, CAT-019, F-15 and F-17 stay CLOSED. Verified by `tests/p1_f16_logbook_pagination.rs` and the `p1_f16_*` guards. | IMPLEMENTED |

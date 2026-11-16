@@ -229,13 +229,36 @@ The software remediation does **not** prove any physical behaviour:
 `HARDWARE_PTT_NOT_VERIFIED`, `HARDWARE_CONNECTED=false`, `REAL_TRANSCEIVER_CONNECTED=false`,
 `REAL_PTT_EXECUTED=false`, `RF_TRANSMISSION_EXECUTED=false`, `HIL_EXECUTED=false`.
 
-## 8. Reviewing a security-sensitive change
+### 7.3 Panic-free logbook pagination (P1-F16)
 
-1. Confirm the change does not alter trust, data classification or physical-safety behaviour
-   without a matching decision in [`architecture/DECISIONS.md`](architecture/DECISIONS.md).
-2. Confirm no guard was weakened: compare assertion counts and messages, not only the pass
-   result.
-3. Confirm `cargo audit` is green and the advisory baseline list is unchanged.
-4. Confirm the change does not introduce a new command execution path, network client, or
-   privilege boundary.
-5. Confirm user data is still excluded from every update plan and every installer allowlist.
+Logbook pagination is a crash boundary: the table renders a filtered, sorted index list whose
+length changes on every filter, journal switch, deletion, import and sync. The following rules
+are enforced by code and by the `p1_f16_*` guards:
+
+- one pure, GUI-independent model (`src/gui/pagination.rs`, `PaginationInput` →
+  `PaginationWindow`) computes the page count, the normalized page and the `start..end` window;
+  no renderer, reload path or filter path computes its own page count or range;
+- the page is normalized against the **filtered** result before slicing and written back; a
+  stale page becomes the last existing page, a still-valid page is preserved, an empty result is
+  page 0 with `page_count = 0` and range `0..0`, and `page_size = 0` is the defined all-rows
+  mode with `effective_page_size >= 1` (never a division by zero);
+- page arithmetic uses `checked_mul` / `checked_add`; a defensive overflow branch produces a
+  safe, signalled window instead of a panic, a wrapped index or a silent truncation, and
+  `saturating_*` is not used to hide an invalid state;
+- every page access goes through `slice::get`; `get_unchecked`, `catch_unwind`, direct indexing
+  of `sorted_indices`/`recent_qsos` with a page range and `unwrap`/`expect` on a checked access
+  are forbidden;
+- selection is keyed by the stable QSO `id` (`INTEGER PRIMARY KEY AUTOINCREMENT`), never by a
+  page or filtered index; deleting a record removes exactly that ID and a filtered-out
+  selection is never replaced by a different QSO;
+- the test suite uses synthetic `TST…` records and an in-memory database only; it never opens
+  the production database, the user configuration or a real journal, and it uses no wall clock,
+  sleep or retry.
+
+The software remediation does **not** prove any real user database or corrupted database:
+`REAL_USER_DATA_USED=false`, `SOFTWARE_ONLY_VERIFICATION=true`. Hardware readiness and hardware
+PTT remain `NOT_VERIFIED`, `HIL_EXECUTED=false`, the ten HIL tests stay
+`#[ignore = "hardware-in-the-loop"]` and `NATIVE-7B = NOT_STARTED`. F-14, CAT-018, CAT-019,
+F-15 and F-17 remain CLOSED.
+
+## 8. Reviewing a security-sensitive change

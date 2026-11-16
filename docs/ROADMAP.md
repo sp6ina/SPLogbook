@@ -93,6 +93,16 @@ Rawhide, backports, release candidates) never set the minimum.
   a denial, an arbiter error and a port error never show TX, and PTT OFF never requires
   authorization. Software-only verification: hardware interaction = **NOT_VERIFIED**; NATIVE-7B
   remains NOT_STARTED. It must not be reopened without a reproducible regression.
+- `F-16` (P1, GUI panic in logbook paging): **F-16 software remediation = CLOSED**
+  (2026-11-16, `STAGE-P1-F16-SOFTWARE`,
+  `COMPLETED_LOGBOOK_PAGINATION_PANIC_REMEDIATION_VERIFIED`). Page count, page normalization
+  and the `start..end` window now come from one pure model (`src/gui/pagination.rs`); a stale
+  page after a filter, journal switch, deletion, import or sync is normalized before slicing,
+  the empty result and `page_size = 0` are explicit safe states, arithmetic is checked, and
+  access goes through `slice::get`. Selection stays keyed by the stable QSO `id`. Verified
+  software-only with synthetic data: `REAL_USER_DATA_USED=false`, hardware behaviour remains
+  NOT_VERIFIED and NATIVE-7B remains NOT_STARTED. It must not be reopened without a
+  reproducible regression.
 - `F-03` (fail-closed native Linux verification): **CLOSED**. `scripts/verify_linux_container.sh`
   treats ELF type, `ldd`, `--version`, `--build-info` and the required `GLIBC_2.43` symbol as
   assertions, installs runtime libraries from the official package manager of each pinned
