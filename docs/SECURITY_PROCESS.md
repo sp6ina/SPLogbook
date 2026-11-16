@@ -196,6 +196,39 @@ default is **denied**, and the following rules are enforced by code and by `p1_f
 The software remediation does **not** prove any physical behaviour: `HARDWARE_READINESS_NOT_VERIFIED`,
 `HIL_EXECUTED=false`, `REAL_PTT_EXECUTED=false`, `RF_TRANSMISSION_EXECUTED=false`.
 
+### 7.2 Explicit PTT interaction gate (F-17)
+
+Transmit intent from the user interface is a trust boundary, not a convenience shortcut. The
+following rules are enforced by code and by `p1_f17_*` guards:
+
+- PTT is never bound to a single key and never exposed as an ambiguous toggle: `Ctrl+Shift+F7`
+  requests TX ON and `Ctrl+F7` requests TX OFF as two disjoint intents, and a bare `F7` does
+  nothing;
+- both bindings require exact modifiers, so an extra `Shift`, `Alt` or `Super` is an explicit
+  mismatch rather than a silent trigger;
+- text focus, IME composition, missing window focus and any open modal window each block both
+  intents, and a gate that cannot be read fails closed;
+- key repeat never retriggers, a release event never creates an intent, and the matching press is
+  consumed exactly once per frame;
+- every user-interaction surface (shortcut, on-screen buttons, command palette) goes through one
+  central dispatcher; the GUI contains no toggle entry point, no `RigCommand::SetPtt` and no
+  direct `SetPtt(true)`, and the set of direct runtime transmit call sites in `src/gui` is closed
+  and pinned by a guard;
+- PTT ON is forwarded only for the F-15 outcome `HardwareExecutionAuthorized`; the production GUI
+  gate `evaluate_gui_ptt_authorization()` always returns `NotEvaluated`, so
+  `PTT_ON_COUNT_WITHOUT_AUTHORIZATION = 0`;
+- PTT OFF is never authorization-gated, because a blocked OFF could leave a transmitter keyed;
+- the GUI TX indicator is telemetry-derived, and a denial, an arbiter error or a port error never
+  presents TX and is never reported as success;
+- losing window focus while transmitting performs exactly one controlled OFF attempt through the
+  existing `TxArbiter` path, with no retries and no wall-clock timer;
+- test-only PTT doubles live exclusively under `#[cfg(test)]` and `tests/`, and no test input
+  provider can be selected from the GUI, the CLI, the configuration or the environment.
+
+The software remediation does **not** prove any physical behaviour:
+`HARDWARE_PTT_NOT_VERIFIED`, `HARDWARE_CONNECTED=false`, `REAL_TRANSCEIVER_CONNECTED=false`,
+`REAL_PTT_EXECUTED=false`, `RF_TRANSMISSION_EXECUTED=false`, `HIL_EXECUTED=false`.
+
 ## 8. Reviewing a security-sensitive change
 
 1. Confirm the change does not alter trust, data classification or physical-safety behaviour

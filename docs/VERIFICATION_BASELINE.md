@@ -4,7 +4,7 @@ Single source of truth for verified test counters and dependency-audit state. Co
 only here; every other document links to this file. Never update a counter without a real
 measurement, and always record the measurement date.
 
-**Data pomiaru:** 2026-11-15 (ostatni pomiar: po `STAGE-P1-F15-SOFTWARE`)
+**Data pomiaru:** 2026-11-16 (ostatni pomiar: po `STAGE-P1-F17-SOFTWARE`)
 **Środowisko:** Windows 10/11 x86_64, `rustc 1.99.0`, `cargo 1.99.0`, `-j 1`
 **HEAD pomiaru:** commit zawierający ten plik (`git log -1 --format=%H`)
 
@@ -26,15 +26,15 @@ cargo test --workspace --all-targets -j 1 -- --skip powershell_real_execution_fu
 
 | Metric | Value |
 |---|---|
-| TOTAL REGISTERED TESTS: | 2961 |
-| TOTAL EXECUTED TESTS: | 2950 |
-| TOTAL PASSED TESTS: | 2950 |
+| TOTAL REGISTERED TESTS: | 3063 |
+| TOTAL EXECUTED TESTS: | 3052 |
+| TOTAL PASSED TESTS: | 3052 |
 | TOTAL FAILED TESTS: | 0 |
 | TOTAL IGNORED TESTS: | 10 |
 | HIL IGNORED TESTS: | 10 |
 | TOTAL FILTERED TESTS: | 1 |
 | Doc-tests | 0 |
-| Test binaries | 29 |
+| Test binaries | 30 |
 
 The single filtered test is `windows_helper_test::powershell_real_execution_full_cycle_success`.
 It can block on a Windows security prompt in an interactive sandbox, so it is filtered in the
@@ -45,7 +45,8 @@ a product defect.
 
 | Suite | Value |
 |---|---|
-| `security_guard` | 146 / 146 |
+| `security_guard` | 161 / 161 |
+| `p1_f17_ptt_gating` | 30 / 30 |
 | `cat_f14_fail_safe` | 21 / 21 |
 | `cat_f15_independent_evidence` | 9 / 9 |
 | `protocol_conformance` | 11 / 11 |
@@ -228,7 +229,7 @@ provider exists in the production code.
 | F-14 fail-safe suite (fail-closed contract) | `cat_f14_fail_safe` 21 / 21 |
 | F-14/F-15 mechanical, stress and canonical-matrix tests under `cfg(test)` | 59 / 59 (`cargo test --lib hil::`) |
 | Native CAT offline suite | `cat_native_7` 297 executed + 10 `#[ignore]` |
-| Security guard (incl. 7 `p1_f15_*` rules) | 146 / 146 |
+| Security guard (incl. 7 `p1_f15_*` rules and 15 `p1_f17_*` rules) | 161 / 161 |
 | Deserialisation matrix | 24 mandatory cases (empty, missing, false, true-without-evidence, null, wrong types, duplicate, unknown, alias/case, empty/partial object, legacy schema, future schema, malformed JSON, missing nested objects, partial attestations, `serde(default)`, `Default::default()`, custom defaults, migration) |
 | Self-certification reproduction before the fix | manifest with default-true booleans produced `overall_status = Passed` and reachable PTT |
 | Self-certification after the fix | every self-certified case → controlled denial, `PTT_ON_COUNT = 0` |
@@ -245,10 +246,56 @@ provider exists in the production code.
 | `TEST_EVIDENCE_PROVIDER_COMPILED_IN_PRODUCTION` | false |
 | `Cargo.toml` / `Cargo.lock` | unchanged |
 | `F-14` / `CAT-018` / `CAT-019` | remain CLOSED |
-| `F-17` / `NATIVE-7B` | OPEN / NOT_STARTED |
+| `F-17` / `NATIVE-7B` | OPEN (at this measurement) / NOT_STARTED |
 
 The F-15 suites drive the **production** authorization chain. Without an independent evidence
 document every entry point (controlled PTT, TX guard, explicit arbiter, verification APIs) is a
 controlled denial with `SetPtt(true)` count 0; the mechanical F-14 invariants are additionally
 verified in `src/cat/hil/session.rs` under `#[cfg(test)]`, where a test-scope evidence document is
 available. The ten hardware-in-the-loop tests stay ignored and are never run by CI.
+
+## 11. P1-F17 safe PTT interaction (2026-11-16)
+
+Measured on the `STAGE-P1-F17-SOFTWARE` tree with the canonical command from section 1 (`-j 1`,
+`--skip powershell_real_execution_full_cycle_success`). Software-only verification: no
+transceiver, CAT transport, PTT line or RF was used.
+
+| Item | Value |
+|---|---|
+| `p1_f17_ptt_gating` | 30 / 30 |
+| `security_guard` (incl. 15 `p1_f17_*` rules) | 161 / 161 |
+| Unsafe bare-`F7` contract reproduced before the fix | yes — the production resolver returned `AppAction::TogglePtt` for a bare `F7` press while a text field had focus |
+| Unsafe bare-`F7` after the fix | 0 PTT requests (`PTT_REQUEST_COUNT = 0`, `PTT_ON_COUNT = 0`, `BACKEND_CALL_COUNT = 0`) |
+| `F17_ROOT_CAUSE_CONFIRMED` | true |
+| `F17_SINGLE_KEY_PTT_REMOVED` / `F17_NO_OTHER_SINGLE_KEY_PTT` | true / true |
+| `F17_TEXT_FOCUS_BLOCKS_PTT` / `F17_IME_BLOCKS_PTT` | true / true |
+| `F17_WINDOW_UNFOCUSED_BLOCKS_PTT` / `F17_MODAL_BLOCKS_PTT` | true / true |
+| `F17_REPEAT_BLOCKS_PTT` / `F17_RELEASE_DOES_NOT_TRIGGER_ON` | true / true |
+| `F17_EVENT_CONSUMED_ONCE` / `F17_CENTRAL_DISPATCHER_USED` | true / true |
+| `F17_GUI_DIRECT_SET_PTT_REMOVED` | true (no `toggle_ptt`, no `RigCommand::SetPtt`, no `SetPtt(true)` in `src/gui`) |
+| `F17_F15_AUTHORIZATION_REQUIRED` / `F17_DRY_RUN_BLOCKS_PTT` / `F17_DENIED_BLOCKS_PTT` | true / true / true |
+| `F17_GUI_STATE_NOT_OPTIMISTIC` | true (single telemetry-derived write of `cat.ptt_active`) |
+| `PTT_ON_COUNT_WITHOUT_AUTHORIZATION` | 0 |
+| Deterministic combinatorial matrix | 26 880 combinations, every safety invariant held |
+| Stress (deterministic, sleep-free) | 5 000 bare-key, 5 000 text-focus, 5 000 repeat, 5 005 unauthorized, 2 000 focus-loss, 2 000 IME, 2 000 modal, 2 000 multi-event frames, 1 000 cancellation, 1 000 OFF error, 500 test-double port, plus a 1 920-case panic-free sweep |
+| Fault injection | port failure on ON and OFF, closed gates, every arbitration state, every authorization outcome — all controlled denials, no panic |
+| `TEST_INPUT_PROVIDER_TEST_SCOPE_ONLY` | true (`#[cfg(test)]` and `tests/` only) |
+| `TEST_INPUT_PROVIDER_COMPILED_IN_PRODUCTION` | false (release binary scanned: no test-double symbols or strings) |
+| `TEST_INPUT_PROVIDER_PRESENT_IN_RELEASE_ARTIFACTS` | false |
+| `SOFTWARE_ONLY_VERIFICATION` | true |
+| `HARDWARE_PTT_NOT_VERIFIED` | true |
+| `HARDWARE_CONNECTED` / `REAL_TRANSCEIVER_CONNECTED` | false / false |
+| `REAL_PTT_EXECUTED` / `RF_TRANSMISSION_EXECUTED` / `HIL_EXECUTED` | false / false / false |
+| `HIL_TESTS_REMAIN_IGNORED` | true (10 `#[ignore = "hardware-in-the-loop"]`) |
+| `Cargo.toml` / `Cargo.lock` | unchanged |
+| `F-14` / `CAT-018` / `CAT-019` / `F-15` | remain CLOSED |
+| `F-17` | CLOSED (software) |
+| `NATIVE-7B` | NOT_STARTED |
+
+The F-17 suites drive the **production** GUI input path
+(`egui::Context::run_ui` → `SpLogApp::handle_input_and_shortcuts` → `ShortcutRegistry::resolve` →
+`SpLogApp::dispatch_ptt` → `gui::ptt_input::dispatch`) and the production arbitration path is left
+unchanged. Without an F-15 authorization decision every PTT ON is a controlled denial with
+`SetPtt(true)` count 0; PTT OFF never requires authorization and remains available while the
+arbiter confirms local transmission. The recording port double exists only in test scope and is
+absent from the release binary. Hardware behaviour remains **NOT_VERIFIED**.

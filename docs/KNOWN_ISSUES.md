@@ -131,7 +131,7 @@ Verification boundaries recorded by this gate:
 - F-14 software remediation = CLOSED
 - Hardware validation = NOT_EXECUTED
 - Protocol conformance software verification = COMPLETED
-- F-17 (P1) = still open
+- F-17 (P1) = still open at this measurement (closed later by `STAGE-P1-F17-SOFTWARE`, see §1 F-17)
 - NATIVE-7B = NOT_STARTED
 
 SPLogbook cannot confirm the physical preparation of a test bench from a manifest or an operator
@@ -149,10 +149,62 @@ Files: `src/cat/hil/authorization.rs`, `src/cat/hil/manifest.rs`, `src/cat/hil/s
 `src/gui/logbook_table.rs` computes the page start without clamping, so a stale page index
 after a filter change can produce an invalid range and panic.
 
-### F-17 (P1) — single-key PTT toggle
+### F-17 (P1) — single-key PTT toggle — F-17 software remediation = CLOSED
 
-PTT is bound to a single key (F7) that also fires while a text field has focus. A stray
-keystroke can key the transmitter. A modifier or an explicit confirm step is required.
+PTT was bound to a single key (F7) with `ConflictPolicy::AllowInTextEditing`, so a stray
+keystroke — including one typed into a text field, a modal dialog, an active IME session or an
+unfocused window — could key the transmitter, and the same event toggled TX/RX in either
+direction.
+
+Software remediation (2026-11-16, `STAGE-P1-F17-SOFTWARE`, software-only verification):
+
+- the single-key toggle is gone: `F7` alone, `Shift+F7` and `Alt+F7` do nothing, and no other
+  single key starts PTT;
+- PTT is split into two disjoint, explicit intents: `Ctrl+Shift+F7` requests TX ON and `Ctrl+F7`
+  requests TX OFF — the harder combination is the transmitting direction, so stopping is always
+  the easier action;
+- both bindings require **exact** modifiers (`Modifiers::matches_exact`), so an extra `Shift`,
+  `Alt` or `Super` is an explicit mismatch, never a silent trigger;
+- both bindings are blocked by text focus (`Context::egui_wants_keyboard_input()` **and**
+  `Context::text_edit_focused()`), by an active IME composition, by a window without focus and
+  by any open modal window; gates that cannot be read fail closed;
+- key repeat never retriggers and a release event never produces an intent; the shortcut is
+  consumed exactly once per frame;
+- all three user-interaction surfaces (shortcut, VFO-panel buttons, command palette) go through
+  one central dispatcher (`src/gui/ptt_input.rs`), and the GUI no longer contains a toggle entry
+  point;
+- PTT ON requires the F-15 authorization outcome `HardwareExecutionAuthorized`; a GUI session has
+  no plan, attestation or independent evidence, so its production gate always returns
+  `NotEvaluated` and refuses — `PTT_ON_COUNT_WITHOUT_AUTHORIZATION = 0`;
+- PTT OFF never requires authorization (a blocked OFF could leave a transmitter keyed), a port
+  error is reported as a failure, and neither a denial nor an arbiter error ever shows TX in the
+  GUI;
+- losing window focus while transmitting performs exactly one controlled OFF attempt through the
+  existing TxArbiter path (never a raw `SetPtt`), without retries and without a wall-clock timer.
+
+Verification boundaries recorded by this gate:
+
+- F-17 software remediation = CLOSED
+- Single-key PTT = REMOVED
+- Text editing PTT = BLOCKED
+- IME PTT = BLOCKED
+- Window-unfocused PTT = BLOCKED
+- Repeated-key PTT = BLOCKED
+- PTT without F-15 authorization = BLOCKED
+- Hardware interaction = NOT_VERIFIED
+- NATIVE-7B = NOT_STARTED
+
+The software fix does **not** prove any physical behaviour: no transceiver, serial port, dummy
+load, real PTT or RF transmission was used. `HARDWARE_CONNECTED=false`,
+`REAL_TRANSCEIVER_CONNECTED=false`, `REAL_PTT_EXECUTED=false`,
+`RF_TRANSMISSION_EXECUTED=false`, `HIL_EXECUTED=false`. The ten hardware tests remain
+`#[ignore = "hardware-in-the-loop"]`.
+
+Files: `src/gui/ptt_input.rs`, `src/gui/shortcuts.rs`, `src/gui/app_input.rs`,
+`src/gui/app_cat.rs`, `src/gui/vfo_panel.rs`, `src/gui/command_palette.rs`,
+`src/cat/hil/authorization.rs`, `tests/p1_f17_ptt_gating.rs`, `tests/security_guard.rs`.
+
+This defect must not be reopened without a reproducible regression.
 
 ### F-19 (P1) — SOTA/POTA reference fields inverted
 

@@ -505,6 +505,7 @@ Zasady bezpieczeństwa operacji nadawczych:
 3. **Brak retry dla PTT**: Jeżeli rozkaz `SetPtt(true)` lub `SetPtt(false)` zakończy się błędem, timeoutem lub brakiem potwierdzenia, backend **nie ponawia** próby automatycznie, lecz natychmiast raportuje błąd krytyczny `RigError::Protocol` do operatora.
 4. **Idempotentne rozłączanie (Fail-Safe)**: W przypadku wywołania `disconnect()` lub zerwania sesji następuje bezwarunkowa próba wysłania rozkazu wyłączenia PTT (`SetPtt(false)`), a następnie zamknięcie portu.
 5. **Blokada komend inwazyjnych**: Podczas `probe()` zabronione jest strojenie tunera, nadawanie nośnej, zapisywanie komórek pamięci i skanowanie pasma.
+6. **Jawna bramka intencji TX w interfejsie (F-17, naprawione programowo 2026-11-16)**: Pojedynczy klawisz nigdy nie uruchamia PTT. Interfejs wysyła dwie rozłączne intencje — `Ctrl+Shift+F7` (TX ON) i `Ctrl+F7` (TX OFF) — przez jeden centralny dispatcher (`src/gui/ptt_input.rs`). Obie są blokowane przy fokusie edycji tekstu, aktywnej kompozycji IME, braku fokusu okna i otwartym oknie modalnym; powtórzenie klawisza i zdarzenie zwolnienia nie tworzą intencji, a skrót jest konsumowany dokładnie raz. PTT ON wymaga wyniku autoryzacji F-15 (`HardwareExecutionAuthorized`) i w środowisku bez dostawcy dowodu pozostaje kontrolowaną odmową (`NotEvaluated`); PTT OFF nigdy nie jest blokowane autoryzacją. Utrata fokusu okna podczas nadawania wykonuje dokładnie jedną kontrolowaną próbę OFF istniejącą ścieżką `TxArbiter`. Stan TX w GUI pochodzi wyłącznie z telemetrii, a błąd kanału jest raportowany jako porażka, nigdy jako sukces.
 
 ---
 
@@ -1122,7 +1123,7 @@ NATIVE-0 -> NATIVE-1 -> NATIVE-2 -> NATIVE-3 -> NATIVE-4 -> NATIVE-5 (5A-5E) -> 
 
 ### Końcowy werdykt programu NATIVE-CAT (zaktualizowany po Etapie 10 — 2026-11-06):
 
-1. **NATIVE-CAT SOFTWARE**: **PASSED** (8 backendów, RigHub, TxArbiter, CatRuntime, CatStationConfig, migracja v0->v1 z rollbackiem, FormVariantCache, Hamlib Proxy per-rig port binding, PhysicalEndpointRegistry, 2950 aktywnych testów programowych passed w całym projekcie, 2961 zarejestrowanych testów we workspace, 10 testów ignorowanych sprzętowych HIL, 0 doc testów, 0 ostrzeżeń `cargo clippy --workspace --all-targets --all-features -- -D warnings`).
+1. **NATIVE-CAT SOFTWARE**: **PASSED** (8 backendów, RigHub, TxArbiter, CatRuntime, CatStationConfig, migracja v0->v1 z rollbackiem, FormVariantCache, Hamlib Proxy per-rig port binding, PhysicalEndpointRegistry, 3052 aktywnych testów programowych passed w całym projekcie, 3063 zarejestrowanych testów we workspace, 10 testów ignorowanych sprzętowych HIL, 0 doc testów, 0 ostrzeżeń `cargo clippy --workspace --all-targets --all-features -- -D warnings`).
 2. **NATIVE-7A OFFLINE**: **PASSED** (kompletny harness HIL, wieloosiowy model dowodowy, walidator 30 nienaruszalnych kanonicznych warunków HIL-READY, zestaw rozszerzony `HIL-X01`..`HIL-X22`, 297 testów offline passed w `tests/cat_native_7.rs`, 165 w `tests/cat_native_6a.rs`, 99 w `tests/cat_native_6b.rs`, 0 ostrzeżeń).
 3. **NATIVE-7B HARDWARE**: **BLOCKED** (brak fizycznego stanowiska laboratoryjnego i sztucznego obciążenia 50 Ω w środowisku CI/dev).
 4. **HARDWARE TEST CASES**: **NOT RUN** (10 izolowanych przypadków sprzętowych w stanie NotRun z powodu blokady bramki HIL-READY).

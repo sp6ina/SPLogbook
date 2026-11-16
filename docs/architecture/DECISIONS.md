@@ -20,6 +20,8 @@ These are not preferences; they are contract. Weakening them requires a new deci
    all other modules.
 3. **Single RF gate.** All transmit intent passes `TxArbiter`; PTT is never keyed during
    `connect()`, `probe()` or model detection, and `SetPtt` is never retried automatically.
+   GUI transmit intent additionally passes one central dispatcher (`DEC-P1-F17-DISPATCHER-01`)
+   and PTT ON requires the F-15 authorization outcome (`DEC-P1-F17-AUTHORIZATION-01`).
 4. **Theme tokens only.** No raw `Color32` outside `src/gui/theme/**` and the isolated
    `qsl_colors` module — enforced by `tests/theme_guard.rs`.
 5. **Data classification is absolute.** `UNKNOWN` data classification means *do not
@@ -204,6 +206,20 @@ All decisions are **IMPLEMENTED** and verified by `tests/linux_flatpak_packaging
 | `DEC-P1-F15-FORGERY-01` | `HilIndependentEvidence` and `HilAuthorizationDecision` are deliberately **not** `Deserialize`, so an untrusted document cannot forge an authorization. No production evidence provider exists in this gate; the test-only evidence constructor lives exclusively under `#[cfg(test)]`, and no CLI flag, GUI control, configuration key, environment variable or feature flag can select it. | IMPLEMENTED |
 | `DEC-P1-F15-MIGRATION-01` | A document without `schema_version` is legacy v1: it still parses as a plan, requires an explicit migration and stays denied. Migration never promotes a missing field to `true`, never creates evidence and never converts a historical `true` into a current consent. | IMPLEMENTED |
 | `DEC-P1-F15-SCOPE-01` | The remediation is software-only. Production default = DENIED, hardware readiness = NOT_VERIFIED, `NATIVE-7B = NOT_STARTED`; the ten hardware-in-the-loop tests stay `#[ignore = "hardware-in-the-loop"]` and no real PTT or RF is executed. | IMPLEMENTED |
+
+### 2.12 P1-F17 explicit PTT interaction decisions
+
+| ID | Decision | Status |
+|---|---|---|
+| `DEC-P1-F17-NO-SINGLE-KEY-01` | PTT is never bound to a single key. `F7` alone, `Shift+F7` and `Alt+F7` perform no action; the transmit directions are two explicit intents with at least one modifier: `Ctrl+Shift+F7` requests TX ON and `Ctrl+F7` requests TX OFF. No `Alt`-based combination is used, so no `AltGr`/`Ctrl+Alt+F*` collision exists on Polish or Central-European layouts. | IMPLEMENTED |
+| `DEC-P1-F17-SPLIT-INTENT-01` | PTT is not an ambiguous toggle. `PttIntent::RequestOn` and `PttIntent::RequestOff` are disjoint actions; the transmitting direction deliberately needs the harder combination, so stopping transmission is always easier. | IMPLEMENTED |
+| `DEC-P1-F17-EXACT-MODIFIERS-01` | Both PTT bindings require `Modifiers::matches_exact` and a non-repeat `pressed: true` event. egui's default `matches_logically` (which ignores extra `Shift`/`Alt`) is not used for PTT, so an unexpected modifier is an explicit mismatch. | IMPLEMENTED |
+| `DEC-P1-F17-GATES-01` | Both PTT intents are blocked by text focus (`egui_wants_keyboard_input` and `text_edit_focused`), by an active IME composition, by a window without focus and by any open modal window. The gates are computed once per frame, and an unreadable gate fails closed. | IMPLEMENTED |
+| `DEC-P1-F17-REPEAT-RELEASE-01` | Key repeat never creates a new intent, a release event never creates an intent, and the matching press is removed from the frame buffer so it is consumed exactly once. | IMPLEMENTED |
+| `DEC-P1-F17-DISPATCHER-01` | Every PTT user interaction (shortcut, on-screen buttons, command palette) goes through one central dispatcher (`src/gui/ptt_input.rs`). The GUI contains no toggle entry point, no `RigCommand::SetPtt` and no direct `SetPtt(true)`; the direct runtime transmit call sites in `src/gui` are a closed, guard-pinned set of programmatic transmitters. | IMPLEMENTED |
+| `DEC-P1-F17-AUTHORIZATION-01` | PTT ON is forwarded only for the F-15 outcome `HardwareExecutionAuthorized`. The production GUI gate `evaluate_gui_ptt_authorization()` lives inside the F-15 module, takes no input and always returns `NotEvaluated`; `src/gui` may never name the authorized outcome. PTT OFF is never authorization-gated, because a blocked OFF could leave a transmitter keyed. | IMPLEMENTED |
+| `DEC-P1-F17-STATE-01` | The GUI TX indicator is telemetry-derived (`TxArbiterState::Owned`), never optimistic. A denial, an arbiter error or a port error never presents TX and is never reported as success. Losing window focus while transmitting performs exactly one controlled OFF attempt through the existing `TxArbiter` path, with no retries and no wall-clock timer. | IMPLEMENTED |
+| `DEC-P1-F17-SCOPE-01` | The remediation is software-only. Single-key PTT = REMOVED, text/IME/window-unfocused/repeat PTT = BLOCKED, PTT without F-15 authorization = BLOCKED, `PTT_ON_COUNT_WITHOUT_AUTHORIZATION = 0`, hardware interaction = NOT_VERIFIED, `NATIVE-7B = NOT_STARTED`; the ten hardware-in-the-loop tests stay `#[ignore = "hardware-in-the-loop"]` and no real PTT or RF is executed. | IMPLEMENTED |
 
 ## 3. Update state machine and data classification (reference)
 

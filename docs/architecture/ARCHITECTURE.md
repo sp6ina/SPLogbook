@@ -21,8 +21,8 @@
 
 | Moduł | Pliki | Linie | Zawartość | Status | Ryzyko / następna akcja |
 |---|---:|---:|---|---|---|
-| `src/cat` | 56 | 41 148 | 8 backendów CAT, 5 kodeków natywnych, HIL harness, TCI | `CURRENT` | F-14 (P0, hardware-gated), F-15 (HIL self-cert), F-17 (PTT F7) — poza tą bramką |
-| `src/gui` | 107 | 31 602 | `SpLogApp`, 28 modułów stanu, ~78 widoków, motywy | `CURRENT` | F-16 (panic `page_range`), F-19 (SOTA/POTA) — poza tą bramką |
+| `src/cat` | 56 | 41 148 | 8 backendów CAT, 5 kodeków natywnych, HIL harness, TCI | `CURRENT` | F-14 (P0, hardware-gated), F-15 (HIL self-cert) — poza tą bramką; F-17 (PTT) naprawione programowo 2026-11-16 |
+| `src/gui` | 107 | 31 602 | `SpLogApp`, 28 modułów stanu, ~78 widoków, motywy | `CURRENT` | F-16 (panic `page_range`), F-19 (SOTA/POTA) — poza tą bramką; F-17 (bramka intencji TX) naprawione programowo 2026-11-16 |
 | `src/core` | 49 | 27 780 | domena QSO, SQLite, ADIF/Cabrillo, XDG, i18n | `CURRENT` | F-20/F-21 (eksport/upload) — poza tą bramką |
 | `src/cloud` | 27 | 18 769 | updater (9 431), LoTW/eQSL/QRZ/CloudLog, scheduler | `CURRENT` | F-06 (integralność danych referencyjnych), F-22 (system-managed bez locka) |
 | `src/sync` | 12 | 5 661 | protokół P2P/LAN v2, handshake, szyfrowanie, catch-up | `CURRENT` | F-23 naprawione w bramce QA (testy deterministyczne) |
@@ -74,6 +74,11 @@ manifest (Ed25519, raw bytes) → select_manifest_asset (SHA-256 + size)
 6. Instalatory nigdy nie usuwają danych użytkownika (seed `NeverOverwrite`, uninstall `dirifempty`, brak wildcardów).
 7. HIL: 10 testów `#[ignore]`; PTT wymaga niezależnego dowodu, bramek środowiskowych i zgody;
    manifest testu nie jest dowodem gotowości; RF = 0.
+8. GUI (F-17): intencja TX wyłącznie przez jawną bramkę — żaden pojedynczy klawisz nie uruchamia
+   PTT, oba kierunki (`Ctrl+Shift+F7` = TX ON, `Ctrl+F7` = TX OFF) wymagają dokładnych
+   modyfikatorów i są blokowane przy fokusie tekstowym, kompozycji IME, braku fokusu okna i przy
+   otwartym oknie modalnym; PTT ON wymaga wyniku F-15, PTT OFF nigdy nie jest przez F-15
+   blokowane; stan TX w GUI pochodzi wyłącznie z telemetrii.
 
 ## 6. Mapa testów (cele i liczność)
 

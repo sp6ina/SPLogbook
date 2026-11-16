@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/badge/Development-1.3.0--alpha.1-orange.svg" alt="Development Version">
   <img src="https://img.shields.io/badge/Release_Status-Not_Published-yellow.svg" alt="Release Status">
   <a href="https://github.com/sp6ina/SPLogbook/actions"><img src="https://github.com/sp6ina/SPLogbook/actions/workflows/build-and-release.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/Tests-2950%2F2950_Passed-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-3052%2F3052_Passed-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/i18n-7_Languages-cyan.svg" alt="i18n">
   <a href="https://buycoffee.to/sp6ina"><img src="https://img.shields.io/badge/☕_Buy_Me_a_Coffee-buycoffee.to%2Fsp6ina-FFDD00?style=flat&logoColor=black" alt="Buy Me a Coffee"></a>
 </p>
@@ -217,7 +217,7 @@ SPLogbook features a self-contained ionospheric HF propagation engine (`src/core
   - **Self-Contained Linux Portability:** Linux runtime automatically manages dynamic library paths (`LD_LIBRARY_PATH` and RPATH `$ORIGIN/hamlib/lib`), guaranteeing that bundled shared libraries (`libhamlib.so`) load seamlessly without requiring external packages or system root privileges.
   - **Smooth Lifecycle Management:** Background supervisor launches `rigctld` with concealed console flags (`CREATE_NO_WINDOW` on Windows), checks PID liveness non-blockingly, and performs graceful termination on application exit.
   - Supports bidirectional polling of VFO frequency, mode, passband, and split status.
-- **PTT & On-Air Control:** On-screen PTT toggle transmitting Hamlib `T 1` / `T 0` commands with visual TX/RX indication.
+- **PTT & On-Air Control:** Two explicit, disjoint on-screen actions (`TX ON` / `TX OFF`) plus explicit modifier shortcuts (`Ctrl+Shift+F7` / `Ctrl+F7`) transmitting Hamlib `T 1` / `T 0` commands with a telemetry-derived TX/RX indication. A single key never keys the transmitter: both directions are blocked during text editing, IME composition, modal windows and without window focus, key repeat and release never create an intent, and PTT ON requires the F-15 authorization outcome.
 - **CW Keyer & Macro Terminal:**
   - 12 fully customizable CW macros mapped to function keys `F1`–`F12` with speed control (WPM) and live transmit buffer.
   - Hardware support for K1EL WinKeyer protocol over serial interfaces.
@@ -452,7 +452,9 @@ SPLogbook emits **N1MM Logger+ UDP broadcast** XML frames (loopback port `12060`
 | `Ctrl + S` | Global | Save station configuration and active log |
 | `F5` | Logbook | Refresh logbook table from SQLite database |
 | `F6` | Global | Open Send DX Cluster Spot dialog |
-| `F7` | Global | Toggle transceiver PTT (TX / RX) via CAT |
+| `Ctrl + Shift + F7` | Global | Request PTT ON (transmit) via CAT — explicit TX-intent gate; blocked during text editing, IME composition, modal windows and without window focus; requires F-15 authorization |
+| `Ctrl + F7` | Global | Request PTT OFF (receive) via CAT — always available while transmitting; never authorization-gated |
+| `F7` (alone) | — | Does nothing: PTT is never bound to a single key |
 | `F8` | Global | Open SSB Voice Keyer panel (CQ loop, F1–F8 WAV slots) |
 | `F11` | Global | Toggle Fullscreen mode |
 | `F12` / `Ctrl + H` | Global | Open built-in User Manual |
@@ -670,9 +672,9 @@ The compiled standalone binary will be located at:
 - Linux: `target/release/SPLogbook`
 
 ### 🧪 Automated Quality & Test Suite Verification
-- **Total Registered Tests**: 2961
-- **Total Executed Tests**: 2950
-- **Total Passed Tests**: 2950
+- **Total Registered Tests**: 3063
+- **Total Executed Tests**: 3052
+- **Total Passed Tests**: 3052
 - **Total Failed Tests**: 0
 - **Total Ignored Tests**: 10 (Hardware-in-the-Loop lab harness, isolated in `tests/cat_native_7.rs`)
 - **HIL Ignored Tests**: 10

@@ -82,6 +82,17 @@ Rawhide, backports, release candidates) never set the minimum.
   (test-only provider confined to `#[cfg(test)]`). Production default = DENIED; hardware
   readiness = NOT_VERIFIED; NATIVE-7B remains NOT_STARTED. It must not be reopened without a
   reproducible regression.
+- `F-17` (P1, PTT was a single-key toggle): **F-17 software remediation = CLOSED**
+  (2026-11-16, `STAGE-P1-F17-SOFTWARE`,
+  `COMPLETED_SAFE_PTT_USER_INTERACTION_REMEDIATION_VERIFIED`). A bare `F7` no longer keys the
+  transmitter: PTT is split into two explicit intents (`Ctrl+Shift+F7` = TX ON, `Ctrl+F7` =
+  TX OFF) with exact modifiers, and both are blocked during text editing, during IME
+  composition, without window focus and while any modal window is open. Key repeat and release
+  events never produce an intent, the shortcut is consumed once, and every user-interaction
+  surface goes through one central dispatcher. PTT ON requires the F-15 authorization outcome;
+  a denial, an arbiter error and a port error never show TX, and PTT OFF never requires
+  authorization. Software-only verification: hardware interaction = **NOT_VERIFIED**; NATIVE-7B
+  remains NOT_STARTED. It must not be reopened without a reproducible regression.
 - `F-03` (fail-closed native Linux verification): **CLOSED**. `scripts/verify_linux_container.sh`
   treats ELF type, `ldd`, `--version`, `--build-info` and the required `GLIBC_2.43` symbol as
   assertions, installs runtime libraries from the official package manager of each pinned

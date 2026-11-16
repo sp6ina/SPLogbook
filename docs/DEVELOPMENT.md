@@ -326,3 +326,61 @@ cargo test --test cat_019_flrig_conformance
 cargo test --test security_guard cat018
 cargo test --test security_guard cat019
 ```
+
+## P1-F17 — explicitly gated PTT interaction (software-only)
+
+PTT used to be a single-key global toggle (`F7`) that also fired while the operator was typing
+in a text field. F-17 removes that interaction entirely and replaces it with two disjoint,
+explicit intents behind one central dispatcher.
+
+1. **Two intents, never a toggle.** `PttIntent::RequestOn` (`Ctrl+Shift+F7`) and
+   `PttIntent::RequestOff` (`Ctrl+F7`) are separate actions. A bare `F7`, `Shift+F7` and
+   `Alt+F7` do nothing at all, and no other single key starts PTT. The transmitting direction
+   deliberately needs the harder combination, so stopping transmission is always the easier
+   action.
+2. **Exact modifier contract.** Both bindings use `ModifierPolicy::ExactRequired`, which
+   consumes only `Event::Key { pressed: true, repeat: false, .. }` with
+   `Modifiers::matches_exact`. egui's default `matches_logically` ignores extra `Shift`/`Alt`,
+   so it is not used for PTT.
+3. **Four input gates.** Text focus (`Context::egui_wants_keyboard_input()` **and**
+   `Context::text_edit_focused()`), active IME composition, window focus and any open modal
+   window each block both intents. The gates are computed once per frame from
+   `ShortcutGates`; a gate that cannot be read fails closed
+   (`ShortcutGates::fail_closed()`).
+4. **Repeat and release are inert.** A `repeat` event never creates a new intent, a release
+   event never creates one either, and the matching press is removed from the frame buffer so a
+   second read cannot repeat the action.
+5. **One dispatcher.** `src/gui/ptt_input.rs` is the only place a GUI intent becomes a transmit
+   request. The shortcut, the two VFO-panel buttons and the two palette commands all call
+   `SpLogApp::dispatch_ptt`. The GUI contains no `toggle_ptt`, no `RigCommand::SetPtt` and no
+   `SetPtt(true)`; the production port calls `CatRuntime::request_tx`/`release_tx`, i.e. the
+   existing `TxArbiter` path.
+6. **F-15 authorization for ON only.** PTT ON is forwarded only for
+   `HilAuthorizationOutcome::HardwareExecutionAuthorized`.
+   `splogbook::cat::hil::authorization::evaluate_gui_ptt_authorization()` is the production gate
+   for a GUI session and always returns `NotEvaluated` (a GUI session has no plan, attestation
+   or independent evidence), so `PTT_ON_COUNT_WITHOUT_AUTHORIZATION = 0`. PTT OFF is **never**
+   authorization-gated: a blocked OFF could leave a transmitter keyed.
+7. **No optimistic GUI state.** `app.cat.ptt_active` has exactly one writer,
+   `update_cat_state_from_telemetry`, and is derived from `TxArbiterState::Owned`. A denial, an
+   arbiter error and a port error never show TX; a port error is reported as
+   `PttDispatchOutcome::Failed`, never as success.
+8. **Release on focus loss.** `PttFocusReleaseGuard` emits exactly one
+   `PttIntent::RequestOff` per `focused → unfocused` transition while the arbiter confirms local
+   transmission — no retries, no wall-clock timer, no dependence on a key-up event.
+
+Focused gates:
+
+```
+cargo test --test p1_f17_ptt_gating
+cargo test --lib f17
+cargo test --test security_guard p1_f17
+```
+
+The dispatcher is exercised through the production entry point `egui::Context::run_ui` (the same
+path the application uses) plus a pure decision function, so the whole matrix — gates, arbiter
+states, authorization outcomes, port failures, repeat/release — is deterministic and
+sleep-free. The recording port double exists only under `#[cfg(test)]` and in `tests/`; it is
+never compiled into the release binary and cannot be selected from the GUI, the CLI, the
+configuration or the environment. Hardware behaviour remains **NOT_VERIFIED**: no transceiver,
+CAT transport, PTT line or RF was used.
