@@ -3,6 +3,7 @@
 
 use crate::core::qso::QsoRecord;
 use crate::gui::drill_filter::DrillFilter;
+use crate::gui::pagination::{PaginationInput, PaginationWindow, paginate};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Atomowa akcja w historii operacji Undo/Redo (DATA-004)
@@ -37,6 +38,15 @@ pub struct LogViewCache {
     pub sorted_indices: Vec<usize>,
     pub worked_callsigns_revision: u64,
     pub worked_callsigns: HashSet<String>,
+}
+
+/// Bezpieczne okno bieżącej strony: znormalizowany zakres i skopiowane indeksy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PageSelection {
+    pub window: PaginationWindow,
+    pub indices: Vec<usize>,
+    /// `true`, gdy uszkodzony cache został jednorazowo odbudowany.
+    pub repaired: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -129,7 +139,9 @@ impl LogViewState {
             let drill = self.drill_filter.clone();
             let mut sorted: Vec<usize> = (0..self.recent_qsos.len())
                 .filter(|&i| {
-                    let qso = &self.recent_qsos[i];
+                    let Some(qso) = self.recent_qsos.get(i) else {
+                        return false;
+                    };
                     if let Some(ref d) = drill
                         && !d.matches(qso)
                     {
@@ -167,8 +179,12 @@ impl LogViewState {
             let sc = self.sort_column;
             let sa = self.sort_asc;
             sorted.sort_by(|&a, &b| {
-                let qa = &self.recent_qsos[a];
-                let qb = &self.recent_qsos[b];
+                let (Some(qa), Some(qb)) = (self.recent_qsos.get(a), self.recent_qsos.get(b))
+                else {
+                    // Nieosiągalne: `a` i `b` pochodzą z `0..recent_qsos.len()`.
+                    // Deterministyczny porządek zamiast paniki.
+                    return a.cmp(&b);
+                };
                 let ord = match sc {
                     1 => qa.callsign.cmp(&qb.callsign),
                     2 => qa.band.cmp(&qb.band),
@@ -201,6 +217,57 @@ impl LogViewState {
 
             self.cache.sorted_indices = sorted;
             self.cache.key = Some(current_key);
+        }
+    }
+
+    /// Normalizuje `page` względem bieżącego wyniku i zwraca okno paginacji.
+    ///
+    /// To jedyne miejsce, które zapisuje `self.page = window.normalized_page`.
+    pub fn pagination_window(&mut self, total_items: usize) -> PaginationWindow {
+        let window = paginate(PaginationInput {
+            requested_page: self.page,
+            page_size: self.page_size,
+            total_items,
+        });
+        self.page = window.normalized_page;
+        window
+    }
+
+    /// Buduje bezpieczną listę indeksów bieżącej strony.
+    ///
+    /// Cache jest budowany z `recent_qsos`, więc indeksy powinny zawsze być w
+    /// granicach. Gdyby jednak stan był niespójny (np. po przyszłej zmianie
+    /// ścieżki danych), cache jest jednorazowo odbudowywany, a dopiero trwałe
+    /// naruszenie inwariantu daje kontrolowany pusty widok i wpis w logu.
+    pub fn select_page_indices(&mut self, log_identity: &str, profile_id: &str) -> PageSelection {
+        self.ensure_sorted_indices_cached(log_identity, profile_id);
+        let mut window = self.pagination_window(self.cache.sorted_indices.len());
+        let mut repaired = false;
+        let indices = loop {
+            let candidate = window.slice_of(&self.cache.sorted_indices);
+            let is_valid = candidate
+                .is_some_and(|slice| slice.iter().all(|&index| index < self.recent_qsos.len()));
+            if is_valid {
+                break candidate.map(<[usize]>::to_vec).unwrap_or_default();
+            }
+            if repaired {
+                log::error!(
+                    "logbook pagination invariant violated after cache repair (window {}..{} over {} cached indices)",
+                    window.start,
+                    window.end,
+                    self.cache.sorted_indices.len()
+                );
+                break Vec::new();
+            }
+            repaired = true;
+            self.invalidate_cache();
+            self.ensure_sorted_indices_cached(log_identity, profile_id);
+            window = self.pagination_window(self.cache.sorted_indices.len());
+        };
+        PageSelection {
+            window,
+            indices,
+            repaired,
         }
     }
 
@@ -254,5 +321,82 @@ mod tests {
         assert_eq!(state.log_revision, 0);
         assert_eq!(state.cache.sorted_indices, [] as [usize; 0]);
         assert_eq!(state.cache.worked_callsigns.len(), 0);
+    }
+
+    fn synthetic_rows(count: usize) -> Vec<QsoRecord> {
+        (0..count)
+            .map(|index| {
+                let mut qso = QsoRecord::new(format!("TST{index:04}"), "20m", "CW");
+                qso.id = Some(index as i64 + 1);
+                qso
+            })
+            .collect()
+    }
+
+    #[test]
+    fn pagination_window_normalizes_stale_page() {
+        let mut state = LogViewState::default();
+        state.page = 9;
+        state.page_size = 50;
+        let window = state.pagination_window(10);
+        assert_eq!(state.page, 0);
+        assert_eq!(window.page_count, 1);
+        assert_eq!((window.start, window.end), (0, 10));
+        assert!(window.was_clamped);
+    }
+
+    #[test]
+    fn pagination_window_empty_result_resets_page() {
+        let mut state = LogViewState::default();
+        state.page = 4;
+        let window = state.pagination_window(0);
+        assert_eq!(state.page, 0);
+        assert_eq!((window.page_count, window.start, window.end), (0, 0, 0));
+    }
+
+    #[test]
+    fn select_page_indices_returns_bounded_indices() {
+        let mut state = LogViewState {
+            recent_qsos: synthetic_rows(120),
+            page: 2,
+            page_size: 50,
+            ..Default::default()
+        };
+        let selection = state.select_page_indices("journal", "profile");
+        assert!(!selection.repaired);
+        assert_eq!(selection.window.normalized_page, 2);
+        assert_eq!(selection.window.page_count, 3);
+        assert_eq!(selection.indices.len(), 20);
+        assert!(selection.indices.iter().all(|&index| index < 120));
+    }
+
+    #[test]
+    fn select_page_indices_repairs_an_out_of_range_cache() {
+        let mut state = LogViewState {
+            recent_qsos: synthetic_rows(120),
+            page: 1,
+            page_size: 50,
+            ..Default::default()
+        };
+        let _ = state.select_page_indices("journal", "profile");
+        // Symulacja naruszenia inwariantu: cache wskazuje poza bufor.
+        state.cache.sorted_indices = vec![999, 1000];
+        let selection = state.select_page_indices("journal", "profile");
+        assert!(selection.repaired);
+        assert_eq!(selection.indices.len(), 50);
+        assert!(selection.indices.iter().all(|&index| index < 120));
+        assert!(selection.window.start <= selection.window.end);
+    }
+
+    #[test]
+    fn select_page_indices_empty_dataset_is_safe() {
+        let mut state = LogViewState {
+            page: 7,
+            ..Default::default()
+        };
+        let selection = state.select_page_indices("journal", "profile");
+        assert_eq!(selection.indices, [] as [usize; 0]);
+        assert_eq!((selection.window.start, selection.window.end), (0, 0));
+        assert_eq!(state.page, 0);
     }
 }

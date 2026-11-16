@@ -321,6 +321,7 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let prof_id = app.config.active_profile_id.clone();
     app.log_view.ensure_sorted_indices_cached(&log_id, &prof_id);
     let total = app.log_view.cache.sorted_indices.len();
+    let mut window = app.log_view.pagination_window(total);
 
     // Aktywny filtr drill-down ze statystyk — widoczny pasek z przyciskiem czyszczenia
     if let Some(ref d) = app.log_view.drill_filter {
@@ -350,7 +351,7 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
     }
 
-    // Pasek paginacji
+    // Pasek paginacji — wszystkie obliczenia pochodzą z centralnego modelu.
     ui.horizontal(|ui| {
         ui.label(tr(key::LOG_ROWS_PER_PAGE, lang));
         for &size in &[25usize, 50, 100, 0usize] {
@@ -365,29 +366,37 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             {
                 app.log_view.page_size = size;
                 app.log_view.page = 0;
+                window = app.log_view.pagination_window(total);
             }
         }
         ui.separator();
-        let (start, end) = page_range(app.log_view.page, app.log_view.page_size, total);
-        if total > 0 {
-            ui.label(format!("{}-{} / {}", start + 1, end, total));
+        if let Some(first) = window.first_row_number() {
+            ui.label(format!("{}-{} / {}", first, window.end, window.total_items));
         } else {
             ui.label(tr(key::LOG_NO_RESULTS, lang));
         }
         if app.log_view.page_size > 0 {
-            let pages = (total + app.log_view.page_size - 1) / app.log_view.page_size.max(1);
+            let previous = window.previous_page();
             if ui
-                .add_enabled(app.log_view.page > 0, egui::Button::new("◀"))
+                .add_enabled(previous.is_some(), egui::Button::new("◀"))
                 .clicked()
+                && let Some(page) = previous
             {
-                app.log_view.page = app.log_view.page.saturating_sub(1);
+                app.log_view.page = page;
+                window = app.log_view.pagination_window(total);
             }
-            ui.label(format!("{}/{}", app.log_view.page + 1, pages.max(1)));
+            match window.one_based_page() {
+                Some(page) => ui.label(format!("{page}/{}", window.page_count)),
+                None => ui.label("0/0"),
+            };
+            let next = window.next_page();
             if ui
-                .add_enabled(end < total, egui::Button::new("▶"))
+                .add_enabled(next.is_some(), egui::Button::new("▶"))
                 .clicked()
+                && let Some(page) = next
             {
-                app.log_view.page += 1;
+                app.log_view.page = page;
+                window = app.log_view.pagination_window(total);
             }
         }
         ui.separator();
@@ -437,9 +446,16 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.separator();
     }
 
-    // Wyznacz zakres strony
-    let (page_start, page_end) = page_range(app.log_view.page, app.log_view.page_size, total);
-    let page_indices: Vec<usize> = app.log_view.cache.sorted_indices[page_start..page_end].to_vec();
+    // Wyznacz zakres strony — model normalizuje page i gwarantuje start <= end <= total.
+    let selection = app.log_view.select_page_indices(&log_id, &prof_id);
+    if selection.repaired {
+        log::warn!(
+            "Logbook pagination cache was rebuilt ({} -> {} indices)",
+            total,
+            selection.window.total_items
+        );
+    }
+    let page_indices: Vec<usize> = selection.indices;
 
     let mut qso_to_edit: Option<crate::core::qso::QsoRecord> = None;
     let mut qso_id_to_delete: Option<(i64, crate::core::qso::QsoRecord)> = None;
@@ -464,7 +480,7 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     // Identyfikatory QSO na bieżącej stronie (do zaznaczania zbiorowego)
     let page_ids: Vec<i64> = page_indices
         .iter()
-        .filter_map(|&i| app.log_view.recent_qsos[i].id)
+        .filter_map(|&i| app.log_view.recent_qsos.get(i).and_then(|qso| qso.id))
         .collect();
     let all_selected = !page_ids.is_empty()
         && page_ids
@@ -516,8 +532,15 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         })
         .body(|body| {
             body.rows(row_height, page_indices.len(), |mut row| {
-                let idx = page_indices[row.index()];
-                let qso = app.log_view.recent_qsos[idx].clone();
+                // Indeksy są wcześniej zwalidowane; `get` pozostaje jedynym
+                // mechanizmem dostępu (bez bezpośredniego indeksowania slice).
+                let Some(&idx) = page_indices.get(row.index()) else {
+                    return;
+                };
+                let Some(qso_ref) = app.log_view.recent_qsos.get(idx) else {
+                    return;
+                };
+                let qso = qso_ref.clone();
                 let qso_id = qso.id;
 
                 row.col(|ui| {
@@ -715,15 +738,6 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.log_view.confirm_bulk_delete = false;
         }
     }
-}
-
-fn page_range(page: usize, page_size: usize, total: usize) -> (usize, usize) {
-    if page_size == 0 {
-        return (0, total);
-    }
-    let start = page * page_size;
-    let end = (start + page_size).min(total);
-    (start, end)
 }
 
 /// Okno dialogowe edycji rekordu QSO

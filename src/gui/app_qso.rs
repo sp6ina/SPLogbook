@@ -509,14 +509,27 @@ impl SpLogApp {
             }
             self.log_view.bump_revision();
         }
-        // Zresetuj stronę jeśli wyszła poza zakres
-        if self.log_view.page_size > 0 {
-            let pages = (self.log_view.recent_qsos.len() + self.log_view.page_size - 1)
-                / self.log_view.page_size.max(1);
-            if self.log_view.page >= pages && pages > 0 {
-                self.log_view.page = pages - 1;
-            }
+        // Znormalizuj indeks strony względem nowej długości bufora (F-16).
+        let total = self.log_view.recent_qsos.len();
+        let window = self.log_view.pagination_window(total);
+        if window.was_clamped {
+            log::debug!(
+                "Logbook page normalized after reload: {} -> {} of {}",
+                window.normalized_page,
+                window.page_count,
+                total
+            );
         }
+    }
+
+    /// Zastępuje bufor widoku wynikiem filtra zaawansowanego i od razu
+    /// normalizuje indeks strony (F-16). Dzięki temu żaden konsument stanu nie
+    /// widzi nieaktualnej strony jeszcze przed następną klatką renderu.
+    pub fn apply_filtered_qsos(&mut self, filtered: Vec<QsoRecord>) {
+        self.log_view.recent_qsos = filtered;
+        self.log_view.bump_revision();
+        let total = self.log_view.recent_qsos.len();
+        let _window = self.log_view.pagination_window(total);
     }
 
     /// Ustawia filtr drill-down i przenosi widok do tabeli logu, aby pokazać
@@ -708,6 +721,10 @@ impl SpLogApp {
                         qso: Box::new(backup_qso),
                     });
                 self.log_view.redo_stack.clear();
+                // Usunięte QSO nie może pozostać w zaznaczeniu (stabilne ID).
+                self.log_view
+                    .selected_qso_ids
+                    .retain(|selected| *selected != id);
 
                 self.rebuild_awards_full();
                 self.reload_qsos();

@@ -622,8 +622,7 @@ impl SpLogApp {
                 );
             }
             if let Some(filtered) = filter_results {
-                self.log_view.recent_qsos = filtered;
-                self.log_view.bump_revision();
+                self.apply_filtered_qsos(filtered);
             }
             if clear_filter {
                 self.reload_qsos();
