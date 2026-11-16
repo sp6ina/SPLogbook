@@ -9148,3 +9148,559 @@ fn p1_f16_prior_gate_state_and_scope_are_unchanged_guard() {
         "F-16: Cargo.lock must not gain a pagination crate"
     );
 }
+
+// ============================================================================
+// STAGE-P1-F19-SOFTWARE — SOTA/POTA operator-correspondent reference semantics
+// ============================================================================
+//
+// These guards pin the role-aware reference mapping required by the F-19 gate:
+//   * `MY_*` always describes the SPLogbook station, the un-prefixed partner the
+//     correspondent (ADIF 3.1.8 §III.C.1.b);
+//   * exactly one central mapping exists; the ADIF engine cannot map references
+//     on its own any more;
+//   * S2S and P2P preserve both sides, no side is ever copied or swapped;
+//   * the POTA production contract is the documented SIG pair, and a record never
+//     carries two contradictory POTA representations;
+//   * a conflicting input is a controlled per-record rejection;
+//   * the GUI form, the spot path and the activation context keep the sides;
+//   * no real user data, no external upload, prior gates unchanged.
+
+const P1_F19_TAGS: [&str; 8] = [
+    "MY_SOTA_REF",
+    "SOTA_REF",
+    "MY_POTA_REF",
+    "POTA_REF",
+    "MY_SIG",
+    "MY_SIG_INFO",
+    "SIG",
+    "SIG_INFO",
+];
+
+const P1_F19_LOCAL_SOTA: &str = "AA/BB-001";
+const P1_F19_REMOTE_SOTA: &str = "CC/DD-999";
+const P1_F19_LOCAL_POTA: &str = "XX-0001";
+const P1_F19_REMOTE_POTA: &str = "YY-9999";
+
+/// Builds a synthetic record with the four reference slots set explicitly.
+fn p1_f19_qso(
+    local_sota: Option<&str>,
+    remote_sota: Option<&str>,
+    local_pota: Option<&str>,
+    remote_pota: Option<&str>,
+) -> splogbook::core::qso::QsoRecord {
+    let mut qso = splogbook::core::qso::QsoRecord::new("TSTREMOTE", "20m", "CW");
+    qso.qso_date = "20260101".to_string();
+    qso.time_on = "120000".to_string();
+    qso.my_sota_ref = local_sota.map(str::to_string);
+    qso.sota_ref = remote_sota.map(str::to_string);
+    qso.my_pota_ref = local_pota.map(str::to_string);
+    qso.pota_ref = remote_pota.map(str::to_string);
+    qso
+}
+
+/// Renders one record to ADIF text.
+fn p1_f19_rendered(qso: &splogbook::core::qso::QsoRecord) -> String {
+    splogbook::core::adif::export_adif(std::slice::from_ref(qso), "SPLogbook", "TSTLOCAL")
+}
+
+/// Returns the value of the first `TAG` in an ADIF text.
+fn p1_f19_field<'a>(text: &'a str, tag: &str) -> Option<&'a str> {
+    let needle = format!("<{tag}:");
+    let start = text.find(&needle)?;
+    let after = &text[start + needle.len()..];
+    let close = after.find('>')?;
+    let declared: usize = after[..close].parse().ok()?;
+    after[close + 1..].get(..declared)
+}
+
+#[test]
+fn p1_f19_reference_mapping_is_central_and_exclusive_guard() {
+    let central = p1_f16_read("src/core/award_refs.rs");
+    for tag in P1_F19_TAGS {
+        assert!(
+            central.contains(tag),
+            "F-19: the central mapping must define {tag}"
+        );
+    }
+
+    // The ADIF engine must not map reference fields on its own any more.
+    let engine = p1_f16_read("src/core/adif.rs");
+    for tag in P1_F19_TAGS {
+        let quoted = format!("\"{tag}\"");
+        assert!(
+            !engine.contains(&quoted),
+            "F-19: src/core/adif.rs must not map {tag} directly; use core::award_refs"
+        );
+    }
+    assert!(
+        engine.contains("crate::core::award_refs::import_adif_references"),
+        "F-19: the importer must delegate to the central mapping"
+    );
+    assert!(
+        engine.contains("q.award_references().adif_fields()"),
+        "F-19: the exporter must delegate to the central mapping"
+    );
+
+    for (path, token) in [
+        ("src/core/award_refs.rs", "pub fn import_adif_references"),
+        ("src/core/award_refs.rs", "pub fn adif_fields"),
+    ] {
+        assert!(
+            p1_f16_read(path).contains(token),
+            "F-19: {path} must define `{token}`"
+        );
+    }
+}
+
+#[test]
+fn p1_f19_sota_local_and_remote_map_to_their_own_fields_guard() {
+    let local_only = p1_f19_qso(Some(P1_F19_LOCAL_SOTA), None, None, None);
+    let text = p1_f19_rendered(&local_only);
+    assert_eq!(p1_f19_field(&text, "MY_SOTA_REF"), Some(P1_F19_LOCAL_SOTA));
+    assert_eq!(p1_f19_field(&text, "SOTA_REF"), None);
+
+    let remote_only = p1_f19_qso(None, Some(P1_F19_REMOTE_SOTA), None, None);
+    let text = p1_f19_rendered(&remote_only);
+    assert_eq!(p1_f19_field(&text, "SOTA_REF"), Some(P1_F19_REMOTE_SOTA));
+    assert_eq!(p1_f19_field(&text, "MY_SOTA_REF"), None);
+}
+
+#[test]
+fn p1_f19_s2s_and_p2p_preserve_both_sides_guard() {
+    let s2s = p1_f19_qso(
+        Some(P1_F19_LOCAL_SOTA),
+        Some(P1_F19_REMOTE_SOTA),
+        None,
+        None,
+    );
+    let text = p1_f19_rendered(&s2s);
+    assert_eq!(p1_f19_field(&text, "MY_SOTA_REF"), Some(P1_F19_LOCAL_SOTA));
+    assert_eq!(p1_f19_field(&text, "SOTA_REF"), Some(P1_F19_REMOTE_SOTA));
+
+    let p2p = p1_f19_qso(
+        None,
+        None,
+        Some(P1_F19_LOCAL_POTA),
+        Some(P1_F19_REMOTE_POTA),
+    );
+    let text = p1_f19_rendered(&p2p);
+    assert_eq!(p1_f19_field(&text, "MY_SIG"), Some("POTA"));
+    assert_eq!(p1_f19_field(&text, "MY_SIG_INFO"), Some(P1_F19_LOCAL_POTA));
+    assert_eq!(p1_f19_field(&text, "SIG"), Some("POTA"));
+    assert_eq!(p1_f19_field(&text, "SIG_INFO"), Some(P1_F19_REMOTE_POTA));
+}
+
+#[test]
+fn p1_f19_no_cross_side_fallback_guard() {
+    for (local, remote, local_tag, remote_tag) in [
+        (Some(P1_F19_LOCAL_SOTA), None, "MY_SOTA_REF", "SOTA_REF"),
+        (None, Some(P1_F19_REMOTE_SOTA), "MY_SOTA_REF", "SOTA_REF"),
+    ] {
+        let qso = p1_f19_qso(local, remote, None, None);
+        let text = p1_f19_rendered(&qso);
+        assert_eq!(p1_f19_field(&text, local_tag), local);
+        assert_eq!(p1_f19_field(&text, remote_tag), remote);
+    }
+
+    let report = splogbook::core::adif::parse_adif_with_report(concat!(
+        "<CALL:9>TSTREMOTE<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20260101<TIME_ON:6>120000",
+        "<MY_SOTA_REF:9>AA/BB-001<EOR>"
+    ));
+    assert_eq!(report.rejected, 0);
+    assert_eq!(report.qsos[0].sota_ref, None, "no local->remote fallback");
+    assert_eq!(
+        report.qsos[0].my_sota_ref.as_deref(),
+        Some(P1_F19_LOCAL_SOTA)
+    );
+
+    let central = p1_f16_read("src/core/award_refs.rs");
+    assert!(
+        !central.contains("unwrap_or_else(|| self.remote")
+            && !central.contains("unwrap_or_else(|| self.local"),
+        "F-19: the model must not fall back from one side to the other"
+    );
+}
+
+#[test]
+fn p1_f19_pota_never_emits_two_representations_or_an_incomplete_sig_pair_guard() {
+    for (local, remote) in [
+        (None, None),
+        (Some(P1_F19_LOCAL_POTA), None),
+        (None, Some(P1_F19_REMOTE_POTA)),
+        (Some(P1_F19_LOCAL_POTA), Some(P1_F19_REMOTE_POTA)),
+        (Some("XX-0001,XX-0002"), Some(P1_F19_REMOTE_POTA)),
+    ] {
+        let qso = p1_f19_qso(None, None, local, remote);
+        let text = p1_f19_rendered(&qso);
+        let has_direct = p1_f19_field(&text, "MY_POTA_REF").is_some()
+            || p1_f19_field(&text, "POTA_REF").is_some();
+        let has_sig =
+            p1_f19_field(&text, "MY_SIG").is_some() || p1_f19_field(&text, "SIG").is_some();
+        assert!(
+            !(has_direct && has_sig),
+            "F-19: one POTA representation per record, got: {text}"
+        );
+        for (sig, info) in [("MY_SIG", "MY_SIG_INFO"), ("SIG", "SIG_INFO")] {
+            assert_eq!(
+                p1_f19_field(&text, sig).is_some(),
+                p1_f19_field(&text, info).is_some(),
+                "F-19: {sig} and {info} must always appear together"
+            );
+        }
+    }
+}
+
+#[test]
+fn p1_f19_conflicting_pota_representation_is_an_explicit_rejection_guard() {
+    let report = splogbook::core::adif::parse_adif_with_report(concat!(
+        "<CALL:9>TSTREMOTE<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20260101<TIME_ON:6>120000",
+        "<MY_POTA_REF:7>XX-0001<MY_SIG:4>POTA<MY_SIG_INFO:7>XX-0002<EOR>"
+    ));
+    assert_eq!(report.rejected, 1, "the ambiguous record must be rejected");
+    assert!(report.qsos.is_empty());
+    let message = report.errors.join(" ");
+    assert!(
+        message.contains("sprzeczne") && message.contains("XX-0001") && message.contains("XX-0002"),
+        "F-19: the conflict must be explicit and must name both values: {message}"
+    );
+
+    let report = splogbook::core::adif::parse_adif_with_report(concat!(
+        "<CALL:9>TSTREMOTE<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20260101<TIME_ON:6>120000",
+        "<MY_POTA_REF:7>XX-0001<MY_SIG:4>POTA<MY_SIG_INFO:7>xx-0001<EOR>"
+    ));
+    assert_eq!(report.rejected, 0);
+    assert_eq!(
+        report.qsos[0].my_pota_ref.as_deref(),
+        Some(P1_F19_LOCAL_POTA)
+    );
+}
+
+#[test]
+fn p1_f19_import_export_round_trip_is_verified_guard() {
+    let suite = p1_f16_read("tests/p1_f19_award_references.rs");
+    for required in [
+        "fn sota_activator_writes_own_summit_to_my_sota_ref(",
+        "fn sota_chaser_writes_chased_summit_to_sota_ref(",
+        "fn sota_summit_to_summit_preserves_both_distinct_references(",
+        "fn pota_activator_writes_my_sig_pair_and_no_remote_pair(",
+        "fn pota_hunter_writes_sig_pair_and_no_local_pair(",
+        "fn pota_park_to_park_preserves_both_references(",
+        "fn pota_import_rejects_contradictory_representations(",
+        "fn adif_to_model_to_adif_is_semantically_stable(",
+        "fn model_to_database_to_model_preserves_both_sides(",
+        "fn combinatorial_matrix_preserves_roles_for_every_combination(",
+        "fn stress_reference_paths_are_deterministic_and_sleep_free(",
+        "fn fault_injection_unknown_sig_is_reported_not_guessed(",
+    ] {
+        assert!(
+            suite.contains(required),
+            "F-19: the verification suite must contain `{required}`"
+        );
+    }
+    assert!(
+        suite.contains("100_000"),
+        "F-19: the combinatorial matrix must cover at least 100 000 cases"
+    );
+    for forbidden in ["std::thread::sleep", "https://", "http://"] {
+        assert!(
+            !suite.contains(forbidden),
+            "F-19: the suite must not contain `{forbidden}`"
+        );
+    }
+}
+
+#[test]
+fn p1_f19_spot_and_activation_perspective_guard() {
+    let cluster = p1_f16_read("src/gui/cluster_panel.rs");
+    let spot_block = cluster
+        .split("if let Some((dx_call, freq_khz, band, pota, sota)) = tune_target")
+        .nth(1)
+        .expect("F-19: the spot-to-entry block must exist");
+    let spot_block = &spot_block[..spot_block.len().min(600)];
+    assert!(
+        !spot_block.contains("my_refs")
+            && !spot_block.contains("my_sota")
+            && !spot_block.contains("my_pota"),
+        "F-19: a spot must never write the local activation reference"
+    );
+
+    let entry = p1_f16_read("src/gui/state/entry.rs");
+    // The old bug shape: a QsoEntryState-level `sota`/`pota` field initialised
+    // directly from the station profile (12-space indentation inside `Self {}`).
+    let prefills_correspondent = entry.lines().any(|line| {
+        let indent = line.len() - line.trim_start().len();
+        let trimmed = line.trim();
+        indent == 12
+            && (trimmed.starts_with("sota:") || trimmed.starts_with("pota:"))
+            && trimmed.contains("config.station")
+    });
+    assert!(
+        !prefills_correspondent,
+        "F-19: the station profile must not prefill the correspondent field"
+    );
+    assert!(
+        entry.contains("pub struct MyAwardRefs"),
+        "F-19: the local reference pair must be an explicit type"
+    );
+    assert!(
+        entry.contains("sota: config.station.sota_ref"),
+        "F-19: the station profile prefills the local side"
+    );
+
+    let app_qso = p1_f16_read("src/gui/app_qso.rs");
+    assert!(
+        app_qso.contains("qso.my_sota_ref = if self.entry.my_refs.sota.is_empty()"),
+        "F-19: the local SOTA reference is persisted from the local entry field"
+    );
+    assert!(
+        app_qso.contains("qso.sota_ref = if self.entry.sota.is_empty()"),
+        "F-19: the correspondent SOTA reference is persisted from the correspondent field"
+    );
+    assert!(
+        !app_qso.contains("qso.my_sota_ref = if self.entry.sota.is_empty()"),
+        "F-19: the correspondent value must never be persisted as the local reference"
+    );
+    assert!(
+        app_qso.contains("pub fn draft_qso_from_entry"),
+        "F-19: the form model mapping must be a pure, testable function"
+    );
+
+    let profiles = p1_f16_read("src/gui/app_config.rs");
+    assert!(
+        profiles.contains("self.entry.my_refs.pota = prof.pota_ref")
+            && profiles.contains("self.entry.my_refs.sota = prof.sota_ref"),
+        "F-19: a profile switch updates only the local side"
+    );
+}
+
+#[test]
+fn p1_f19_sota_csv_uses_the_record_reference_guard() {
+    let exporter = p1_f16_read("src/core/sota_export.rs");
+    assert!(
+        exporter.contains(".unwrap_or(my_sota)"),
+        "F-19: the SOTA CSV must prefer the record's own summit over the dialog default"
+    );
+    assert!(
+        exporter.contains("my_sota_ref"),
+        "F-19: the SOTA CSV reads the local (MY_) reference"
+    );
+
+    let mut qso = splogbook::core::qso::QsoRecord::new("TSTREMOTE", "20m", "CW");
+    qso.qso_date = "20260101".to_string();
+    qso.time_on = "1200".to_string();
+    qso.my_sota_ref = Some(P1_F19_LOCAL_SOTA.to_string());
+    qso.sota_ref = Some(P1_F19_REMOTE_SOTA.to_string());
+    let csv = splogbook::core::sota_export::export_sota_csv(&[qso], "TSTLOCAL", "ZZ/XX-777")
+        .expect("csv export");
+    assert!(csv.contains(P1_F19_LOCAL_SOTA), "local summit in column 3");
+    assert!(
+        csv.contains(P1_F19_REMOTE_SOTA),
+        "correspondent summit in column 9"
+    );
+    assert!(
+        !csv.contains("ZZ/XX-777"),
+        "F-19: the activation default must not override a per-record summit"
+    );
+}
+
+#[test]
+fn p1_f19_documentation_records_the_closed_remediation_guard() {
+    let known = p1_f16_read("docs/KNOWN_ISSUES.md");
+    for required in [
+        "F-19 (P1)",
+        "F-19 = CLOSED",
+        "COMPLETED_SOTA_POTA_REFERENCE_SEMANTICS_REMEDIATION_VERIFIED",
+        "SOTA local/remote mapping =",
+        "POTA local/remote mapping =",
+        "S2S mapping =",
+        "P2P mapping =",
+        "ADIF round-trip =",
+        "SOFTWARE_VERIFIED",
+        "External SOTA/POTA upload =",
+        "NOT_EXECUTED",
+        "Real user data =",
+        "NOT_USED",
+        "NATIVE-7B = NOT_STARTED",
+    ] {
+        assert!(
+            known.contains(required),
+            "KNOWN_ISSUES must record the F-19 closure token `{required}`"
+        );
+    }
+    for forbidden in [
+        "SOTA production upload accepted",
+        "POTA production upload accepted",
+        "every historical user record is correct",
+        "hardware was verified",
+        "HIL completed",
+        "NATIVE-7B completed",
+    ] {
+        assert!(
+            !known.contains(forbidden),
+            "KNOWN_ISSUES must not claim `{forbidden}`"
+        );
+    }
+
+    let reference_doc = p1_f16_read("docs/ADIF_AWARD_REFERENCES.md");
+    for required in [
+        "MY_SOTA_REF",
+        "SOTA_REF",
+        "MY_POTA_REF",
+        "POTA_REF",
+        "MY_SIG_INFO",
+        "SIG_INFO",
+        "3.1.8",
+        "docs.pota.app",
+        "sota.org.uk",
+    ] {
+        assert!(
+            reference_doc.contains(required),
+            "docs/ADIF_AWARD_REFERENCES.md must document `{required}`"
+        );
+    }
+
+    let index = p1_f16_read("docs/DOCUMENTATION_INDEX.md");
+    assert!(
+        index.contains("`docs/ADIF_AWARD_REFERENCES.md`"),
+        "the new reference document must be indexed"
+    );
+
+    let development = p1_f16_read("docs/DEVELOPMENT.md");
+    assert!(
+        development.contains("P1-F19"),
+        "docs/DEVELOPMENT.md must document the F-19 verification commands"
+    );
+
+    let baseline = p1_f16_read("docs/VERIFICATION_BASELINE.md");
+    assert!(
+        baseline.contains("P1-F19"),
+        "docs/VERIFICATION_BASELINE.md must carry the F-19 measurement"
+    );
+
+    let architecture = p1_f16_read("docs/architecture/ARCHITECTURE.md");
+    assert!(
+        architecture.contains("award_refs"),
+        "docs/architecture/ARCHITECTURE.md must list the award-reference module"
+    );
+}
+
+#[test]
+fn p1_f19_prior_gates_scope_and_safety_are_unchanged_guard() {
+    let known = p1_f16_read("docs/KNOWN_ISSUES.md");
+    for required in [
+        "F-14 software remediation = CLOSED",
+        "CAT-018 = CLOSED",
+        "CAT-019 = CLOSED",
+        "F-15 software remediation = CLOSED",
+        "F-16 software remediation = CLOSED",
+        "F-17 software remediation = CLOSED",
+        "NATIVE-7B = NOT_STARTED",
+    ] {
+        assert!(
+            known.contains(required),
+            "prior gate state must stay unchanged: `{required}`"
+        );
+    }
+
+    let native = p1_f16_read("tests/cat_native_7.rs");
+    let ignored_attributes = native
+        .lines()
+        .filter(|line| line.trim_start().starts_with("#[ignore"))
+        .count();
+    assert_eq!(
+        ignored_attributes, 10,
+        "F-19: the ten hardware-in-the-loop tests must stay ignored"
+    );
+
+    for workflow in [
+        ".github/workflows/ci.yml",
+        ".github/workflows/build-and-release.yml",
+    ] {
+        let content = p1_f16_read(workflow);
+        for forbidden in ["--ignored", "hil_hardware", "SPLOG_HIL_ENABLE"] {
+            assert!(
+                !content.contains(forbidden),
+                "F-19: {workflow} must not run HIL: {forbidden}"
+            );
+        }
+    }
+
+    let manifest = p1_f16_read("Cargo.toml");
+    assert!(
+        !manifest.contains("[[test]]"),
+        "F-19: test targets stay auto-discovered"
+    );
+    for forbidden in ["award_refs", "p1_f19", "sota_ref", "pota_ref"] {
+        assert!(
+            !manifest.contains(forbidden),
+            "F-19: Cargo.toml must not mention `{forbidden}`"
+        );
+    }
+    let status = Command::new("git")
+        .args(["diff", "--name-only", "--", "Cargo.toml", "Cargo.lock"])
+        .output()
+        .expect("git must be executable");
+    assert!(
+        String::from_utf8_lossy(&status.stdout).trim().is_empty(),
+        "F-19: Cargo.toml and Cargo.lock must stay unchanged"
+    );
+
+    let central = p1_f16_read("src/core/award_refs.rs");
+    for forbidden in [
+        "http://",
+        "https://",
+        "reqwest",
+        "ApiClient",
+        "TcpStream",
+        "UdpSocket",
+    ] {
+        assert!(
+            !central.contains(forbidden),
+            "F-19: the reference mapping must not perform network I/O: {forbidden}"
+        );
+    }
+}
+
+#[test]
+fn p1_f19_synthetic_data_only_guard() {
+    let suite = p1_f16_read("tests/p1_f19_award_references.rs");
+    for required in [
+        "TSTLOCAL",
+        "TSTREMOTE",
+        "AA/BB-001",
+        "CC/DD-999",
+        "XX-0001",
+        "YY-9999",
+    ] {
+        assert!(
+            suite.contains(required),
+            "F-19: the suite must use the synthetic fixture `{required}`"
+        );
+    }
+    // The SPDX/copyright header names the author; scan the rest of the file only.
+    let body: String = suite
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    for forbidden in ["SP6INA", "DL1ABC", "K1ABC", "upload(", ".env"] {
+        assert!(
+            !body.contains(forbidden),
+            "F-19: the suite must not contain `{forbidden}`"
+        );
+    }
+
+    // The SPDX/copyright header names the author; scan the rest of the file only.
+    let central = p1_f16_read("src/core/award_refs.rs");
+    let central_body: String = central
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    for forbidden in ["SP6INA", "password", "token", "secret"] {
+        assert!(
+            !central_body.contains(forbidden),
+            "F-19: src/core/award_refs.rs must not contain `{forbidden}`"
+        );
+    }
+}
