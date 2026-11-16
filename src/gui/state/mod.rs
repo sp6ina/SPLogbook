@@ -32,7 +32,7 @@ pub mod world_map;
 pub mod wspr;
 
 pub use appearance::AppearanceState;
-pub use cat::{CatConnection, CatState, VfoState};
+pub use cat::{CatConnection, CatState, PttUiState, VfoState};
 pub use chrome::ChromeState;
 pub use cluster::{ClusterState, SpotBadgeKind};
 pub use contest::ContestState;

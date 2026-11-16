@@ -50,7 +50,10 @@ pub enum AppAction {
     LookupQrz,
     RefreshLog,
     SendSpot,
-    TogglePtt,
+    /// Jawna intencja nadawania (PTT ON) — wyłącznie przez centralny dispatcher PTT (F-17).
+    PttOn,
+    /// Jawna intencja zakończenia nadawania (PTT OFF) — wyłącznie przez centralny dispatcher (F-17).
+    PttOff,
     ToggleVoiceKeyer,
     ToggleFullscreen,
     OpenManual,
@@ -164,6 +167,58 @@ pub enum RepeatPolicy {
     AllowRepeat,
 }
 
+/// Polityka dopasowania modyfikatorów (F-17).
+///
+/// Domyślna semantyka egui (`matches_logically`) **ignoruje** dodatkowe `Shift` i `Alt`, więc
+/// kombinacja `Ctrl+F7` pasuje również do `Ctrl+Shift+F7` i `Ctrl+Alt+F7`. Dla skrótów
+/// wysokiego ryzyka wymagane jest dopasowanie dokładne.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModifierPolicy {
+    /// Semantyka egui 0.36.2: dodatkowe `Shift`/`Alt` są ignorowane.
+    Logical,
+    /// Wymagane dokładnie te modyfikatory (`Modifiers::matches_exact`) i `repeat == false`.
+    ExactRequired,
+}
+
+/// Polityka wykonywania skrótu przy otwartym oknie modalnym (F-17).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModalPolicy {
+    /// Skrót działa również przy otwartym oknie modalnym (dotychczasowe zachowanie).
+    Allow,
+    /// Skrót jest bezwzględnie blokowany, gdy aktywne jest okno modalne.
+    BlockWhenAnyModal,
+}
+
+/// Bramki wejściowe wymagane przez skróty wysokiego ryzyka (F-17).
+///
+/// Wszystkie pola są wyliczane raz na klatkę z wiarygodnego API egui 0.36.2
+/// (`Context::egui_wants_keyboard_input`, `Context::text_edit_focused`, `InputState::focused`)
+/// oraz z deterministycznie wykrytego stanu IME i modali.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ShortcutGates {
+    /// Aktywne pole tekstowe albo framework żąda wejścia klawiatury.
+    pub text_editing: bool,
+    /// Trwa kompozycja IME (lub w tej klatce wystąpiło jakiekolwiek zdarzenie IME).
+    pub ime_composing: bool,
+    /// Okno aplikacji ma fokus systemowy.
+    pub window_focused: bool,
+    /// Otwarte jest okno modalne blokujące akcje globalne.
+    pub modal_open: bool,
+}
+
+impl ShortcutGates {
+    /// Wszystkie bramki zamknięte — używane wyłącznie wtedy, gdy nie da się ich odczytać.
+    #[must_use]
+    pub const fn fail_closed() -> Self {
+        Self {
+            text_editing: true,
+            ime_composing: true,
+            window_focused: false,
+            modal_open: true,
+        }
+    }
+}
+
 /// Definicja powiązania klawiaturowego.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShortcutBinding {
@@ -173,6 +228,8 @@ pub struct ShortcutBinding {
     pub priority: u8,
     pub conflict_policy: ConflictPolicy,
     pub repeat_policy: RepeatPolicy,
+    pub modifier_policy: ModifierPolicy,
+    pub modal_policy: ModalPolicy,
     pub enabled: bool,
     pub label: &'static str,
     pub description: &'static str,
@@ -197,11 +254,57 @@ impl ShortcutBinding {
             priority,
             conflict_policy,
             repeat_policy,
+            modifier_policy: ModifierPolicy::Logical,
+            modal_policy: ModalPolicy::Allow,
             enabled: true,
             label,
             description,
         }
     }
+
+    /// Wymaga dokładnego dopasowania modyfikatorów i odrzuca powtórzenia klawisza (F-17).
+    #[must_use]
+    pub const fn with_exact_modifiers(mut self) -> Self {
+        self.modifier_policy = ModifierPolicy::ExactRequired;
+        self
+    }
+
+    /// Blokuje skrót przy otwartym oknie modalnym (F-17).
+    #[must_use]
+    pub const fn blocked_when_modal(mut self) -> Self {
+        self.modal_policy = ModalPolicy::BlockWhenAnyModal;
+        self
+    }
+}
+
+/// Wykrywa pojedyncze, niepowtórzone naciśnięcie o **dokładnie** podanych modyfikatorach
+/// i konsumuje je (F-17).
+///
+/// Semantyka jest ostrożniejsza od [`egui::InputState::consume_shortcut`]:
+/// * `Matches` wyłącznie `Event::Key` z `pressed == true` (release nigdy nie wyzwala akcji),
+/// * odrzuca `repeat == true` (autorepeat nie generuje nowych intencji),
+/// * wymaga `Modifiers::matches_exact`, więc dodatkowy `Shift`/`Alt`/`Super` nie pasuje,
+/// * usuwa dopasowane zdarzenie z buforu klatki, więc to samo zdarzenie nie może zostać
+///   obsłużone drugi raz.
+fn consume_exact_press(state: &mut egui::InputState, shortcut: KeyboardShortcut) -> bool {
+    let expected_modifiers = shortcut.modifiers;
+    let expected_key = shortcut.logical_key;
+    let mut consumed = false;
+    state.events.retain(|event| {
+        let is_match = matches!(
+            event,
+            egui::Event::Key {
+                key,
+                pressed: true,
+                repeat: false,
+                modifiers,
+                ..
+            } if *key == expected_key && modifiers.matches_exact(expected_modifiers)
+        );
+        consumed |= is_match;
+        !is_match
+    });
+    consumed
 }
 
 /// Centralny rejestr skrótów klawiaturowych aplikacji.
@@ -288,16 +391,21 @@ impl ShortcutRegistry {
     }
 
     /// Deterministycznie rozwiązuje akcję klawiaturową na podstawie wejścia egui, aktywnego kontekstu
-    /// oraz stanu fokusu edycji tekstu.
+    /// oraz stanu bramek wejściowych (fokus tekstowy, IME, fokus okna, modal).
     ///
     /// Jeśli znaleziono pasującą regułę, skrót jest konsumowany z bufora egui (aby uniknąć podwójnego
     /// wykonania w innych widokach) i zwracana jest skojarzona [`AppAction`].
+    ///
+    /// Skróty wysokiego ryzyka (F-17, PTT) wymagają **wszystkich** bramek otwartych, dokładnego
+    /// dopasowania modyfikatorów i niepowtórzonego naciśnięcia. Bramka, której nie da się odczytać,
+    /// jest traktowana jako zamknięta ([`ShortcutGates::fail_closed`]).
     pub fn resolve(
         &self,
         ctx: &egui::Context,
         current_context: ShortcutContext,
-        text_focused: bool,
+        gates: &ShortcutGates,
     ) -> Option<AppAction> {
+        let text_focused = gates.text_editing;
         // Znajdź wszystkich kandydatów pasujących do bieżącego kontekstu lub kontekstu globalnego.
         let mut candidates: Vec<&ShortcutBinding> = self
             .bindings
@@ -344,20 +452,36 @@ impl ShortcutRegistry {
                 }
             }
 
+            // Ochrona okna modalnego (F-17): skrót wysokiego ryzyka nie działa,
+            // gdy otwarte jest okno blokujące akcje globalne.
+            if gates.modal_open && binding.modal_policy == ModalPolicy::BlockWhenAnyModal {
+                continue;
+            }
+
+            // Ochrona fokusu okna i kompozycji IME (F-17). Wymagana wyłącznie przez skróty,
+            // które jawnie przyjmują pełny zestaw bramek.
+            let requires_all_gates = binding.modifier_policy == ModifierPolicy::ExactRequired;
+            if requires_all_gates && (!gates.window_focused || gates.ime_composing) {
+                continue;
+            }
+
             // Sprawdzenie czy wciśnięto kombinację klawiszy z uwzględnieniem SingleTrigger
-            let triggered = ctx.input_mut(|i| {
-                if binding.repeat_policy == RepeatPolicy::SingleTrigger {
-                    let is_repeat = i.events.iter().any(|e| match e {
-                        egui::Event::Key { key, repeat, .. } => {
-                            *key == binding.shortcut.logical_key && *repeat
+            let triggered = ctx.input_mut(|i| match binding.modifier_policy {
+                ModifierPolicy::ExactRequired => consume_exact_press(i, binding.shortcut),
+                ModifierPolicy::Logical => {
+                    if binding.repeat_policy == RepeatPolicy::SingleTrigger {
+                        let is_repeat = i.events.iter().any(|e| match e {
+                            egui::Event::Key { key, repeat, .. } => {
+                                *key == binding.shortcut.logical_key && *repeat
+                            }
+                            _ => false,
+                        });
+                        if is_repeat {
+                            return false;
                         }
-                        _ => false,
-                    });
-                    if is_repeat {
-                        return false;
                     }
+                    i.consume_shortcut(&binding.shortcut)
                 }
-                i.consume_shortcut(&binding.shortcut)
             });
             if triggered {
                 return Some(binding.action);
@@ -434,16 +558,41 @@ impl ShortcutRegistry {
             "F6",
             "Send DX spot for current frequency",
         ));
-        self.register(ShortcutBinding::new(
-            AppAction::TogglePtt,
-            KeyboardShortcut::new(none, Key::F7),
-            ShortcutContext::Global,
-            5,
-            ConflictPolicy::AllowInTextEditing,
-            RepeatPolicy::SingleTrigger,
-            "F7",
-            "Toggle PTT transmission (TX/RX)",
-        ));
+        // --- PTT (F-17): DWIEROZŁĄCZNE, JAWNE INTENCJE Z MODYFIKATOREM ---
+        //
+        // Pojedynczy klawisz nigdy nie uruchamia PTT. `F7` pozostaje klawiszem mnemonicznym,
+        // ale wymaga jawnego modyfikatora, dokładnego dopasowania i wszystkich bramek wejściowych:
+        // brak fokusu edycji tekstu, brak aktywnej kompozycji IME, fokus okna, brak modala.
+        // `Ctrl+Shift+F7` (TX ON) jest celowo trudniejszy od `Ctrl+F7` (TX OFF): zatrzymanie
+        // nadawania nie może być trudniejsze niż jego rozpoczęcie.
+        self.register(
+            ShortcutBinding::new(
+                AppAction::PttOn,
+                KeyboardShortcut::new(ctrl_shift, Key::F7),
+                ShortcutContext::Global,
+                9,
+                ConflictPolicy::BlockWhenTextEditing,
+                RepeatPolicy::SingleTrigger,
+                "Ctrl+Shift+F7",
+                "Request PTT ON (transmit) via CAT — explicit TX-intent gate",
+            )
+            .with_exact_modifiers()
+            .blocked_when_modal(),
+        );
+        self.register(
+            ShortcutBinding::new(
+                AppAction::PttOff,
+                KeyboardShortcut::new(ctrl, Key::F7),
+                ShortcutContext::Global,
+                8,
+                ConflictPolicy::BlockWhenTextEditing,
+                RepeatPolicy::SingleTrigger,
+                "Ctrl+F7",
+                "Request PTT OFF (receive) via CAT",
+            )
+            .with_exact_modifiers()
+            .blocked_when_modal(),
+        );
         self.register(ShortcutBinding::new(
             AppAction::ToggleVoiceKeyer,
             KeyboardShortcut::new(none, Key::F8),
@@ -777,8 +926,46 @@ mod tests {
         registry.register(binding);
 
         let ctx = egui::Context::default();
-        let action = registry.resolve(&ctx, ShortcutContext::Global, false);
+        let gates = ShortcutGates {
+            window_focused: true,
+            ..ShortcutGates::fail_closed()
+        };
+        let action = registry.resolve(&ctx, ShortcutContext::Global, &gates);
         assert_eq!(action, None);
+    }
+
+    /// Bramki w pełni otwarte, bez modala, bez edycji tekstu i bez IME, z fokusem okna.
+    fn open_gates() -> ShortcutGates {
+        ShortcutGates {
+            text_editing: false,
+            ime_composing: false,
+            window_focused: true,
+            modal_open: false,
+        }
+    }
+
+    /// Buduje wejście egui z jednym zdarzeniem klawiatury.
+    ///
+    /// Uwaga: egui 0.36.2 sam wylicza flagę `repeat` z `keys_down`
+    /// (`egui-0.36.2/src/input_state/mod.rs:400-414`), więc podana wartość jest tylko
+    /// wartością wejściową — powtórzenie klawisza odtwarza się dwiema klatkami.
+    fn raw_with_key(key: Key, modifiers: Modifiers, pressed: bool, repeat: bool) -> egui::RawInput {
+        let mut raw = egui::RawInput::default();
+        raw.events.push(egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed,
+            repeat,
+            modifiers,
+        });
+        raw
+    }
+
+    /// Buduje kontekst egui z jedną rozpoczętą klatką i jednym zdarzeniem klawiatury.
+    fn ctx_with_key(key: Key, modifiers: Modifiers, pressed: bool, repeat: bool) -> egui::Context {
+        let ctx = egui::Context::default();
+        ctx.begin_pass(raw_with_key(key, modifiers, pressed, repeat));
+        ctx
     }
 
     #[test]
@@ -793,7 +980,14 @@ mod tests {
             registry.label_for_action(AppAction::OpenManual),
             Some("F12")
         );
-        assert_eq!(registry.label_for_action(AppAction::TogglePtt), Some("F7"));
+        assert_eq!(
+            registry.label_for_action(AppAction::PttOn),
+            Some("Ctrl+Shift+F7")
+        );
+        assert_eq!(
+            registry.label_for_action(AppAction::PttOff),
+            Some("Ctrl+F7")
+        );
     }
 
     #[test]
@@ -832,9 +1026,9 @@ mod tests {
         let ptt_binding = registry
             .bindings()
             .iter()
-            .find(|b| b.action == AppAction::TogglePtt)
+            .find(|b| b.action == AppAction::PttOn)
             .expect("PTT binding must exist");
-        // PTT must be F7, never Space
+        // PTT uses a modified F7, never Space
         assert_eq!(ptt_binding.shortcut.logical_key, Key::F7);
         assert_ne!(ptt_binding.shortcut.logical_key, Key::Space);
     }
@@ -910,23 +1104,354 @@ mod tests {
         assert_eq!(contest_escape.unwrap().context, ShortcutContext::Contest);
     }
 
-    #[test]
-    fn ptt_shortcut_is_disabled_during_text_editing() {
-        // PTT is explicit via F7 with single trigger
-        let registry = ShortcutRegistry::default();
-        let ptt = registry
+    // ======================================================================================
+    // F-17 — PTT interaction, keyboard gating and release control
+    // ======================================================================================
+
+    /// Zwraca powiązanie PTT dla wskazanej akcji.
+    fn ptt_binding(registry: &ShortcutRegistry, action: AppAction) -> &ShortcutBinding {
+        registry
             .bindings()
             .iter()
-            .find(|b| b.action == AppAction::TogglePtt)
-            .unwrap();
-        assert_eq!(ptt.repeat_policy, RepeatPolicy::SingleTrigger);
+            .find(|b| b.action == action)
+            .expect("PTT binding must exist")
+    }
+
+    /// Wszystkie akcje PTT (dokładnie dwie: ON i OFF).
+    fn ptt_actions() -> [AppAction; 2] {
+        [AppAction::PttOn, AppAction::PttOff]
     }
 
     #[test]
-    fn ptt_shortcut_routes_through_tx_arbiter() {
-        // TogglePtt maps to SpLogApp::toggle_ptt which queries TxArbiter
+    fn f17_ptt_is_never_a_single_key() {
         let registry = ShortcutRegistry::default();
-        assert_eq!(registry.label_for_action(AppAction::TogglePtt), Some("F7"));
+        let ctrl = Modifiers::COMMAND;
+        let ctrl_shift = Modifiers::COMMAND.plus(Modifiers::SHIFT);
+
+        let on = ptt_binding(&registry, AppAction::PttOn);
+        assert_eq!(
+            on.shortcut.modifiers, ctrl_shift,
+            "PTT ON must require Ctrl+Shift — a single key is forbidden"
+        );
+
+        let off = ptt_binding(&registry, AppAction::PttOff);
+        assert_eq!(
+            off.shortcut.modifiers, ctrl,
+            "PTT OFF must require Ctrl — a single key is forbidden"
+        );
+
+        for action in ptt_actions() {
+            let modifiers = ptt_binding(&registry, action).shortcut.modifiers;
+            assert!(
+                modifiers != Modifiers::NONE,
+                "{action:?} must never be bound without a modifier"
+            );
+            assert!(
+                !modifiers.ctrl || modifiers.command,
+                "{action:?} must use the portable COMMAND modifier"
+            );
+        }
+    }
+
+    #[test]
+    fn f17_no_single_key_binding_triggers_any_ptt_action() {
+        let registry = ShortcutRegistry::default();
+        for binding in registry.bindings() {
+            if ptt_actions().contains(&binding.action) {
+                continue;
+            }
+            assert!(
+                binding.shortcut.logical_key != Key::F7,
+                "no binding other than the two explicit PTT intents may use F7: {binding:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn f17_ptt_bindings_require_text_focus_gating() {
+        let registry = ShortcutRegistry::default();
+        for action in ptt_actions() {
+            let binding = ptt_binding(&registry, action);
+            assert_eq!(
+                binding.conflict_policy,
+                ConflictPolicy::BlockWhenTextEditing,
+                "{action:?} must be blocked while a text field has focus"
+            );
+        }
+    }
+
+    #[test]
+    fn f17_ptt_bindings_require_modal_gating() {
+        let registry = ShortcutRegistry::default();
+        for action in ptt_actions() {
+            let binding = ptt_binding(&registry, action);
+            assert_eq!(
+                binding.modal_policy,
+                ModalPolicy::BlockWhenAnyModal,
+                "{action:?} must be blocked while a modal window is open"
+            );
+        }
+    }
+
+    #[test]
+    fn f17_ptt_bindings_require_exact_modifiers_and_single_trigger() {
+        let registry = ShortcutRegistry::default();
+        for action in ptt_actions() {
+            let binding = ptt_binding(&registry, action);
+            assert_eq!(
+                binding.modifier_policy,
+                ModifierPolicy::ExactRequired,
+                "{action:?} must reject extra modifiers"
+            );
+            assert_eq!(
+                binding.repeat_policy,
+                RepeatPolicy::SingleTrigger,
+                "{action:?} must ignore key repeat"
+            );
+        }
+    }
+
+    #[test]
+    fn f17_bare_f7_does_not_resolve_to_ptt() {
+        let registry = ShortcutRegistry::default();
+        let ctx = ctx_with_key(Key::F7, Modifiers::NONE, true, false);
+        assert_eq!(
+            registry.resolve(&ctx, ShortcutContext::Global, &open_gates()),
+            None,
+            "a bare F7 press must never produce a PTT intent"
+        );
+    }
+
+    #[test]
+    fn f17_modified_f7_resolves_to_the_matching_direction() {
+        let registry = ShortcutRegistry::default();
+        let ctrl = Modifiers::COMMAND;
+        let ctrl_shift = Modifiers::COMMAND.plus(Modifiers::SHIFT);
+
+        let ctx_on = ctx_with_key(Key::F7, ctrl_shift, true, false);
+        assert_eq!(
+            registry.resolve(&ctx_on, ShortcutContext::Global, &open_gates()),
+            Some(AppAction::PttOn)
+        );
+
+        let ctx_off = ctx_with_key(Key::F7, ctrl, true, false);
+        assert_eq!(
+            registry.resolve(&ctx_off, ShortcutContext::Global, &open_gates()),
+            Some(AppAction::PttOff)
+        );
+    }
+
+    #[test]
+    fn f17_unexpected_extra_modifier_is_an_explicit_mismatch() {
+        let registry = ShortcutRegistry::default();
+        let ctrl_shift = Modifiers::COMMAND.plus(Modifiers::SHIFT);
+        let ctrl_alt = Modifiers::COMMAND.plus(Modifiers::ALT);
+        let ctrl_shift_alt = ctrl_shift.plus(Modifiers::ALT);
+        let shift_only = Modifiers::SHIFT;
+
+        for modifiers in [ctrl_alt, ctrl_shift_alt, shift_only] {
+            let ctx = ctx_with_key(Key::F7, modifiers, true, false);
+            assert_eq!(
+                registry.resolve(&ctx, ShortcutContext::Global, &open_gates()),
+                None,
+                "extra or insufficient modifiers must be an explicit mismatch: {modifiers:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn f17_ptt_is_blocked_while_text_editing() {
+        let registry = ShortcutRegistry::default();
+        let ctrl_shift = Modifiers::COMMAND.plus(Modifiers::SHIFT);
+        let ctx = ctx_with_key(Key::F7, ctrl_shift, true, false);
+        let gates = ShortcutGates {
+            text_editing: true,
+            ..open_gates()
+        };
+        assert_eq!(
+            registry.resolve(&ctx, ShortcutContext::Global, &gates),
+            None
+        );
+    }
+
+    #[test]
+    fn f17_ptt_is_blocked_while_ime_is_composing() {
+        let registry = ShortcutRegistry::default();
+        let ctrl_shift = Modifiers::COMMAND.plus(Modifiers::SHIFT);
+        let ctx = ctx_with_key(Key::F7, ctrl_shift, true, false);
+        let gates = ShortcutGates {
+            ime_composing: true,
+            ..open_gates()
+        };
+        assert_eq!(
+            registry.resolve(&ctx, ShortcutContext::Global, &gates),
+            None
+        );
+    }
+
+    #[test]
+    fn f17_ptt_is_blocked_when_window_is_unfocused() {
+        let registry = ShortcutRegistry::default();
+        let ctrl_shift = Modifiers::COMMAND.plus(Modifiers::SHIFT);
+        let ctx = ctx_with_key(Key::F7, ctrl_shift, true, false);
+        let gates = ShortcutGates {
+            window_focused: false,
+            ..open_gates()
+        };
+        assert_eq!(
+            registry.resolve(&ctx, ShortcutContext::Global, &gates),
+            None
+        );
+    }
+
+    #[test]
+    fn f17_ptt_is_blocked_when_a_modal_is_open() {
+        let registry = ShortcutRegistry::default();
+        let ctrl_shift = Modifiers::COMMAND.plus(Modifiers::SHIFT);
+        let ctx = ctx_with_key(Key::F7, ctrl_shift, true, false);
+        let gates = ShortcutGates {
+            modal_open: true,
+            ..open_gates()
+        };
+        assert_eq!(
+            registry.resolve(&ctx, ShortcutContext::ModalDialog, &gates),
+            None
+        );
+    }
+
+    #[test]
+    fn f17_ptt_repeat_does_not_retrigger() {
+        // Realistyczne powtórzenie: pierwsza klatka rejestruje naciśnięcie (egui dodaje klawisz
+        // do `keys_down`), druga klatka jest przez egui oznaczana jako `repeat = true`.
+        let registry = ShortcutRegistry::default();
+        let ctrl_shift = Modifiers::COMMAND.plus(Modifiers::SHIFT);
+        let ctx = egui::Context::default();
+
+        ctx.begin_pass(raw_with_key(Key::F7, ctrl_shift, true, false));
+        assert_eq!(
+            registry.resolve(&ctx, ShortcutContext::Global, &open_gates()),
+            Some(AppAction::PttOn)
+        );
+
+        ctx.begin_pass(raw_with_key(Key::F7, ctrl_shift, true, false));
+        assert_eq!(
+            registry.resolve(&ctx, ShortcutContext::Global, &open_gates()),
+            None,
+            "a key-repeat event must never produce a second PTT intent"
+        );
+    }
+
+    #[test]
+    fn f17_ptt_release_does_not_trigger_on() {
+        let registry = ShortcutRegistry::default();
+        let ctrl_shift = Modifiers::COMMAND.plus(Modifiers::SHIFT);
+        let ctx = ctx_with_key(Key::F7, ctrl_shift, false, false);
+        assert_eq!(
+            registry.resolve(&ctx, ShortcutContext::Global, &open_gates()),
+            None,
+            "a release event must never produce a PTT intent"
+        );
+    }
+
+    #[test]
+    fn f17_ptt_shortcut_is_consumed_exactly_once() {
+        let registry = ShortcutRegistry::default();
+        let ctrl_shift = Modifiers::COMMAND.plus(Modifiers::SHIFT);
+        let ctx = ctx_with_key(Key::F7, ctrl_shift, true, false);
+        let first = registry.resolve(&ctx, ShortcutContext::Global, &open_gates());
+        let second = registry.resolve(&ctx, ShortcutContext::Global, &open_gates());
+        assert_eq!(first, Some(AppAction::PttOn));
+        assert_eq!(second, None, "the same event must never be consumed twice");
+    }
+
+    #[test]
+    fn f17_several_f7_events_in_one_frame_produce_one_intent() {
+        let registry = ShortcutRegistry::default();
+        let ctrl_shift = Modifiers::COMMAND.plus(Modifiers::SHIFT);
+        let ctx = egui::Context::default();
+        let mut raw = egui::RawInput::default();
+        for _ in 0..5 {
+            raw.events.push(egui::Event::Key {
+                key: Key::F7,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: ctrl_shift,
+            });
+        }
+        ctx.begin_pass(raw);
+
+        let mut intents = 0;
+        for _ in 0..5 {
+            if registry.resolve(&ctx, ShortcutContext::Global, &open_gates())
+                == Some(AppAction::PttOn)
+            {
+                intents += 1;
+            }
+        }
+        assert_eq!(
+            intents, 1,
+            "a frame with several F7 presses yields one intent"
+        );
+    }
+
+    #[test]
+    fn f17_pressed_and_released_in_one_frame_produce_one_intent() {
+        let registry = ShortcutRegistry::default();
+        let ctrl_shift = Modifiers::COMMAND.plus(Modifiers::SHIFT);
+        let ctx = egui::Context::default();
+        let mut raw = egui::RawInput::default();
+        raw.events.push(egui::Event::Key {
+            key: Key::F7,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: ctrl_shift,
+        });
+        raw.events.push(egui::Event::Key {
+            key: Key::F7,
+            physical_key: None,
+            pressed: false,
+            repeat: false,
+            modifiers: ctrl_shift,
+        });
+        ctx.begin_pass(raw);
+
+        assert_eq!(
+            registry.resolve(&ctx, ShortcutContext::Global, &open_gates()),
+            Some(AppAction::PttOn)
+        );
+        assert_eq!(
+            registry.resolve(&ctx, ShortcutContext::Global, &open_gates()),
+            None
+        );
+    }
+
+    #[test]
+    fn f17_fail_closed_gates_block_ptt_entirely() {
+        let registry = ShortcutRegistry::default();
+        let ctrl_shift = Modifiers::COMMAND.plus(Modifiers::SHIFT);
+        let ctx = ctx_with_key(Key::F7, ctrl_shift, true, false);
+        assert_eq!(
+            registry.resolve(&ctx, ShortcutContext::Global, &ShortcutGates::fail_closed()),
+            None,
+            "unreadable gates must fail closed"
+        );
+    }
+
+    #[test]
+    fn f17_ptt_does_not_break_unrelated_global_shortcuts() {
+        // Regresja: skróty bez PTT zachowują dotychczasową semantykę (AllowInTextEditing działa).
+        let registry = ShortcutRegistry::default();
+        let ctx = ctx_with_key(Key::F2, Modifiers::NONE, true, false);
+        let gates = ShortcutGates {
+            text_editing: true,
+            ..open_gates()
+        };
+        assert_eq!(
+            registry.resolve(&ctx, ShortcutContext::Global, &gates),
+            Some(AppAction::SaveQso)
+        );
     }
 
     #[test]

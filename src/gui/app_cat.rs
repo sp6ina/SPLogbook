@@ -45,31 +45,104 @@ impl SpLogApp {
         ));
     }
 
-    /// Przełącza stan nadawania PTT (TX/RX) z pełną weryfikacją w TxArbiter.
-    pub fn toggle_ptt(&mut self) {
-        let snap = self.cat.runtime.snapshot();
-        let tx_rig = snap
-            .active_tx
-            .as_ref()
-            .map(|t| t.rig_id.clone())
-            .or_else(|| snap.active_rx.as_ref().map(|r| r.rig_id.clone()));
+    /// Centralne wejście warstwy GUI do intencji PTT (F-17).
+    ///
+    /// Jedyne miejsce, w którym interakcja użytkownika (skrót, przycisk ekranowy, paleta
+    /// poleceń) może zamienić się w żądanie do `TxArbiter`. Buduje migawkę wejścia z produkcyjnych
+    /// bramek egui, uzyskuje wynik bramki F-15 i deleguje decyzję do
+    /// [`crate::gui::ptt_input::dispatch`].
+    #[must_use]
+    pub fn dispatch_ptt(
+        &mut self,
+        source: crate::gui::ptt_input::PttActionSource,
+        intent: crate::gui::ptt_input::PttIntent,
+    ) -> crate::gui::ptt_input::PttDispatchOutcome {
+        let snapshot = self.ptt_input_snapshot(source, intent);
+        let mut port = CatTransmitPort::from_runtime(&self.cat.runtime);
+        self.dispatch_ptt_with_port(snapshot, &mut port)
+    }
 
-        if let Some(rig_id) = tx_rig {
-            let is_transmitting = match snap.tx_state {
-                crate::cat::tx_arbiter::TxArbiterState::Owned {
-                    rig_id: ref owner, ..
-                } => owner == &rig_id,
-                _ => false,
-            };
-            if is_transmitting {
-                self.cat
-                    .runtime
-                    .release_tx(rig_id, std::time::Duration::from_millis(1500));
-            } else {
-                self.cat
-                    .runtime
-                    .request_tx(rig_id, std::time::Duration::from_millis(1500));
-            }
+    /// Rdzeń dispatchera PTT z jawnie wstrzykniętym kanałem nadawczym.
+    ///
+    /// Kanał jest wstrzykiwany wyłącznie po to, aby testy mogły **policzyć** wywołania kanału
+    /// nadawczego. Autoryzacja F-15 nie jest parametrem: pochodzi z produkcyjnej bramki
+    /// [`crate::cat::hil::authorization::evaluate_gui_ptt_authorization`], więc warstwa GUI nie
+    /// może jej podać ani sfałszować.
+    pub(crate) fn dispatch_ptt_with_port(
+        &mut self,
+        snapshot: crate::gui::ptt_input::PttInputSnapshot,
+        port: &mut dyn crate::gui::ptt_input::PttTransmitPort,
+    ) -> crate::gui::ptt_input::PttDispatchOutcome {
+        let tx_state = self.ptt_transmit_state();
+        let authorization = crate::cat::hil::authorization::evaluate_gui_ptt_authorization();
+        let outcome = crate::gui::ptt_input::dispatch(&snapshot, tx_state, authorization, port);
+        self.record_ptt_outcome(outcome);
+        outcome
+    }
+
+    /// Buduje migawkę wejścia PTT dla wskazanego źródła i intencji.
+    ///
+    /// Bramki pochodzą z bramek wyliczonych w bieżącej klatce przez
+    /// [`Self::refresh_shortcut_gates`]; gdy nie zostały jeszcze wyliczone, pozostają zamknięte.
+    #[must_use]
+    pub fn ptt_input_snapshot(
+        &self,
+        source: crate::gui::ptt_input::PttActionSource,
+        intent: crate::gui::ptt_input::PttIntent,
+    ) -> crate::gui::ptt_input::PttInputSnapshot {
+        use crate::gui::ptt_input::{PttActionSource, PttInputSnapshot};
+        let gates = self.ptt.gates;
+        match source {
+            // Skrót klawiaturowy: rejestr skrótów wymusił już dokładny kontrakt modyfikatorów.
+            PttActionSource::KeyboardShortcut => PttInputSnapshot {
+                source,
+                intent,
+                pressed: true,
+                repeat: false,
+                modifiers_ok: true,
+                gates,
+            },
+            // Wskaźnik/paleta/zwolnienie po utracie fokusu: brak zdarzenia klawiatury.
+            PttActionSource::ScreenButton
+            | PttActionSource::CommandPalette
+            | PttActionSource::FocusLossRelease => PttInputSnapshot::pointer(source, intent, gates),
+        }
+    }
+
+    /// Projekcja stanu `TxArbiter` na stan istotny dla decyzji PTT.
+    #[must_use]
+    pub fn ptt_transmit_state(&self) -> crate::gui::ptt_input::PttTransmitState {
+        crate::gui::ptt_input::project_tx_state(&self.cat.runtime.snapshot().tx_state)
+    }
+
+    /// Zapisuje jawny wynik dispatchera i sygnalizuje odmowę użytkownikowi.
+    ///
+    /// Funkcja **nigdy** nie ustawia logicznego stanu TX: `cat.ptt_active` pozostaje wyłącznie
+    /// pochodną telemetrii i stanu arbitra.
+    fn record_ptt_outcome(&mut self, outcome: crate::gui::ptt_input::PttDispatchOutcome) {
+        self.ptt.last_outcome = Some(outcome);
+        if !ptt_refusal_is_user_visible(outcome) {
+            return;
+        }
+        let reason = ptt_refusal_reason(outcome);
+        let message = Msg::new(key::PTT_REFUSED)
+            .arg("reason", reason)
+            .text(self.gui.appearance.language);
+        self.gui.chrome.status_toast = Some((message, std::time::Instant::now()));
+    }
+
+    /// Próbuje wykonać kontrolowane zwolnienie PTT po utracie fokusu okna (F-17).
+    ///
+    /// Wywoływane raz na klatkę. Emituje **dokładnie jedną** intencję OFF na przejście
+    /// „fokus → brak fokusu” i tylko wtedy, gdy arbiter potwierdza lokalne nadawanie.
+    pub fn release_ptt_on_focus_loss(&mut self) {
+        let focused = self.ptt.gates.window_focused;
+        let tx_state = self.ptt_transmit_state();
+        if self.ptt.focus_release.observe(focused, tx_state).is_some() {
+            let _ = self.dispatch_ptt(
+                crate::gui::ptt_input::PttActionSource::FocusLossRelease,
+                crate::gui::ptt_input::PttIntent::RequestOff,
+            );
         }
     }
 
@@ -398,5 +471,95 @@ impl SpLogApp {
             self.cat.proxy_rx = None;
             self.cat.sharing_active = false;
         }
+    }
+}
+
+/// Produkcyjny kanał nadawczy GUI → `TxArbiter` (F-17).
+///
+/// Implementacja wywołuje wyłącznie `CatRuntime::request_tx` / `CatRuntime::release_tx`, czyli
+/// pełną, istniejącą ścieżkę arbitrażu nadawania (`RigHub` → `TxArbiter` → backend CAT).
+/// Nie konstruuje `RigCommand::SetPtt`, nie omija arbitra i nie ponawia żądań.
+struct CatTransmitPort {
+    runtime: crate::cat::runtime::CatRuntime,
+    rig_id: Option<crate::cat::routing::RigId>,
+    shutting_down: bool,
+}
+
+impl CatTransmitPort {
+    /// Buduje kanał nadawczy z bieżącego stanu CAT (bez otwierania żadnego transportu).
+    fn from_runtime(runtime: &crate::cat::runtime::CatRuntime) -> Self {
+        let snapshot = runtime.snapshot();
+        let rig_id = snapshot
+            .active_tx
+            .as_ref()
+            .map(|target| target.rig_id.clone())
+            .or_else(|| {
+                snapshot
+                    .active_rx
+                    .as_ref()
+                    .map(|target| target.rig_id.clone())
+            });
+        Self {
+            runtime: runtime.clone(),
+            rig_id,
+            shutting_down: snapshot.shutting_down,
+        }
+    }
+
+    /// Wspólna walidacja wstępna: aktywne radio i działający kanał wykonawczy.
+    fn ensure_ready(
+        &self,
+    ) -> Result<crate::cat::routing::RigId, crate::gui::ptt_input::PttPortError> {
+        if self.shutting_down {
+            return Err(crate::gui::ptt_input::PttPortError::RequestChannelClosed);
+        }
+        self.rig_id
+            .clone()
+            .ok_or(crate::gui::ptt_input::PttPortError::NoActiveRig)
+    }
+}
+
+impl crate::gui::ptt_input::PttTransmitPort for CatTransmitPort {
+    fn request_on(&mut self) -> Result<(), crate::gui::ptt_input::PttPortError> {
+        let rig_id = self.ensure_ready()?;
+        self.runtime
+            .request_tx(rig_id, std::time::Duration::from_millis(1500));
+        Ok(())
+    }
+
+    fn request_off(&mut self) -> Result<(), crate::gui::ptt_input::PttPortError> {
+        let rig_id = self.ensure_ready()?;
+        self.runtime
+            .release_tx(rig_id, std::time::Duration::from_millis(1500));
+        Ok(())
+    }
+}
+
+/// Czy odmowa PTT powinna być pokazana operatorowi jako komunikat statusu.
+fn ptt_refusal_is_user_visible(outcome: crate::gui::ptt_input::PttDispatchOutcome) -> bool {
+    use crate::gui::ptt_input::PttDispatchOutcome as Outcome;
+    matches!(
+        outcome,
+        Outcome::ShortcutMismatch
+            | Outcome::AuthorizationDenied(_)
+            | Outcome::RefusedBusy
+            | Outcome::RefusedUnknownTxState
+            | Outcome::Failed(_)
+            | Outcome::IgnoredTextEditing
+            | Outcome::IgnoredImeActive
+            | Outcome::IgnoredWindowUnfocused
+            | Outcome::IgnoredModalOpen
+    )
+}
+
+/// Czytelny, stabilny powód odmowy PTT (bez sekretów i bez danych uwierzytelniających).
+fn ptt_refusal_reason(outcome: crate::gui::ptt_input::PttDispatchOutcome) -> String {
+    use crate::gui::ptt_input::PttDispatchOutcome as Outcome;
+    match outcome {
+        Outcome::AuthorizationDenied(authorization) => {
+            format!("{} ({})", outcome.code(), authorization.as_str())
+        }
+        Outcome::Failed(error) => format!("{} ({})", outcome.code(), error.as_str()),
+        other => other.code().to_string(),
     }
 }

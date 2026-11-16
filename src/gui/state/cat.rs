@@ -84,6 +84,32 @@ pub struct CatState {
     pub vfo: VfoState,
 }
 
+/// Stan interakcji PTT w warstwie GUI (F-17).
+///
+/// Domyślnie **wszystkie bramki są zamknięte**, więc PTT nie może zadziałać, dopóki
+/// `handle_input_and_shortcuts` nie wyliczy ich z wiarygodnego API egui w bieżącej klatce.
+pub struct PttUiState {
+    /// Bramki wejściowe wyliczone w bieżącej klatce.
+    pub gates: crate::gui::shortcuts::ShortcutGates,
+    /// Deterministyczny detektor kompozycji IME.
+    pub ime: crate::gui::ptt_input::PttImeTracker,
+    /// Strażnik dokładnie jednej próby OFF po utracie fokusu okna.
+    pub focus_release: crate::gui::ptt_input::PttFocusReleaseGuard,
+    /// Ostatni jawny wynik centralnego dispatchera PTT (diagnostyka i testy).
+    pub last_outcome: Option<crate::gui::ptt_input::PttDispatchOutcome>,
+}
+
+impl Default for PttUiState {
+    fn default() -> Self {
+        Self {
+            gates: crate::gui::shortcuts::ShortcutGates::fail_closed(),
+            ime: crate::gui::ptt_input::PttImeTracker::new(),
+            focus_release: crate::gui::ptt_input::PttFocusReleaseGuard::new(),
+            last_outcome: None,
+        }
+    }
+}
+
 impl CatState {
     pub fn get_cached_rig_state(
         &self,

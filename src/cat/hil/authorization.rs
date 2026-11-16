@@ -844,6 +844,22 @@ impl HilHardwareExecutionAuthorizer {
     }
 }
 
+/// Produkcyjna bramka F-15 dla żądań PTT spoza sesji HIL (warstwa GUI).
+///
+/// Interfejs GUI nie posiada **żadnego** z trzech rozłącznych wejść walidatora: planu testu
+/// ([`HilTestBenchManifest`]), oświadczenia operatora ([`HilAttestationDocument`]) ani
+/// niezależnego dowodu ([`HilIndependentEvidence`]). Zgodnie z modelem F-15 brak planu oznacza
+/// [`HilAuthorizationOutcome::NotEvaluated`] — wynik, który nigdy nie upoważnia PTT.
+///
+/// Funkcja nie przyjmuje żadnego parametru, więc GUI nie może jej przekazać planu, oświadczenia
+/// ani dowodu, i nie istnieje produkcyjna ścieżka, która zwróciłaby tu
+/// [`HilAuthorizationOutcome::HardwareExecutionAuthorized`]. Upoważnienie sprzętowe może powstać
+/// wyłącznie w [`HilHardwareExecutionAuthorizer::authorize_at`], wywołanym z kompletem
+/// niezależnych wejść w sesji HIL.
+pub fn evaluate_gui_ptt_authorization() -> HilAuthorizationOutcome {
+    HilAuthorizationDecision::not_evaluated().outcome()
+}
+
 fn log_denial(decision: &HilAuthorizationDecision) {
     let audit = decision.audit();
     log::warn!(

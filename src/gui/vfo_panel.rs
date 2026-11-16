@@ -245,7 +245,8 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         ui.separator();
 
-        // Przycisk PTT (nadawanie)
+        // Stan PTT: wyłącznie pochodna telemetrii i stanu TxArbiter — nigdy optymistyczny.
+        // Sygnalizacja jest tekstowa (nie tylko kolorystyczna), zgodnie z wymaganiami dostępności.
         let ptt_color = if app.cat.ptt_active {
             palette.tx
         } else {
@@ -256,12 +257,29 @@ pub fn render_vfo_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         } else {
             "⚫ RX"
         };
+        ui.label(egui::RichText::new(ptt_label).color(ptt_color).strong())
+            .on_hover_text(tr(key::VFO_PTT_TOOLTIP, lang));
+
+        // Dwie rozłączne, jawne akcje (F-17) — brak niejawnego przełącznika.
         if ui
-            .button(egui::RichText::new(ptt_label).color(ptt_color).strong())
+            .button(egui::RichText::new("TX ON").strong())
             .on_hover_text(tr(key::VFO_PTT_TOOLTIP, lang))
             .clicked()
         {
-            app.toggle_ptt();
+            let _ = app.dispatch_ptt(
+                crate::gui::ptt_input::PttActionSource::ScreenButton,
+                crate::gui::ptt_input::PttIntent::RequestOn,
+            );
+        }
+        if ui
+            .button(egui::RichText::new("TX OFF").strong())
+            .on_hover_text(tr(key::VFO_PTT_TOOLTIP, lang))
+            .clicked()
+        {
+            let _ = app.dispatch_ptt(
+                crate::gui::ptt_input::PttActionSource::ScreenButton,
+                crate::gui::ptt_input::PttIntent::RequestOff,
+            );
         }
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

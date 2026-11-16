@@ -111,6 +111,10 @@ pub struct SpLogApp {
     pub active_focus_context_override: Option<crate::gui::shortcuts::ActiveFocusContext>,
     pub mock_subsec_millis: Option<u32>,
 
+    // Stan interakcji PTT (F-17): bramki wejściowe, detektor IME, strażnik zwolnienia po
+    // utracie fokusu i ostatni wynik centralnego dispatchera.
+    pub ptt: crate::gui::state::PttUiState,
+
     // Modułowy układ kafelków i okien pływających
     pub views: crate::gui::state::ViewsState,
 
@@ -417,6 +421,7 @@ impl SpLogApp {
             duplicates: crate::gui::state::DuplicatesState::default(),
             active_focus_context_override: None,
             mock_subsec_millis: None,
+            ptt: crate::gui::state::PttUiState::default(),
         };
 
         app.rebuild_awards_full();

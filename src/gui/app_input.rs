@@ -100,14 +100,60 @@ impl SpLogApp {
         ActiveFocusContext::Global
     }
 
-    /// Faza obsługi skrótów klawiaturowych, palety poleceń i wejść globalnych (GUI-001).
+    /// Wylicza bramki wejściowe skrótów klawiaturowych na podstawie wiarygodnego API
+    /// przypiętej wersji egui 0.36.2 oraz deterministycznego detektora IME (F-17).
+    ///
+    /// Wszystkie bramki są **fail-closed**: brak możliwości jednoznacznego odczytu stanu
+    /// (np. brak jakiegokolwiek zdarzenia przy nieustawionym fokusie) zamyka bramkę.
+    ///
+    /// * fokus tekstowy — `Context::egui_wants_keyboard_input()` (dowolny widget ma fokus)
+    ///   **oraz** `Context::text_edit_focused()` (fokusowany widget jest polem tekstowym),
+    /// * fokus okna — `InputState::focused` oraz brak `Event::WindowFocused(false)` w klatce,
+    /// * IME — [`crate::gui::ptt_input::PttImeTracker`] (egui 0.36.2 nie przechowuje stanu kompozycji),
+    /// * modal — [`Self::determine_active_focus_context`] zwraca `ModalDialog`.
+    pub fn refresh_shortcut_gates(
+        &mut self,
+        ctx: &egui::Context,
+    ) -> crate::gui::shortcuts::ShortcutGates {
+        let text_editing = ctx.egui_wants_keyboard_input() || ctx.text_edit_focused();
+        let window_focused = ctx.input(|input| {
+            input.focused
+                && !input
+                    .events
+                    .iter()
+                    .any(|event| matches!(event, egui::Event::WindowFocused(false)))
+        });
+        let ime_composing = ctx.input(|input| self.ptt.ime.observe_frame(&input.events));
+        let modal_open =
+            self.determine_active_focus_context(ctx) == ActiveFocusContext::ModalDialog;
+
+        let gates = crate::gui::shortcuts::ShortcutGates {
+            text_editing,
+            ime_composing,
+            window_focused,
+            modal_open,
+        };
+        self.ptt.gates = gates;
+
+        // Utrata fokusu okna zeruje stan kompozycji IME — system przestaje ją dostarczać.
+        if !window_focused {
+            self.ptt.ime.reset();
+        }
+
+        gates
+    }
+
+    /// Faza obsługi skrótów klawiaturowych, palety poleceń i wejść globalnych (GUI-001, F-17).
     pub fn handle_input_and_shortcuts(&mut self, ctx: &egui::Context) {
         let registry = ShortcutRegistry::default();
-        let wants_text = ctx.egui_wants_keyboard_input();
+        let gates = self.refresh_shortcut_gates(ctx);
         let active_context = self.determine_active_focus_context(ctx);
         let shortcut_context = active_context.to_shortcut_context();
 
-        if let Some(action) = registry.resolve(ctx, shortcut_context, wants_text) {
+        // F-17: kontrolowane zwolnienie nadawania po utracie fokusu okna (dokładnie jedna próba).
+        self.release_ptt_on_focus_loss();
+
+        if let Some(action) = registry.resolve(ctx, shortcut_context, &gates) {
             match action {
                 AppAction::Undo => self.perform_undo(),
                 AppAction::Redo => self.perform_redo(),
@@ -131,7 +177,18 @@ impl SpLogApp {
                         .send_spot_dialog
                         .open_with(&self.entry.callsign, freq_khz);
                 }
-                AppAction::TogglePtt => self.toggle_ptt(),
+                AppAction::PttOn => {
+                    let _ = self.dispatch_ptt(
+                        crate::gui::ptt_input::PttActionSource::KeyboardShortcut,
+                        crate::gui::ptt_input::PttIntent::RequestOn,
+                    );
+                }
+                AppAction::PttOff => {
+                    let _ = self.dispatch_ptt(
+                        crate::gui::ptt_input::PttActionSource::KeyboardShortcut,
+                        crate::gui::ptt_input::PttIntent::RequestOff,
+                    );
+                }
                 AppAction::ToggleVoiceKeyer => {
                     self.voice_keyer.show_window = !self.voice_keyer.show_window;
                 }

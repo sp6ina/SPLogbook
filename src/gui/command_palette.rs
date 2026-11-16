@@ -8,13 +8,13 @@ use crate::gui::app::SpLogApp;
 use eframe::egui;
 
 /// Pojedyncza akcja dostępna w palecie poleceń.
-struct Command {
-    label_key: crate::core::i18n::Key,
-    keywords: &'static str,
-    run: fn(&mut SpLogApp),
+pub(crate) struct Command {
+    pub(crate) label_key: crate::core::i18n::Key,
+    pub(crate) keywords: &'static str,
+    pub(crate) run: fn(&mut SpLogApp),
 }
 
-const COMMANDS: &[Command] = &[
+pub(crate) const COMMANDS: &[Command] = &[
     Command {
         label_key: key::CMD_NEW_QSO,
         keywords: "new qso clear form",
@@ -37,10 +37,23 @@ const COMMANDS: &[Command] = &[
         },
     },
     Command {
-        label_key: key::CMD_TOGGLE_PTT,
-        keywords: "ptt tx rx transmit",
+        label_key: key::CMD_PTT_ON,
+        keywords: "ptt tx on transmit nadawanie",
         run: |app| {
-            app.toggle_ptt();
+            let _ = app.dispatch_ptt(
+                crate::gui::ptt_input::PttActionSource::CommandPalette,
+                crate::gui::ptt_input::PttIntent::RequestOn,
+            );
+        },
+    },
+    Command {
+        label_key: key::CMD_PTT_OFF,
+        keywords: "ptt rx off receive odbior",
+        run: |app| {
+            let _ = app.dispatch_ptt(
+                crate::gui::ptt_input::PttActionSource::CommandPalette,
+                crate::gui::ptt_input::PttIntent::RequestOff,
+            );
         },
     },
     Command {

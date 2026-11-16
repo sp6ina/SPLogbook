@@ -339,7 +339,8 @@ impl SpLogApp {
                                 tr(key::SHORTCUTS_SEC_TRANSCEIVER, lang),
                                 &[
                                     ("F6", tr(key::SHORTCUTS_SPOT_DX, lang)),
-                                    ("F7", tr(key::SHORTCUTS_TOGGLE_PTT, lang)),
+                                    ("Ctrl+Shift+F7", tr(key::SHORTCUTS_PTT_ON, lang)),
+                                    ("Ctrl+F7", tr(key::SHORTCUTS_PTT_OFF, lang)),
                                     ("F8", tr(key::SHORTCUTS_VOICE_KEYER, lang)),
                                     ("Ctrl+K", tr(key::SHORTCUTS_CW_TERMINAL, lang)),
                                     ("Ctrl+D", tr(key::SHORTCUTS_DX_CLUSTER, lang)),

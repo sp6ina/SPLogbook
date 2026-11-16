@@ -223,6 +223,8 @@ const ALLOWED_EXACT_TOKENS: &[&str] = &[
     "SPLIT OFF",
     "TX",
     "RX",
+    "TX ON",
+    "TX OFF",
     "VFO A",
     "VFO B",
     "MAIN",
