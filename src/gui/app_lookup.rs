@@ -309,8 +309,11 @@ impl SpLogApp {
             "rst_sent" => self.entry.rst_sent = value.to_string(),
             "rst_rcvd" => self.entry.rst_rcvd = value.to_string(),
             "comment" => self.entry.comment = value.to_string(),
+            // F-19: pola bez prefiksu MY_ opisują korespondenta, pola MY_* własną stację.
             "sota_ref" | "sota" => self.entry.sota = value.to_string(),
             "pota_ref" | "pota" => self.entry.pota = value.to_string(),
+            "my_sota_ref" | "my_sota" => self.entry.my_refs.sota = value.to_string(),
+            "my_pota_ref" | "my_pota" => self.entry.my_refs.pota = value.to_string(),
             "pga_ref" | "pga" => self.entry.pga = value.to_string(),
             "iota" => self.entry.iota = value.to_string(),
             "state" => self.entry.state = value.to_string(),

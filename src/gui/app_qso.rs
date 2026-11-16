@@ -5,17 +5,14 @@ use super::*;
 use crate::gui::state::log_view::UndoAction;
 
 impl SpLogApp {
-    pub fn save_qso(&mut self) {
-        if self.entry.callsign.trim().is_empty() {
-            let msg = Msg::new(key::QSO_ISSUE_EMPTY_CALLSIGN).text(self.gui.appearance.language);
-            self.gui.chrome.status_toast = Some((msg, std::time::Instant::now()));
-            return;
-        }
-
-        let now = chrono::Utc::now();
-        let date_str = now.format("%Y%m%d").to_string();
-        let time_str = now.format("%H%M").to_string();
-
+    /// Buduje rekord QSO z bieżącego stanu formularza — bez znacznika czasu,
+    /// bez zapisu i bez skutków ubocznych.
+    ///
+    /// Jedno źródło prawdy mapowania „formularz → model" (F-19): `save_qso`
+    /// używa dokładnie tej funkcji, a testy weryfikują strony referencji na
+    /// ścieżce produkcyjnej bez zależności od zegara ściennego.
+    #[must_use]
+    pub fn draft_qso_from_entry(&self) -> QsoRecord {
         let mut qso = QsoRecord::new(&self.entry.callsign, &self.entry.band, &self.entry.mode);
         qso.journal_id = Some(self.active_journal.id.clone());
         if !self.config.station.gridsquare.trim().is_empty() {
@@ -24,8 +21,6 @@ impl SpLogApp {
         if self.cat.rig_state.frequency_hz > 0 {
             qso.freq = Some(self.cat.rig_state.frequency_hz as f64 / 1_000_000.0);
         }
-        qso.qso_date.clone_from(&date_str);
-        qso.time_on.clone_from(&time_str);
         qso.rst_sent.clone_from(&self.entry.rst_sent);
         qso.rst_rcvd.clone_from(&self.entry.rst_rcvd);
         qso.name = if self.entry.name.is_empty() {
@@ -63,6 +58,18 @@ impl SpLogApp {
         } else {
             Some(self.entry.state.clone())
         };
+        // F-19: referencje dyplomowe zapisywane są wyłącznie na własną stronę.
+        // `my_*` = stacja SPLogbook (aktywacja), `sota_ref`/`pota_ref` = korespondent.
+        qso.my_sota_ref = if self.entry.my_refs.sota.is_empty() {
+            None
+        } else {
+            Some(self.entry.my_refs.sota.clone())
+        };
+        qso.my_pota_ref = if self.entry.my_refs.pota.is_empty() {
+            None
+        } else {
+            Some(self.entry.my_refs.pota.clone())
+        };
         qso.sota_ref = if self.entry.sota.is_empty() {
             None
         } else {
@@ -79,6 +86,23 @@ impl SpLogApp {
             Some(self.entry.qsl_manager.clone())
         };
         qso.qsl_manager.clone_from(&qso.qsl_via);
+        qso
+    }
+
+    pub fn save_qso(&mut self) {
+        if self.entry.callsign.trim().is_empty() {
+            let msg = Msg::new(key::QSO_ISSUE_EMPTY_CALLSIGN).text(self.gui.appearance.language);
+            self.gui.chrome.status_toast = Some((msg, std::time::Instant::now()));
+            return;
+        }
+
+        let now = chrono::Utc::now();
+        let date_str = now.format("%Y%m%d").to_string();
+        let time_str = now.format("%H%M").to_string();
+
+        let mut qso = self.draft_qso_from_entry();
+        qso.qso_date.clone_from(&date_str);
+        qso.time_on.clone_from(&time_str);
 
         // Sprawdzenie czy nagrywano audio łączności (Audio Memo) — zapis obok aktywnej bazy danych
         if crate::media::audio_recorder::AudioRecorder::is_recording() {

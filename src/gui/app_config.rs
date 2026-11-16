@@ -207,8 +207,10 @@ impl SpLogApp {
         {
             self.config.active_profile_id.clone_from(&prof.id);
             self.config.station = prof.clone();
-            self.entry.pota = prof.pota_ref.clone().unwrap_or_default();
-            self.entry.sota = prof.sota_ref.clone().unwrap_or_default();
+            // F-19: profil stacji opisuje stację lokalną, więc jego referencje
+            // trafiają wyłącznie na stronę lokalną formularza.
+            self.entry.my_refs.pota = prof.pota_ref.clone().unwrap_or_default();
+            self.entry.my_refs.sota = prof.sota_ref.clone().unwrap_or_default();
             self.log_view.invalidate_cache();
             self.contest.cache.key = None;
             crate::gui::statistics::invalidate_stats_cache();

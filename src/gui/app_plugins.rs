@@ -47,6 +47,8 @@ impl SpLogApp {
                 .unwrap_or_default(),
             sota_ref: self.entry.sota.clone(),
             pota_ref: self.entry.pota.clone(),
+            my_sota_ref: self.entry.my_refs.sota.clone(),
+            my_pota_ref: self.entry.my_refs.pota.clone(),
             pga_ref: self.entry.pga.clone(),
             iota: self.entry.iota.clone(),
             state: self.entry.state.clone(),

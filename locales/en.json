@@ -454,6 +454,8 @@
   "qso.save": "Save QSO (Enter)",
   "qso.search": "Search logbook...",
   "qso.sota": "SOTA Summit",
+  "qso.my_sota": "My SOTA summit",
+  "qso.my_pota": "My POTA park",
   "qso.state": "State / Province",
   "qso.time": "Time (UTC)",
   "qso.warning.iota": "invalid IOTA format (expected XX-NNN, e.g. EU-001): {value}",

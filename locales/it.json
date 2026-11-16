@@ -454,6 +454,8 @@
   "qso.save": "Registra QSO (Enter)",
   "qso.search": "Cerca nel registro...",
   "qso.sota": "Cima SOTA",
+  "qso.my_sota": "La mia cima SOTA",
+  "qso.my_pota": "Il mio parco POTA",
   "qso.state": "Stato / Provincia",
   "qso.time": "Ora (UTC)",
   "qso.warning.iota": "formato IOTA non valido (previsto XX-NNN, es. EU-001): {value}",

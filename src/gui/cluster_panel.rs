@@ -773,6 +773,9 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
     if let Some((dx_call, freq_khz, band, pota, sota)) = tune_target {
         app.tune_to_spot(&dx_call, freq_khz, &band);
+        // F-19: spot opisuje stację *spotowaną*, więc jej referencja należy do
+        // strony korespondenta. Referencja własnej stacji (`my_*`) jest
+        // kontekstem aktywacji i nigdy nie jest nadpisywana spotem.
         if let Some(p) = pota {
             app.entry.pota = p;
         }

@@ -454,6 +454,8 @@
   "qso.save": "Сохранить связь (Enter)",
   "qso.search": "Поиск по журналу...",
   "qso.sota": "Вершина SOTA",
+  "qso.my_sota": "Моя вершина SOTA",
+  "qso.my_pota": "Мой парк POTA",
   "qso.state": "Штат / Область",
   "qso.time": "Время (UTC)",
   "qso.warning.iota": "неверный формат IOTA (ожидалось XX-NNN, например EU-001): {value}",

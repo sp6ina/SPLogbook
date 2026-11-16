@@ -577,6 +577,33 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         entry_field_ids.push(sota_resp.id);
     });
 
+    // F-19: własne referencje stacji logującej (kontekst aktywacji).
+    // Osobne pola, osobna strona QSO — nigdy nie są kopiowane do pól korespondenta.
+    ui.horizontal(|ui| {
+        ui.label(format!("🏔 {}:", tr(key::QSO_MY_SOTA, lang)));
+        let my_sota_resp = ui.add(
+            egui::TextEdit::singleline(&mut app.entry.my_refs.sota)
+                .id(egui::Id::new("qso_entry_my_sota"))
+                .desired_width(75.0)
+                .hint_text("SP/BZ-001"),
+        );
+        if my_sota_resp.changed() {
+            app.entry.my_refs.sota = app.entry.my_refs.sota.to_uppercase();
+        }
+        ui.label(format!("🌲 {}:", tr(key::QSO_MY_POTA, lang)));
+        let my_pota_resp = ui.add(
+            egui::TextEdit::singleline(&mut app.entry.my_refs.pota)
+                .id(egui::Id::new("qso_entry_my_pota"))
+                .desired_width(80.0)
+                .hint_text("SP-0123"),
+        );
+        if my_pota_resp.changed() {
+            app.entry.my_refs.pota = app.entry.my_refs.pota.to_uppercase();
+        }
+        entry_field_ids.push(my_sota_resp.id);
+        entry_field_ids.push(my_pota_resp.id);
+    });
+
     // QSL Manager i dane stacji
     ui.horizontal(|ui| {
         ui.label(format!("📋 {}:", tr(key::QSO_QSL_VIA, lang)));

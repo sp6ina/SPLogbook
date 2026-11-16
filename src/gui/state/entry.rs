@@ -10,6 +10,19 @@ use crate::core::service_db::QslManagerRecord;
 use crate::core::station::AppConfig;
 use std::time::Instant;
 
+/// Własne referencje stacji logującej — kontekst aktywacji (F-19).
+///
+/// Osobny typ, a nie dwa luźne pola, aby strony QSO były jawne także w stanie
+/// formularza: `MyAwardRefs` opisuje **wyłącznie** stację SPLogbook i nigdy nie
+/// jest kopiowany do pól korespondenta.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MyAwardRefs {
+    /// Własna referencja SOTA (ADIF `MY_SOTA_REF`).
+    pub sota: String,
+    /// Własna referencja POTA (ADIF `MY_SIG_INFO`).
+    pub pota: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct QsoEntryState {
     pub callsign: String,
@@ -26,8 +39,12 @@ pub struct QsoEntryState {
     pub comment: String,
     pub iota: String,
     pub state: String,
+    /// Referencja SOTA **korespondenta** (ADIF `SOTA_REF`).
     pub sota: String,
+    /// Referencja POTA **korespondenta** (ADIF `SIG_INFO` w kontrakcie POTA).
     pub pota: String,
+    /// Własne referencje stacji logującej — kontekst bieżącej aktywacji (F-19).
+    pub my_refs: MyAwardRefs,
     pub qsl_manager: String,
     pub active_qsl_manager_record: Option<QslManagerRecord>,
     pub scp_suggestions: Vec<String>,
@@ -62,6 +79,7 @@ impl Default for QsoEntryState {
             state: String::new(),
             sota: String::new(),
             pota: String::new(),
+            my_refs: MyAwardRefs::default(),
             qsl_manager: String::new(),
             active_qsl_manager_record: None,
             scp_suggestions: Vec::new(),
@@ -80,14 +98,28 @@ impl Default for QsoEntryState {
 }
 
 impl QsoEntryState {
+    /// Tworzy stan formularza z kontekstem stacji (F-19).
+    ///
+    /// Referencja własnej stacji (profil stacji) trafia wyłącznie do pól
+    /// **lokalnych** (`my_sota`, `my_pota`), które opisują stronę SPLogbook.
+    /// Pola korespondenta (`sota`, `pota`) pozostają puste — wypełnia je spot
+    /// cudzego aktywatora albo ręczne wpisanie. Wcześniej referencja własna była
+    /// wpisywana do pola korespondenta i eksportowana jako `SOTA_REF`/`POTA_REF`.
     pub fn new(config: &AppConfig) -> Self {
         Self {
-            sota: config.station.sota_ref.clone().unwrap_or_default(),
-            pota: config.station.pota_ref.clone().unwrap_or_default(),
+            my_refs: MyAwardRefs {
+                sota: config.station.sota_ref.clone().unwrap_or_default(),
+                pota: config.station.pota_ref.clone().unwrap_or_default(),
+            },
             ..Default::default()
         }
     }
 
+    /// Czyści formularz po zapisaniu QSO.
+    ///
+    /// Własne referencje (`my_sota`, `my_pota`) **nie** są czyszczone: opisują
+    /// bieżącą aktywację i obowiązują dla kolejnych łączności, dopóki operator
+    /// ich nie zmieni. Referencje korespondenta są per-QSO i są czyszczone.
     pub fn clear(&mut self) {
         self.callsign.clear();
         self.callsign_corrections.clear();
@@ -139,6 +171,7 @@ mod tests {
         assert_eq!(state.state, "");
         assert_eq!(state.sota, "");
         assert_eq!(state.pota, "");
+        assert_eq!(state.my_refs, MyAwardRefs::default());
         assert_eq!(state.qsl_manager, "");
         assert!(state.active_qsl_manager_record.is_none());
         assert_eq!(state.scp_suggestions.len(), 0);
@@ -156,13 +189,39 @@ mod tests {
     }
 
     #[test]
-    fn new_inherits_sota_pota_from_config() {
+    fn new_inherits_own_references_into_the_local_side_only() {
         let mut cfg = AppConfig::default();
-        cfg.station.sota_ref = Some("SP/PL-001".to_string());
-        cfg.station.pota_ref = Some("SP-0001".to_string());
+        cfg.station.sota_ref = Some("AA/BB-001".to_string());
+        cfg.station.pota_ref = Some("XX-0001".to_string());
         let state = QsoEntryState::new(&cfg);
-        assert_eq!(state.sota, "SP/PL-001");
-        assert_eq!(state.pota, "SP-0001");
+        // F-19: the station profile describes the LOCAL station, so its references
+        // may only appear on the local side of the entry state.
+        assert_eq!(state.my_refs.sota, "AA/BB-001");
+        assert_eq!(state.my_refs.pota, "XX-0001");
+        assert_eq!(state.sota, "");
+        assert_eq!(state.pota, "");
+    }
+
+    #[test]
+    fn clear_keeps_the_activation_context_on_the_local_side() {
+        let mut state = QsoEntryState {
+            callsign: "TSTREMOTE".to_string(),
+            sota: "CC/DD-999".to_string(),
+            pota: "YY-9999".to_string(),
+            my_refs: MyAwardRefs {
+                sota: "AA/BB-001".to_string(),
+                pota: "XX-0001".to_string(),
+            },
+            ..Default::default()
+        };
+        state.clear();
+        assert_eq!(state.sota, "", "the correspondent reference is per-QSO");
+        assert_eq!(state.pota, "");
+        assert_eq!(
+            state.my_refs.sota, "AA/BB-001",
+            "the activation context persists"
+        );
+        assert_eq!(state.my_refs.pota, "XX-0001");
     }
 
     #[test]

@@ -81,8 +81,14 @@ pub struct QsoSnapshot {
     pub gridsquare: String,
     pub country: String,
     pub dxcc: String,
+    /// Referencja SOTA korespondenta (ADIF `SOTA_REF`).
     pub sota_ref: String,
+    /// Referencja POTA korespondenta (ADIF `SIG_INFO` w kontrakcie POTA).
     pub pota_ref: String,
+    /// Własna referencja SOTA stacji logującej (ADIF `MY_SOTA_REF`) — F-19.
+    pub my_sota_ref: String,
+    /// Własna referencja POTA stacji logującej (ADIF `MY_SIG_INFO`) — F-19.
+    pub my_pota_ref: String,
     pub pga_ref: String,
     pub iota: String,
     pub state: String,
@@ -115,6 +121,8 @@ impl QsoSnapshot {
             "dxcc" => self.dxcc.clone(),
             "sota_ref" => self.sota_ref.clone(),
             "pota_ref" => self.pota_ref.clone(),
+            "my_sota_ref" => self.my_sota_ref.clone(),
+            "my_pota_ref" => self.my_pota_ref.clone(),
             "pga_ref" => self.pga_ref.clone(),
             "iota" => self.iota.clone(),
             "state" => self.state.clone(),

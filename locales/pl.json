@@ -454,6 +454,8 @@
   "qso.save": "Zapisz łączność (Enter)",
   "qso.search": "Szukaj w dzienniku...",
   "qso.sota": "Szczyt SOTA",
+  "qso.my_sota": "Mój szczyt SOTA",
+  "qso.my_pota": "Mój park POTA",
   "qso.state": "Stan / Prowincja",
   "qso.time": "Czas (UTC)",
   "qso.warning.iota": "nieprawidłowy format IOTA (oczekiwano XX-NNN, np. EU-001): {value}",
