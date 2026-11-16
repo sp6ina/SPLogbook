@@ -8772,3 +8772,379 @@ fn p1_f17_refusal_is_signalled_as_text_guard() {
         "an ambiguous arbiter state must be reported to the operator"
     );
 }
+
+// ============================================================================
+// P1-F16 — panic-free logbook pagination and filter-transition guards
+//
+// Wymagane przez OWNER_GO_P1_F16_SOFTWARE_REMEDIATION:
+//   * jedno centralne, czyste i totalne obliczenie paginacji;
+//   * brak bezpośredniego, niezweryfikowanego slicingu strony;
+//   * checked arithmetic zamiast panic/wrap/saturating-maskowania;
+//   * page size 0 i pusty wynik mają jawny, bezpieczny stan;
+//   * stale page jest normalizowana przed slicingiem;
+//   * zaznaczenie opiera się na stabilnym ID, nie na indeksie strony;
+//   * testy używają wyłącznie danych syntetycznych;
+//   * F-14 / CAT-018 / CAT-019 / F-15 / F-17 pozostają CLOSED,
+//     NATIVE-7B pozostaje NOT_STARTED, 10 testów HIL pozostaje ignored.
+// Guardy czytają wyłącznie pliki śledzone w repozytorium; nie zależą od
+// prywatnych raportów .local-work/.
+// ============================================================================
+
+fn p1_f16_read(path: &str) -> String {
+    fs::read_to_string(path).unwrap_or_else(|error| panic!("cannot read {path}: {error}"))
+}
+
+fn p1_f16_assert_tests(source: &str, names: &[&str], label: &str) {
+    for name in names {
+        assert!(
+            source.contains(&format!("fn {name}(")),
+            "F-16: {label} must contain the test `{name}`"
+        );
+    }
+}
+
+#[test]
+fn p1_f16_pagination_has_one_central_checked_model_guard() {
+    let model = p1_f16_read("src/gui/pagination.rs");
+    for required in [
+        "pub fn paginate",
+        "pub struct PaginationInput",
+        "pub struct PaginationWindow",
+        "pub enum PageMode",
+        "checked_mul",
+        "checked_add",
+        "div_ceil",
+        "pub fn slice_of",
+        "PageMode::AllRows",
+        "effective_page_size",
+    ] {
+        assert!(
+            model.contains(required),
+            "F-16: the central pagination model must contain {required}"
+        );
+    }
+    assert!(
+        !model.contains("get_unchecked"),
+        "F-16: the pagination model must never use get_unchecked"
+    );
+    assert!(
+        !model.contains("catch_unwind"),
+        "F-16: catch_unwind must never hide a pagination failure"
+    );
+    assert!(
+        !model.contains("std::time") && !model.contains("Instant::now"),
+        "F-16: the pagination model must be independent of wall-clock time"
+    );
+    assert!(
+        !model.contains("egui::") && !model.contains("eframe::"),
+        "F-16: the pagination model must stay GUI-independent"
+    );
+
+    let table = p1_f16_read("src/gui/logbook_table.rs");
+    assert!(
+        table.contains("select_page_indices") && table.contains("pagination_window"),
+        "F-16: the table must use the central pagination model"
+    );
+    for forbidden in [
+        "fn page_range",
+        "[page_start..page_end]",
+        "page * page_size",
+        "page + 1",
+        "page_size - 1",
+        "start + page_size",
+    ] {
+        assert!(
+            !table.contains(forbidden),
+            "F-16: logbook_table.rs must not contain `{forbidden}`"
+        );
+    }
+
+    let state = p1_f16_read("src/gui/state/log_view.rs");
+    assert!(
+        state.contains("pub fn pagination_window") && state.contains("pub fn select_page_indices"),
+        "F-16: LogViewState must expose the normalized window and safe selection"
+    );
+    assert!(
+        state.contains("paginate(PaginationInput"),
+        "F-16: LogViewState must delegate to the central model"
+    );
+
+    let reload = p1_f16_read("src/gui/app_qso.rs");
+    assert!(
+        reload.contains("pagination_window(total)"),
+        "F-16: every data reload must normalize the page through the model"
+    );
+    assert!(
+        !reload.contains("page_size - 1"),
+        "F-16: reload must not use the old ad-hoc page-count formula"
+    );
+}
+
+#[test]
+fn p1_f16_slice_and_index_access_is_checked_guard() {
+    for path in [
+        "src/gui/logbook_table.rs",
+        "src/gui/state/log_view.rs",
+        "src/gui/pagination.rs",
+        "src/gui/app_qso.rs",
+        "src/gui/app_layout.rs",
+    ] {
+        let source = p1_f16_read(path);
+        for forbidden in ["get_unchecked", "catch_unwind"] {
+            assert!(
+                !source.contains(forbidden),
+                "F-16: {path} must not contain `{forbidden}`"
+            );
+        }
+        for line in qa_code_lines(&source) {
+            assert!(
+                !line.contains("sorted_indices["),
+                "F-16: {path} must not index sorted_indices directly: {}",
+                line.trim()
+            );
+            assert!(
+                !line.contains("recent_qsos["),
+                "F-16: {path} must not index recent_qsos directly: {}",
+                line.trim()
+            );
+            if line.contains(".get(") {
+                assert!(
+                    !line.contains(".unwrap()") && !line.contains(".expect("),
+                    "F-16: {path} must not unwrap a checked slice access: {}",
+                    line.trim()
+                );
+            }
+        }
+    }
+
+    let table = p1_f16_read("src/gui/logbook_table.rs");
+    assert!(
+        table.contains("page_indices.get(row.index())") && table.contains("recent_qsos.get(idx)"),
+        "F-16: the row renderer must use checked gets"
+    );
+    let model = p1_f16_read("src/gui/pagination.rs");
+    assert!(
+        model.contains("items.get(self.start..self.end)"),
+        "F-16: slice_of must use slice::get, never direct indexing"
+    );
+    let state = p1_f16_read("src/gui/state/log_view.rs");
+    assert!(
+        state.contains("window.slice_of(&self.cache.sorted_indices)"),
+        "F-16: page indices must be obtained through the checked model"
+    );
+}
+
+#[test]
+fn p1_f16_boundary_and_transition_tests_are_pinned_guard() {
+    let model = p1_f16_read("src/gui/pagination.rs");
+    p1_f16_assert_tests(
+        &model,
+        &[
+            "empty_dataset_has_explicit_zero_window",
+            "stale_page_normalizes_to_last_existing_page",
+            "page_size_zero_means_all_rows",
+            "page_size_zero_empty_dataset_is_empty",
+            "addition_overflow_falls_back_to_total",
+            "multiplication_overflow_is_impossible_and_guarded",
+            "slice_of_returns_none_for_inconsistent_window",
+            "page_ranges_partition_the_result_without_gaps_or_duplicates",
+            "combinatorial_model_matrix_holds_every_invariant",
+        ],
+        "the central pagination model",
+    );
+
+    let integration = p1_f16_read("tests/p1_f16_logbook_pagination.rs");
+    p1_f16_assert_tests(
+        &integration,
+        &[
+            "stale_page_after_search_contraction_is_normalized",
+            "empty_dataset_with_stale_page_is_safe",
+            "page_index_usize_max_render_is_safe",
+            "zero_result_filter_is_explicitly_empty",
+            "last_partial_page_is_rendered",
+            "exact_multiple_page_size_has_no_extra_page",
+            "page_size_change_never_creates_invalid_range",
+            "page_size_zero_renders_all_rows",
+            "page_size_usize_max_renders_one_page",
+            "stale_page_after_journal_switch_to_empty",
+            "stale_page_after_deleting_last_page",
+            "deleting_all_rows_yields_explicit_empty_state",
+            "import_and_render_in_one_transition",
+            "sync_add_and_render_in_one_transition",
+            "selection_preserved_by_stable_id_across_filter",
+            "selection_removed_when_record_deleted",
+            "pages_do_not_duplicate_rows",
+            "pages_cover_filtered_result_without_gaps",
+            "inconsistent_cache_is_repaired_on_render",
+            "gui_render_stress_200",
+            "gui_render_path_zero_panic_across_transitions",
+            "full_gui_frame_renders_without_panic",
+        ],
+        "the F-16 integration suite",
+    );
+    for iterations in [
+        "0..5_000usize",
+        "0..3_000usize",
+        "0..2_000usize",
+        "0..200usize",
+    ] {
+        assert!(
+            integration.contains(iterations),
+            "F-16: the deterministic stress series {iterations} must stay pinned"
+        );
+    }
+    assert!(
+        integration.contains("combinations >= 1_000"),
+        "F-16: the combinatorial transition matrix must stay pinned"
+    );
+}
+
+#[test]
+fn p1_f16_tests_use_only_synthetic_data_guard() {
+    let integration = p1_f16_read("tests/p1_f16_logbook_pagination.rs");
+    assert!(
+        integration.contains("synthetic"),
+        "F-16: the test suite must declare its synthetic data contract"
+    );
+    assert!(
+        integration.contains("LogDatabase::open_in_memory()"),
+        "F-16: tests must use an in-memory synthetic database"
+    );
+    for forbidden in [
+        ".local-work",
+        "default_log.db",
+        "station_config.json",
+        "APPDATA",
+        "C:\\Users",
+        "/home/",
+        "\"SP6INA\"",
+        "sleep(",
+        "std::time::Instant",
+        "rand::",
+    ] {
+        assert!(
+            !integration.contains(forbidden),
+            "F-16: the test suite must not use real user data or nondeterminism: {forbidden}"
+        );
+    }
+    let model = p1_f16_read("src/gui/pagination.rs");
+    assert!(
+        !model.contains("QsoRecord") && !model.contains("LogDatabase"),
+        "F-16: the pagination model must not touch user records or the database"
+    );
+}
+
+#[test]
+fn p1_f16_documentation_records_the_closed_remediation_guard() {
+    let known = p1_f16_read("docs/KNOWN_ISSUES.md");
+    for required in [
+        "F-16 (P1) — GUI panic in logbook paging — F-16 software remediation = CLOSED",
+        "F-16 = CLOSED",
+        "COMPLETED_LOGBOOK_PAGINATION_PANIC_REMEDIATION_VERIFIED",
+        "Logbook pagination = PANIC_FREE_SOFTWARE_VERIFIED",
+        "Stale page normalization = VERIFIED",
+        "Filter transitions = VERIFIED",
+        "Selection stability = VERIFIED",
+        "Real user data = NOT_USED",
+        "F-14 software remediation = CLOSED",
+        "F-15 software remediation = CLOSED",
+        "F-17 software remediation = CLOSED",
+        "CAT-018 = CLOSED",
+        "CAT-019 = CLOSED",
+        "NATIVE-7B = NOT_STARTED",
+    ] {
+        assert!(
+            known.contains(required),
+            "docs/KNOWN_ISSUES.md must keep `{required}`"
+        );
+    }
+
+    let roadmap = p1_f16_read("docs/ROADMAP.md");
+    assert!(
+        roadmap.contains("F-16")
+            && roadmap.contains("COMPLETED_LOGBOOK_PAGINATION_PANIC_REMEDIATION_VERIFIED"),
+        "docs/ROADMAP.md must record the closed F-16 remediation"
+    );
+
+    let baseline = p1_f16_read("docs/VERIFICATION_BASELINE.md");
+    assert!(
+        baseline.contains("F-16")
+            && baseline.contains("COMPLETED_LOGBOOK_PAGINATION_PANIC_REMEDIATION_VERIFIED"),
+        "docs/VERIFICATION_BASELINE.md must record the F-16 verification"
+    );
+
+    let development = p1_f16_read("docs/DEVELOPMENT.md");
+    for required in ["P1-F16", "PaginationInput", "checked_mul", "slice::get"] {
+        assert!(
+            development.contains(required),
+            "docs/DEVELOPMENT.md must document `{required}`"
+        );
+    }
+
+    let decisions = p1_f16_read("docs/architecture/DECISIONS.md");
+    for required in [
+        "DEC-P1-F16-MODEL-01",
+        "DEC-P1-F16-NORMALIZE-01",
+        "DEC-P1-F16-SLICE-01",
+        "DEC-P1-F16-SCOPE-01",
+    ] {
+        assert!(
+            decisions.contains(required),
+            "docs/architecture/DECISIONS.md must contain `{required}`"
+        );
+    }
+
+    let architecture = p1_f16_read("docs/architecture/ARCHITECTURE.md");
+    assert!(
+        architecture.contains("F-16") && architecture.contains("PANIC_FREE"),
+        "docs/architecture/ARCHITECTURE.md must record F-16 = PANIC_FREE"
+    );
+
+    let security_process = p1_f16_read("docs/SECURITY_PROCESS.md");
+    assert!(
+        security_process.contains("P1-F16") && security_process.contains("pagination"),
+        "docs/SECURITY_PROCESS.md must document the F-16 pagination boundary"
+    );
+}
+
+#[test]
+fn p1_f16_prior_gate_state_and_scope_are_unchanged_guard() {
+    let native = p1_f16_read("tests/cat_native_7.rs");
+    let ignored_attributes = native
+        .lines()
+        .filter(|line| line.trim_start().starts_with("#[ignore"))
+        .count();
+    assert_eq!(
+        ignored_attributes, 10,
+        "F-16: the ten hardware-in-the-loop tests must stay ignored"
+    );
+
+    for workflow in [
+        ".github/workflows/ci.yml",
+        ".github/workflows/build-and-release.yml",
+    ] {
+        let content = p1_f16_read(workflow);
+        for forbidden in ["--ignored", "hil_hardware", "SPLOG_HIL_ENABLE"] {
+            assert!(
+                !content.contains(forbidden),
+                "F-16: {workflow} must not run HIL: {forbidden}"
+            );
+        }
+    }
+
+    // Zakres bramki: brak nowej zależności i brak nowego targetu testowego.
+    let manifest = p1_f16_read("Cargo.toml");
+    assert!(
+        !manifest.contains("pagination") && !manifest.contains("f16"),
+        "F-16: Cargo.toml must not gain a pagination dependency or feature"
+    );
+    assert!(
+        !manifest.contains("[[test]]"),
+        "F-16: test targets stay auto-discovered; no explicit [[test]] entry"
+    );
+    let lock = p1_f16_read("Cargo.lock");
+    assert!(
+        !lock.contains("name = \"pagination\""),
+        "F-16: Cargo.lock must not gain a pagination crate"
+    );
+}
