@@ -4,7 +4,7 @@ Single source of truth for verified test counters and dependency-audit state. Co
 only here; every other document links to this file. Never update a counter without a real
 measurement, and always record the measurement date.
 
-**Data pomiaru:** 2026-11-16 (ostatni pomiar: po `STAGE-P1-F16-SOFTWARE`)
+**Data pomiaru:** 2026-11-16 (ostatni pomiar: po `STAGE-P1-F19-SOFTWARE`)
 **Środowisko:** Windows 10/11 x86_64, `rustc 1.99.0`, `cargo 1.99.0`, `-j 1`
 **HEAD pomiaru:** commit zawierający ten plik (`git log -1 --format=%H`)
 
@@ -26,9 +26,9 @@ cargo test --workspace --all-targets -j 1 -- --skip powershell_real_execution_fu
 
 | Metric | Value |
 |---|---|
-| TOTAL REGISTERED TESTS: | 3152 |
-| TOTAL EXECUTED TESTS: | 3141 |
-| TOTAL PASSED TESTS: | 3141 |
+| TOTAL REGISTERED TESTS: | 3243 |
+| TOTAL EXECUTED TESTS: | 3232 |
+| TOTAL PASSED TESTS: | 3232 |
 | TOTAL FAILED TESTS: | 0 |
 | TOTAL IGNORED TESTS: | 10 |
 | HIL IGNORED TESTS: | 10 |
@@ -45,7 +45,8 @@ a product defect.
 
 | Suite | Value |
 |---|---|
-| `security_guard` | 167 / 167 |
+| `security_guard` (incl. 12 `p1_f19_*` rules) | 179 / 179 |
+| `p1_f19_award_references` | 51 / 51 |
 | `p1_f16_logbook_pagination` | 55 / 55 |
 | pagination model (`gui::pagination`, lib) | 23 / 23 |
 | logbook pagination state (`gui::state::log_view`, lib) | 6 / 6 |
@@ -336,3 +337,52 @@ Logbook pagination is `PANIC_FREE_SOFTWARE_VERIFIED` under the tested synthetic 
 stale page normalization, filter transitions, selection stability and the documented
 `F-16 = CLOSED` status are verified. This does **not** verify any real user database or any
 corrupted production database.
+
+## 13. P1-F19 SOTA/POTA role-aware award references (2026-11-16)
+
+Measured on the `STAGE-P1-F19-SOFTWARE` tree with the canonical command from section 1 (`-j 1`,
+`--skip powershell_real_execution_full_cycle_success`) and
+`cargo test --workspace --all-targets -j 1 -- --list` for the registered count. Software-only
+verification: the suites use in-memory databases, synthetic `TST…` callsigns and synthetic award
+references only; no real user log, callsign, journal, profile or account was read, and nothing was
+uploaded to SOTA or POTA.
+
+| Item | Value |
+|---|---|
+| TOTAL REGISTERED TESTS | 3243 |
+| TOTAL EXECUTED / PASSED TESTS | 3232 / 3232 |
+| TOTAL FAILED / IGNORED / FILTERED TESTS | 0 / 10 / 1 |
+| `p1_f19_award_references` (integration suite) | 51 / 51 |
+| `core::award_refs` unit tests (lib) | 23 / 23 |
+| `gui::state::entry` unit tests (lib) | 4 / 4 |
+| `security_guard` (incl. 12 `p1_f19_*` rules) | 179 / 179 |
+| Inversion reproduced before the fix | yes — the station profile's own summit/park was persisted into `sota_ref`/`pota_ref` and exported as `SOTA_REF`/`POTA_REF` while `MY_SOTA_REF`/`MY_POTA_REF` stayed empty; the official POTA `MY_SIG`/`SIG` representation was dropped on import and never emitted |
+| Inversion after the fix | 0 inversion; each side maps to its own field |
+| SOTA local → `MY_SOTA_REF` / remote → `SOTA_REF` | VERIFIED |
+| POTA local → `MY_SIG`+`MY_SIG_INFO` / remote → `SIG`+`SIG_INFO` | VERIFIED |
+| S2S / P2P preserve both sides | VERIFIED / VERIFIED |
+| One POTA representation per record | VERIFIED (direct `POTARefList` only for a multi-park side) |
+| Conflicting POTA representations | explicit per-record rejection, both values named |
+| Consistent POTA representations | merged without loss |
+| Round-trip (`export → import → export`) | fixed point, `SOFTWARE_VERIFIED` |
+| Deterministic combinatorial matrix | 100 000 combinations, every role invariant held |
+| Stress (deterministic, sleep-free) | 5 000 activator / 5 000 chaser / 5 000 S2S / 5 000 POTA activator / 5 000 hunter / 5 000 P2P / 5 000 round-trip / 2 000 conflicts / 3 000 spot-activation / 3 000 malformed / 3 000 missing |
+| Fault injection | malformed lengths, truncated record, duplicate and case-variant field names, Unicode and 2 000-character values, partial file without `EOR`, unknown/orphan `SIG`, incomplete pairs — no panic, no side swap, no silent loss |
+| Database migration | none required; one column per role already existed |
+| Historical records rewritten | none |
+| `SOFTWARE_ONLY_VERIFICATION` | true |
+| `REAL_USER_DATA_USED` | false |
+| `EXTERNAL_SOTA_UPLOAD_EXECUTED` / `EXTERNAL_POTA_UPLOAD_EXECUTED` | false / false |
+| `HARDWARE_CONNECTED` / `REAL_TRANSCEIVER_CONNECTED` | false / false |
+| `REAL_PTT_EXECUTED` / `RF_TRANSMISSION_EXECUTED` / `HIL_EXECUTED` | false / false / false |
+| `HIL_TESTS_REMAIN_IGNORED` | true (10 `#[ignore = "hardware-in-the-loop"]`) |
+| `CARGO_TOML_UNCHANGED` / `CARGO_LOCK_UNCHANGED` | true / true |
+| `F-14` / `CAT-018` / `CAT-019` / `F-15` / `F-16` / `F-17` | remain CLOSED |
+| `F-19` | CLOSED — `COMPLETED_SOTA_POTA_REFERENCE_SEMANTICS_REMEDIATION_VERIFIED` |
+| `NATIVE-7B` | NOT_STARTED |
+
+The mapping is `SOFTWARE_VERIFIED` under the tested synthetic conditions: SOTA local/remote,
+POTA local/remote, S2S, P2P, import, export, round-trip, spot perspective, activation perspective
+and conflict handling. This does **not** verify any upload to SOTA or POTA, any real user database,
+or any historical record written before this gate. The contract is documented in
+[`ADIF_AWARD_REFERENCES.md`](ADIF_AWARD_REFERENCES.md).

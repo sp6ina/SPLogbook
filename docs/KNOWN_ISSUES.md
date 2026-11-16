@@ -265,10 +265,80 @@ Files: `src/gui/ptt_input.rs`, `src/gui/shortcuts.rs`, `src/gui/app_input.rs`,
 
 This defect must not be reopened without a reproducible regression.
 
-### F-19 (P1) — SOTA/POTA reference fields inverted
+### F-19 (P1) — SOTA/POTA reference fields inverted — F-19 = CLOSED
 
-Exported spot/activation records can place the operator reference in the correspondent
-fields. Impact: invalid uploads to SOTA/POTA.
+Exported spot/activation records could place the operator's own reference in the correspondent
+field and the correspondent's reference in the local field. Impact: invalid uploads to SOTA/POTA,
+wrong activator/hunter attribution and lost references on round-trip.
+
+Root cause: the reference model had no notion of a **side**. The station profile's own reference
+was used to prefill the QSO entry field, a cluster spot of another activator wrote its reference
+into the same single field per program, and the persistence step mapped that one field to the
+**correspondent** column only (`src/gui/state/entry.rs`, `src/gui/app_config.rs`,
+`src/gui/app_qso.rs`). `MY_SOTA_REF`/`MY_POTA_REF` were therefore never written by any UI path, and
+the official POTA `MY_SIG`/`SIG` representation was neither read nor emitted
+(`src/core/adif.rs`). `MY_*` had effectively been read as "my contact" instead of "my station".
+
+Software remediation (2026-11-16, `STAGE-P1-F19-SOFTWARE`, software-only verification):
+
+- the entry state has an explicit local pair (`my_sota`, `my_pota` — the activation context,
+  prefilled from the station profile and surviving the per-QSO reset) and an explicit correspondent
+  pair (`sota`, `pota` — filled by a spot or typed); `SpLogApp::draft_qso_from_entry` is the single
+  pure mapping from the form to the record and writes each pair to its own column;
+- one central module `src/core/award_refs.rs` (`StationSide`, `AwardProgram`, `AwardRefPair`,
+  `AwardReferences`, `PotaRepresentation`) is the only place that turns references into ADIF
+  fields; the ADIF engine delegates both import and export to it;
+- SOTA: `MY_SOTA_REF` ← own summit, `SOTA_REF` ← correspondent summit; activator, chaser and
+  summit-to-summit all keep their perspective, and a missing side stays missing;
+- POTA production contract: `MY_SIG=POTA` + `MY_SIG_INFO` for the activator's own park and
+  `SIG=POTA` + `SIG_INFO` for the other activator's park, per the official POTA documentation;
+  `MY_SIG` never appears without `MY_SIG_INFO` and `SIG` never without `SIG_INFO`;
+- the ADIF 3.1.8 `MY_POTA_REF`/`POTA_REF` (`POTARefList`) fields are imported and are used for
+  multi-park values, which the POTA SIG contract cannot express; exactly **one** POTA representation
+  is emitted per record, so two contradictory representations can never be produced;
+- consistent POTA representations are merged without loss; contradictory ones are a controlled,
+  explicit per-record rejection (`AdifRecordError::ConflictingPotaRepresentation`) that names both
+  values — never an arbitrary choice and never a side swap; uninterpretable SIG data is reported as
+  an import notice instead of being silently dropped;
+- SOTA CSV V2 uses each record's own `MY_SOTA_REF` for column 3 instead of one dialog value for the
+  whole file, and leaves column 3 empty for a chaser;
+- no database migration and no historical record rewrite: each role already had its own column.
+
+Verification boundaries recorded by this gate:
+
+```
+F-19 = CLOSED
+COMPLETED_SOTA_POTA_REFERENCE_SEMANTICS_REMEDIATION_VERIFIED
+SOTA local/remote mapping = VERIFIED
+POTA local/remote mapping = VERIFIED
+S2S mapping = VERIFIED
+P2P mapping = VERIFIED
+Import role preservation = VERIFIED
+Export role preservation = VERIFIED
+ADIF round-trip = SOFTWARE_VERIFIED
+Conflicting POTA representations = REJECTED
+External SOTA/POTA upload = NOT_EXECUTED
+Real user data = NOT_USED
+SOFTWARE_ONLY_VERIFICATION=true
+F-14 / CAT-018 / CAT-019 / F-15 / F-16 / F-17 = remain CLOSED
+NATIVE-7B = NOT_STARTED
+```
+
+The verification is software-only and uses synthetic records only. It does **not** claim that any
+public system accepted a file: no upload to SOTA or POTA was performed, no account was used and no
+real log, callsign or database was read. It also does not claim that every historical user record is
+correct — rows written before this gate keep the values they were stored with, and no automatic
+repair or irreversible migration was performed. Hardware readiness and hardware PTT remain
+NOT_VERIFIED, the ten hardware-in-the-loop tests remain `#[ignore = "hardware-in-the-loop"]` and
+NATIVE-7B remains NOT_STARTED.
+
+Files: `src/core/award_refs.rs`, `src/core/adif.rs`, `src/core/qso.rs`, `src/core/sota_export.rs`,
+`src/gui/state/entry.rs`, `src/gui/app_qso.rs`, `src/gui/app_config.rs`, `src/gui/qso_entry.rs`,
+`src/gui/cluster_panel.rs`, `src/gui/app_lookup.rs`, `src/gui/app_plugins.rs`,
+`src/plugins/bridge.rs`, `tests/p1_f19_award_references.rs`, `tests/security_guard.rs`,
+`docs/ADIF_AWARD_REFERENCES.md`.
+
+This defect must not be reopened without a reproducible regression.
 
 ### F-20 (P1) — LoTW/eQSL upload selection is global and truncated
 

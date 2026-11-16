@@ -58,6 +58,7 @@ not listed in this index.
 | `LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.json` | machine-readable snapshot (`splogbook-linux-support-snapshot-v2`), validated by `security_guard` | CURRENT |
 | `docs/DATABASE_BACKUP_RECOVERY.md` | SQLite backup, validation, restore and operator recovery runbook | CURRENT |
 | `docs/HARDWARE_VALIDATION_MATRIX.md` | CAT protocol knowledge, per-backend hardware requirements, HIL preconditions | CURRENT |
+| `docs/ADIF_AWARD_REFERENCES.md` | role-aware SOTA/POTA reference semantics: ADIF field mapping, POTA SIG contract, conflict handling, round-trip rules | CURRENT |
 
 ## 6. Radio control (Native CAT)
 

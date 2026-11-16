@@ -103,6 +103,23 @@ Rawhide, backports, release candidates) never set the minimum.
   software-only with synthetic data: `REAL_USER_DATA_USED=false`, hardware behaviour remains
   NOT_VERIFIED and NATIVE-7B remains NOT_STARTED. It must not be reopened without a
   reproducible regression.
+- `F-19` (P1, SOTA/POTA operator–correspondent reference fields were inverted): **F-19 = CLOSED**
+  (2026-11-16, `STAGE-P1-F19-SOFTWARE`,
+  `COMPLETED_SOTA_POTA_REFERENCE_SEMANTICS_REMEDIATION_VERIFIED`). The ambiguous single reference
+  field per program is gone: the entry state now has an explicit local pair (`my_sota`, `my_pota`,
+  the activation context, prefilled from the station profile) and an explicit correspondent pair
+  (`sota`, `pota`, filled by a spot or by typing), and `SpLogApp::draft_qso_from_entry` maps each
+  pair to its own column. One central module (`src/core/award_refs.rs`) is the only place that turns
+  references into ADIF fields: `MY_SOTA_REF`/`SOTA_REF` for SOTA and the POTA-documented
+  `MY_SIG`/`MY_SIG_INFO` + `SIG`/`SIG_INFO` pair for POTA, with the ADIF 3.1.8
+  `MY_POTA_REF`/`POTA_REF` list used only when a side carries multiple parks. Import merges
+  consistent representations, rejects contradictory ones explicitly and preserves the value; S2S
+  and P2P keep both sides. `SOTA local/remote mapping = VERIFIED`,
+  `POTA local/remote mapping = VERIFIED`, `S2S mapping = VERIFIED`, `P2P mapping = VERIFIED`,
+  `ADIF round-trip = SOFTWARE_VERIFIED`. No schema migration, no historical record rewritten,
+  `Real user data = NOT_USED`, `External SOTA/POTA upload = NOT_EXECUTED`, hardware remains
+  NOT_VERIFIED and NATIVE-7B remains NOT_STARTED. It must not be reopened without a reproducible
+  regression.
 - `F-03` (fail-closed native Linux verification): **CLOSED**. `scripts/verify_linux_container.sh`
   treats ELF type, `ldd`, `--version`, `--build-info` and the required `GLIBC_2.43` symbol as
   assertions, installs runtime libraries from the official package manager of each pinned

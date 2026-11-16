@@ -448,3 +448,57 @@ series, 3000/3000 deletion and filter series, 200/200 GUI frames, plus a 100 000
 model matrix). No real user data, hardware, PTT or RF is used. F-14, CAT-018, CAT-019, F-15 and
 F-17 remain CLOSED; hardware readiness and hardware PTT remain NOT_VERIFIED and NATIVE-7B
 remains NOT_STARTED.
+
+## P1-F19 — SOTA/POTA operator–correspondent reference semantics (software-only)
+
+The reference model had no side. The station profile's own summit/park was used to prefill one QSO
+entry field per program, a cluster spot of another activator wrote its reference into that same
+field, and the save path mapped the field to the **correspondent** ADIF column only. `MY_SOTA_REF`
+and `MY_POTA_REF` were never written, and the official POTA `MY_SIG`/`SIG` representation was
+neither read nor emitted.
+
+1. **One role-aware model.** `src/core/award_refs.rs` defines `StationSide { Local, Remote }`,
+   `AwardProgram { Sota, Pota }`, `AwardRefPair { local, remote }`, `AwardReferences { sota, pota }`
+   and `PotaRepresentation { Absent, Sig, DirectFields }`. `local` always means the SPLogbook
+   station, `remote` always the correspondent; a missing reference is an explicit `None`; neither
+   side is ever derived from the other.
+2. **One central mapping.** `AwardReferences::adif_fields()` is the only producer of
+   `MY_SOTA_REF`, `SOTA_REF`, `MY_POTA_REF`, `POTA_REF`, `MY_SIG`, `MY_SIG_INFO`, `SIG`, `SIG_INFO`;
+   `import_adif_references()` is the only consumer. `src/core/adif.rs` contains no reference field
+   name any more and delegates both directions.
+3. **SOTA.** own summit → `MY_SOTA_REF`, correspondent summit → `SOTA_REF`, both for S2S, neither
+   copied. A summit is never carried in SIG fields.
+4. **POTA.** The production contract is the documented POTA pair — `MY_SIG=POTA` + `MY_SIG_INFO`
+   for the activator's own park and `SIG=POTA` + `SIG_INFO` for the other activator's park. A
+   marker and its `_INFO` partner are always emitted together, and exactly one representation is
+   emitted per record. The ADIF 3.1.8 `MY_POTA_REF`/`POTA_REF` list is imported and is used for a
+   multi-park value, which the POTA SIG contract cannot express.
+5. **Conflicts are explicit.** Consistent representations are merged without loss; contradictory
+   ones reject that record with `AdifRecordError::ConflictingPotaRepresentation` naming both
+   values. An uninterpretable `SIG` value is reported as an import notice, never guessed.
+6. **The form has sides.** `QsoEntryState` carries `my_sota`/`my_pota` (activation context,
+   prefilled from the station profile, preserved across the per-QSO reset) and `sota`/`pota`
+   (correspondent, filled by a spot or typed).
+   `SpLogApp::draft_qso_from_entry` is the single, pure, clock-free form→record mapping.
+7. **SOTA CSV V2** uses each record's own `MY_SOTA_REF` for column 3 instead of one dialog value
+   for the whole file, and leaves column 3 empty for a chaser.
+
+Focused gates:
+
+```
+cargo test --test p1_f19_award_references
+cargo test --lib core::award_refs
+cargo test --lib core::adif
+cargo test --lib core::sota_export
+cargo test --lib gui::state::entry
+cargo test --test security_guard p1_f19
+```
+
+The integration suite drives the production form mapping, the ADIF engine and the SOTA CSV exporter
+with synthetic `TST…` callsigns and synthetic references (`AA/BB-001`, `CC/DD-999`, `XX-0001`,
+`YY-9999`) only: SOTA activator/chaser/S2S, POTA activator/hunter/P2P, single and dual POTA
+representations, conflicts, spot and activation perspective, import/export/DB round trips, fault
+injection, a 100 000-case combinatorial matrix and deterministic sleep-free stress. No real user
+data, no account, no hardware, no PTT, no RF and no upload to SOTA or POTA is used. F-14, CAT-018,
+CAT-019, F-15, F-16 and F-17 remain CLOSED; hardware readiness and hardware PTT remain NOT_VERIFIED
+and NATIVE-7B remains NOT_STARTED.
