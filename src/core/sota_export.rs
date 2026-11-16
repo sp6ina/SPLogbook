@@ -32,6 +32,13 @@ impl SotaExportError {
 /// Eksportuje wektor łączności do oficjalnego formatu SOTA Database V2 CSV
 /// Specyfikacja formatu:
 /// V2,[MyCall],[MySOTA],[Date:DD/MM/YY],[Time:HH:MM],[Band:e.g. 14MHz],[Mode],[HisCall],[HisSOTA],[Notes]
+///
+/// Strony QSO (F-19): kolumna `[MySOTA]` zawsze opisuje **własny** szczyt stacji
+/// logującej (`QsoRecord::my_sota_ref`), a kolumna `[HisSOTA]` szczyt
+/// korespondenta (`QsoRecord::sota_ref`). `my_sota` jest wyłącznie wartością
+/// domyślną kontekstu aktywacji — używana tylko wtedy, gdy rekord nie niesie
+/// własnej referencji. Dzięki temu log z wieloma szczytami i log S2S eksportują
+/// rzeczywistą referencję każdego rekordu, a nie jedną wartość dla całego pliku.
 pub fn export_sota_csv(
     qsos: &[QsoRecord],
     my_call: &str,
@@ -41,7 +48,14 @@ pub fn export_sota_csv(
 
     for q in qsos {
         let clean_my_call = my_call.trim().to_uppercase();
-        let clean_my_sota = my_sota.trim().to_uppercase();
+        let clean_my_sota = q
+            .my_sota_ref
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(my_sota)
+            .trim()
+            .to_uppercase();
         let date_formatted =
             format_sota_date(&q.qso_date).map_err(|()| SotaExportError::InvalidDate {
                 callsign: q.callsign.clone(),
@@ -149,5 +163,69 @@ mod tests {
 
         let csv = export_sota_csv(&[q], "SP6INA", "SP/SS-001").unwrap();
         assert!(csv.starts_with("V2,SP6INA,SP/SS-001,20/09/26,14:30,14MHz,CW,OE/SP6INA/P,OE/TI-123,Peak summit activation"));
+    }
+
+    #[test]
+    fn record_local_summit_wins_over_the_activation_default() {
+        let mut q = QsoRecord::new("TSTREMOTE", "20m", "CW");
+        q.qso_date = "20260101".to_string();
+        q.time_on = "1200".to_string();
+        q.my_sota_ref = Some("aa/bb-001".to_string());
+        q.sota_ref = Some("cc/dd-999".to_string());
+
+        let csv = export_sota_csv(&[q], "TSTLOCAL", "ZZ/XX-777").expect("csv");
+        // Column 3 is the record's own summit (upper-cased per the SOTA validator),
+        // column 9 is the correspondent's summit. The dialog default must not win.
+        assert!(
+            csv.starts_with("V2,TSTLOCAL,AA/BB-001,01/01/26,12:00,14MHz,CW,TSTREMOTE,CC/DD-999,")
+        );
+        assert!(!csv.contains("ZZ/XX-777"));
+    }
+
+    #[test]
+    fn chaser_record_leaves_the_local_column_empty() {
+        let mut q = QsoRecord::new("TSTREMOTE", "20m", "CW");
+        q.qso_date = "20260101".to_string();
+        q.time_on = "1200".to_string();
+        q.sota_ref = Some("CC/DD-999".to_string());
+
+        let csv = export_sota_csv(&[q], "TSTLOCAL", "").expect("csv");
+        // A chaser log has a blank [My Summit] and the chased summit in [His Summit].
+        assert!(csv.starts_with("V2,TSTLOCAL,,01/01/26,12:00,14MHz,CW,TSTREMOTE,CC/DD-999,"));
+    }
+
+    #[test]
+    fn summit_to_summit_keeps_both_distinct_references() {
+        let mut q = QsoRecord::new("TSTREMOTE", "20m", "CW");
+        q.qso_date = "20260101".to_string();
+        q.time_on = "1200".to_string();
+        q.my_sota_ref = Some("AA/BB-001".to_string());
+        q.sota_ref = Some("CC/DD-999".to_string());
+
+        let csv = export_sota_csv(&[q], "TSTLOCAL", "ZZ/XX-777").expect("csv");
+        let line = csv.trim_end();
+        let cols: Vec<&str> = line.split(',').collect();
+        assert_eq!(cols.len(), 10, "V2 row has ten columns: {line}");
+        assert_eq!(cols[2], "AA/BB-001", "local summit column");
+        assert_eq!(cols[8], "CC/DD-999", "correspondent summit column");
+        assert_ne!(cols[2], cols[8]);
+    }
+
+    #[test]
+    fn multiple_activations_keep_their_own_local_summit_per_row() {
+        let mut first = QsoRecord::new("TSTAAA", "20m", "CW");
+        first.qso_date = "20260101".to_string();
+        first.time_on = "1200".to_string();
+        first.my_sota_ref = Some("AA/BB-001".to_string());
+
+        let mut second = QsoRecord::new("TSTBBB", "20m", "CW");
+        second.qso_date = "20260102".to_string();
+        second.time_on = "1300".to_string();
+        second.my_sota_ref = Some("EE/FF-002".to_string());
+
+        let csv = export_sota_csv(&[first, second], "TSTLOCAL", "").expect("csv");
+        let lines: Vec<&str> = csv.lines().collect();
+        assert!(lines[0].contains(",AA/BB-001,"));
+        assert!(lines[1].contains(",EE/FF-002,"));
     }
 }

@@ -656,7 +656,11 @@ impl QsoRecord {
 
     /// Zwraca miękkie ostrzeżenia walidacyjne (nie blokują zapisu). Służą do
     /// sygnalizowania wartości o podejrzanym formacie (IOTA/SOTA/POTA), które
-    /// warto skorygować, ale które nie powinny uniemożliwiać zapisu rekordu.
+    /// warto skorygować, ale które nie powinny uniemożliwiać zapisu.
+    ///
+    /// Walidowane są obie strony QSO (F-19): referencja stacji lokalnej
+    /// (`my_sota_ref`, `my_pota_ref`) i referencja korespondenta (`sota_ref`,
+    /// `pota_ref`). Kolejność jest deterministyczna: najpierw strona lokalna.
     pub fn warnings(&self) -> Vec<QsoWarning> {
         let mut warnings = Vec::new();
         if let Some(ref value) = self.iota
@@ -664,15 +668,15 @@ impl QsoRecord {
         {
             warnings.push(w);
         }
-        if let Some(ref value) = self.sota_ref
-            && let Some(w) = validate_sota_format(value)
-        {
-            warnings.push(w);
+        for value in [&self.my_sota_ref, &self.sota_ref].into_iter().flatten() {
+            if let Some(w) = validate_sota_format(value) {
+                warnings.push(w);
+            }
         }
-        if let Some(ref value) = self.pota_ref
-            && let Some(w) = validate_pota_format(value)
-        {
-            warnings.push(w);
+        for value in [&self.my_pota_ref, &self.pota_ref].into_iter().flatten() {
+            if let Some(w) = validate_pota_format(value) {
+                warnings.push(w);
+            }
         }
         warnings
     }

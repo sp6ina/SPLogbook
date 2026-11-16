@@ -50,6 +50,8 @@ pub enum AdifRecordError {
     UnresolvableBand,
     MissingDate,
     MissingTime,
+    /// Ta sama referencja POTA występuje w dwóch sprzecznych reprezentacjach.
+    ConflictingPotaRepresentation(crate::core::award_refs::AwardRefConflict),
 }
 
 impl std::fmt::Display for AdifRecordError {
@@ -59,6 +61,7 @@ impl std::fmt::Display for AdifRecordError {
             Self::UnresolvableBand => write!(f, "brak pola BAND ani rozpoznawalnej FREQ."),
             Self::MissingDate => write!(f, "brak wymaganego pola QSO_DATE."),
             Self::MissingTime => write!(f, "brak wymaganego pola TIME_ON."),
+            Self::ConflictingPotaRepresentation(conflict) => write!(f, "{}", conflict.message()),
         }
     }
 }
@@ -115,6 +118,15 @@ pub struct AdifCompatibilityWarning {
     pub warning_category: &'static str,
 }
 
+/// Uwaga importera o referencji dyplomowej, której nie da się przypisać do programu.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdifReferenceNotice {
+    /// Indeks rekordu (liczony od 1).
+    pub record_index: usize,
+    /// Czytelny opis problemu.
+    pub message: String,
+}
+
 /// Wynik importu ADIF wraz z pełnym raportem odrzuconych rekordów i błędów.
 pub struct AdifImportResult {
     /// Poprawnie sparsowane rekordy QSO.
@@ -127,6 +139,8 @@ pub struct AdifImportResult {
     pub errors: Vec<String>,
     /// Ostrzeżenia trybu kompatybilności.
     pub compatibility_warnings: Vec<AdifCompatibilityWarning>,
+    /// Uwagi o referencjach SOTA/POTA, których nie da się przypisać do programu (bez utraty roli).
+    pub reference_notices: Vec<AdifReferenceNotice>,
 }
 
 impl AdifEngine {
@@ -178,6 +192,7 @@ impl AdifEngine {
         let mut qsos = Vec::new();
         let mut errors = Vec::new();
         let mut compatibility_warnings = Vec::new();
+        let mut reference_notices = Vec::new();
         let mut rejected = 0usize;
         let mut record_index = 0usize;
         // Czy bieżący rekord zawiera błąd składni (np. nieprawidłowa długość pola).
@@ -209,8 +224,14 @@ impl AdifEngine {
                         rejected += 1;
                     } else {
                         match Self::fields_to_qso(&mut current_fields) {
-                            Ok(qso) => {
+                            Ok((qso, notices)) => {
                                 qsos.push(qso);
+                                for notice in notices {
+                                    reference_notices.push(AdifReferenceNotice {
+                                        record_index,
+                                        message: notice.message(),
+                                    });
+                                }
                                 if let Some(msg) =
                                     Self::missing_mode_error(&current_fields, record_index)
                                 {
@@ -414,8 +435,14 @@ impl AdifEngine {
                 rejected += 1;
             } else {
                 match Self::fields_to_qso(&mut current_fields) {
-                    Ok(qso) => {
+                    Ok((qso, notices)) => {
                         qsos.push(qso);
+                        for notice in notices {
+                            reference_notices.push(AdifReferenceNotice {
+                                record_index,
+                                message: notice.message(),
+                            });
+                        }
                         if let Some(msg) = Self::missing_mode_error(&current_fields, record_index) {
                             errors.push(msg);
                         }
@@ -434,6 +461,7 @@ impl AdifEngine {
             rejected,
             errors,
             compatibility_warnings,
+            reference_notices,
         })
     }
 
@@ -603,9 +631,17 @@ impl AdifEngine {
 
     /// Konwertuje mapę pól ADIF na rekord QsoRecord.
     ///
-    /// Zwraca `Err` z komunikatem odrzucenia, gdy brakuje wymaganego pola CALL
-    /// lub gdy nie da się ustalić pasma (brak BAND i rozpoznawalnej FREQ).
-    fn fields_to_qso(fields: &mut HashMap<String, String>) -> Result<QsoRecord, AdifRecordError> {
+    /// Referencje dyplomowe SOTA/POTA są odczytywane wyłącznie przez centralne,
+    /// świadome stron mapowanie [`crate::core::award_refs::import_adif_references`],
+    /// które rozpoznaje pola bezpośrednie i reprezentację SIG, scala reprezentacje
+    /// zgodne i zgłasza konflikt przy sprzecznych — nigdy nie zamienia stron.
+    ///
+    /// Zwraca `Err` z komunikatem odrzucenia, gdy brakuje wymaganego pola CALL,
+    /// gdy nie da się ustalić pasma (brak BAND i rozpoznawalnej FREQ) lub gdy
+    /// referencje POTA są sprzeczne.
+    fn fields_to_qso(
+        fields: &mut HashMap<String, String>,
+    ) -> Result<(QsoRecord, Vec<crate::core::award_refs::AwardRefNotice>), AdifRecordError> {
         let call = match fields.remove("CALL") {
             Some(c) if !c.is_empty() => c,
             _ => return Err(AdifRecordError::MissingCall),
@@ -682,10 +718,10 @@ impl AdifEngine {
         qso.gridsquare = fields.remove("GRIDSQUARE");
         qso.state = fields.remove("STATE");
         qso.iota = fields.remove("IOTA");
-        qso.sota_ref = fields.remove("SOTA_REF");
-        qso.pota_ref = fields.remove("POTA_REF");
-        qso.my_pota_ref = fields.remove("MY_POTA_REF");
-        qso.my_sota_ref = fields.remove("MY_SOTA_REF");
+        // F-19: referencje SOTA/POTA wyłącznie przez centralne mapowanie stron.
+        let reference_import = crate::core::award_refs::import_adif_references(fields)
+            .map_err(AdifRecordError::ConflictingPotaRepresentation)?;
+        reference_import.references.apply_to_qso(&mut qso);
         qso.vucc_grids = fields.remove("VUCC_GRIDS");
         qso.pga_ref = fields.remove("PGA_REF").or_else(|| fields.remove("PGA"));
         if let Some(dxcc) = fields.get("DXCC") {
@@ -740,7 +776,7 @@ impl AdifEngine {
             .remove("QSL_VIA_MANAGER")
             .or_else(|| fields.remove("QSL_MANAGER"));
 
-        Ok(qso)
+        Ok((qso, reference_import.notices))
     }
 
     /// Eksportuje listę łączności do formatu ADIF.
@@ -811,18 +847,8 @@ impl AdifEngine {
         if let Some(ref v) = q.iota {
             f.push(("IOTA", v.clone()));
         }
-        if let Some(ref v) = q.sota_ref {
-            f.push(("SOTA_REF", v.clone()));
-        }
-        if let Some(ref v) = q.pota_ref {
-            f.push(("POTA_REF", v.clone()));
-        }
-        if let Some(ref v) = q.my_pota_ref {
-            f.push(("MY_POTA_REF", v.clone()));
-        }
-        if let Some(ref v) = q.my_sota_ref {
-            f.push(("MY_SOTA_REF", v.clone()));
-        }
+        // F-19: referencje SOTA/POTA wyłącznie przez centralne mapowanie stron.
+        f.extend(q.award_references().adif_fields());
         if let Some(ref v) = q.vucc_grids {
             f.push(("VUCC_GRIDS", v.clone()));
         }
@@ -968,6 +994,7 @@ pub fn parse_adif_with_mode(content: &str, mode: AdifParseMode) -> AdifImportRes
             rejected: 0,
             errors: vec![e.to_string()],
             compatibility_warnings: Vec::new(),
+            reference_notices: Vec::new(),
         })
 }
 

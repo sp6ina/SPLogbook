@@ -3,6 +3,7 @@
 
 pub mod adif;
 pub mod astronomy;
+pub mod award_refs;
 pub mod awards;
 pub mod backup;
 pub mod bandplan;
