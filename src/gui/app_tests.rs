@@ -2342,3 +2342,500 @@ fn astronomy_dialog_tracks_target_rotation() {
     assert_eq!(rotor.elevation_deg, 35.0);
     assert!(dialog.is_open);
 }
+
+// ======================================================================================
+// F-17 — PTT user-interaction, keyboard gating and release control (software-only)
+// ======================================================================================
+
+/// Rejestrujący kanał nadawczy — wyłącznie zakres testowy.
+#[derive(Debug, Default)]
+struct F17RecordingPort {
+    on_calls: usize,
+    off_calls: usize,
+}
+
+impl crate::gui::ptt_input::PttTransmitPort for F17RecordingPort {
+    fn request_on(&mut self) -> Result<(), crate::gui::ptt_input::PttPortError> {
+        self.on_calls += 1;
+        Ok(())
+    }
+
+    fn request_off(&mut self) -> Result<(), crate::gui::ptt_input::PttPortError> {
+        self.off_calls += 1;
+        Ok(())
+    }
+}
+
+/// Deterministyczny harness klatki GUI — ten sam produkcyjny punkt wejścia co aplikacja,
+/// bez okna systemowego.
+struct F17Harness {
+    app: SpLogApp,
+    ctx: egui::Context,
+}
+
+impl F17Harness {
+    fn new() -> Self {
+        let deps = test_deps();
+        let init = AppInit {
+            config: AppConfig::default(),
+            config_file_path: std::path::PathBuf::from("config.json"),
+            active_db_path: std::path::PathBuf::from("db.sqlite"),
+            shutdown_policy: ShutdownPolicy::None,
+        };
+        let mut app = SpLogApp::for_tests(init, deps);
+        app.gui.chrome.show_welcome_wizard = false;
+        Self {
+            app,
+            ctx: egui::Context::default(),
+        }
+    }
+
+    /// Uruchamia jedną klatkę z podanymi zdarzeniami i stanem fokusu okna.
+    fn frame(&mut self, events: Vec<egui::Event>, window_focused: bool) {
+        let Self { app, ctx } = self;
+        let mut raw = egui::RawInput {
+            focused: window_focused,
+            ..egui::RawInput::default()
+        };
+        raw.events = events;
+        let mut output = ctx.run_ui(raw, |ui| {
+            app.handle_input_and_shortcuts(ui.ctx());
+        });
+        output.textures_delta.clear();
+    }
+
+    fn key(&mut self, key: egui::Key, modifiers: egui::Modifiers, repeat: bool) {
+        self.frame(
+            vec![egui::Event::Key {
+                key,
+                physical_key: None,
+                pressed: true,
+                repeat,
+                modifiers,
+            }],
+            true,
+        );
+    }
+
+    fn last_outcome(&self) -> Option<crate::gui::ptt_input::PttDispatchOutcome> {
+        self.app.ptt.last_outcome
+    }
+
+    /// Rozłączne liczniki wymagane przez bramkę: żądania PTT, żądania ON i wywołania backendu.
+    fn counters(&self) -> (usize, usize, usize) {
+        match self.last_outcome() {
+            Some(outcome) if outcome.is_request() => (
+                1,
+                usize::from(outcome == crate::gui::ptt_input::PttDispatchOutcome::RequestedOn),
+                1,
+            ),
+            _ => (0, 0, 0),
+        }
+    }
+}
+
+const F17_CTRL: egui::Modifiers = egui::Modifiers::COMMAND;
+const F17_CTRL_SHIFT: egui::Modifiers = egui::Modifiers::COMMAND.plus(egui::Modifiers::SHIFT);
+
+#[test]
+fn f17_bare_f7_never_produces_a_ptt_request() {
+    let mut harness = F17Harness::new();
+    harness.key(egui::Key::F7, egui::Modifiers::NONE, false);
+    assert_eq!(
+        harness.last_outcome(),
+        None,
+        "a bare F7 must never reach the PTT dispatcher"
+    );
+    assert_eq!(harness.counters(), (0, 0, 0));
+}
+
+#[test]
+fn f17_shift_f7_and_alt_f7_never_produce_a_ptt_request() {
+    for modifiers in [egui::Modifiers::SHIFT, egui::Modifiers::ALT] {
+        let mut harness = F17Harness::new();
+        harness.key(egui::Key::F7, modifiers, false);
+        assert_eq!(harness.last_outcome(), None, "{modifiers:?}");
+    }
+}
+
+#[test]
+fn f17_ptt_shortcut_is_blocked_while_text_editing() {
+    let mut harness = F17Harness::new();
+    harness
+        .ctx
+        .memory_mut(|m| m.request_focus(egui::Id::new("qso_entry_callsign")));
+    harness.key(egui::Key::F7, F17_CTRL_SHIFT, false);
+    assert_eq!(
+        harness.last_outcome(),
+        None,
+        "PTT must not fire while a text field has focus"
+    );
+    assert_eq!(harness.counters(), (0, 0, 0));
+}
+
+#[test]
+fn f17_ptt_shortcut_is_blocked_while_search_field_is_focused() {
+    let mut harness = F17Harness::new();
+    harness
+        .ctx
+        .memory_mut(|m| m.request_focus(egui::Id::new("log_filter_input")));
+    harness.key(egui::Key::F7, F17_CTRL_SHIFT, false);
+    assert_eq!(harness.last_outcome(), None);
+}
+
+#[test]
+fn f17_ptt_shortcut_is_blocked_while_a_modal_is_open() {
+    let mut harness = F17Harness::new();
+    harness.app.gui.dialogs.advanced_filter_dialog.is_open = true;
+    harness.key(egui::Key::F7, F17_CTRL_SHIFT, false);
+    assert_eq!(
+        harness.last_outcome(),
+        None,
+        "PTT must not fire while a modal window is open"
+    );
+}
+
+#[test]
+fn f17_ptt_shortcut_repeat_never_retriggers() {
+    // egui sam wylicza flagę `repeat` z `keys_down`, więc powtórzenie odtwarzamy dwiema
+    // klatkami: pierwsze naciśnięcie jest rejestrowane, druga klatka to już autorepeat.
+    let mut harness = F17Harness::new();
+    harness.key(egui::Key::F7, F17_CTRL_SHIFT, false);
+    assert!(
+        harness.last_outcome().is_some(),
+        "the first press must reach the dispatcher"
+    );
+    assert_eq!(harness.counters(), (0, 0, 0));
+
+    harness.app.ptt.last_outcome = None;
+    harness.key(egui::Key::F7, F17_CTRL_SHIFT, true);
+    assert_eq!(
+        harness.last_outcome(),
+        None,
+        "a repeated key must never reach the PTT dispatcher"
+    );
+    assert_eq!(harness.counters(), (0, 0, 0));
+}
+
+#[test]
+fn f17_ptt_shortcut_release_never_triggers_on() {
+    let mut harness = F17Harness::new();
+    harness.frame(
+        vec![egui::Event::Key {
+            key: egui::Key::F7,
+            physical_key: None,
+            pressed: false,
+            repeat: false,
+            modifiers: F17_CTRL_SHIFT,
+        }],
+        true,
+    );
+    assert_eq!(harness.last_outcome(), None);
+}
+
+#[test]
+fn f17_ptt_shortcut_is_blocked_when_the_window_is_unfocused() {
+    let mut harness = F17Harness::new();
+    harness.frame(
+        vec![egui::Event::Key {
+            key: egui::Key::F7,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: F17_CTRL_SHIFT,
+        }],
+        false,
+    );
+    assert_eq!(
+        harness.last_outcome(),
+        None,
+        "PTT must not fire without window focus"
+    );
+}
+
+#[test]
+fn f17_ptt_shortcut_is_blocked_during_ime_composition() {
+    let mut harness = F17Harness::new();
+    // Klatka rozpoczynająca kompozycję IME.
+    harness.frame(
+        vec![egui::Event::Ime(egui::ImeEvent::Preedit {
+            text: "に".to_string(),
+            active_range_chars: None,
+        })],
+        true,
+    );
+    harness.key(egui::Key::F7, F17_CTRL_SHIFT, false);
+    assert_eq!(
+        harness.last_outcome(),
+        None,
+        "PTT must not fire during IME composition"
+    );
+    assert_eq!(harness.counters(), (0, 0, 0));
+}
+
+#[test]
+fn f17_ptt_shortcut_after_ime_commit_requires_a_new_gesture() {
+    let mut harness = F17Harness::new();
+    harness.frame(
+        vec![egui::Event::Ime(egui::ImeEvent::Preedit {
+            text: "に".to_string(),
+            active_range_chars: None,
+        })],
+        true,
+    );
+    // Klatka z commit — bramka IME pozostaje zamknięta w tej samej klatce.
+    harness.frame(
+        vec![
+            egui::Event::Ime(egui::ImeEvent::Commit("に".to_string())),
+            egui::Event::Key {
+                key: egui::Key::F7,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: F17_CTRL_SHIFT,
+            },
+        ],
+        true,
+    );
+    assert_eq!(harness.last_outcome(), None);
+}
+
+#[test]
+fn f17_several_f7_events_in_one_frame_never_produce_more_than_one_intent() {
+    let mut harness = F17Harness::new();
+    let events: Vec<egui::Event> = (0..5)
+        .map(|_| egui::Event::Key {
+            key: egui::Key::F7,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: F17_CTRL_SHIFT,
+        })
+        .collect();
+    harness.frame(events, true);
+    // Bez autoryzacji F-15 dispatcher jest osiągany, ale odmawia.
+    assert_eq!(
+        harness.last_outcome(),
+        Some(
+            crate::gui::ptt_input::PttDispatchOutcome::AuthorizationDenied(
+                crate::cat::hil::authorization::HilAuthorizationOutcome::NotEvaluated
+            )
+        )
+    );
+    assert_eq!(harness.counters(), (0, 0, 0));
+}
+
+#[test]
+fn f17_valid_shortcut_without_f15_authorization_never_calls_the_backend() {
+    let mut harness = F17Harness::new();
+    harness.key(egui::Key::F7, F17_CTRL_SHIFT, false);
+    assert_eq!(
+        harness.last_outcome(),
+        Some(
+            crate::gui::ptt_input::PttDispatchOutcome::AuthorizationDenied(
+                crate::cat::hil::authorization::HilAuthorizationOutcome::NotEvaluated
+            )
+        ),
+        "a valid PTT ON gesture must be reached and denied by F-15"
+    );
+    let (requests, ons, backend) = harness.counters();
+    assert_eq!((requests, ons, backend), (0, 0, 0));
+    assert!(
+        !harness.app.cat.ptt_active,
+        "a denial must never show TX in the GUI"
+    );
+}
+
+#[test]
+fn f17_ptt_off_shortcut_never_requires_authorization_and_never_calls_the_backend_when_idle() {
+    let mut harness = F17Harness::new();
+    harness.key(egui::Key::F7, F17_CTRL, false);
+    assert_eq!(
+        harness.last_outcome(),
+        Some(crate::gui::ptt_input::PttDispatchOutcome::NotTransmitting),
+        "PTT OFF while idle must be a no-op, not an authorization denial"
+    );
+    assert_eq!(harness.counters(), (0, 0, 0));
+}
+
+#[test]
+fn f17_screen_button_on_without_authorization_never_calls_the_backend() {
+    let mut harness = F17Harness::new();
+    // Bramki muszą być wyliczone przez produkcyjną ścieżkę klatki.
+    harness.frame(vec![], true);
+    let snapshot = harness.app.ptt_input_snapshot(
+        crate::gui::ptt_input::PttActionSource::ScreenButton,
+        crate::gui::ptt_input::PttIntent::RequestOn,
+    );
+    let mut port = F17RecordingPort::default();
+    let outcome = harness.app.dispatch_ptt_with_port(snapshot, &mut port);
+    assert!(matches!(
+        outcome,
+        crate::gui::ptt_input::PttDispatchOutcome::AuthorizationDenied(_)
+    ));
+    assert_eq!(port.on_calls, 0);
+    assert_eq!(port.off_calls, 0);
+    assert!(!harness.app.cat.ptt_active);
+}
+
+#[test]
+fn f17_screen_button_off_while_idle_does_not_call_the_backend() {
+    let mut harness = F17Harness::new();
+    harness.frame(vec![], true);
+    let snapshot = harness.app.ptt_input_snapshot(
+        crate::gui::ptt_input::PttActionSource::ScreenButton,
+        crate::gui::ptt_input::PttIntent::RequestOff,
+    );
+    let mut port = F17RecordingPort::default();
+    let outcome = harness.app.dispatch_ptt_with_port(snapshot, &mut port);
+    assert_eq!(
+        outcome,
+        crate::gui::ptt_input::PttDispatchOutcome::NotTransmitting
+    );
+    assert_eq!(port.off_calls, 0);
+    assert_eq!(port.on_calls, 0);
+}
+
+#[test]
+fn f17_command_palette_exposes_two_explicit_ptt_commands() {
+    let labels: Vec<&'static str> = crate::gui::command_palette::COMMANDS
+        .iter()
+        .filter(|c| {
+            c.label_key == crate::core::i18n::key::CMD_PTT_ON
+                || c.label_key == crate::core::i18n::key::CMD_PTT_OFF
+        })
+        .map(|c| c.label_key.as_str())
+        .collect();
+    assert_eq!(labels.len(), 2, "palette must expose PTT ON and PTT OFF");
+    assert!(labels.contains(&"cmd.ptt_on"));
+    assert!(labels.contains(&"cmd.ptt_off"));
+}
+
+#[test]
+fn f17_focus_loss_does_not_call_the_backend_when_nothing_is_transmitting() {
+    let mut harness = F17Harness::new();
+    harness.frame(vec![], true);
+    harness.frame(vec![], false);
+    harness.app.release_ptt_on_focus_loss();
+    assert_eq!(harness.counters(), (0, 0, 0));
+    assert!(!harness.app.cat.ptt_active);
+}
+
+#[test]
+fn f17_gui_never_sets_tx_state_from_a_ptt_request() {
+    let mut harness = F17Harness::new();
+    harness.key(egui::Key::F7, F17_CTRL_SHIFT, false);
+    assert!(!harness.app.cat.ptt_active);
+    harness.key(egui::Key::F7, F17_CTRL, false);
+    assert!(!harness.app.cat.ptt_active);
+    // Stan TX jest wyłącznie pochodną telemetrii i stanu arbitra.
+    assert!(matches!(
+        harness.app.ptt_transmit_state(),
+        crate::gui::ptt_input::PttTransmitState::Idle
+    ));
+}
+
+#[test]
+fn f17_default_ptt_gates_are_fail_closed() {
+    let state = crate::gui::state::PttUiState::default();
+    assert!(state.gates.text_editing);
+    assert!(state.gates.ime_composing);
+    assert!(!state.gates.window_focused);
+    assert!(state.gates.modal_open);
+    assert!(state.last_outcome.is_none());
+}
+
+#[test]
+fn f17_screen_button_double_click_never_calls_the_backend_without_authorization() {
+    let mut harness = F17Harness::new();
+    harness.frame(vec![], true);
+    let mut port = F17RecordingPort::default();
+    for _ in 0..2 {
+        let snapshot = harness.app.ptt_input_snapshot(
+            crate::gui::ptt_input::PttActionSource::ScreenButton,
+            crate::gui::ptt_input::PttIntent::RequestOn,
+        );
+        let outcome = harness.app.dispatch_ptt_with_port(snapshot, &mut port);
+        assert!(matches!(
+            outcome,
+            crate::gui::ptt_input::PttDispatchOutcome::AuthorizationDenied(_)
+        ));
+    }
+    assert_eq!(port.on_calls, 0, "a double click must never key PTT");
+    assert_eq!(port.off_calls, 0);
+    assert!(!harness.app.cat.ptt_active);
+}
+
+#[test]
+fn f17_screen_button_click_is_ignored_while_a_modal_is_open() {
+    let mut harness = F17Harness::new();
+    harness.app.gui.dialogs.advanced_filter_dialog.is_open = true;
+    harness.frame(vec![], true);
+    let snapshot = harness.app.ptt_input_snapshot(
+        crate::gui::ptt_input::PttActionSource::ScreenButton,
+        crate::gui::ptt_input::PttIntent::RequestOn,
+    );
+    let mut port = F17RecordingPort::default();
+    let outcome = harness.app.dispatch_ptt_with_port(snapshot, &mut port);
+    assert_eq!(
+        outcome,
+        crate::gui::ptt_input::PttDispatchOutcome::IgnoredModalOpen
+    );
+    assert_eq!(port.on_calls, 0);
+}
+
+#[test]
+fn f17_screen_button_click_is_ignored_without_window_focus() {
+    let mut harness = F17Harness::new();
+    harness.frame(vec![], false);
+    let snapshot = harness.app.ptt_input_snapshot(
+        crate::gui::ptt_input::PttActionSource::ScreenButton,
+        crate::gui::ptt_input::PttIntent::RequestOff,
+    );
+    let mut port = F17RecordingPort::default();
+    let outcome = harness.app.dispatch_ptt_with_port(snapshot, &mut port);
+    assert_eq!(
+        outcome,
+        crate::gui::ptt_input::PttDispatchOutcome::IgnoredWindowUnfocused
+    );
+    assert_eq!(port.off_calls, 0);
+}
+
+#[test]
+fn f17_screen_button_click_is_ignored_while_text_editing() {
+    let mut harness = F17Harness::new();
+    harness
+        .ctx
+        .memory_mut(|m| m.request_focus(egui::Id::new("qso_entry_callsign")));
+    harness.frame(vec![], true);
+    let snapshot = harness.app.ptt_input_snapshot(
+        crate::gui::ptt_input::PttActionSource::ScreenButton,
+        crate::gui::ptt_input::PttIntent::RequestOn,
+    );
+    let mut port = F17RecordingPort::default();
+    let outcome = harness.app.dispatch_ptt_with_port(snapshot, &mut port);
+    assert_eq!(
+        outcome,
+        crate::gui::ptt_input::PttDispatchOutcome::IgnoredTextEditing
+    );
+    assert_eq!(port.on_calls, 0);
+}
+
+#[test]
+fn f17_gui_state_never_shows_tx_after_a_denied_or_failed_request() {
+    let mut harness = F17Harness::new();
+    harness.frame(vec![], true);
+    let snapshot = harness.app.ptt_input_snapshot(
+        crate::gui::ptt_input::PttActionSource::ScreenButton,
+        crate::gui::ptt_input::PttIntent::RequestOff,
+    );
+    let outcome = harness
+        .app
+        .dispatch_ptt_with_port(snapshot, &mut F17RecordingPort::default());
+    assert!(outcome.is_denial());
+    assert!(!harness.app.cat.ptt_active);
+    assert!(matches!(
+        harness.app.ptt_transmit_state(),
+        crate::gui::ptt_input::PttTransmitState::Idle
+    ));
+}

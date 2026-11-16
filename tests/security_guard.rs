@@ -8148,3 +8148,627 @@ fn p1_f15_documentation_records_software_only_scope_guard() {
         );
     }
 }
+
+// ============================================================================
+// STAGE-P1-F17-SOFTWARE -- safe PTT user interaction and release control (F-17)
+//
+// F-17 removed the unsafe single-key PTT toggle. These guards pin the software
+// properties that make an unsafe PTT interaction impossible:
+//   * PTT is never bound to a single key and never exposed as a toggle;
+//   * every PTT binding requires exact modifiers, text-focus gating, modal
+//     gating and key-repeat rejection;
+//   * shortcut resolution consults text focus, IME, window focus and modal state;
+//   * every GUI PTT interaction goes through one central dispatcher;
+//   * the GUI never names the authorized F-15 outcome and never builds SetPtt;
+//   * PTT ON without F-15 authorization is impossible (PTT OFF stays available);
+//   * test-only doubles live exclusively in test scope;
+//   * no bypass token exists in source, manifest, workflow or localisation;
+//   * F-14 / CAT-018 / CAT-019 / F-15 stay closed, NATIVE-7B stays NOT_STARTED.
+// The guards read only tracked repository files; they never depend on the
+// owner-local .local-work/ reports.
+// ============================================================================
+
+/// Reads a tracked source file and returns its contents (F-17 helper).
+fn p1_f17_read(path: &str) -> String {
+    fs::read_to_string(path).unwrap_or_else(|error| panic!("cannot read {path}: {error}"))
+}
+
+/// Returns the PTT block of `src/gui/shortcuts.rs` (between the F-17 banner and F8).
+fn p1_f17_ptt_binding_block() -> String {
+    let source = p1_f17_read("src/gui/shortcuts.rs");
+    let start = source
+        .find("// --- PTT (F-17)")
+        .expect("F-17 PTT binding banner must exist in src/gui/shortcuts.rs");
+    let tail = &source[start..];
+    let end = tail
+        .find("AppAction::ToggleVoiceKeyer")
+        .expect("the voice keyer binding must follow the PTT bindings");
+    tail[..end].to_string()
+}
+
+/// Lists every `.rs` source file under a repository subdirectory (tracked or not, so a newly
+/// added file cannot escape the guard before it is committed).
+fn p1_f17_tracked_sources(prefix: &str) -> Vec<String> {
+    let mut paths = Vec::new();
+    for entry in walkdir::WalkDir::new(prefix)
+        .into_iter()
+        .filter_map(Result::ok)
+    {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+            continue;
+        }
+        paths.push(path.to_string_lossy().replace('\\', "/"));
+    }
+    paths.sort();
+    paths
+}
+
+#[test]
+fn p1_f17_ptt_is_never_a_single_key_guard() {
+    let block = p1_f17_ptt_binding_block();
+
+    // Exactly the two explicit, modifier-based intents are registered.
+    assert!(
+        block.contains("KeyboardShortcut::new(ctrl_shift, Key::F7)"),
+        "PTT ON must require Ctrl+Shift+F7"
+    );
+    assert!(
+        block.contains("KeyboardShortcut::new(ctrl, Key::F7)"),
+        "PTT OFF must require Ctrl+F7"
+    );
+    assert!(
+        !block.contains("KeyboardShortcut::new(none, Key::F7)"),
+        "F-17: a modifier-less F7 must never be registered as PTT"
+    );
+    assert!(
+        block.contains("AppAction::PttOn") && block.contains("AppAction::PttOff"),
+        "F-17: PTT must be split into two disjoint intents"
+    );
+    assert!(
+        !block.contains("AppAction::TogglePtt"),
+        "F-17: the ambiguous TogglePtt action must not exist"
+    );
+
+    // No single-key PTT anywhere in the registry.
+    let source = p1_f17_read("src/gui/shortcuts.rs");
+    assert!(
+        !source.contains("AppAction::TogglePtt"),
+        "F-17: AppAction::TogglePtt must be gone from the registry"
+    );
+    for line in qa_code_lines(&source) {
+        let trimmed = line.trim();
+        if trimmed.contains("KeyboardShortcut::new(") && trimmed.contains("Key::F7") {
+            assert!(
+                trimmed.contains("ctrl")
+                    || trimmed.contains("COMMAND")
+                    || trimmed.contains("ctrl_shift"),
+                "F-17: an F7 binding must carry an explicit modifier: {trimmed}"
+            );
+        }
+    }
+}
+
+#[test]
+fn p1_f17_ptt_bindings_are_fully_gated_guard() {
+    let block = p1_f17_ptt_binding_block();
+    assert_eq!(
+        block.matches(".with_exact_modifiers()").count(),
+        2,
+        "F-17: both PTT bindings must require exact modifiers"
+    );
+    assert_eq!(
+        block.matches(".blocked_when_modal()").count(),
+        2,
+        "F-17: both PTT bindings must be blocked while a modal is open"
+    );
+    assert_eq!(
+        block
+            .matches("ConflictPolicy::BlockWhenTextEditing")
+            .count(),
+        2,
+        "F-17: both PTT bindings must be blocked during text editing"
+    );
+    assert_eq!(
+        block.matches("RepeatPolicy::SingleTrigger").count(),
+        2,
+        "F-17: both PTT bindings must ignore key repeat"
+    );
+    assert!(
+        !block.contains("ConflictPolicy::AllowInTextEditing"),
+        "F-17: a PTT binding may never be allowed during text editing"
+    );
+}
+
+#[test]
+fn p1_f17_shortcut_resolution_checks_every_gate_guard() {
+    let source = p1_f17_read("src/gui/shortcuts.rs");
+    for required in [
+        "gates.text_editing",
+        "gates.modal_open",
+        "gates.window_focused",
+        "gates.ime_composing",
+        "ModalPolicy::BlockWhenAnyModal",
+        "ModifierPolicy::ExactRequired",
+    ] {
+        assert!(
+            source.contains(required),
+            "F-17: shortcut resolution must consult {required}"
+        );
+    }
+    // The exact-match consumer rejects release and repeat before consuming anything.
+    assert!(
+        source.contains("fn consume_exact_press"),
+        "F-17: an exact-modifier consumer must exist"
+    );
+    let consumer = source
+        .split("fn consume_exact_press")
+        .nth(1)
+        .expect("exact consumer body");
+    let body = consumer.split("\n}\n").next().unwrap_or(consumer);
+    for required in ["pressed: true", "repeat: false", "matches_exact"] {
+        assert!(
+            body.contains(required),
+            "F-17: the exact consumer must require {required}"
+        );
+    }
+    // Fail-closed default.
+    assert!(
+        source.contains("pub const fn fail_closed()"),
+        "F-17: unreadable gates must fail closed"
+    );
+}
+
+#[test]
+fn p1_f17_gui_never_names_the_authorized_outcome_guard() {
+    for path in p1_f17_tracked_sources("src/gui") {
+        let source = p1_f17_read(&path);
+        for line in qa_code_lines(&source) {
+            assert!(
+                !line.contains("HardwareExecutionAuthorized"),
+                "F-17: {path} must never name the authorized F-15 outcome: {}",
+                line.trim()
+            );
+        }
+    }
+    // The production gate lives inside the F-15 module and always denies.
+    let authorization = p1_f17_read("src/cat/hil/authorization.rs");
+    assert!(
+        authorization.contains("pub fn evaluate_gui_ptt_authorization()"),
+        "F-17: the GUI PTT authorization gate must exist inside the F-15 module"
+    );
+    assert!(
+        authorization.contains("HilAuthorizationDecision::not_evaluated().outcome()"),
+        "F-17: the GUI PTT authorization gate must default to NotEvaluated"
+    );
+}
+
+#[test]
+fn p1_f17_gui_never_builds_set_ptt_and_never_toggles_guard() {
+    for path in p1_f17_tracked_sources("src/gui") {
+        let source = p1_f17_read(&path);
+        for line in qa_code_lines(&source) {
+            assert!(
+                !line.contains("RigCommand::SetPtt"),
+                "F-17: {path} must never build RigCommand::SetPtt: {}",
+                line.trim()
+            );
+            assert!(
+                !line.contains("SetPtt(true)"),
+                "F-17: {path} must never request PTT ON directly: {}",
+                line.trim()
+            );
+            assert!(
+                !line.contains("fn toggle_ptt"),
+                "F-17: {path} must not define a toggle PTT entry point"
+            );
+        }
+    }
+}
+
+#[test]
+fn p1_f17_all_gui_ptt_interaction_goes_through_the_dispatcher_guard() {
+    // Every user-interaction surface calls the central dispatcher.
+    for (path, required) in [
+        ("src/gui/app_input.rs", "dispatch_ptt("),
+        ("src/gui/app_cat.rs", "pub fn dispatch_ptt("),
+        ("src/gui/vfo_panel.rs", "dispatch_ptt("),
+        ("src/gui/command_palette.rs", "dispatch_ptt("),
+    ] {
+        let source = p1_f17_read(path);
+        assert!(
+            source.contains(required),
+            "F-17: {path} must route PTT intent through the central dispatcher"
+        );
+        assert!(
+            !source.contains("toggle_ptt("),
+            "F-17: {path} must not call the removed toggle entry point"
+        );
+    }
+
+    // The set of direct runtime TX call sites in src/gui is closed and enumerated:
+    // they are programmatic transmitters, not keyboard interaction, and are pinned here so
+    // that no new bypass of the dispatcher can be added silently.
+    let allowed = [
+        "src/gui/app_async.rs",
+        "src/gui/voice_keyer.rs",
+        "src/gui/app_plugins.rs",
+    ];
+    let mut offenders = Vec::new();
+    for path in p1_f17_tracked_sources("src/gui") {
+        let source = p1_f17_read(&path);
+        let direct = source.contains("request_tx_confirmed(")
+            || source.contains("release_tx_confirmed(")
+            || source.contains(".request_tx(")
+            || source.contains(".release_tx(");
+        if direct && !allowed.contains(&path.as_str()) && path != "src/gui/app_cat.rs" {
+            offenders.push(path);
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "F-17: these GUI files bypass the central dispatcher: {offenders:?}"
+    );
+
+    // The production port is the only place in src/gui that reaches TxArbiter.
+    let app_cat = p1_f17_read("src/gui/app_cat.rs");
+    assert_eq!(
+        app_cat.matches(".request_tx(").count(),
+        1,
+        "F-17: exactly one production request_tx call may exist in app_cat.rs"
+    );
+    assert_eq!(
+        app_cat.matches(".release_tx(").count(),
+        1,
+        "F-17: exactly one production release_tx call may exist in app_cat.rs"
+    );
+}
+
+#[test]
+fn p1_f17_dispatcher_rejects_release_repeat_and_unauthorized_on_guard() {
+    let source = p1_f17_read("src/gui/ptt_input.rs");
+    assert!(
+        source.contains("PttDispatchOutcome::IgnoredRelease"),
+        "F-17: release must be rejected explicitly"
+    );
+    assert!(
+        source.contains("PttDispatchOutcome::IgnoredRepeat"),
+        "F-17: repeat must be rejected explicitly"
+    );
+    assert!(
+        source.contains("authorizes_hardware_ptt()"),
+        "F-17: PTT ON must consult the F-15 authorization predicate"
+    );
+    assert!(
+        !source.contains("HardwareExecutionAuthorized"),
+        "F-17: the GUI dispatcher must not name the authorized F-15 outcome"
+    );
+    assert!(
+        source.contains("PttDispatchOutcome::AuthorizationDenied"),
+        "F-17: a denial must be an explicit outcome"
+    );
+    assert!(
+        source.contains("PttDispatchOutcome::Failed"),
+        "F-17: a port failure must never be reported as success"
+    );
+    // OFF is never authorization-gated: the decision branch must be reached without it.
+    let dispatch_body = source
+        .split("pub fn dispatch(")
+        .nth(1)
+        .expect("dispatch body");
+    let body = dispatch_body
+        .split("\n#[cfg(test)]")
+        .next()
+        .unwrap_or(dispatch_body);
+    assert!(
+        body.contains("PttIntent::RequestOff => match tx_state"),
+        "F-17: PTT OFF must be decided without consulting authorization"
+    );
+}
+
+#[test]
+fn p1_f17_test_only_ptt_doubles_are_test_scope_guard() {
+    // The recording port is declared after the cfg(test) marker of the module.
+    let source = p1_f17_read("src/gui/ptt_input.rs");
+    let test_marker = source
+        .find("#[cfg(test)]\nmod tests")
+        .or_else(|| source.find("#[cfg(test)]\r\nmod tests"))
+        .expect("src/gui/ptt_input.rs must have a cfg(test) test module");
+    for token in [
+        "struct RecordingPort",
+        "impl PttTransmitPort for RecordingPort",
+    ] {
+        if let Some(position) = source.find(token) {
+            assert!(
+                position > test_marker,
+                "F-17: {token} must live inside the cfg(test) module"
+            );
+        }
+    }
+    // No test-only input provider token may exist in production GUI code.
+    for path in p1_f17_tracked_sources("src/gui") {
+        let content = p1_f17_read(&path);
+        for forbidden in [
+            "mock-input",
+            "test-keyboard",
+            "fake-focus",
+            "force-ptt",
+            "ptt-bypass",
+            "unsafe-ptt",
+            "developer-ptt",
+            "inject-f7",
+        ] {
+            assert!(
+                !content.contains(forbidden),
+                "F-17: {path} must not contain the test-input token '{forbidden}'"
+            );
+        }
+    }
+}
+
+#[test]
+fn p1_f17_no_ptt_bypass_in_manifest_workflows_or_locales_guard() {
+    let manifest = p1_f17_read("Cargo.toml");
+    assert!(
+        !manifest.contains("[features]"),
+        "F-17: Cargo.toml must not gain a feature table"
+    );
+    for forbidden in [
+        "force-ptt",
+        "ptt-bypass",
+        "unsafe-ptt",
+        "developer-ptt",
+        "mock-input",
+        "test-keyboard",
+        "fake-focus",
+        "inject-f7",
+    ] {
+        assert!(
+            !manifest.contains(forbidden),
+            "F-17: Cargo.toml must not contain '{forbidden}'"
+        );
+        assert!(
+            !p1_f17_read("Cargo.lock").contains(forbidden),
+            "F-17: Cargo.lock must not contain '{forbidden}'"
+        );
+        for workflow in [
+            ".github/workflows/ci.yml",
+            ".github/workflows/build-and-release.yml",
+        ] {
+            assert!(
+                !p1_f17_read(workflow).contains(forbidden),
+                "F-17: {workflow} must not contain '{forbidden}'"
+            );
+        }
+        for locale in ["pl", "en", "de", "fr", "es", "it", "ru"] {
+            let path = format!("locales/{locale}.json");
+            assert!(
+                !p1_f17_read(&path).contains(forbidden),
+                "F-17: {path} must not contain '{forbidden}'"
+            );
+        }
+    }
+}
+
+#[test]
+fn p1_f17_gui_tx_state_is_telemetry_derived_guard() {
+    let source = p1_f17_read("src/gui/app_cat.rs");
+    // Exactly one write of the GUI TX flag, inside the telemetry update function.
+    assert_eq!(
+        source.matches("self.cat.ptt_active =").count(),
+        1,
+        "F-17: the GUI TX flag may only be written from telemetry"
+    );
+    let telemetry = source
+        .split("pub fn update_cat_state_from_telemetry")
+        .nth(1)
+        .expect("telemetry update function");
+    let body = telemetry.split("\n    pub fn ").next().unwrap_or(telemetry);
+    assert!(
+        body.contains("self.cat.ptt_active = is_tx;"),
+        "F-17: the GUI TX flag must be derived from the arbiter state, not optimistically"
+    );
+    for path in p1_f17_tracked_sources("src/gui") {
+        let content = p1_f17_read(&path);
+        for forbidden in ["ptt_active = true", "ptt_active: true"] {
+            assert!(
+                !content.contains(forbidden),
+                "F-17: {path} must not optimistically set TX: {forbidden}"
+            );
+        }
+    }
+}
+
+#[test]
+fn p1_f17_documentation_records_software_only_scope_guard() {
+    let known = p1_f17_read("docs/KNOWN_ISSUES.md");
+    for required in [
+        "F-17 software remediation = CLOSED",
+        "Single-key PTT = REMOVED",
+        "Text editing PTT = BLOCKED",
+        "IME PTT = BLOCKED",
+        "Window-unfocused PTT = BLOCKED",
+        "Repeated-key PTT = BLOCKED",
+        "PTT without F-15 authorization = BLOCKED",
+        "Hardware interaction = NOT_VERIFIED",
+        "NATIVE-7B = NOT_STARTED",
+    ] {
+        assert!(
+            known.contains(required),
+            "docs/KNOWN_ISSUES.md must record '{required}'"
+        );
+    }
+    for forbidden in [
+        "hardware PTT verified",
+        "hardware interaction verified",
+        "real transmitter behaviour verified",
+        "physical TX verified",
+        "HIL completed",
+        "NATIVE-7B completed",
+    ] {
+        assert!(
+            !known.contains(forbidden),
+            "docs/KNOWN_ISSUES.md must not claim '{forbidden}'"
+        );
+    }
+
+    let readme = p1_f17_read("README.md");
+    assert!(
+        readme.contains("Ctrl+Shift+F7"),
+        "README.md must document the PTT ON shortcut"
+    );
+    assert!(
+        readme.contains("Ctrl+F7"),
+        "README.md must document the PTT OFF shortcut"
+    );
+    for line in readme.lines() {
+        if line.starts_with("| `F7` |") {
+            panic!("README.md must not document a single-key PTT row: {line}");
+        }
+    }
+
+    let manual = p1_f17_read("locales/manual/en.json");
+    assert!(
+        !manual.contains("F7 \u{2014} Toggle transceiver PTT"),
+        "the built-in manual must not document a single-key PTT toggle"
+    );
+    assert!(
+        manual.contains("Ctrl+Shift+F7"),
+        "the built-in manual must document the new PTT interaction"
+    );
+}
+
+#[test]
+fn p1_f17_localisation_exposes_two_explicit_ptt_intents_guard() {
+    for locale in ["pl", "en", "de", "fr", "es", "it", "ru"] {
+        let path = format!("locales/{locale}.json");
+        let content = p1_f17_read(&path);
+        for required in [
+            "\"cmd.ptt_on\"",
+            "\"cmd.ptt_off\"",
+            "\"shortcuts.ptt_on\"",
+            "\"shortcuts.ptt_off\"",
+            "\"ptt.refused\"",
+        ] {
+            assert!(
+                content.contains(required),
+                "{path} must contain the F-17 key {required}"
+            );
+        }
+        for removed in ["\"cmd.toggle_ptt\"", "\"shortcuts.toggle_ptt\""] {
+            assert!(
+                !content.contains(removed),
+                "{path} must not keep the ambiguous key {removed}"
+            );
+        }
+    }
+}
+
+#[test]
+fn p1_f17_prior_gate_state_is_unchanged_guard() {
+    let known = p1_f17_read("docs/KNOWN_ISSUES.md");
+    for required in [
+        "F-14 software remediation = CLOSED",
+        "F-15 software remediation = CLOSED",
+        "CAT-018 = CLOSED",
+        "CAT-019 = CLOSED",
+        "NATIVE-7B = NOT_STARTED",
+    ] {
+        assert!(
+            known.contains(required),
+            "docs/KNOWN_ISSUES.md must keep '{required}'"
+        );
+    }
+
+    let native = p1_f17_read("tests/cat_native_7.rs");
+    let ignored_attributes = native
+        .lines()
+        .filter(|line| line.trim_start().starts_with("#[ignore"))
+        .count();
+    assert_eq!(
+        ignored_attributes, 10,
+        "F-17: the ten hardware-in-the-loop tests must stay ignored"
+    );
+
+    for workflow in [
+        ".github/workflows/ci.yml",
+        ".github/workflows/build-and-release.yml",
+    ] {
+        let content = p1_f17_read(workflow);
+        for forbidden in ["--ignored", "hil_hardware", "SPLOG_HIL_ENABLE"] {
+            assert!(
+                !content.contains(forbidden),
+                "F-17: {workflow} must not run HIL: {forbidden}"
+            );
+        }
+    }
+}
+
+#[test]
+fn p1_f17_gui_ptt_controls_are_explicit_and_textually_signalled_guard() {
+    let source = p1_f17_read("src/gui/vfo_panel.rs");
+    // Two explicit buttons, never one ambiguous toggle.
+    assert!(
+        source.contains("PttIntent::RequestOn"),
+        "the VFO panel must expose an explicit TX ON action"
+    );
+    assert!(
+        source.contains("PttIntent::RequestOff"),
+        "the VFO panel must expose an explicit TX OFF action"
+    );
+    assert!(
+        source.contains("VFO_PTT_TOOLTIP"),
+        "both PTT buttons must carry a localised tooltip"
+    );
+    // The TX/RX state is signalled as text (not colour only).
+    assert!(
+        source.contains("TX ON"),
+        "the TX state must be signalled as text"
+    );
+    assert!(
+        source.contains(" TX OFF") || source.contains("\"TX OFF\""),
+        "the TX OFF action must be labelled as text"
+    );
+    assert!(
+        source.contains("RX\""),
+        "the RX state must be signalled as text"
+    );
+    // Edge-triggered interaction only: no press-and-hold pointer path.
+    assert!(
+        !source.contains("is_pointer_button_down_on"),
+        "PTT must not be driven by a held pointer button"
+    );
+    assert!(
+        source.contains(".clicked()"),
+        "PTT buttons must be edge-triggered by a click"
+    );
+}
+
+#[test]
+fn p1_f17_refusal_is_signalled_as_text_guard() {
+    let source = p1_f17_read("src/gui/app_cat.rs");
+    assert!(
+        source.contains("key::PTT_REFUSED"),
+        "a refused PTT request must produce a localised status message"
+    );
+    assert!(
+        source.contains("status_toast"),
+        "the refusal must be shown as a status text, not as a colour change"
+    );
+    assert!(
+        source.contains("fn ptt_refusal_is_user_visible"),
+        "the refusal visibility policy must be explicit"
+    );
+    // Rationale for every benign no-op: they are silent, everything else is reported.
+    assert!(
+        source.contains("AuthorizationDenied"),
+        "an authorization denial must be reported to the operator"
+    );
+    assert!(
+        source.contains("RefusedUnknownTxState"),
+        "an ambiguous arbiter state must be reported to the operator"
+    );
+}
