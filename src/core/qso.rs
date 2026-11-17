@@ -48,9 +48,17 @@ pub struct QsoRecord {
     pub lotw_qsl_sent: String,
     pub lotw_qsl_rcvd: String,
     pub lotw_qslrdate: Option<String>,
+    /// ADIF `LOTW_QSLSDATE` — data wysłania do LoTW (`Date`: UTC, `YYYYMMDD`).
+    /// Ustawiana wyłącznie przy potwierdzonej akceptacji paczki; historyczne
+    /// `lotw_qsl_sent = Y` bez tej daty pozostaje `None`.
+    pub lotw_qslsdate: Option<String>,
     pub eqsl_qsl_sent: String,
     pub eqsl_qsl_rcvd: String,
     pub eqsl_qslrdate: Option<String>,
+    /// ADIF `EQSL_QSLSDATE` — data wysłania do eQSL.cc (`Date`: UTC, `YYYYMMDD`).
+    /// Ustawiana wyłącznie przy potwierdzonej akceptacji paczki; historyczne
+    /// `eqsl_qsl_sent = Y` bez tej daty pozostaje `None`.
+    pub eqsl_qslsdate: Option<String>,
     pub clublog_upload_status: Option<String>,
     pub qrzcom_upload_status: Option<String>,
     pub sat_name: Option<String>,
@@ -108,9 +116,11 @@ impl Default for QsoRecord {
             lotw_qsl_sent: "N".to_string(),
             lotw_qsl_rcvd: "N".to_string(),
             lotw_qslrdate: None,
+            lotw_qslsdate: None,
             eqsl_qsl_sent: "N".to_string(),
             eqsl_qsl_rcvd: "N".to_string(),
             eqsl_qslrdate: None,
+            eqsl_qslsdate: None,
             clublog_upload_status: None,
             qrzcom_upload_status: None,
             sat_name: None,

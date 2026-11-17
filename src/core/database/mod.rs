@@ -11,6 +11,8 @@
 //! - `schema`: centralna definicja kolumn tabeli, mapowanie wierszy i zapytania SQL
 //! - `search`: zaawansowane filtrowanie i wyszukiwanie duplikatów
 //! - `stats`: statystyki bazy danych
+//! - `upload_checkpoint`: trwałe checkpointy planu uploadu (F-20R / F20-R1)
+//! - `upload_selection`: dziennikowo ograniczony wybór i zapis statusu uploadu (F-20)
 
 use rusqlite::{Connection, Result};
 use std::path::Path;
@@ -22,6 +24,7 @@ pub mod qso_store;
 pub mod schema;
 pub mod search;
 mod stats;
+pub mod upload_checkpoint;
 pub mod upload_selection;
 
 #[cfg(test)]

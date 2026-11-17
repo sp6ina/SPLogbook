@@ -59,7 +59,7 @@ impl BackupError {
 pub struct BackupManager;
 
 impl BackupManager {
-    pub const SUPPORTED_SCHEMA_VERSION: i64 = 7;
+    pub const SUPPORTED_SCHEMA_VERSION: i64 = 9;
 
     /// Weryfikuje integralność pliku bazy SQLite za pomocą `PRAGMA quick_check(1)`
     /// oraz odczytuje maksymalną wersję schematu.
@@ -673,7 +673,7 @@ mod tests {
         match res {
             Err(BackupError::SchemaMismatch { backup, current }) => {
                 assert_eq!(backup, 99);
-                assert_eq!(current, 7);
+                assert_eq!(current, 9);
             }
             other => panic!("Expected SchemaMismatch, got {other:?}"),
         }
@@ -709,13 +709,13 @@ mod tests {
         // Restore bazy w wersji 1 do active_db
         BackupManager::restore_database(&older_backup, &active_db).unwrap();
 
-        // Aktywna baza po restore musi mieć schemat podniesiony do 7 i zachowane dane
+        // Aktywna baza po restore musi mieć schemat podniesiony do 9 i zachowane dane
         {
             let db = LogDatabase::open(&active_db).unwrap();
             let ver = db.current_schema_version().unwrap();
             assert_eq!(
-                ver, 7,
-                "Restored database must be migrated to latest schema version 7"
+                ver, 9,
+                "Restored database must be migrated to latest schema version 9"
             );
             let qsos = db.get_recent_qsos(10).unwrap();
             assert_eq!(qsos.len(), 1);

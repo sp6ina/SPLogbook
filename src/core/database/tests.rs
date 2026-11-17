@@ -22,7 +22,7 @@ fn test_insert_and_find_qso() {
 fn schema_migrations_record_versions_and_are_idempotent() {
     let mut db = LogDatabase::open_in_memory().unwrap();
     // Wszystkie kroki migracji zostaĹ‚y zarejestrowane.
-    assert_eq!(db.current_schema_version().unwrap(), 7);
+    assert_eq!(db.current_schema_version().unwrap(), 9);
 
     // Kolumny z migracji 2 istniejÄ… i ponowna inicjalizacja nie psuje schematu.
     let col_count: i64 = db
@@ -47,7 +47,7 @@ fn schema_migrations_record_versions_and_are_idempotent() {
     assert_eq!(idx_count, 2);
 
     db.init_schema().unwrap();
-    assert_eq!(db.current_schema_version().unwrap(), 7);
+    assert_eq!(db.current_schema_version().unwrap(), 9);
 }
 
 #[test]
@@ -394,9 +394,11 @@ fn make_test_qso_literal(callsign: &str, qso_date: &str, time_on: &str) -> QsoRe
         lotw_qsl_sent: "N".to_string(),
         lotw_qsl_rcvd: "N".to_string(),
         lotw_qslrdate: None,
+        lotw_qslsdate: None,
         eqsl_qsl_sent: "N".to_string(),
         eqsl_qsl_rcvd: "N".to_string(),
         eqsl_qslrdate: None,
+        eqsl_qslsdate: None,
         clublog_upload_status: None,
         qrzcom_upload_status: None,
         sat_name: None,
@@ -455,9 +457,11 @@ fn insert_roundtrip_preserves_every_column() {
         lotw_qsl_sent: "R".to_string(),
         lotw_qsl_rcvd: "V".to_string(),
         lotw_qslrdate: Some("20260404".to_string()),
+        lotw_qslsdate: None,
         eqsl_qsl_sent: "Q".to_string(),
         eqsl_qsl_rcvd: "W".to_string(),
         eqsl_qslrdate: Some("20260405".to_string()),
+        eqsl_qslsdate: None,
         clublog_upload_status: Some("UPLOADED".to_string()),
         qrzcom_upload_status: Some("PENDING".to_string()),
         sat_name: Some("AO-91".to_string()),
@@ -515,9 +519,11 @@ fn insert_roundtrip_preserves_every_column() {
         lotw_qsl_sent: "R".to_string(),
         lotw_qsl_rcvd: "V".to_string(),
         lotw_qslrdate: Some("20260404".to_string()),
+        lotw_qslsdate: None,
         eqsl_qsl_sent: "Q".to_string(),
         eqsl_qsl_rcvd: "W".to_string(),
         eqsl_qslrdate: Some("20260405".to_string()),
+        eqsl_qslsdate: None,
         clublog_upload_status: Some("UPLOADED".to_string()),
         qrzcom_upload_status: Some("PENDING".to_string()),
         sat_name: Some("AO-91".to_string()),
@@ -590,9 +596,11 @@ fn update_roundtrip_preserves_every_column() {
         lotw_qsl_sent: "N".to_string(),
         lotw_qsl_rcvd: "N".to_string(),
         lotw_qslrdate: None,
+        lotw_qslsdate: None,
         eqsl_qsl_sent: "N".to_string(),
         eqsl_qsl_rcvd: "N".to_string(),
         eqsl_qslrdate: None,
+        eqsl_qslsdate: None,
         clublog_upload_status: None,
         qrzcom_upload_status: None,
         sat_name: None,
@@ -648,9 +656,11 @@ fn update_roundtrip_preserves_every_column() {
         lotw_qsl_sent: "Y".to_string(),
         lotw_qsl_rcvd: "Y".to_string(),
         lotw_qslrdate: Some("20260508".to_string()),
+        lotw_qslsdate: None,
         eqsl_qsl_sent: "Y".to_string(),
         eqsl_qsl_rcvd: "Y".to_string(),
         eqsl_qslrdate: Some("20260509".to_string()),
+        eqsl_qslsdate: None,
         clublog_upload_status: Some("MODIFIED".to_string()),
         qrzcom_upload_status: Some("CONFIRMED".to_string()),
         sat_name: Some("RS-44".to_string()),
@@ -708,9 +718,11 @@ fn update_roundtrip_preserves_every_column() {
         lotw_qsl_sent: "Y".to_string(),
         lotw_qsl_rcvd: "Y".to_string(),
         lotw_qslrdate: Some("20260508".to_string()),
+        lotw_qslsdate: None,
         eqsl_qsl_sent: "Y".to_string(),
         eqsl_qsl_rcvd: "Y".to_string(),
         eqsl_qslrdate: Some("20260509".to_string()),
+        eqsl_qslsdate: None,
         clublog_upload_status: Some("MODIFIED".to_string()),
         qrzcom_upload_status: Some("CONFIRMED".to_string()),
         sat_name: Some("RS-44".to_string()),
@@ -771,9 +783,11 @@ fn restore_qso_keeps_id_and_columns() {
         lotw_qsl_sent: "Y".to_string(),
         lotw_qsl_rcvd: "Y".to_string(),
         lotw_qslrdate: Some("20260604".to_string()),
+        lotw_qslsdate: None,
         eqsl_qsl_sent: "Y".to_string(),
         eqsl_qsl_rcvd: "Y".to_string(),
         eqsl_qslrdate: Some("20260605".to_string()),
+        eqsl_qslsdate: None,
         clublog_upload_status: Some("DONE".to_string()),
         qrzcom_upload_status: Some("DONE".to_string()),
         sat_name: Some("SO-50".to_string()),
@@ -832,9 +846,11 @@ fn restore_qso_keeps_id_and_columns() {
         lotw_qsl_sent: "Y".to_string(),
         lotw_qsl_rcvd: "Y".to_string(),
         lotw_qslrdate: Some("20260604".to_string()),
+        lotw_qslsdate: None,
         eqsl_qsl_sent: "Y".to_string(),
         eqsl_qsl_rcvd: "Y".to_string(),
         eqsl_qslrdate: Some("20260605".to_string()),
+        eqsl_qslsdate: None,
         clublog_upload_status: Some("DONE".to_string()),
         qrzcom_upload_status: Some("DONE".to_string()),
         sat_name: Some("SO-50".to_string()),
@@ -895,9 +911,11 @@ fn batch_insert_roundtrip() {
         lotw_qsl_sent: "N".to_string(),
         lotw_qsl_rcvd: "N".to_string(),
         lotw_qslrdate: None,
+        lotw_qslsdate: None,
         eqsl_qsl_sent: "Y".to_string(),
         eqsl_qsl_rcvd: "N".to_string(),
         eqsl_qslrdate: None,
+        eqsl_qslsdate: None,
         clublog_upload_status: Some("QUEUE".to_string()),
         qrzcom_upload_status: Some("QUEUE".to_string()),
         sat_name: Some("CAS-4B".to_string()),
@@ -959,9 +977,11 @@ fn batch_insert_roundtrip() {
         lotw_qsl_sent: "N".to_string(),
         lotw_qsl_rcvd: "N".to_string(),
         lotw_qslrdate: None,
+        lotw_qslsdate: None,
         eqsl_qsl_sent: "Y".to_string(),
         eqsl_qsl_rcvd: "N".to_string(),
         eqsl_qslrdate: None,
+        eqsl_qslsdate: None,
         clublog_upload_status: Some("QUEUE".to_string()),
         qrzcom_upload_status: Some("QUEUE".to_string()),
         sat_name: Some("CAS-4B".to_string()),
@@ -1080,9 +1100,11 @@ fn table_columns_match_expected_snapshot() {
         "audio_file".to_string(),
         "journal_id".to_string(),
         "identity_key".to_string(),
+        "lotw_qslsdate".to_string(),
+        "eqsl_qslsdate".to_string(),
     ];
 
-    assert_eq!(expected.len(), 55);
+    assert_eq!(expected.len(), 57);
     assert_eq!(columns, expected);
 }
 
@@ -1119,7 +1141,7 @@ fn migration_from_v1_preserves_rows() {
     }
 
     let db = LogDatabase::open(&db_path).unwrap();
-    assert_eq!(db.current_schema_version().unwrap(), 7);
+    assert_eq!(db.current_schema_version().unwrap(), 9);
 
     let qsos = db.get_all_qsos().unwrap();
     assert_eq!(qsos.len(), 1);
@@ -1142,7 +1164,7 @@ fn validate_schema_rejects_future_version() {
                 version INTEGER NOT NULL,
                 applied_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
-            INSERT INTO schema_version (version) VALUES (8);",
+            INSERT INTO schema_version (version) VALUES (10);",
         )
         .unwrap();
     }
@@ -1932,7 +1954,7 @@ fn migrated_schema_contains_same_identity_unique_constraint() {
     }
 
     let db = LogDatabase::open(&db_path).unwrap();
-    assert_eq!(db.current_schema_version().unwrap(), 7);
+    assert_eq!(db.current_schema_version().unwrap(), 9);
 
     let count: i64 = db.conn.query_row(
         "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_qso_identity_unique' AND sql LIKE '%UNIQUE%'",
@@ -2089,7 +2111,7 @@ fn migration_can_be_retried_after_manual_resolution() {
 
     // 3. Ponowna prĂłba migracji koĹ„czy siÄ™ sukcesem
     let db = LogDatabase::open(&db_path).unwrap();
-    assert_eq!(db.current_schema_version().unwrap(), 7);
+    assert_eq!(db.current_schema_version().unwrap(), 9);
     assert_eq!(db.count_all().unwrap(), 2);
 }
 
@@ -2686,7 +2708,7 @@ fn migration_7_upgrades_v1_keys_to_v2_keys_and_preserves_distinct_seconds() {
 
     // Otwarcie bazy wykonuje migracje 7
     let db = LogDatabase::open(&db_path).unwrap();
-    assert_eq!(db.current_schema_version().unwrap(), 7);
+    assert_eq!(db.current_schema_version().unwrap(), 9);
     assert_eq!(db.count_all().unwrap(), 2);
 
     let conn = Connection::open(&db_path).unwrap();
@@ -2758,7 +2780,7 @@ fn migration_7_conflict_rolls_back_without_data_loss_and_preserves_v6() {
     .unwrap();
 
     let db = LogDatabase::open(&db_path).unwrap();
-    assert_eq!(db.current_schema_version().unwrap(), 7);
+    assert_eq!(db.current_schema_version().unwrap(), 9);
     assert_eq!(db.count_all().unwrap(), 2);
 }
 
@@ -3622,4 +3644,374 @@ fn test_restore_qso_scoped_prevents_cross_journal_restoration() {
         rec_target.unwrap().journal_id.as_deref(),
         Some("LOG_TARGET")
     );
+}
+
+// ---------------------------------------------------------------------------
+// STAGE-P1-F20R-SOFTWARE — trwałe checkpointy uploadu (F20-R1) i daty (F20-R2)
+// ---------------------------------------------------------------------------
+
+fn f20r_journal(id: &str) -> Journal {
+    Journal {
+        id: id.to_string(),
+        name: format!("journal {id}"),
+        station_callsign: "TSTSTN".to_string(),
+        operator: "TSTOP".to_string(),
+        my_gridsquare: "JO90AA".to_string(),
+        my_pga: String::new(),
+        description: "synthetic F-20R fixture".to_string(),
+        is_default: false,
+    }
+}
+
+fn f20r_plan(
+    db: &LogDatabase,
+    journal_id: &str,
+    batch_size: usize,
+) -> crate::cloud::upload_plan::UploadPlan {
+    use crate::cloud::upload_plan::{JournalId, SelectionPolicy, UploadPlan, UploadTarget};
+    let journal = JournalId::new(journal_id).expect("journal id");
+    let records = db
+        .select_upload_candidates_for_journal(&journal, UploadTarget::Lotw)
+        .expect("candidates");
+    UploadPlan::build(
+        UploadTarget::Lotw,
+        journal,
+        SelectionPolicy::PendingOnly,
+        "attempt-f20r-unit",
+        1_700_000_000,
+        records,
+        batch_size,
+    )
+    .expect("plan")
+}
+
+fn f20r_seeded_db(journal_id: &str, count: usize) -> LogDatabase {
+    let db = LogDatabase::open_in_memory().expect("in-memory");
+    db.create_journal(&f20r_journal(journal_id))
+        .expect("journal");
+    let qsos: Vec<QsoRecord> = (0..count)
+        .map(|i| {
+            let mut qso = QsoRecord::new(format!("TST{i:05}"), "20m", "CW");
+            qso.journal_id = Some(journal_id.to_string());
+            qso.qso_date = format!("202601{:02}", (i % 28) + 1);
+            qso.time_on = format!("{:04}00", i % 2400);
+            qso
+        })
+        .collect();
+    db.batch_insert_qsos(&qsos).expect("insert");
+    db
+}
+
+#[test]
+fn f20r_checkpoint_tables_and_sent_date_columns_exist_after_migrations() {
+    let db = LogDatabase::open_in_memory().expect("db");
+    assert_eq!(db.current_schema_version().expect("version"), 9);
+    for table in ["upload_plans", "upload_batches", "upload_batch_members"] {
+        let exists: bool = db
+            .raw_conn()
+            .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1")
+            .unwrap()
+            .exists(rusqlite::params![table])
+            .unwrap();
+        assert!(exists, "brak tabeli {table}");
+    }
+    for column in ["lotw_qslsdate", "eqsl_qslsdate"] {
+        let exists: bool = db
+            .raw_conn()
+            .prepare("SELECT 1 FROM pragma_table_info('qso_records') WHERE name = ?1")
+            .unwrap()
+            .exists(rusqlite::params![column])
+            .unwrap();
+        assert!(exists, "brak kolumny {column}");
+    }
+}
+
+#[test]
+fn f20r_incompatible_checkpoint_schema_version_is_rejected() {
+    use crate::core::database::upload_checkpoint::CheckpointError;
+    let db = f20r_seeded_db("F20R_UNIT_A", 40);
+    let plan = f20r_plan(&db, "F20R_UNIT_A", 10);
+    db.open_or_create_upload_checkpoint(&plan)
+        .expect("checkpoint");
+    db.raw_conn()
+        .execute(
+            "UPDATE upload_plans SET schema_version = 999 WHERE plan_id = ?1",
+            rusqlite::params![plan.plan_id()],
+        )
+        .expect("mutate");
+    let err = db.load_upload_checkpoint_set(plan.plan_id());
+    assert!(matches!(
+        err,
+        Err(CheckpointError::IncompatibleSchemaVersion { found: 999, .. })
+    ));
+}
+
+#[test]
+fn f20r_corrupted_membership_is_detected_instead_of_silently_trusted() {
+    use crate::core::database::upload_checkpoint::CheckpointError;
+    let db = f20r_seeded_db("F20R_UNIT_B", 40);
+    let plan = f20r_plan(&db, "F20R_UNIT_B", 10);
+    db.open_or_create_upload_checkpoint(&plan)
+        .expect("checkpoint");
+    db.raw_conn()
+        .execute(
+            "UPDATE upload_batch_members SET qso_id = qso_id + 1000000
+             WHERE plan_id = ?1 AND ordinal = 0 AND position = 0",
+            rusqlite::params![plan.plan_id()],
+        )
+        .expect("corrupt membership");
+    let err = db.load_upload_checkpoint_set(plan.plan_id());
+    assert!(matches!(
+        err,
+        Err(CheckpointError::MembershipMismatch { .. })
+    ));
+}
+
+#[test]
+fn f20r_checkpoint_tables_contain_no_secret_or_url() {
+    use crate::cloud::upload_checkpoint::OutcomeSnapshot;
+    use crate::cloud::upload_plan::BatchOutcome;
+    let db = f20r_seeded_db("F20R_UNIT_C", 40);
+    let plan = f20r_plan(&db, "F20R_UNIT_C", 10);
+    db.open_or_create_upload_checkpoint(&plan)
+        .expect("checkpoint");
+    db.prepare_upload_batch(plan.plan_id(), 0, "digest", 100)
+        .expect("prepare");
+    db.start_upload_batch(plan.plan_id(), 0, 101)
+        .expect("start");
+    db.record_upload_batch_outcome(
+        plan.plan_id(),
+        0,
+        OutcomeSnapshot::from_outcome(&BatchOutcome::Accepted, 10),
+        102,
+    )
+    .expect("accepted");
+    db.commit_batch_acceptance_with_dates(plan.plan_id(), 0, 103)
+        .expect("commit");
+
+    let mut dump = String::new();
+    for table in ["upload_plans", "upload_batches", "upload_batch_members"] {
+        let mut stmt = db
+            .raw_conn()
+            .prepare(&format!("SELECT * FROM {table}"))
+            .unwrap();
+        let column_count = stmt.column_count();
+        let rows = stmt
+            .query_map([], |row| {
+                let mut cells = Vec::new();
+                for index in 0..column_count {
+                    let value: Option<String> = row.get(index).ok();
+                    cells.push(value.unwrap_or_default());
+                }
+                Ok(cells.join("|"))
+            })
+            .unwrap();
+        for row in rows {
+            dump.push_str(&row.unwrap());
+            dump.push('\n');
+        }
+    }
+    for secret in [
+        "TEST_LOTW_SECRET_DO_NOT_LOG",
+        "TEST_EQSL_SECRET_DO_NOT_LOG",
+        "TEST_TQSL_CERT_PASSPHRASE_DO_NOT_LOG",
+    ] {
+        assert!(!dump.contains(secret), "checkpoint zawiera sekret");
+    }
+    for needle in ["https://", "http://", "password=", "login=", "Password="] {
+        assert!(!dump.contains(needle), "checkpoint zawiera `{needle}`");
+    }
+}
+
+#[test]
+fn f20r_migration_9_rollback_and_reapply_preserves_upload_status() {
+    let db = f20r_seeded_db("F20R_UNIT_D", 12);
+    let qsos = db.get_all_qsos_for_journal("F20R_UNIT_D").expect("qsos");
+    let id = qsos[0].id.expect("id");
+    let mut qso = qsos[0].clone();
+    qso.lotw_qsl_sent = "Y".to_string();
+    qso.lotw_qslsdate = Some("20261117".to_string());
+    qso.eqsl_qsl_sent = "Y".to_string();
+    qso.eqsl_qslsdate = Some("20261118".to_string());
+    db.update_qso(id, &qso).expect("update");
+
+    // Rollback v9: kolumny znikają, wersja wraca do 8, status `Y` zostaje.
+    LogDatabase::rollback_migration_9(db.raw_conn()).expect("rollback 9");
+    assert_eq!(db.current_schema_version().expect("version"), 8);
+    let has_column: bool = db
+        .raw_conn()
+        .prepare("SELECT 1 FROM pragma_table_info('qso_records') WHERE name = 'lotw_qslsdate'")
+        .unwrap()
+        .exists([])
+        .unwrap();
+    assert!(!has_column, "rollback musi usunąć kolumnę daty");
+    let status: String = db
+        .raw_conn()
+        .query_row(
+            "SELECT lotw_qsl_sent FROM qso_records WHERE id = ?1",
+            rusqlite::params![id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(status, "Y", "rollback nie może zgubić statusu wysłania");
+}
+
+#[test]
+fn f20r_migration_8_rollback_and_reapply_preserves_qso_data() {
+    let db = f20r_seeded_db("F20R_UNIT_E", 25);
+    let plan = f20r_plan(&db, "F20R_UNIT_E", 10);
+    db.open_or_create_upload_checkpoint(&plan)
+        .expect("checkpoint");
+    assert_eq!(db.count_upload_plans().expect("count"), 1);
+
+    // Rollback w kolejności odwrotnej do zastosowania: najpierw 9, potem 8.
+    LogDatabase::rollback_migration_9(db.raw_conn()).expect("rollback 9");
+    LogDatabase::rollback_migration_8(db.raw_conn()).expect("rollback 8");
+    assert_eq!(db.current_schema_version().expect("version"), 7);
+    let exists: bool = db
+        .raw_conn()
+        .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'upload_plans'")
+        .unwrap()
+        .exists([])
+        .unwrap();
+    assert!(!exists, "rollback musi usunąć tabele checkpointów");
+    // Dane QSO pozostają nienaruszone. Liczymy surowo, bo kolumny dat wysłania
+    // również zostały wycofane przez rollback v9.
+    let qso_count: i64 = db
+        .raw_conn()
+        .query_row("SELECT COUNT(*) FROM qso_records", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(qso_count, 25);
+}
+
+#[test]
+fn f20r_reopening_a_migrated_database_is_idempotent() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("f20r_idempotent.sqlite");
+    {
+        let db = LogDatabase::open(&path).expect("open");
+        assert_eq!(db.current_schema_version().expect("version"), 9);
+    }
+    for _ in 0..5 {
+        let db = LogDatabase::open(&path).expect("reopen");
+        assert_eq!(db.current_schema_version().expect("version"), 9);
+        let versions: i64 = db
+            .raw_conn()
+            .query_row("SELECT COUNT(*) FROM schema_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(versions, 9, "każda wersja migracji dokładnie raz");
+        assert_eq!(db.count_upload_plans().expect("count"), 0);
+    }
+}
+
+#[test]
+fn f20r_interrupted_migration_keeps_the_previous_version_and_is_rerunnable() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("f20r_interrupted.sqlite");
+    {
+        let db = LogDatabase::open(&path).expect("open");
+        LogDatabase::rollback_migration_9(db.raw_conn()).expect("rollback 9");
+        assert_eq!(db.current_schema_version().expect("version"), 8);
+    }
+    {
+        // Przerwana migracja: dokładnie ta sama instrukcja DDL, ale w
+        // transakcji wycofanej bez commita — tak wygląda zabity proces.
+        let conn = Connection::open(&path).expect("raw open");
+        {
+            let tx = conn.unchecked_transaction().expect("tx");
+            tx.execute_batch(
+                "ALTER TABLE qso_records ADD COLUMN lotw_qslsdate TEXT;
+                 ALTER TABLE qso_records ADD COLUMN eqsl_qslsdate TEXT;",
+            )
+            .expect("probe ddl");
+            // `tx` wycofywana przy drop.
+        }
+        let version: i64 = conn
+            .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(version, 8, "przerwana migracja nie podnosi wersji");
+        let probe: bool = conn
+            .prepare("SELECT 1 FROM pragma_table_info('qso_records') WHERE name = 'lotw_qslsdate'")
+            .unwrap()
+            .exists([])
+            .unwrap();
+        assert!(!probe, "przerwana migracja nie może zostawić kolumny");
+    }
+    {
+        // Ponowne otwarcie kończy migrację 9 dokładnie raz.
+        let db = LogDatabase::open(&path).expect("reopen");
+        assert_eq!(db.current_schema_version().expect("version"), 9);
+        for column in ["lotw_qslsdate", "eqsl_qslsdate"] {
+            let exists: bool = db
+                .raw_conn()
+                .prepare("SELECT 1 FROM pragma_table_info('qso_records') WHERE name = ?1")
+                .unwrap()
+                .exists(rusqlite::params![column])
+                .unwrap();
+            assert!(exists, "{column}");
+        }
+        let version_rows: i64 = db
+            .raw_conn()
+            .query_row(
+                "SELECT COUNT(*) FROM schema_version WHERE version = 9",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(version_rows, 1);
+    }
+}
+
+#[test]
+fn f20r_legacy_accepted_rows_keep_y_with_null_sent_date() {
+    let db = f20r_seeded_db("F20R_UNIT_F", 8);
+    let qsos = db.get_all_qsos_for_journal("F20R_UNIT_F").expect("qsos");
+    let id = qsos[0].id.expect("id");
+    let mut qso = qsos[0].clone();
+    // Historyczny wiersz: status Y, data nieznana.
+    qso.lotw_qsl_sent = "Y".to_string();
+    qso.lotw_qslsdate = None;
+    qso.eqsl_qsl_sent = "I".to_string();
+    qso.eqsl_qslsdate = None;
+    db.update_qso(id, &qso).expect("update");
+
+    let reloaded = db.get_qso_by_id(id).expect("qso").expect("exists");
+    assert_eq!(reloaded.lotw_qsl_sent, "Y");
+    assert!(reloaded.lotw_qslsdate.is_none());
+    assert_eq!(reloaded.eqsl_qsl_sent, "I");
+    assert!(reloaded.eqsl_qslsdate.is_none());
+
+    // Migracja nie wypełnia historii żadną datą.
+    LogDatabase::rollback_migration_9(db.raw_conn()).expect("rollback 9");
+    assert_eq!(db.current_schema_version().expect("version"), 8);
+}
+
+#[test]
+fn f20r_sent_date_column_is_text_and_nullable() {
+    let db = LogDatabase::open_in_memory().expect("db");
+    let mut stmt = db
+        .raw_conn()
+        .prepare("SELECT name, type, \"notnull\" FROM pragma_table_info('qso_records')")
+        .expect("prepare");
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })
+        .expect("rows");
+    let mut found = 0;
+    for row in rows {
+        let (name, kind, notnull) = row.expect("row");
+        if name == "lotw_qslsdate" || name == "eqsl_qslsdate" {
+            assert_eq!(kind, "TEXT");
+            assert_eq!(notnull, 0, "{name} musi dopuszczać NULL");
+            found += 1;
+        }
+    }
+    assert_eq!(found, 2);
 }

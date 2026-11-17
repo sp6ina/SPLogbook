@@ -16,11 +16,16 @@
 //!  * częściowy sukces, timeout i anulowanie nigdy nie są raportowane jako sukces.
 
 use crate::cloud::lotw::{TqslSpawnError, run_tqsl_async, tqsl_batch_outcome};
+use crate::cloud::upload_checkpoint::{
+    BatchState, OutcomeSnapshot, PlanState, RecoveryAction, compute_payload_digest, recovery_action,
+};
 use crate::cloud::upload_plan::{
     BatchOutcome, JournalId, PlanError, SelectionPolicy, UploadPlan, UploadRunReport, UploadTarget,
     run_plan,
 };
 use crate::core::database::LogDatabase;
+use crate::core::database::upload_checkpoint::BatchCheckpointSet;
+use crate::core::database::upload_checkpoint::CheckpointError;
 use crate::core::i18n::{Language, Msg, key};
 use crate::gui::app::SpLogApp;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -120,6 +125,8 @@ pub(crate) enum UploadStartError {
     Plan(PlanError),
     /// Baza danych jest niedostępna.
     Database,
+    /// Trwałego checkpointu nie udało się utworzyć lub zweryfikować.
+    Checkpoint(CheckpointError),
 }
 
 /// Buduje plan uploadu dla aktywnego dziennika.
@@ -172,7 +179,36 @@ fn start_error_message(lang: Language, target: UploadTarget, error: &UploadStart
         UploadStartError::Database => Msg::new(key::SYNC_UPLOAD_DB_ERROR)
             .arg("service", target.label())
             .text(lang),
+        UploadStartError::Checkpoint(error) => format!(
+            "{}: trwaly checkpoint uploadu odrzucony: {error}",
+            target.label()
+        ),
     }
+}
+
+/// Znacznik czasu dla trwałych przejść stanu.
+///
+/// Wydzielony, aby cała ścieżka checkpointów miała jedno źródło czasu i aby
+/// testy mogły wstrzykiwać własny zegar do warstwy bazy danych.
+fn checkpoint_now() -> u64 {
+    crate::cloud::scheduler::now_unix()
+}
+
+/// Otwiera albo tworzy trwały checkpoint planu.
+///
+/// Wywoływane **przed** uruchomieniem zadania asynchronicznego, żeby plan był
+/// trwały nawet wtedy, gdy proces zginie natychmiast po kliknięciu.
+fn open_checkpoint(
+    app: &SpLogApp,
+    plan: &UploadPlan,
+) -> Result<BatchCheckpointSet, UploadStartError> {
+    let db = app
+        .services
+        .log_db
+        .lock()
+        .map_err(|_| UploadStartError::Database)?;
+    db.open_or_create_upload_checkpoint(plan)
+        .map_err(UploadStartError::Checkpoint)
 }
 
 /// Uruchamia wysyłkę zmaterializowanego planu.
@@ -200,6 +236,26 @@ pub(crate) fn run_upload(
         return;
     }
 
+    // Trwały checkpoint powstaje przed jakimkolwiek transportem.
+    let checkpoint = match open_checkpoint(app, &plan) {
+        Ok(checkpoint) => checkpoint,
+        Err(error) => {
+            let message = start_error_message(lang, target, &error);
+            push_log(app, message);
+            return;
+        }
+    };
+    if checkpoint.plan.state == PlanState::Cancelled {
+        push_log(
+            app,
+            format!(
+                "{}: plan {plan_id} jest anulowany - nic nie zostanie wyslane",
+                target.label()
+            ),
+        );
+        return;
+    }
+
     push_log(
         app,
         Msg::new(key::SYNC_UPLOAD_PLAN_SUMMARY)
@@ -220,20 +276,86 @@ pub(crate) fn run_upload(
             .text(lang),
     );
 
+    let resumable = checkpoint.resumable_ordinals();
+    let manual = checkpoint.manual_reconciliation_ordinals();
+    if resumable.len() < checkpoint.batches.len() {
+        push_log(
+            app,
+            format!(
+                "{}: wznawianie planu {plan_id} - {} z {} paczek do wyslania, {} wymaga rozstrzygniecia",
+                target.label(),
+                resumable.len(),
+                checkpoint.batches.len(),
+                manual.len()
+            ),
+        );
+    }
+    if !manual.is_empty() {
+        push_log(
+            app,
+            format!(
+                "{}: paczki {manual:?} planu {plan_id} maja niejednoznaczny wynik i nie zostana ponowione automatycznie",
+                target.label()
+            ),
+        );
+    }
+
     let db: DbHandle = app.services.log_db.clone();
     let tx: LogTx = app.online.sync_log_tx.clone();
     let cancel = app.online.upload_cancel.clone();
     cancel.store(false, Ordering::SeqCst);
 
     tokio::spawn(async move {
-        let report = execute_plan(plan, transport, credentials, db, tx.clone(), cancel, lang).await;
+        let report = execute_plan(
+            plan,
+            checkpoint,
+            transport,
+            credentials,
+            db,
+            tx.clone(),
+            cancel,
+            lang,
+        )
+        .await;
         let message = final_report_message(&report, lang);
         let _ = tx.send((message, report.status.is_success()));
     });
 }
 
+/// Wynik, który reprezentuje **już zapisany** stan paczki przy wznawianiu.
+///
+/// Dzięki temu [`run_plan`] zachowuje spójny rachunek rekordów, a żadna paczka
+/// w stanie terminalnym nie jest wysyłana ponownie.
+fn outcome_for_persisted_state(state: BatchState) -> BatchOutcome {
+    match state {
+        BatchState::Completed => BatchOutcome::Accepted,
+        BatchState::Rejected => BatchOutcome::Rejected {
+            detail: "wynik zapisany w checkpoincie".to_string(),
+        },
+        BatchState::Cancelled => BatchOutcome::Cancelled,
+        BatchState::PartiallyAccepted => BatchOutcome::PartiallyAccepted {
+            rejected: 0,
+            detail: "wynik czesciowy zapisany w checkpoincie".to_string(),
+        },
+        BatchState::Unknown | BatchState::InFlight | BatchState::Committing => {
+            BatchOutcome::Unknown {
+                detail: "wynik niejednoznaczny zapisany w checkpoincie".to_string(),
+            }
+        }
+        BatchState::RecoveryRequired => BatchOutcome::Unknown {
+            detail: "paczka wymaga recznego rozstrzygniecia".to_string(),
+        },
+        BatchState::Planned | BatchState::Prepared | BatchState::Accepted => {
+            BatchOutcome::Unknown {
+                detail: "stan paczki nie pozwala na wysylke".to_string(),
+            }
+        }
+    }
+}
+
 async fn execute_plan(
     plan: UploadPlan,
+    checkpoint: BatchCheckpointSet,
     transport: Transport,
     credentials: UploadCredentialsSnapshot,
     db: DbHandle,
@@ -243,6 +365,12 @@ async fn execute_plan(
 ) -> UploadRunReport {
     let target = plan.target();
     let journal_id = plan.journal_id().clone();
+    let plan_id = plan.plan_id().to_string();
+    let persisted_states: std::collections::BTreeMap<usize, BatchState> = checkpoint
+        .batches
+        .iter()
+        .map(|batch| (batch.ordinal, batch.state))
+        .collect();
 
     let send = |batch: crate::cloud::upload_plan::PlanBatch| {
         let transport = transport.clone();
@@ -250,7 +378,98 @@ async fn execute_plan(
         let db = db.clone();
         let tx = tx.clone();
         let journal_id = journal_id.clone();
+        let plan_id = plan_id.clone();
+        let persisted_state = persisted_states
+            .get(&batch.index())
+            .copied()
+            .unwrap_or(BatchState::Planned);
         async move {
+            // Paczka o trwałym stanie terminalnym lub niejednoznacznym nigdy nie
+            // jest wysyłana ponownie.
+            match recovery_action(persisted_state) {
+                RecoveryAction::NeverResend | RecoveryAction::ManualReconciliation => {
+                    let outcome = outcome_for_persisted_state(persisted_state);
+                    let _ = tx.send((
+                        format!(
+                            "{}: paczka {}/{} pominieta - trwaly stan {} ({})",
+                            target.label(),
+                            batch.number(),
+                            batch.total_batches(),
+                            persisted_state,
+                            recovery_action(persisted_state).as_str()
+                        ),
+                        false,
+                    ));
+                    return outcome;
+                }
+                RecoveryAction::CommitLocalOnly => {
+                    // Dowód akceptacji jest trwały: dokańczamy wyłącznie lokalny
+                    // zapis statusu i daty, bez ponownej wysyłki.
+                    let committed = {
+                        let db = db.clone();
+                        let plan_id = plan_id.clone();
+                        let ordinal = batch.index();
+                        tokio::task::spawn_blocking(move || {
+                            db.lock()
+                                .map_err(|_| "database unavailable".to_string())
+                                .and_then(|guard| {
+                                    guard
+                                        .commit_batch_acceptance_with_dates(
+                                            &plan_id,
+                                            ordinal,
+                                            checkpoint_now(),
+                                        )
+                                        .map_err(|error| error.to_string())
+                                })
+                        })
+                        .await
+                        .unwrap_or_else(|error| Err(error.to_string()))
+                    };
+                    return match committed {
+                        Ok(_) => {
+                            let _ = tx.send((
+                                format!(
+                                    "{}: paczka {}/{} - dokonczono lokalny zapis z trwalego dowodu, bez ponownej wysylki",
+                                    target.label(),
+                                    batch.number(),
+                                    batch.total_batches()
+                                ),
+                                true,
+                            ));
+                            BatchOutcome::Accepted
+                        }
+                        Err(detail) => {
+                            let _ = tx.send((
+                                format!(
+                                    "{}: paczka {}/{} - lokalny zapis nie powiodl sie: {detail}",
+                                    target.label(),
+                                    batch.number(),
+                                    batch.total_batches()
+                                ),
+                                false,
+                            ));
+                            BatchOutcome::Failed { detail }
+                        }
+                    };
+                }
+                RecoveryAction::FailClosedUnknown => {
+                    // `InFlight` po restarcie nigdy nie jest sukcesem.
+                    let outcome = outcome_for_persisted_state(persisted_state);
+                    let _ = tx.send((
+                        format!(
+                            "{}: paczka {}/{} - stan {} po restarcie, brak ponowienia",
+                            target.label(),
+                            batch.number(),
+                            batch.total_batches(),
+                            persisted_state
+                        ),
+                        false,
+                    ));
+                    return outcome;
+                }
+                RecoveryAction::Resume => {}
+            }
+
             let _ = tx.send((
                 Msg::new(key::SYNC_UPLOAD_BATCH_SENDING)
                     .arg("service", target.label())
@@ -261,10 +480,12 @@ async fn execute_plan(
                 false,
             ));
             let outcome = execute_batch(
+                &plan_id,
                 target,
                 &transport,
                 &credentials,
                 &journal_id,
+                batch.index(),
                 batch.record_ids().to_vec(),
                 db,
             )
@@ -286,16 +507,20 @@ async fn execute_plan(
 }
 
 async fn execute_batch(
+    plan_id: &str,
     target: UploadTarget,
     transport: &Transport,
     credentials: &UploadCredentialsSnapshot,
     journal_id: &JournalId,
+    ordinal: usize,
     record_ids: Vec<i64>,
     db: DbHandle,
 ) -> BatchOutcome {
     let expected = record_ids.len();
 
     // 1. Materializacja ładunku — wyłącznie z tego dziennika i w kolejności planu.
+    //    Stan paczki pozostaje `Planned`, dopóki ładunek nie jest kompletny:
+    //    brak wysyłki nie może zostawić trwałego śladu „w locie”.
     let qsos = {
         let fetched = match db.lock() {
             Ok(guard) => guard
@@ -318,6 +543,30 @@ async fn execute_batch(
     }
 
     let adif = crate::core::adif::export_adif(&qsos, "SPLogbook", &credentials.station_callsign);
+    let payload_digest = compute_payload_digest(adif.as_bytes());
+
+    // 2. `Planned → Prepared`: ładunek jest gotowy, attempt_id związany.
+    // 3. `Prepared → InFlight`: od tego momentu przerwanie procesu oznacza
+    //    `Unknown` po restarcie — nigdy `Accepted`.
+    let started = {
+        let db = db.clone();
+        let plan_id = plan_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            let guard = db.lock().map_err(|_| "database unavailable".to_string())?;
+            guard
+                .prepare_upload_batch(&plan_id, ordinal, &payload_digest, checkpoint_now())
+                .map_err(|error| error.to_string())?;
+            guard
+                .start_upload_batch(&plan_id, ordinal, checkpoint_now())
+                .map_err(|error| error.to_string())?;
+            Ok::<(), String>(())
+        })
+        .await
+        .unwrap_or_else(|error| Err(error.to_string()))
+    };
+    if let Err(detail) = started {
+        return BatchOutcome::Failed { detail };
+    }
 
     // 2. Transport — bez automatycznego ponawiania.
     let outcome = match transport {
@@ -395,24 +644,71 @@ async fn execute_batch(
         Transport::PerQso => execute_per_qso(target, credentials, &qsos).await,
     };
 
-    // 3. Zapis statusu — wyłącznie po dowodzie akceptacji całej paczki.
-    //    `commit_batch_acceptance` jest transakcyjny i wymaga, aby liczba
-    //    zaktualizowanych wierszy równała się długości paczki; rozbieżność
-    //    wycofuje transakcję i paczka nie może zostać uznana za sukces.
-    if outcome.is_accepted() && target.has_sent_status() {
-        let committed = match db.lock() {
-            Ok(guard) => guard
-                .commit_batch_acceptance(journal_id, target, &record_ids)
-                .map_err(|error| error.to_string()),
-            Err(_) => Err("database unavailable".to_string()),
-        };
-        return match committed {
-            Ok(()) => BatchOutcome::Accepted,
-            Err(detail) => BatchOutcome::Failed { detail },
-        };
+    // 3. Zapis wyniku do trwałego checkpointu. Stan docelowy wynika wyłącznie
+    //    z dowodu zwróconego przez transport; błąd transportu jest zapisywany
+    //    jako `Unknown`, bo nie dowodzi, że żądanie nie dotarło do usługi.
+    let snapshot = OutcomeSnapshot::from_outcome(&outcome, expected);
+    let recorded = {
+        let db = db.clone();
+        let plan_id = plan_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            db.lock()
+                .map_err(|_| "database unavailable".to_string())
+                .and_then(|guard| {
+                    guard
+                        .record_upload_batch_outcome(&plan_id, ordinal, snapshot, checkpoint_now())
+                        .map_err(|error| error.to_string())
+                })
+        })
+        .await
+        .unwrap_or_else(|error| Err(error.to_string()))
+    };
+    if let Err(detail) = recorded {
+        return BatchOutcome::Failed { detail };
     }
 
-    outcome
+    // 4. Lokalny commit statusu **i daty** — wyłącznie po dowodzie akceptacji
+    //    całej paczki, w jednej transakcji ze stanem paczki i planu.
+    //    `affected == expected` jest wymuszane wewnątrz transakcji; rozbieżność
+    //    wycofuje całość i paczka nie może zostać uznana za sukces.
+    if !outcome.is_accepted() {
+        return outcome;
+    }
+    let committed = {
+        let db = db.clone();
+        let plan_id_for_commit = plan_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            db.lock()
+                .map_err(|_| "database unavailable".to_string())
+                .and_then(|guard| {
+                    guard
+                        .commit_batch_acceptance_with_dates(
+                            &plan_id_for_commit,
+                            ordinal,
+                            checkpoint_now(),
+                        )
+                        .map_err(|error| error.to_string())
+                })
+        })
+        .await
+        .unwrap_or_else(|error| Err(error.to_string()))
+    };
+    match committed {
+        Ok(_) => BatchOutcome::Accepted,
+        Err(detail) => {
+            // Trwały dowód istnieje, ale lokalny zapis się nie powiódł —
+            // paczka musi wymagać rozstrzygnięcia, nigdy cichego sukcesu.
+            if let Ok(guard) = db.lock() {
+                let _ = guard.mark_batch_recovery_required(
+                    plan_id,
+                    ordinal,
+                    crate::cloud::upload_checkpoint::ErrorClass::RowCountMismatch,
+                    checkpoint_now(),
+                );
+            }
+            BatchOutcome::Failed { detail }
+        }
+    }
 }
 
 async fn execute_per_qso(
@@ -552,6 +848,62 @@ pub(crate) fn start_upload(
     }
 }
 
+/// F-20R: odtwarza trwałe checkpointy uploadu po restarcie.
+///
+/// Wyłącznie operacje lokalne: żadnego transportu, żadnego ponowienia.
+/// `InFlight` → `Unknown`, `Committing` → `RecoveryRequired`, `Accepted` →
+/// dokończenie lokalnego zapisu statusu i daty z trwałego dowodu, `Completed` →
+/// nigdy nie wysyłane ponownie.
+pub(crate) fn recover_upload_checkpoints_after_restart(log_db: &DbHandle, logs: &mut Vec<String>) {
+    let now = crate::cloud::scheduler::now_unix();
+    let reports = {
+        let Ok(db) = log_db.lock() else {
+            log::error!(
+                "F-20R: baza danych niedostepna - nie mozna odtworzyc checkpointow uploadu"
+            );
+            return;
+        };
+        match db.recover_upload_checkpoints(now) {
+            Ok(reports) => reports,
+            Err(error) => {
+                log::error!("F-20R: recovery checkpointow uploadu nie powiodlo sie: {error}");
+                return;
+            }
+        }
+    };
+    for report in reports {
+        if report.batches_recovered_to_unknown > 0 {
+            let message = format!(
+                "{}: po restarcie {} paczek planu {} ma nieznany wynik - wymagaja recznego rozstrzygniecia",
+                report.target.label(),
+                report.batches_recovered_to_unknown,
+                report.plan_id
+            );
+            log::warn!("{message}");
+            logs.push(message);
+        }
+        if report.batches_committed_locally > 0 {
+            let message = format!(
+                "{}: po restarcie dokonczono lokalny zapis {} zaakceptowanych paczek planu {} bez ponownej wysylki",
+                report.target.label(),
+                report.batches_committed_locally,
+                report.plan_id
+            );
+            log::info!("{message}");
+            logs.push(message);
+        }
+        if report.needs_manual_reconciliation() {
+            let message = format!(
+                "{}: plan {} wymaga recznego rozstrzygniecia ({} paczek)",
+                report.target.label(),
+                report.plan_id,
+                report.batches_requiring_manual_reconciliation
+            );
+            log::warn!("{message}");
+            logs.push(message);
+        }
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;

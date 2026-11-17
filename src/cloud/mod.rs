@@ -12,5 +12,6 @@ pub mod qrz;
 pub mod scheduler;
 pub mod solar;
 pub mod updater;
+pub mod upload_checkpoint;
 pub mod upload_plan;
 pub mod wspr;

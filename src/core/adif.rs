@@ -751,6 +751,8 @@ impl AdifEngine {
             qso.lotw_qsl_rcvd = q;
         }
         qso.lotw_qslrdate = fields.remove("LOTW_QSLRDATE");
+        // F-20R / F20-R2: ADIF 3.1.8 `Date` — 8 cyfr, UTC, `YYYYMMDD`.
+        qso.lotw_qslsdate = fields.remove("LOTW_QSLSDATE");
         if let Some(q) = fields.remove("EQSL_QSL_SENT") {
             qso.eqsl_qsl_sent = q;
         }
@@ -758,6 +760,7 @@ impl AdifEngine {
             qso.eqsl_qsl_rcvd = q;
         }
         qso.eqsl_qslrdate = fields.remove("EQSL_QSLRDATE");
+        qso.eqsl_qslsdate = fields.remove("EQSL_QSLSDATE");
         qso.sat_name = fields.remove("SAT_NAME");
         qso.sat_mode = fields.remove("SAT_MODE");
         qso.prop_mode = fields.remove("PROP_MODE");
@@ -919,10 +922,18 @@ impl AdifEngine {
         if let Some(ref v) = q.lotw_qslrdate {
             f.push(("LOTW_QSLRDATE", v.replace(['-', '.', '/'], "")));
         }
+        // F-20R / F20-R2: `LOTW_QSLSDATE` jest zgodne z ADIF tylko wtedy, gdy
+        // `LOTW_QSL_SENT` ∈ {Y, Q, I}; przy `N`/`R` pole nie jest emitowane.
+        if let Some(v) = Self::adif_sent_date(&q.lotw_qsl_sent, q.lotw_qslsdate.as_deref()) {
+            f.push(("LOTW_QSLSDATE", v));
+        }
         f.push(("EQSL_QSL_SENT", q.eqsl_qsl_sent.clone()));
         f.push(("EQSL_QSL_RCVD", q.eqsl_qsl_rcvd.clone()));
         if let Some(ref v) = q.eqsl_qslrdate {
             f.push(("EQSL_QSLRDATE", v.replace(['-', '.', '/'], "")));
+        }
+        if let Some(v) = Self::adif_sent_date(&q.eqsl_qsl_sent, q.eqsl_qslsdate.as_deref()) {
+            f.push(("EQSL_QSLSDATE", v));
         }
         f
     }
@@ -932,6 +943,32 @@ impl AdifEngine {
             write!(writer, "<{}:{}>{}", tag, val.len(), val)?;
         }
         Ok(())
+    }
+
+    /// Czy pole `*_QSLSDATE` jest zgodne z ADIF 3.1.8 przy danym statusie.
+    ///
+    /// Oficjalna specyfikacja: `LOTW_QSLSDATE` — "(only valid if LOTW_QSL_SENT
+    /// is Y, Q, or I)"; `EQSL_QSLSDATE` — "(only valid if EQSL_QSL_SENT is Y, Q,
+    /// or I)". Dzięki temu eksport nigdy nie emituje daty przy statusie `N`/`R`,
+    /// a import zachowuje datę bez wymyślania statusu.
+    ///
+    /// Wartość jest emitowana wyłącznie wtedy, gdy po usunięciu separatorów
+    /// powstaje poprawne `Date`: dokładnie 8 cyfr i rok co najmniej 1930.
+    /// W przeciwnym razie pole jest pomijane — nigdy nie jest „naprawiane”
+    /// przez wymyślenie daty.
+    fn adif_sent_date(status: &str, date: Option<&str>) -> Option<String> {
+        let date = date?;
+        let normalized_status = status.trim().to_ascii_uppercase();
+        if !matches!(normalized_status.as_str(), "Y" | "Q" | "I") {
+            return None;
+        }
+        let normalized = date.trim().replace(['-', '.', '/'], "");
+        let valid_format = normalized.len() == 8
+            && normalized.chars().all(|c| c.is_ascii_digit())
+            && normalized[..4]
+                .parse::<u32>()
+                .is_ok_and(|year| year >= 1930);
+        valid_format.then_some(normalized)
     }
 
     fn write_xml_field<W: Write>(writer: &mut W, tag: &str, val: &str) -> std::io::Result<()> {

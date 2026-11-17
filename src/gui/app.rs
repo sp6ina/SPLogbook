@@ -424,6 +424,12 @@ impl SpLogApp {
             ptt: crate::gui::state::PttUiState::default(),
         };
 
+        // F-20R: lokalne recovery przerwanego uploadu (bez sieci, bez ponowienia).
+        crate::gui::online_sync_upload::recover_upload_checkpoints_after_restart(
+            &app.services.log_db,
+            &mut app.online.online_sync_logs,
+        );
+
         app.rebuild_awards_full();
 
         // Zbuduj (lub wczytaj z konfiguracji) układ dokowania paneli.

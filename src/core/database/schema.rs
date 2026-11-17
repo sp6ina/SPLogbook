@@ -56,9 +56,13 @@ qso_columns! {
     lotw_qsl_sent => "lotw_qsl_sent",
     lotw_qsl_rcvd => "lotw_qsl_rcvd",
     lotw_qslrdate => "lotw_qslrdate",
+    // F-20R / F20-R2: ADIF `Date` — data wysłania do LoTW (UTC, YYYYMMDD).
+    lotw_qslsdate => "lotw_qslsdate",
     eqsl_qsl_sent => "eqsl_qsl_sent",
     eqsl_qsl_rcvd => "eqsl_qsl_rcvd",
     eqsl_qslrdate => "eqsl_qslrdate",
+    // F-20R / F20-R2: ADIF `Date` — data wysłania do eQSL.cc (UTC, YYYYMMDD).
+    eqsl_qslsdate => "eqsl_qslsdate",
     clublog_upload_status => "clublog_upload_status",
     qrzcom_upload_status => "qrzcom_upload_status",
     sat_name => "sat_name",

@@ -199,11 +199,75 @@ pub const MIGRATION_3_SQL: &str = "CREATE TABLE qso_records (
             DROP TABLE upload_queue_old;
             DROP TABLE qso_records_old;";
 
+pub const MIGRATION_8_SQL: &str = "CREATE TABLE IF NOT EXISTS upload_plans (
+                plan_id TEXT PRIMARY KEY,
+                schema_version INTEGER NOT NULL,
+                service TEXT NOT NULL,
+                journal_id TEXT NOT NULL,
+                selection_policy TEXT NOT NULL,
+                selection_policy_version INTEGER NOT NULL,
+                canonical_order_version INTEGER NOT NULL,
+                batch_policy_version INTEGER NOT NULL,
+                plan_digest TEXT NOT NULL,
+                total_qsos INTEGER NOT NULL,
+                total_batches INTEGER NOT NULL,
+                created_at INTEGER NOT NULL,
+                state TEXT NOT NULL,
+                updated_at INTEGER NOT NULL,
+                error_class TEXT NOT NULL DEFAULT 'none'
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_upload_plans_journal_service
+            ON upload_plans(journal_id, service, state);
+
+            CREATE TABLE IF NOT EXISTS upload_batches (
+                plan_id TEXT NOT NULL,
+                ordinal INTEGER NOT NULL,
+                batch_id TEXT NOT NULL,
+                service TEXT NOT NULL,
+                journal_id TEXT NOT NULL,
+                record_count INTEGER NOT NULL,
+                batch_digest TEXT NOT NULL,
+                attempt_id TEXT NOT NULL,
+                state TEXT NOT NULL,
+                started_at INTEGER,
+                accepted_at INTEGER,
+                completed_at INTEGER,
+                accepted_count INTEGER NOT NULL DEFAULT 0,
+                rejected_count INTEGER NOT NULL DEFAULT 0,
+                unknown_count INTEGER NOT NULL DEFAULT 0,
+                evidence_digest TEXT,
+                error_class TEXT NOT NULL DEFAULT 'none',
+                retry_eligible INTEGER NOT NULL DEFAULT 0,
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY (plan_id, ordinal),
+                UNIQUE (plan_id, batch_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_upload_batches_state
+            ON upload_batches(state);
+
+            CREATE TABLE IF NOT EXISTS upload_batch_members (
+                plan_id TEXT NOT NULL,
+                ordinal INTEGER NOT NULL,
+                position INTEGER NOT NULL,
+                qso_id INTEGER NOT NULL,
+                PRIMARY KEY (plan_id, ordinal, position)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_upload_batch_members_qso
+            ON upload_batch_members(plan_id, qso_id);";
+
 impl LogDatabase {
     /// Inicjalizuje schemat tabeli łączności oraz niezbędne indeksy.
     /// Stosuje wersjonowane migracje rejestrowane w tabeli `schema_version`,
     /// dzięki czemu starsze bazy są uaktualniane krok po kroku, a błędy
     /// `ALTER TABLE` nie są już maskowane.
+    ///
+    /// Każda migracja jest wykonywana w transakcji `BEGIN IMMEDIATE`: oficjalna
+    /// dokumentacja SQLite (`lang_transaction.html`) gwarantuje, że po
+    /// `BEGIN IMMEDIATE` żadna kolejna operacja nie zwróci `SQLITE_BUSY`, co
+    /// usuwa okno częściowo wykonanej migracji przy równoległym pisarzu.
     pub(super) fn init_schema(&mut self) -> Result<()> {
         type MigrationFn = fn(&Connection) -> rusqlite::Result<()>;
         self.conn.execute_batch(
@@ -229,11 +293,15 @@ impl LogDatabase {
             (5, Self::migration_5_identity_index),
             (6, Self::migration_6_identity_unique),
             (7, Self::migration_7_refined_qso_identity),
+            (8, Self::migration_8_upload_checkpoints),
+            (9, Self::migration_9_upload_sent_dates),
         ];
 
         for (version, migrate) in migrations {
             if self.current_schema_version()? < *version {
-                let tx = self.conn.transaction()?;
+                let tx = self
+                    .conn
+                    .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
                 migrate(&tx)?;
                 tx.execute(
                     "INSERT INTO schema_version (version) VALUES (?1)",
@@ -250,7 +318,7 @@ impl LogDatabase {
     /// `schema_version`, brak kluczowych tabel lub kolumn, zamiast pozwolić
     /// aplikacji działać na uszkodzonej bazie.
     pub(super) fn validate_schema(&self) -> Result<()> {
-        const KNOWN_MAX_VERSION: i64 = 7;
+        const KNOWN_MAX_VERSION: i64 = 9;
 
         let version = self.current_schema_version()?;
         if version > KNOWN_MAX_VERSION {
@@ -260,7 +328,15 @@ impl LogDatabase {
             return Err(rusqlite::Error::InvalidQuery);
         }
 
-        let required_tables = ["journals", "qso_records", "upload_queue", "schema_version"];
+        let required_tables = [
+            "journals",
+            "qso_records",
+            "upload_queue",
+            "schema_version",
+            "upload_plans",
+            "upload_batches",
+            "upload_batch_members",
+        ];
         for table in required_tables {
             let exists: bool = self
                 .conn
@@ -281,9 +357,26 @@ impl LogDatabase {
             ("qso_records", "time_on"),
             ("qso_records", "journal_id"),
             ("qso_records", "identity_key"),
+            ("qso_records", "lotw_qslsdate"),
+            ("qso_records", "eqsl_qslsdate"),
             ("upload_queue", "id"),
             ("upload_queue", "qso_id"),
             ("upload_queue", "service"),
+            ("upload_plans", "plan_id"),
+            ("upload_plans", "journal_id"),
+            ("upload_plans", "service"),
+            ("upload_plans", "schema_version"),
+            ("upload_plans", "state"),
+            ("upload_batches", "plan_id"),
+            ("upload_batches", "ordinal"),
+            ("upload_batches", "batch_id"),
+            ("upload_batches", "journal_id"),
+            ("upload_batches", "service"),
+            ("upload_batches", "state"),
+            ("upload_batches", "batch_digest"),
+            ("upload_batch_members", "plan_id"),
+            ("upload_batch_members", "position"),
+            ("upload_batch_members", "qso_id"),
         ];
         for (table, column) in required_columns {
             let exists: bool = self
@@ -532,7 +625,55 @@ impl LogDatabase {
         Ok(())
     }
 
-    /// Dodaje kolumnę tylko wtedy, gdy jeszcze nie istnieje (bez maskowania błędów).
+    /// Wersja 8 (F-20R / F20-R1): trwałe checkpointy planu uploadu i jego paczek.
+    ///
+    /// Migracja jest **wyłącznie addytywna** — nie modyfikuje żadnego istniejącego
+    /// wiersza i nie tworzy żadnej kolumny w `qso_records`. Trzy nowe tabele
+    /// przechowują tożsamość planu, stan paczek i uporządkowane członkostwo
+    /// (identyfikatory QSO), ale **żadnych sekretów**: bez URL-i, haseł, tokenów
+    /// i treści odpowiedzi usług.
+    fn migration_8_upload_checkpoints(conn: &Connection) -> rusqlite::Result<()> {
+        conn.execute_batch(MIGRATION_8_SQL)
+    }
+
+    /// Wersja 9 (F-20R / F20-R2): pola ADIF `LOTW_QSLSDATE` i `EQSL_QSLSDATE`.
+    ///
+    /// Typ `Date` wg oficjalnej specyfikacji ADIF 3.1.8 (8 cyfr, UTC,
+    /// `YYYYMMDD`). Kolumny są `NULL`-owalne i **nie są backfillowane**:
+    /// historyczny wiersz `Y` bez daty pozostaje `Y + NULL`, bo nie istnieje
+    /// udokumentowane źródło tej daty. Data migracji nigdy nie staje się datą
+    /// wysłania.
+    fn migration_9_upload_sent_dates(conn: &Connection) -> rusqlite::Result<()> {
+        Self::add_column_if_missing(conn, "qso_records", "lotw_qslsdate", "TEXT")?;
+        Self::add_column_if_missing(conn, "qso_records", "eqsl_qslsdate", "TEXT")?;
+        Ok(())
+    }
+
+    /// Wycofuje migrację 9 (test scope): usuwa wyłącznie kolumny dat wysłania.
+    ///
+    /// `ALTER TABLE … DROP COLUMN` jest dostępne od SQLite 3.35; projekt używa
+    /// bundled SQLite 3.54.1. Rollback nigdy nie dotyka statusów `Y`, więc nie
+    /// może zgubić dowodu wysłania — usuwa tylko datę.
+    #[cfg(test)]
+    pub(super) fn rollback_migration_9(conn: &Connection) -> rusqlite::Result<()> {
+        conn.execute_batch(
+            "ALTER TABLE qso_records DROP COLUMN lotw_qslsdate;
+             ALTER TABLE qso_records DROP COLUMN eqsl_qslsdate;
+             DELETE FROM schema_version WHERE version = 9;",
+        )
+    }
+
+    /// Wycofuje migrację 8 (test scope): usuwa wyłącznie tabele checkpointów.
+    #[cfg(test)]
+    pub(super) fn rollback_migration_8(conn: &Connection) -> rusqlite::Result<()> {
+        conn.execute_batch(
+            "DROP TABLE IF EXISTS upload_batch_members;
+             DROP TABLE IF EXISTS upload_batches;
+             DROP TABLE IF EXISTS upload_plans;
+             DELETE FROM schema_version WHERE version = 8;",
+        )
+    }
+
     fn add_column_if_missing(
         conn: &Connection,
         table: &str,
