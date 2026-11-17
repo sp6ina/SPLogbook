@@ -4,7 +4,6 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use splogbook::core::database::LogDatabase;
-use splogbook::core::prefix::PrefixMatcher;
 use splogbook::core::scp::ScpEngine;
 use splogbook::core::station::AppConfig;
 use splogbook::gui::app::SpLogApp;
@@ -216,18 +215,6 @@ fn main() -> Result<(), eframe::Error> {
         .find(|p| p.exists())
         .unwrap_or_else(|| exe_dir.join("databases/serviceLOG.db"));
 
-    let prefix_matcher = if service_db_path.exists() {
-        match PrefixMatcher::load_from_db(&service_db_path) {
-            Ok(pm) => pm,
-            Err(e) => {
-                eprintln!("Błąd ładowania {}: {}", service_db_path.display(), e);
-                PrefixMatcher::empty()
-            }
-        }
-    } else {
-        PrefixMatcher::empty()
-    };
-
     // Baza wzorców Super Check Partial (SCP)
     let mut scp = ScpEngine::new();
     scp.insert("SP6INA");
@@ -265,6 +252,21 @@ fn main() -> Result<(), eframe::Error> {
     if let Some(parent) = log_db_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
+
+    // Dane referencyjne: pliki krajów, reguły regionalne i nadpisania użytkownika
+    // z katalogu danych; starsza baza (jeśli istnieje) jako warstwa zgodności.
+    // Brak danych daje pusty, poprawny stan — bez pobierania i bez paniki.
+    let reference_context = splogbook::core::reference::loader::ReferenceContext {
+        root: splogbook::core::reference::loader::reference_root_for(&log_db_path),
+        legacy_db: service_db_path.exists().then(|| service_db_path.clone()),
+    };
+    let (prefix_matcher, reference_status) =
+        splogbook::core::reference::loader::build_prefix_matcher(
+            &reference_context.root,
+            reference_context.legacy_db.as_deref(),
+        );
+    log::info!("reference data: {reference_status:?}");
+    splogbook::core::reference::loader::set_context(reference_context);
 
     let log_db = match LogDatabase::open(&log_db_path) {
         Ok(db) => db,

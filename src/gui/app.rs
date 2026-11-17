@@ -766,6 +766,8 @@ mod app_lookup;
 mod app_plugins;
 #[path = "app_qso.rs"]
 mod app_qso;
+#[path = "app_reference.rs"]
+pub mod app_reference;
 #[path = "app_services.rs"]
 mod app_services;
 #[path = "app_solar.rs"]

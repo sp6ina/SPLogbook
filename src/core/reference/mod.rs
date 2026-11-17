@@ -10,5 +10,6 @@
 pub mod country_files;
 pub mod cty;
 pub mod install;
+pub mod loader;
 pub mod rules;
 pub mod user_rules;

@@ -340,6 +340,57 @@ pub fn install_country_files(
     Ok((manifest, summary))
 }
 
+/// Reads an official archive held in memory and installs it.
+pub fn install_from_archive(
+    root: &Path,
+    archive: &[u8],
+    origin: SetOrigin,
+) -> Result<(SetManifest, CountryFileSummary), CountryFilesError> {
+    let payload = read_country_archive(archive, &ArchiveLimits::default(), true)?;
+    install_country_files(root, &payload, origin)
+}
+
+/// Installs from a file the user selected: a ZIP archive, or `cty.dat` with
+/// `cty.csv` next to it (both are required so entity codes are known).
+pub fn install_from_user_file(
+    root: &Path,
+    path: &Path,
+) -> Result<(SetManifest, CountryFileSummary), CountryFilesError> {
+    let io = |e: std::io::Error| CountryFilesError::Install(InstallError::Io(e));
+    let origin = SetOrigin {
+        source: path
+            .file_name()
+            .map_or_else(String::new, |n| n.to_string_lossy().into_owned()),
+        ..SetOrigin::default()
+    };
+    let len = std::fs::metadata(path).map_err(io)?.len();
+    let limits = ArchiveLimits::default();
+    if len > limits.max_archive_bytes {
+        return Err(CountryFilesError::Archive(ArchiveError::TooLarge(len)));
+    }
+    let bytes = std::fs::read(path).map_err(io)?;
+    if bytes.starts_with(b"PK") {
+        return install_from_archive(root, &bytes, origin);
+    }
+    let csv_path = path.with_file_name(CSV_FILE);
+    let csv = std::fs::read(&csv_path)
+        .map_err(|_| CountryFilesError::Archive(ArchiveError::MissingEntry(CSV_FILE)))?;
+    if csv.len() as u64 > limits.max_entry_bytes {
+        return Err(CountryFilesError::Archive(ArchiveError::EntryTooLarge {
+            name: CSV_FILE,
+            size: csv.len() as u64,
+        }));
+    }
+    install_country_files(
+        root,
+        &CountryFilesPayload {
+            dat: bytes,
+            csv: Some(csv),
+        },
+        origin,
+    )
+}
+
 /// Loads the installed country files into a [`PrefixMatcher`].
 /// `Ok(None)` means DATA_NOT_INSTALLED.
 pub fn load_installed(

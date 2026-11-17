@@ -327,3 +327,27 @@ fn install_load_update_and_rollback() {
     let back = rollback(root.path()).unwrap();
     assert_eq!(back.origin.source_date, "2026-11-01");
 }
+
+#[test]
+fn user_file_import_accepts_archive_or_dat_with_csv() {
+    let root = tempfile::tempdir().unwrap();
+    let src = tempfile::tempdir().unwrap();
+    let zip_path = src.path().join("release.zip");
+    std::fs::write(&zip_path, good_zip()).unwrap();
+    let (m, _) = install_from_user_file(root.path(), &zip_path).unwrap();
+    assert_eq!(m.origin.source, "release.zip");
+
+    let dat_path = src.path().join(DAT_FILE);
+    std::fs::write(&dat_path, DAT).unwrap();
+    assert!(matches!(
+        install_from_user_file(root.path(), &dat_path),
+        Err(CountryFilesError::Archive(ArchiveError::MissingEntry(
+            CSV_FILE
+        )))
+    ));
+    std::fs::write(src.path().join(CSV_FILE), CSV).unwrap();
+    let (m, s) = install_from_user_file(root.path(), &dat_path).unwrap();
+    assert_eq!(m.origin.source, DAT_FILE);
+    assert_eq!(s.entities, 2);
+    assert!(install_from_user_file(root.path(), &src.path().join("missing.zip")).is_err());
+}
