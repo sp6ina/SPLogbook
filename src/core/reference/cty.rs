@@ -602,6 +602,25 @@ impl CtyData {
         }
     }
 
+    /// Release marker listed in the file as the exact callsign `VERyyyymmdd`
+    /// (see the country-files documentation). Returns the marker and the date
+    /// as `YYYY-MM-DD`.
+    pub fn version_marker(&self) -> Option<(String, String)> {
+        let mut markers: Vec<&String> = self
+            .exact
+            .keys()
+            .filter(|k| {
+                k.len() == 11 && k.starts_with("VER") && k[3..].bytes().all(|b| b.is_ascii_digit())
+            })
+            .collect();
+        markers.sort();
+        let m = markers.last()?;
+        Some((
+            (*m).clone(),
+            format!("{}-{}-{}", &m[3..7], &m[7..9], &m[9..11]),
+        ))
+    }
+
     /// First entity carrying ADIF entity code `dxcc`, preferring entities
     /// that are not WAE-only.
     pub fn entity_for_dxcc(&self, dxcc: u32) -> Option<&CtyEntity> {

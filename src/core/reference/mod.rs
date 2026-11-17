@@ -7,6 +7,7 @@
 //! selected or a file the user explicitly downloaded; a missing source yields
 //! an empty, valid state and never a panic.
 
+pub mod country_files;
 pub mod cty;
 pub mod install;
 pub mod rules;

@@ -322,6 +322,36 @@ impl DatabaseUpdater {
         Self::download_file(url, dest_path).await
     }
 
+    /// Pobiera archiwum plików krajów do pamięci z limitem rozmiaru.
+    /// Wywoływane wyłącznie na żądanie użytkownika; nic nie jest zapisywane na
+    /// dysk — instalację wykonuje `core::reference::country_files`.
+    pub async fn download_country_archive(
+        url: &str,
+        max_bytes: u64,
+    ) -> Result<Vec<u8>, UpdaterError> {
+        let client = crate::core::http::http_client_with_timeout(60);
+        let mut resp = client
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| UpdaterError::Network(format!("{url}: {e}")))?;
+        if !resp.status().is_success() {
+            return Err(UpdaterError::HttpStatus(format!("{} {url}", resp.status())));
+        }
+        if resp.content_length().is_some_and(|len| len > max_bytes) {
+            return Err(UpdaterError::FileTooLarge);
+        }
+        let mut buffer = BoundedBuffer::new(max_bytes);
+        while let Some(chunk) = resp
+            .chunk()
+            .await
+            .map_err(|e| UpdaterError::Network(format!("{url}: {e}")))?
+        {
+            buffer.push(&chunk)?;
+        }
+        Ok(buffer.into_inner())
+    }
+
     async fn download_file(url: &str, dest_path: &Path) -> Result<usize, UpdaterError> {
         let client = crate::core::http::http_client_with_timeout(30);
 
@@ -357,6 +387,35 @@ impl DatabaseUpdater {
         })?;
 
         Ok(bytes.len())
+    }
+}
+
+/// Bufor odrzucający dane po przekroczeniu limitu — chroni przed serwerem,
+/// który nie podaje lub zaniża `Content-Length`.
+#[derive(Debug)]
+pub struct BoundedBuffer {
+    data: Vec<u8>,
+    max: u64,
+}
+
+impl BoundedBuffer {
+    pub fn new(max: u64) -> Self {
+        Self {
+            data: Vec::new(),
+            max,
+        }
+    }
+
+    pub fn push(&mut self, chunk: &[u8]) -> Result<(), UpdaterError> {
+        if self.data.len() as u64 + chunk.len() as u64 > self.max {
+            return Err(UpdaterError::FileTooLarge);
+        }
+        self.data.extend_from_slice(chunk);
+        Ok(())
+    }
+
+    pub fn into_inner(self) -> Vec<u8> {
+        self.data
     }
 }
 
@@ -5176,6 +5235,21 @@ pub fn consume_update_result_on_startup(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn bounded_buffer_rejects_data_over_the_limit() {
+        let mut b = super::BoundedBuffer::new(10);
+        b.push(b"12345").unwrap();
+        b.push(b"67890").unwrap();
+        assert!(matches!(
+            b.push(b"x"),
+            Err(super::UpdaterError::FileTooLarge)
+        ));
+        assert_eq!(b.into_inner(), b"1234567890");
+        let mut empty = super::BoundedBuffer::new(0);
+        assert!(empty.push(b"").is_ok());
+        assert!(empty.push(b"a").is_err());
+    }
     use super::*;
     use base64::Engine;
 
