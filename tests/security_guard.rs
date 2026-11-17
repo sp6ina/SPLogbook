@@ -10352,3 +10352,501 @@ fn p1_f20_hil_tests_remain_ignored_guard() {
         "F-20: exactly 10 hardware-in-the-loop tests must remain ignored"
     );
 }
+
+// ---------------------------------------------------------------------------
+// STAGE-P1-F20R-SOFTWARE - persistent upload checkpoints, sent dates and
+// download-credential transport hardening (F20-R1, F20-R2, F20-R3)
+// ---------------------------------------------------------------------------
+
+/// Strips line comments so that documentation cannot satisfy a code assertion.
+fn p1_f20r_code(source: &str) -> String {
+    source
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim_start();
+            !trimmed.starts_with("//") && !trimmed.starts_with("/*") && !trimmed.starts_with('*')
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn p1_f20r_persistent_checkpoint_schema_guard() {
+    let migrations = p1_f20r_code(&p1_f20_read("src/core/database/migrations.rs"));
+    for required in [
+        "CREATE TABLE IF NOT EXISTS upload_plans (",
+        "CREATE TABLE IF NOT EXISTS upload_batches (",
+        "CREATE TABLE IF NOT EXISTS upload_batch_members (",
+        "plan_id TEXT PRIMARY KEY",
+        "schema_version INTEGER NOT NULL",
+        "journal_id TEXT NOT NULL",
+        "service TEXT NOT NULL",
+        "batch_digest TEXT NOT NULL",
+        "attempt_id TEXT NOT NULL",
+        "retry_eligible INTEGER NOT NULL DEFAULT 0",
+        "PRIMARY KEY (plan_id, ordinal)",
+        "UNIQUE (plan_id, batch_id)",
+        "PRIMARY KEY (plan_id, ordinal, position)",
+    ] {
+        assert!(
+            migrations.contains(required),
+            "F-20R: persistent checkpoint schema must contain `{required}`"
+        );
+    }
+    // Wersja schematu bazy musi zostać podniesiona i zwalidowana.
+    assert!(
+        migrations.contains("KNOWN_MAX_VERSION: i64 = 9"),
+        "F-20R: the schema version must cover migrations 8 and 9"
+    );
+    for required in [
+        "(\"upload_plans\", \"journal_id\")",
+        "(\"upload_plans\", \"service\")",
+        "(\"upload_plans\", \"schema_version\")",
+        "(\"upload_batches\", \"journal_id\")",
+        "(\"upload_batches\", \"service\")",
+        "(\"upload_batches\", \"batch_digest\")",
+    ] {
+        assert!(
+            migrations.contains(required),
+            "F-20R: schema validation must require `{required}`"
+        );
+    }
+}
+
+#[test]
+fn p1_f20r_orchestration_is_checkpoint_driven_guard() {
+    let orchestration = p1_f20r_code(&p1_f20_read("src/gui/online_sync_upload.rs"));
+    for required in [
+        "open_or_create_upload_checkpoint",
+        "prepare_upload_batch",
+        "start_upload_batch",
+        "record_upload_batch_outcome",
+        "commit_batch_acceptance_with_dates",
+        "recovery_action",
+        "RecoveryAction::NeverResend",
+        "RecoveryAction::ManualReconciliation",
+        "RecoveryAction::CommitLocalOnly",
+        "RecoveryAction::FailClosedUnknown",
+    ] {
+        assert!(
+            orchestration.contains(required),
+            "F-20R: the upload orchestrator must use `{required}`"
+        );
+    }
+    // Checkpoint powstaje przed uruchomieniem transportu.
+    let spawn = orchestration
+        .find("tokio::spawn")
+        .expect("orchestrator spawns a task");
+    let checkpoint = orchestration
+        .find("open_checkpoint(app, &plan)")
+        .expect("checkpoint is opened");
+    assert!(
+        checkpoint < spawn,
+        "F-20R: the durable checkpoint must be written before the upload task starts"
+    );
+    // Recovery jest wywoływane przy starcie aplikacji.
+    let app = p1_f20r_code(&p1_f20_read("src/gui/app.rs"));
+    assert!(
+        app.contains("recover_upload_checkpoints"),
+        "F-20R: startup must run the checkpoint recovery"
+    );
+    assert!(
+        app.contains("recover_upload_checkpoints_after_restart"),
+        "F-20R: startup recovery must be wired into the GUI bootstrap"
+    );
+}
+
+#[test]
+fn p1_f20r_in_flight_never_becomes_accepted_guard() {
+    let model = p1_f20r_code(&p1_f20_read("src/cloud/upload_checkpoint.rs"));
+    assert!(
+        model.contains("BatchState::InFlight => RecoveryAction::FailClosedUnknown"),
+        "F-20R: InFlight after restart must be fail-closed"
+    );
+    // Błąd transportu ani timeout nie mogą stać się Accepted.
+    let squeezed = model.split_whitespace().collect::<Vec<_>>().join(" ");
+    let start = squeezed
+        .find("pub const fn state_for_outcome")
+        .expect("state_for_outcome exists");
+    let rest = &squeezed[start..];
+    let end = rest
+        .find("pub const fn error_class_for_outcome")
+        .unwrap_or(rest.len());
+    let body = &rest[..end];
+    assert!(
+        body.contains("BatchOutcome::Failed { .. } => BatchState::Unknown,"),
+        "F-20R: Failed must map to Unknown"
+    );
+    assert!(
+        body.contains("BatchOutcome::TimedOut { .. }"),
+        "F-20R: TimedOut must be handled explicitly"
+    );
+    assert!(
+        body.contains("BatchOutcome::Accepted => BatchState::Accepted,"),
+        "F-20R: only the Accepted outcome may map to the Accepted state"
+    );
+    for forbidden in [
+        "BatchOutcome::Failed { .. } => BatchState::Accepted",
+        "BatchOutcome::TimedOut { .. } => BatchState::Accepted",
+        "BatchOutcome::Unknown { .. } => BatchState::Accepted",
+        "BatchOutcome::Cancelled => BatchState::Accepted",
+    ] {
+        assert!(
+            !body.contains(forbidden),
+            "F-20R: `{forbidden}` is forbidden"
+        );
+    }
+    // Recovery zapisuje Unknown z jawną klasą błędu i bez prawa ponowienia.
+    let db = p1_f20r_code(&p1_f20_read("src/core/database/upload_checkpoint.rs"));
+    assert!(
+        db.contains("ErrorClass::InterruptedInFlight"),
+        "F-20R: recovery must record the interrupted-in-flight class"
+    );
+    assert!(
+        db.contains("retry_eligible = 0"),
+        "F-20R: recovery must never mark a checkpoint retry-eligible"
+    );
+    assert!(
+        db.contains("ErrorClass::InterruptedInCommit"),
+        "F-20R: an observable Committing must become RecoveryRequired"
+    );
+}
+
+#[test]
+fn p1_f20r_unknown_not_retried_and_completed_not_resent_guard() {
+    let model = p1_f20r_code(&p1_f20_read("src/cloud/upload_checkpoint.rs"));
+    assert!(
+        model.contains(
+            "BatchState::Completed | BatchState::Cancelled => RecoveryAction::NeverResend"
+        ),
+        "F-20R: Completed and Cancelled must never be resent"
+    );
+    assert!(
+        model.contains("| BatchState::RecoveryRequired => RecoveryAction::ManualReconciliation"),
+        "F-20R: ambiguous states must require manual reconciliation"
+    );
+    // Ścieżka uploadu nie może zawierać automatycznego ponawiania.
+    let orchestration = p1_f20r_code(&p1_f20_read("src/gui/online_sync_upload.rs"));
+    for forbidden in [
+        "retry_async",
+        "retry_failed",
+        ".retry(",
+        "tokio::time::sleep",
+    ] {
+        assert!(
+            !orchestration.contains(forbidden),
+            "F-20R: the upload path must not contain `{forbidden}`"
+        );
+    }
+    // `run_plan` wywołuje transport dokładnie raz na paczkę (kontrakt F-20).
+    let plan = p1_f20r_code(&p1_f20_read("src/cloud/upload_plan.rs"));
+    assert!(
+        !plan.contains("retry_async"),
+        "F-20R: the plan runner must not retry"
+    );
+    assert!(
+        plan.contains("let outcome = send(batch).await;"),
+        "F-20R: the plan runner must send each batch exactly once"
+    );
+}
+
+#[test]
+fn p1_f20r_status_and_sent_date_are_atomic_guard() {
+    let db = p1_f20r_code(&p1_f20_read("src/core/database/upload_checkpoint.rs"));
+    assert!(
+        db.contains("SET {sent_column} = 'Y', {date_column} = COALESCE({date_column}, ?2)"),
+        "F-20R: status and sent date must be written by one statement"
+    );
+    assert!(
+        db.contains("COALESCE({date_column}, ?2)"),
+        "F-20R: a retry must not overwrite the originally accepted date"
+    );
+    assert!(
+        db.contains("CheckpointError::RowCountMismatch"),
+        "F-20R: affected != expected must abort the transaction"
+    );
+    assert!(
+        db.contains("BatchState::Committing"),
+        "F-20R: the commit must pass through the intra-transaction state"
+    );
+    // Data pochodzi z trwałego dowodu (`accepted_at`), nie z QSO_DATE ani z
+    // chwili bieżącej.
+    assert!(
+        db.contains("adif_date_from_unix(accepted_at as i64)"),
+        "F-20R: the sent date must be derived from the durable acceptance instant"
+    );
+    assert!(
+        !db.contains("qso_date"),
+        "F-20R: the sent date must never be derived from QSO_DATE"
+    );
+    assert!(
+        !db.contains("Utc::now"),
+        "F-20R: the sent date must never be read from the wall clock inside the repository"
+    );
+}
+
+#[test]
+fn p1_f20r_sent_date_fields_exist_and_round_trip_guard() {
+    let schema = p1_f20r_code(&p1_f20_read("src/core/database/schema.rs"));
+    for required in [
+        "lotw_qslsdate => \"lotw_qslsdate\"",
+        "eqsl_qslsdate => \"eqsl_qslsdate\"",
+    ] {
+        assert!(schema.contains(required), "F-20R: missing `{required}`");
+    }
+    let qso = p1_f20r_code(&p1_f20_read("src/core/qso.rs"));
+    for required in [
+        "pub lotw_qslsdate: Option<String>",
+        "pub eqsl_qslsdate: Option<String>",
+    ] {
+        assert!(qso.contains(required), "F-20R: missing `{required}`");
+    }
+    let adif = p1_f20r_code(&p1_f20_read("src/core/adif.rs"));
+    for required in [
+        "fields.remove(\"LOTW_QSLSDATE\")",
+        "fields.remove(\"EQSL_QSLSDATE\")",
+        "(\"LOTW_QSLSDATE\"",
+        "(\"EQSL_QSLSDATE\"",
+        "fn adif_sent_date",
+    ] {
+        assert!(adif.contains(required), "F-20R: missing `{required}`");
+    }
+    // Eksport respektuje regułę „only valid if … is Y, Q, or I”.
+    assert!(
+        adif.contains("\"Y\" | \"Q\" | \"I\""),
+        "F-20R: the sent date must be gated by the ADIF status rule"
+    );
+    assert!(
+        adif.contains("year >= 1930"),
+        "F-20R: the ADIF Date floor (1930) must be enforced on export"
+    );
+}
+
+#[test]
+fn p1_f20r_no_invented_historical_dates_guard() {
+    let migrations = p1_f20r_code(&p1_f20_read("src/core/database/migrations.rs"));
+    let start = migrations
+        .find("fn migration_9_upload_sent_dates")
+        .expect("migration 9 exists");
+    let body = &migrations[start..];
+    let body = &body[..body
+        .find("pub(super) fn rollback_migration_9")
+        .unwrap_or(body.len())];
+    assert!(
+        !body.contains("UPDATE qso_records"),
+        "F-20R: the sent-date migration must not rewrite any row"
+    );
+    assert!(
+        !body.contains("datetime("),
+        "F-20R: the migration must not use the migration time as a sent date"
+    );
+    assert!(
+        !body.contains("DEFAULT "),
+        "F-20R: the sent-date columns must have no default value"
+    );
+    let migration8 = migrations
+        .split("MIGRATION_8_SQL: &str =")
+        .nth(1)
+        .expect("migration 8 SQL exists");
+    let migration8 = &migration8[..migration8.find("\";").unwrap_or(migration8.len())];
+    assert!(
+        !migration8.contains("datetime("),
+        "F-20R: the checkpoint migration must not stamp a date"
+    );
+    // Historia bez dowodu pozostaje `Y + NULL` — brak backfillu w kodzie.
+    let db = p1_f20r_code(&p1_f20_read("src/core/database/upload_checkpoint.rs"));
+    assert!(
+        !db.contains("'2026"),
+        "F-20R: no literal date may be written into the database"
+    );
+}
+
+#[test]
+fn p1_f20r_download_credentials_are_confined_guard() {
+    let http = p1_f20r_code(&p1_f20_read("src/core/http.rs"));
+    assert!(
+        http.contains("pub struct SecretUrl"),
+        "F-20R: the SecretUrl wrapper must exist"
+    );
+    assert!(
+        http.contains("redirect(reqwest::redirect::Policy::none())"),
+        "F-20R: download clients must not follow redirects"
+    );
+    assert!(
+        http.contains("f.write_str(&self.redacted())"),
+        "F-20R: Display of SecretUrl must be redacted"
+    );
+    assert!(
+        http.contains("write!(f, \"SecretUrl({})\", self.redacted())"),
+        "F-20R: Debug of SecretUrl must be redacted"
+    );
+    // Debug/Display nie mogą ujawniać pełnego adresu.
+    assert!(
+        !http.contains("self.url.as_str())"),
+        "F-20R: SecretUrl must not expose its full address"
+    );
+    for (path, name) in [("src/cloud/lotw.rs", "LoTW"), ("src/cloud/eqsl.rs", "eQSL")] {
+        let source = p1_f20r_code(&p1_f20_read(path));
+        assert!(
+            source.contains("SecretUrl::parse_with_params"),
+            "F-20R: {name} download must build a SecretUrl"
+        );
+        assert!(
+            source.contains("http_client_no_redirect"),
+            "F-20R: {name} download must disable redirects"
+        );
+        assert!(
+            !source.contains(".query(&query)"),
+            "F-20R: {name} download must not pass credentials through a raw query vector"
+        );
+        for forbidden in [
+            "log::info!(\"{url}",
+            "log::warn!(\"{url}",
+            "println!(\"{url}",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "F-20R: {name} download must not log the URL"
+            );
+        }
+    }
+    // Pełny adres z hasłem nie może być zwracany przez produkcyjne API.
+    let lotw = p1_f20r_code(&p1_f20_read("src/cloud/lotw.rs"));
+    let index = lotw
+        .find("pub fn build_report_url")
+        .expect("build_report_url exists");
+    let preceding = &lotw[index.saturating_sub(240)..index];
+    assert!(
+        preceding.contains("#[cfg(test)]"),
+        "F-20R: build_report_url must not exist in production builds"
+    );
+}
+
+#[test]
+fn p1_f20r_checkpoints_store_no_secret_guard() {
+    let db = p1_f20r_code(&p1_f20_read("src/core/database/upload_checkpoint.rs"));
+    for forbidden in [
+        "password",
+        "Password",
+        "token",
+        "secret",
+        "https://",
+        "http://",
+        "certificate",
+    ] {
+        assert!(
+            !db.contains(forbidden),
+            "F-20R: the checkpoint repository must not mention `{forbidden}`"
+        );
+    }
+    // Ani model checkpointu, ani migracja nie mogą przechowywać ładunku.
+    let model = p1_f20r_code(&p1_f20_read("src/cloud/upload_checkpoint.rs"));
+    for forbidden in ["adif_content", "response_body", "full_url"] {
+        assert!(
+            !model.contains(forbidden),
+            "F-20R: the checkpoint model must not carry `{forbidden}`"
+        );
+    }
+    // `compute_evidence_digest` jest jedynym nośnikiem dowodu.
+    assert!(
+        model.contains("hasher.update(state.as_str().as_bytes())"),
+        "F-20R: evidence must be reduced to a digest of non-secret metadata"
+    );
+}
+
+#[test]
+fn p1_f20r_test_only_helpers_never_reach_production_guard() {
+    let database_mod = p1_f20r_code(&p1_f20_read("src/core/database/mod.rs"));
+    let raw_conn_index = database_mod
+        .find("pub fn raw_conn")
+        .expect("raw_conn exists");
+    let preceding = &database_mod[raw_conn_index.saturating_sub(80)..raw_conn_index];
+    assert!(
+        preceding.contains("#[cfg(test)]"),
+        "F-20R: raw connection access must stay in test scope"
+    );
+    // Żaden moduł produkcyjny nie może wystawiać publicznego haka testowego.
+    let mut offenders = Vec::new();
+    for path in p1_f17_tracked_sources("src") {
+        let source = p1_f20r_code(&p1_f20_read(&path));
+        for forbidden in [
+            "pub fn force_",
+            "pub fn corrupt_",
+            "pub fn dump_",
+            "pub fn set_checkpoint_",
+            "pub fn raw_statement_for_tests",
+        ] {
+            if source.contains(forbidden) {
+                offenders.push(format!("{path}: {forbidden}"));
+            }
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "F-20R: test hooks must not exist in production modules: {offenders:?}"
+    );
+}
+
+#[test]
+fn p1_f20r_documentation_records_the_residual_hardening_guard() {
+    let upload = p1_f20_read("docs/UPLOAD_SELECTION.md");
+    for required in [
+        "Persistent upload checkpoints = IMPLEMENTED_AND_SOFTWARE_VERIFIED",
+        "Crash recovery = SOFTWARE_VERIFIED",
+        "Unknown remote outcome = FAIL_CLOSED_MANUAL_RECONCILIATION_REQUIRED",
+        "LOTW_QSLSDATE = IMPLEMENTED",
+        "EQSL_QSLSDATE = IMPLEMENTED",
+        "Download credential transport = OFFICIAL_CONTRACT_VERIFIED",
+        "Real service login = NOT_EXECUTED",
+        "Real upload/download = NOT_EXECUTED",
+        "OFFICIAL_ENDPOINT_REQUIRES_QUERY_CREDENTIALS=true",
+        "QUERY_CREDENTIALS_NOT_LOGGED=true",
+        "QUERY_CREDENTIALS_NOT_PERSISTED=true",
+        "QUERY_CREDENTIALS_NOT_EXPOSED_IN_ERRORS=true",
+    ] {
+        assert!(
+            upload.contains(required),
+            "F-20R: docs/UPLOAD_SELECTION.md must record `{required}`"
+        );
+    }
+    let known = p1_f20_read("docs/KNOWN_ISSUES.md");
+    assert!(
+        known.contains("F20-R3"),
+        "F-20R: the remaining query-credential limitation must be recorded"
+    );
+    let baseline = p1_f20_read("docs/VERIFICATION_BASELINE.md");
+    assert!(
+        baseline.contains("P1-F20R"),
+        "F-20R: the verification baseline must record this gate"
+    );
+}
+
+#[test]
+fn p1_f20r_prior_gates_and_dependency_policy_guard() {
+    let roadmap = p1_f20_read("docs/ROADMAP.md");
+    assert!(roadmap.contains("F-20"), "F-20 must stay recorded");
+    assert!(roadmap.contains("F-21"), "F-21 must stay recorded");
+    let state = p1_f20_read("docs/PROJECT_CURRENT_STATE.md");
+    assert!(
+        state.contains("NATIVE-7B"),
+        "NATIVE-7B must stay recorded as NOT_STARTED"
+    );
+    // Zależności: bez zmian, `rusqlite` nadal bundled, brak dev-dependency w
+    // produkcyjnych zależnościach.
+    let manifest = p1_f20_read("Cargo.toml");
+    assert!(
+        manifest.contains("rusqlite = { version = \"0.41\", features = [\"bundled\""),
+        "F-20R: rusqlite must stay bundled"
+    );
+    let dependencies = manifest
+        .split("[dependencies]")
+        .nth(1)
+        .and_then(|rest| rest.split("[build-dependencies]").next())
+        .expect("dependencies section");
+    for forbidden in ["tempfile", "criterion", "proptest"] {
+        assert!(
+            !dependencies.contains(forbidden),
+            "F-20R: `{forbidden}` must not become a production dependency"
+        );
+    }
+}
