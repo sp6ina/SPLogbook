@@ -10715,9 +10715,9 @@ fn p1_f20r_download_credentials_are_confined_guard() {
     let index = lotw
         .find("pub fn build_report_url")
         .expect("build_report_url exists");
-    let preceding = &lotw[index.saturating_sub(240)..index];
+    let attribute = lotw[..index].rfind("#[cfg(test)]");
     assert!(
-        preceding.contains("#[cfg(test)]"),
+        attribute.is_some_and(|position| index - position <= 240),
         "F-20R: build_report_url must not exist in production builds"
     );
 }
@@ -10760,9 +10760,9 @@ fn p1_f20r_test_only_helpers_never_reach_production_guard() {
     let raw_conn_index = database_mod
         .find("pub fn raw_conn")
         .expect("raw_conn exists");
-    let preceding = &database_mod[raw_conn_index.saturating_sub(80)..raw_conn_index];
+    let attribute = database_mod[..raw_conn_index].rfind("#[cfg(test)]");
     assert!(
-        preceding.contains("#[cfg(test)]"),
+        attribute.is_some_and(|position| raw_conn_index - position <= 80),
         "F-20R: raw connection access must stay in test scope"
     );
     // Żaden moduł produkcyjny nie może wystawiać publicznego haka testowego.

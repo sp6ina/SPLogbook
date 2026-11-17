@@ -406,10 +406,13 @@ fn production_does_not_contain_a_public_helper_returning_a_credential_url() {
     let Some(index) = lotw.find("pub fn build_report_url") else {
         panic!("build_report_url must still be present for the F-20 regression tests");
     };
-    let start = index.saturating_sub(220);
-    let preceding = &lotw[start..index];
+    // `find` returns a char boundary, so slicing the prefix is always valid;
+    // never slice a fixed byte window backwards (it can land inside a multibyte
+    // character).
+    let prefix = &lotw[..index];
+    let attribute = prefix.rfind("#[cfg(test)]");
     assert!(
-        preceding.contains("#[cfg(test)]"),
+        attribute.is_some_and(|position| index - position <= 240),
         "build_report_url must be gated to test scope"
     );
     // Żaden inny publiczny helper nie może zwracać URL-a z sekretem.
