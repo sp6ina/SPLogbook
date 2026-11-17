@@ -486,10 +486,29 @@ upload, download or login was used.
 Static checks on this tree: `cargo fmt --all -- --check` = EXIT 0, `cargo clippy --workspace
 --all-targets --all-features -j 1 -- -D warnings` = EXIT 0, `cargo doc --no-deps` = EXIT 0 with
 **23** pre-existing rustdoc warnings (baseline 25; two `SecretUrl` links introduced and fixed by this
-gate), `cargo tree -d` = **47** duplicate dependency versions (unchanged), `cargo audit --no-fetch`
-= **EXIT 0** (1509 advisories, 663 packages, the seven approved `--ignore` entries only; the plain
-fetching run cannot write `~/.cargo/advisory-db..lock` on this host, which is the documented
-environment limitation of §5), `git diff --check` = EXIT 0, `Cargo.toml` / `Cargo.lock` unchanged.
+gate), `cargo tree -d` = **47** duplicate dependency versions (unchanged), `git diff --check` = EXIT 0,
+`Cargo.toml` / `Cargo.lock` unchanged.
+
+### `cargo audit` — BLOCKED by a new external advisory
+
+| Item | Value |
+|---|---|
+| Local `cargo audit --no-fetch` (cached DB, 1509 advisories) | EXIT 0 |
+| CI `cargo audit --deny warnings` (fetched DB, **1527** advisories) | **EXIT 1** |
+| Advisory | **`RUSTSEC-2026-0543`** — "chrono is unmaintained", INFO/Unmaintained, **no patched versions** |
+| Crate | `chrono 0.4.45` — already a dependency, `Cargo.lock` byte-identical to the F-20 baseline |
+| Approved `--ignore` list | does **not** contain `RUSTSEC-2026-0543` |
+| Consequence | `STAGE-P1-F20R-SOFTWARE` cannot claim a green CI |
+
+The advisory was added to the RustSec database between the F-20 baseline CI run
+(`44050036049`, 2026-11-17T08:49Z, `success`) and this gate's CI run (`44102699075`,
+2026-11-17T14:36Z). It is an external database change, not a code change: `Cargo.lock` is unchanged,
+and `chrono` is used across the existing code base (not introduced by F-20R).
+
+The two remedies are both forbidden by this gate: adding a RustSec exception requires a formal owner
+decision, and replacing or removing `chrono` is a dependency change (there is no patched version, so
+only a migration to another crate would clear it). The gate therefore stops at
+`BLOCKED_BY_NEW_RUSTSEC_ADVISORY` — see [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md) §7.
 
 The verification is software-only. Durable checkpointing, crash recovery, UNKNOWN semantics, sent-date
 atomicity, migration/rollback and credential confinement are verified programmatically against

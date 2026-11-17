@@ -645,3 +645,34 @@ disabled, all transport errors sanitised, the only credential-bearing `String` h
 (download) path, which this gate only touches for credential transport. It is recorded here as an
 open residual risk, not fixed here, and not claimed as closed. The fix requires deciding which
 records may be written when the service supplies no date, which is a separate owner decision.
+---
+
+## 7. `RUSTSEC-2026-0543` — new advisory blocking CI (2026-11-17)
+
+`cargo audit --deny warnings` in CI now fails on **`RUSTSEC-2026-0543`**: "chrono is unmaintained",
+type INFO / Unmaintained, with **no patched versions**. Source read 2026-11-17T15:4xZ at
+`https://rustsec.org/advisories/RUSTSEC-2026-0543` (HTTP 200).
+
+Facts:
+
+* `chrono 0.4.45` is an existing direct dependency; `Cargo.lock` is byte-identical to the F-20
+  baseline (`git diff 70b91d2 HEAD -- Cargo.lock` is empty).
+* The advisory is **not** in the approved `--ignore` list in `.github/workflows/ci.yml`, and adding it
+  requires a formal owner decision (`.github/workflows/ci.yml` §audit, `AGENTS.md` §7).
+* The CI advisory database contained 1527 entries at 2026-11-17T14:36Z; the local cache has 1509, so
+  a local `cargo audit --no-fetch` still passes. The CI run is authoritative.
+* The previous CI run on the F-20 baseline (`44050036049`, 2026-11-17T08:49Z) was `success`, so the
+  advisory entered the database during 2026-11-17.
+* There is no patched version, so the only code-level remedy is to stop depending on `chrono`
+  entirely — a dependency migration that this gate explicitly forbids.
+
+Consequences:
+
+| Effect | Status |
+|---|---|
+| `STAGE-P1-F20R-SOFTWARE` closure | **BLOCKED_BY_NEW_RUSTSEC_ADVISORY** |
+| Software work (checkpoints, sent dates, credential confinement) | complete and verified locally — 3457/3457 tests, clippy clean, fmt clean |
+| CI | red on the audit step only; every other CI step is green |
+| Unblocking decision needed | owner decision: either approve `RUSTSEC-2026-0543` as an accepted `unmaintained` entry (with the same justification style as the existing seven), or authorise a dedicated dependency gate that removes `chrono` |
+
+Do **not** add the `--ignore` entry without that decision, and do **not** treat this gate as closed.
