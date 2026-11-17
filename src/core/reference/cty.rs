@@ -92,13 +92,62 @@ pub struct CtyMatch {
     pub exact: bool,
 }
 
+/// Kind of a non-fatal problem found while reading a country file.
+/// Text fields carry the offending token for diagnostics.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CtyIssueKind {
+    EmptyAlias(String),
+    UnknownModifier { modifier: char, token: String },
+    UnterminatedModifier(String),
+    InvalidModifierValue(String),
+    IncompleteHeader,
+    UnterminatedAliasList,
+    EmptyEntityName,
+    InvalidCqZone(String),
+    InvalidItuZone(String),
+    InvalidContinent(String),
+    InvalidCoordinates,
+    CoordinatesOutOfRange,
+    InvalidUtcOffset(String),
+    InvalidPrimaryPrefix(String),
+    CsvColumnCount(usize),
+    CsvInvalidEntityCode(String),
+    CsvDuplicatePrimary(String),
+}
+
+impl fmt::Display for CtyIssueKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::EmptyAlias(t) => write!(f, "empty alias in '{t}'"),
+            Self::UnknownModifier { modifier, token } => {
+                write!(f, "unknown modifier '{modifier}' in '{token}'")
+            }
+            Self::UnterminatedModifier(t) => write!(f, "unterminated modifier in '{t}'"),
+            Self::InvalidModifierValue(t) => write!(f, "invalid modifier value in '{t}'"),
+            Self::IncompleteHeader => f.write_str("incomplete entity header"),
+            Self::UnterminatedAliasList => f.write_str("alias list not terminated by ';'"),
+            Self::EmptyEntityName => f.write_str("empty entity name"),
+            Self::InvalidCqZone(v) => write!(f, "invalid CQ zone '{v}'"),
+            Self::InvalidItuZone(v) => write!(f, "invalid ITU zone '{v}'"),
+            Self::InvalidContinent(v) => write!(f, "invalid continent '{v}'"),
+            Self::InvalidCoordinates => f.write_str("invalid coordinates"),
+            Self::CoordinatesOutOfRange => f.write_str("coordinates out of range"),
+            Self::InvalidUtcOffset(v) => write!(f, "invalid UTC offset '{v}'"),
+            Self::InvalidPrimaryPrefix(v) => write!(f, "invalid primary prefix '{v}'"),
+            Self::CsvColumnCount(n) => write!(f, "expected 10 columns, found {n}"),
+            Self::CsvInvalidEntityCode(v) => write!(f, "invalid entity code '{v}'"),
+            Self::CsvDuplicatePrimary(v) => write!(f, "duplicate primary prefix '{v}' ignored"),
+        }
+    }
+}
+
 /// A non-fatal problem found while reading a file. The affected record or
 /// alias is skipped; the rest of the file is still used.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CtyIssue {
     /// 1-based line where the problem starts.
     pub line: usize,
-    pub message: String,
+    pub kind: CtyIssueKind,
 }
 
 /// A fatal problem: nothing usable could be read.
@@ -210,7 +259,7 @@ fn is_call_char(c: char) -> bool {
 }
 
 /// Parses one alias token such as `=K1ABC(4)[7]` into text, exactness and overrides.
-fn parse_alias(token: &str) -> Result<(String, bool, CtyOverrides), String> {
+fn parse_alias(token: &str) -> Result<(String, bool, CtyOverrides), CtyIssueKind> {
     let mut chars = token.chars().peekable();
     let exact = chars.peek() == Some(&'=');
     if exact {
@@ -226,7 +275,7 @@ fn parse_alias(token: &str) -> Result<(String, bool, CtyOverrides), String> {
         }
     }
     if text.is_empty() {
-        return Err(format!("empty alias in '{token}'"));
+        return Err(CtyIssueKind::EmptyAlias(token.to_string()));
     }
 
     let mut ov = CtyOverrides::default();
@@ -237,7 +286,12 @@ fn parse_alias(token: &str) -> Result<(String, bool, CtyOverrides), String> {
             '<' => '>',
             '{' => '}',
             '~' => '~',
-            other => return Err(format!("unknown modifier '{other}' in '{token}'")),
+            other => {
+                return Err(CtyIssueKind::UnknownModifier {
+                    modifier: other,
+                    token: token.to_string(),
+                });
+            }
         };
         let mut body = String::new();
         let mut closed = false;
@@ -249,9 +303,9 @@ fn parse_alias(token: &str) -> Result<(String, bool, CtyOverrides), String> {
             body.push(c);
         }
         if !closed {
-            return Err(format!("unterminated modifier in '{token}'"));
+            return Err(CtyIssueKind::UnterminatedModifier(token.to_string()));
         }
-        let bad = || format!("invalid modifier value '{body}' in '{token}'");
+        let bad = || CtyIssueKind::InvalidModifierValue(token.to_string());
         match open {
             '(' => {
                 let z = parse_number::<u32>(&body).filter(|z| valid_zone(*z, 40));
@@ -363,7 +417,7 @@ impl CtyData {
                 fields.push(f);
             }
             if broken {
-                data.issue(start_line, "incomplete entity header");
+                data.issue(start_line, CtyIssueKind::IncompleteHeader);
                 if cur.chars.peek().is_none() {
                     break;
                 }
@@ -371,13 +425,13 @@ impl CtyData {
             }
 
             let Some(alias_block) = cur.read_until(';') else {
-                data.issue(start_line, "alias list not terminated by ';'");
+                data.issue(start_line, CtyIssueKind::UnterminatedAliasList);
                 break;
             };
 
             match Self::parse_header(&fields) {
                 Ok(entity) => data.add_entity(entity, &alias_block, start_line),
-                Err(msg) => data.issue(start_line, &msg),
+                Err(kind) => data.issue(start_line, kind),
             }
         }
 
@@ -392,44 +446,41 @@ impl CtyData {
         Self::parse(&read_country_file(path)?)
     }
 
-    fn issue(&mut self, line: usize, message: &str) {
-        self.issues.push(CtyIssue {
-            line,
-            message: message.to_string(),
-        });
+    fn issue(&mut self, line: usize, kind: CtyIssueKind) {
+        self.issues.push(CtyIssue { line, kind });
     }
 
-    fn parse_header(f: &[String]) -> Result<CtyEntity, String> {
+    fn parse_header(f: &[String]) -> Result<CtyEntity, CtyIssueKind> {
         let name = f[0].trim().to_string();
         if name.is_empty() {
-            return Err("empty entity name".into());
+            return Err(CtyIssueKind::EmptyEntityName);
         }
         let cq = parse_number::<u32>(&f[1])
             .filter(|z| valid_zone(*z, 40))
-            .ok_or_else(|| format!("invalid CQ zone '{}' for {name}", f[1].trim()))?;
+            .ok_or_else(|| CtyIssueKind::InvalidCqZone(f[1].trim().to_string()))?;
         let itu = parse_number::<u32>(&f[2])
             .filter(|z| valid_zone(*z, 90))
-            .ok_or_else(|| format!("invalid ITU zone '{}' for {name}", f[2].trim()))?;
+            .ok_or_else(|| CtyIssueKind::InvalidItuZone(f[2].trim().to_string()))?;
         let continent = f[3].trim().to_ascii_uppercase();
         if !valid_continent(&continent) {
-            return Err(format!("invalid continent '{continent}' for {name}"));
+            return Err(CtyIssueKind::InvalidContinent(continent));
         }
         let lat = parse_float(&f[4]);
         let lon_w = parse_float(&f[5]);
         let (Some(lat), Some(lon_w)) = (lat, lon_w) else {
-            return Err(format!("invalid coordinates for {name}"));
+            return Err(CtyIssueKind::InvalidCoordinates);
         };
         if !valid_coordinates(lat, -lon_w) {
-            return Err(format!("coordinates out of range for {name}"));
+            return Err(CtyIssueKind::CoordinatesOutOfRange);
         }
         let offset = parse_float(&f[6])
             .filter(|o| valid_offset(*o))
-            .ok_or_else(|| format!("invalid UTC offset '{}' for {name}", f[6].trim()))?;
+            .ok_or_else(|| CtyIssueKind::InvalidUtcOffset(f[6].trim().to_string()))?;
         let raw_primary = f[7].trim();
         let wae_only = raw_primary.starts_with('*');
         let primary = raw_primary.trim_start_matches('*').to_ascii_uppercase();
         if primary.is_empty() || !primary.chars().all(is_call_char) {
-            return Err(format!("invalid primary prefix '{raw_primary}' for {name}"));
+            return Err(CtyIssueKind::InvalidPrimaryPrefix(raw_primary.to_string()));
         }
         Ok(CtyEntity {
             name,
@@ -472,7 +523,7 @@ impl CtyData {
                         }
                     }
                 }
-                Err(msg) => self.issue(line, &msg),
+                Err(kind) => self.issue(line, kind),
             }
         }
     }
@@ -603,7 +654,7 @@ pub fn parse_cty_csv(text: &str) -> (Vec<CtyCsvRow>, Vec<CtyIssue>) {
         if cols.len() < 10 {
             issues.push(CtyIssue {
                 line: line_no,
-                message: format!("expected 10 columns, found {}", cols.len()),
+                kind: CtyIssueKind::CsvColumnCount(cols.len()),
             });
             continue;
         }
@@ -622,17 +673,17 @@ pub fn parse_cty_csv(text: &str) -> (Vec<CtyCsvRow>, Vec<CtyIssue>) {
                 } else {
                     issues.push(CtyIssue {
                         line: line_no,
-                        message: format!("duplicate primary prefix '{primary}' ignored"),
+                        kind: CtyIssueKind::CsvDuplicatePrimary(primary),
                     });
                 }
             }
             (false, _) => issues.push(CtyIssue {
                 line: line_no,
-                message: format!("invalid primary prefix '{}'", cols[0].trim()),
+                kind: CtyIssueKind::InvalidPrimaryPrefix(cols[0].trim().to_string()),
             }),
             (true, None) => issues.push(CtyIssue {
                 line: line_no,
-                message: format!("invalid entity code '{}'", cols[2].trim()),
+                kind: CtyIssueKind::CsvInvalidEntityCode(cols[2].trim().to_string()),
             }),
         }
     }

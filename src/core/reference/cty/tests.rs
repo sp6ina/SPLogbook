@@ -152,7 +152,17 @@ fn unknown_modifier_rejects_only_that_alias() {
     assert!(d.resolve_prefix("QG8").is_some());
     assert_eq!(d.resolve_prefix("QG7").unwrap().matched, "QG");
     assert_eq!(d.issues.len(), 1);
-    assert!(d.issues[0].message.contains("unknown modifier"));
+    assert_eq!(
+        d.issues[0].kind,
+        CtyIssueKind::UnknownModifier {
+            modifier: '^',
+            token: "QG7^9^".into()
+        }
+    );
+    assert_eq!(
+        d.issues[0].kind.to_string(),
+        "unknown modifier '^' in 'QG7^9^'"
+    );
 }
 
 #[test]
@@ -406,30 +416,21 @@ fn regression_corpus_resolves_deterministically() {
 fn regression_corpus_reports_every_invalid_record() {
     let d = CtyData::parse(CORPUS_DAT).unwrap();
     assert_eq!(d.entities().len(), 5);
-    let msgs: Vec<&str> = d.issues.iter().map(|i| i.message.as_str()).collect();
-    assert!(
-        msgs.iter().any(|m| m.contains("invalid CQ zone '41'")),
-        "{msgs:?}"
-    );
-    assert!(
-        msgs.iter().any(|m| m.contains("coordinates out of range")),
-        "{msgs:?}"
-    );
-    assert!(
-        msgs.iter().any(|m| m.contains("invalid CQ zone 'x1'")),
-        "{msgs:?}"
-    );
-    assert!(
-        msgs.iter().any(|m| m.contains("invalid continent 'XX'")),
-        "{msgs:?}"
-    );
+    let kinds: Vec<CtyIssueKind> = d.issues.iter().map(|i| i.kind.clone()).collect();
+    let lines: Vec<usize> = d.issues.iter().map(|i| i.line).collect();
     // "Missing Fields" reaches ';' before its eighth ':' and is rejected as an
     // incomplete header; the parser resynchronises on that ';'.
-    assert!(
-        msgs.iter().any(|m| m.contains("incomplete entity header")),
-        "{msgs:?}"
+    assert_eq!(
+        kinds,
+        vec![
+            CtyIssueKind::InvalidCqZone("41".into()),
+            CtyIssueKind::CoordinatesOutOfRange,
+            CtyIssueKind::InvalidCqZone("x1".into()),
+            CtyIssueKind::IncompleteHeader,
+            CtyIssueKind::InvalidContinent("XX".into()),
+        ]
     );
-    assert_eq!(d.issues.len(), 5, "{msgs:?}");
+    assert_eq!(lines, vec![12, 14, 16, 18, 20]);
 }
 
 #[test]
