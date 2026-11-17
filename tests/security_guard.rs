@@ -10826,11 +10826,14 @@ fn p1_f20r_prior_gates_and_dependency_policy_guard() {
     let roadmap = p1_f20_read("docs/ROADMAP.md");
     assert!(roadmap.contains("F-20"), "F-20 must stay recorded");
     assert!(roadmap.contains("F-21"), "F-21 must stay recorded");
-    let state = p1_f20_read("docs/PROJECT_CURRENT_STATE.md");
+    // Tylko dokumenty śledzone w repozytorium: `docs/PROJECT_CURRENT_STATE.md`
+    // i `docs/NEXT_WORK_GATE.md` są plikami lokalnymi (`.git/info/exclude`)
+    // i nie istnieją w czystym checkoucie.
     assert!(
-        state.contains("NATIVE-7B"),
+        roadmap.contains("NATIVE-7B"),
         "NATIVE-7B must stay recorded as NOT_STARTED"
     );
+    assert!(roadmap.contains("F-21"), "F-21 must stay recorded as OPEN");
     // Zależności: bez zmian, `rusqlite` nadal bundled, brak dev-dependency w
     // produkcyjnych zależnościach.
     let manifest = p1_f20_read("Cargo.toml");

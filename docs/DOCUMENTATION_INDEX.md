@@ -104,4 +104,4 @@ consolidated into the CURRENT and REFERENCE documents above.
 4. `EVIDENCE` documents are not rewritten to look current.
 5. No tracked document links to a path that is not tracked.
 
-| [`LOTW_EQSL_CONTRACT.md`](LOTW_EQSL_CONTRACT.md) | Official current contract register for ADIF 3.1.8, LoTW/TQSL 2.8.7 and eQSL.cc: exit codes, duplicate/idempotency wording, download authentication, stale-source notes |
+| [`docs/LOTW_EQSL_CONTRACT.md`](LOTW_EQSL_CONTRACT.md) | Official current contract register for ADIF 3.1.8, LoTW/TQSL 2.8.7 and eQSL.cc: exit codes, duplicate/idempotency wording, download authentication, stale-source notes |
