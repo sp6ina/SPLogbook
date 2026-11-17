@@ -837,3 +837,75 @@ mod user_table_tests {
         assert!(cb.lookup("").is_none());
     }
 }
+
+#[cfg(test)]
+mod differential_tests {
+    //! Level C for the local callbook: the same synthetic entries in the
+    //! legacy SQLite layout and in the imported user table give identical
+    //! lookups, including the base-call fallback and the QSL-manager merge.
+    use super::*;
+    use crate::core::reference::tables::{TableKind, UserTables, import_table};
+    use std::fmt::Write as _;
+    use std::sync::RwLock;
+
+    const ENTRIES: &[(&str, &str, &str, &str, &str, &str)] = &[
+        ("QA1AA", "Test Operator", "Testville", "JO81wa", "", "QB1BB"),
+        ("QA2AA", "Second Op", "", "KN11", "QS", ""),
+        ("QA3AA", "", "Only Town", "", "", ""),
+    ];
+    const MANAGERS: &[(&str, &str)] = &[("QA2AA", "QB2BB"), ("QA9ZZ", "QB9ZZ")];
+    const LOOKUPS: &[&str] = &[
+        "QA1AA", "qa1aa", "QA1AA/P", "DL/QA1AA", "QA2AA", "QA3AA", "QA9ZZ", "QA9ZZ/M", "QZ0ZZ", "",
+    ];
+
+    #[test]
+    fn user_callbook_answers_exactly_like_the_legacy_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let cb_path = dir.path().join("cb.db");
+        let srv_path = dir.path().join("srv.db");
+        let cb = Connection::open(&cb_path).unwrap();
+        cb.execute_batch("CREATE TABLE Callbook (_id INTEGER PRIMARY KEY, Call TEXT, Name TEXT, QTH TEXT, Grid TEXT, State TEXT, Manager TEXT, Note TEXT, Mark TEXT, Checked INTEGER);").unwrap();
+        for (c, n, q, g, s, m) in ENTRIES {
+            cb.execute(
+                "INSERT INTO Callbook (Call, Name, QTH, Grid, State, Manager) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                rusqlite::params![c, n, q, g, s, m],
+            )
+            .unwrap();
+        }
+        drop(cb);
+        let srv = Connection::open(&srv_path).unwrap();
+        srv.execute_batch("CREATE TABLE managers (_id INTEGER PRIMARY KEY, Call TEXT, Manager TEXT, Years TEXT, Notes TEXT, Author TEXT);").unwrap();
+        for (c, m) in MANAGERS {
+            srv.execute(
+                "INSERT INTO managers (Call, Manager) VALUES (?1, ?2)",
+                rusqlite::params![c, m],
+            )
+            .unwrap();
+        }
+        drop(srv);
+
+        let root = tempfile::tempdir().unwrap();
+        let mut book =
+            String::from("#splogbook-callbook,1\ncallsign,name,qth,grid,state,manager\n");
+        for (c, n, q, g, s, m) in ENTRIES {
+            let _ = writeln!(book, "{c},{n},{q},{g},{s},{m}");
+        }
+        let mut mgr = String::from("#splogbook-qsl-managers,1\ncallsign,manager\n");
+        for (c, m) in MANAGERS {
+            let _ = writeln!(mgr, "{c},{m}");
+        }
+        for (kind, text) in [(TableKind::Callbook, book), (TableKind::QslManagers, mgr)] {
+            let p = root.path().join("in.csv");
+            std::fs::write(&p, text).unwrap();
+            import_table(root.path(), kind, &p).unwrap();
+        }
+        let tables = Arc::new(RwLock::new(UserTables::load(root.path()).0));
+
+        let legacy =
+            LocalCallbook::new(Some(cb_path), Some(srv_path)).with_user_tables(Arc::default());
+        let current = LocalCallbook::new(None, None).with_user_tables(tables);
+        for call in LOOKUPS {
+            assert_eq!(current.lookup(call), legacy.lookup(call), "{call:?}");
+        }
+    }
+}

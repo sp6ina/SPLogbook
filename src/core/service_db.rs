@@ -87,6 +87,17 @@ impl ServiceDatabase {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn from_parts(
+        conn: Option<Connection>,
+        user: Arc<std::sync::RwLock<UserTables>>,
+    ) -> Self {
+        Self {
+            conn: conn.map(|c| Arc::new(Mutex::new(c))),
+            user,
+        }
+    }
+
     /// Baza bez starszego pliku, korzystająca wyłącznie z podanych tabel użytkownika.
     pub fn with_user_tables(user: Arc<std::sync::RwLock<UserTables>>) -> Self {
         Self { conn: None, user }
@@ -585,5 +596,139 @@ mod user_table_tests {
         // Reload through the shared handle: no restart, same ServiceDatabase.
         *shared.write().unwrap() = UserTables::default();
         assert!(db.find_manager("QA1AA").is_none());
+    }
+}
+
+#[cfg(test)]
+mod differential_tests {
+    //! Level C for the user tables: the same synthetic rows served by the
+    //! legacy SQL queries and by the imported tables must give identical
+    //! results for every browser query.
+    use super::*;
+    use crate::core::reference::tables::{TableKind, UserTables, import_table};
+    use std::fmt::Write as _;
+    use std::sync::RwLock;
+
+    const IOTA_ROWS: &[(&str, &str, &str)] = &[
+        ("EU-901", "Testing Isle", "QA"),
+        ("EU-902", "Second Rock", "QB"),
+        ("AS-903", "Far Island", ""),
+        ("OC-904", "Isle of Tests", "QC"),
+        ("NA-905", "North Test Key", "QD"),
+    ];
+    const STATE_ROWS: &[(&str, &str, &str)] = &[
+        ("QN", "North Test", "Alpha Land"),
+        ("QS", "South Test", "Alpha Land"),
+        ("QN", "North Other", "Beta Isles"),
+        ("QW", "West Testing", "Beta Isles"),
+    ];
+    const MANAGER_ROWS: &[(&str, &str, &str, &str)] = &[
+        ("QA1AA", "QB1BB", "2020-2026", "via bureau"),
+        ("QA2AA", "QB1BB", "", ""),
+        ("QA3AA", "QB3CC", "2019", "direct"),
+        ("QB1BB", "QZ9ZZ", "", ""),
+    ];
+    const QUERIES: &[&str] = &[
+        "", "Q", "QA", "QB1", "TEST", "test", "ISLE", "EU-90", "NORTH", "ZZZ", "%", "_",
+    ];
+
+    fn legacy_conn() -> Connection {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch(
+            "CREATE TABLE IOTA (_id INTEGER PRIMARY KEY, IOTA TEXT, Name TEXT, Prefix1 TEXT, Prefix2 TEXT);
+             CREATE TABLE STATE (_id INTEGER PRIMARY KEY, State TEXT, Name TEXT, Country TEXT);
+             CREATE TABLE managers (_id INTEGER PRIMARY KEY, Call TEXT, Manager TEXT, Years TEXT, Notes TEXT, Author TEXT);",
+        )
+        .unwrap();
+        for (i, n, p) in IOTA_ROWS {
+            c.execute(
+                "INSERT INTO IOTA (IOTA, Name, Prefix1) VALUES (?1, ?2, ?3)",
+                params![i, n, p],
+            )
+            .unwrap();
+        }
+        for (code, n, country) in STATE_ROWS {
+            c.execute(
+                "INSERT INTO STATE (State, Name, Country) VALUES (?1, ?2, ?3)",
+                params![code, n, country],
+            )
+            .unwrap();
+        }
+        for (call, m, y, notes) in MANAGER_ROWS {
+            c.execute(
+                "INSERT INTO managers (Call, Manager, Years, Notes) VALUES (?1, ?2, ?3, ?4)",
+                params![call, m, y, notes],
+            )
+            .unwrap();
+        }
+        c
+    }
+
+    fn csv_field(s: &str) -> String {
+        format!("\"{}\"", s.replace('"', "\"\""))
+    }
+
+    fn user_tables() -> Arc<RwLock<UserTables>> {
+        let root = tempfile::tempdir().unwrap();
+        let mut iota = String::from("#splogbook-iota,1\nreference,name,prefix\n");
+        for (i, n, p) in IOTA_ROWS {
+            let _ = writeln!(iota, "{i},{},{p}", csv_field(n));
+        }
+        let mut states = String::from("#splogbook-states,1\ncode,name,country\n");
+        for (c, n, country) in STATE_ROWS {
+            let _ = writeln!(states, "{c},{},{}", csv_field(n), csv_field(country));
+        }
+        let mut managers =
+            String::from("#splogbook-qsl-managers,1\ncallsign,manager,years,notes\n");
+        for (c, m, y, n) in MANAGER_ROWS {
+            let _ = writeln!(managers, "{c},{m},{y},{}", csv_field(n));
+        }
+        for (kind, text) in [
+            (TableKind::Iota, iota),
+            (TableKind::States, states),
+            (TableKind::QslManagers, managers),
+        ] {
+            let p = root.path().join("in.csv");
+            std::fs::write(&p, text).unwrap();
+            import_table(root.path(), kind, &p).unwrap();
+        }
+        Arc::new(RwLock::new(UserTables::load(root.path()).0))
+    }
+
+    #[test]
+    fn user_tables_answer_exactly_like_the_legacy_queries() {
+        let legacy = ServiceDatabase::from_parts(Some(legacy_conn()), Arc::default());
+        let current = ServiceDatabase::from_parts(None, user_tables());
+        for q in QUERIES {
+            assert_eq!(current.search_iota(q), legacy.search_iota(q), "iota {q:?}");
+            assert_eq!(
+                current.search_states(q),
+                legacy.search_states(q),
+                "states {q:?}"
+            );
+            assert_eq!(
+                current.search_managers(q),
+                legacy.search_managers(q),
+                "managers {q:?}"
+            );
+        }
+        for (code, _, _) in IOTA_ROWS {
+            assert_eq!(current.find_iota(code), legacy.find_iota(code), "{code}");
+            assert_eq!(
+                current.find_iota(&code.to_lowercase()),
+                legacy.find_iota(code)
+            );
+        }
+        for (call, ..) in MANAGER_ROWS {
+            assert_eq!(
+                current.find_manager(call),
+                legacy.find_manager(call),
+                "{call}"
+            );
+        }
+        for missing in ["EU-999", "QZ1ZZ", ""] {
+            assert_eq!(current.find_iota(missing), legacy.find_iota(missing));
+            assert_eq!(current.find_manager(missing), legacy.find_manager(missing));
+        }
     }
 }
