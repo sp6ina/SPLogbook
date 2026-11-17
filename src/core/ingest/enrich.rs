@@ -74,3 +74,104 @@ pub(super) fn apply_prefix_info(qso: &mut QsoRecord, info: &PrefixInfo) {
         qso.continent = Some(info.continent.clone());
     }
 }
+
+#[cfg(test)]
+mod country_name_tests {
+    //! A change of entity naming between reference sources must never rewrite
+    //! stored QSOs: the ADIF DXCC entity code is the identifier and an
+    //! existing COUNTRY value is kept as written.
+    use super::*;
+
+    fn info(country: &str, dxcc: u32, cqz: u32, ituz: u32, continent: &str) -> PrefixInfo {
+        PrefixInfo {
+            callsign: "QA1AA".into(),
+            country: country.into(),
+            arrl_prefix: String::new(),
+            dxcc,
+            cqz,
+            ituz,
+            continent: continent.into(),
+            latitude: 0.0,
+            longitude: 0.0,
+            wpx_prefix: String::new(),
+            province: None,
+            subdivision_code: None,
+            location_precision: crate::core::prefix::LocationPrecision::EntityCentroid,
+        }
+    }
+
+    const RENAMES: [(&str, &str, u32, u32, u32, &str); 3] = [
+        ("USA (CA)", "United States", 291, 3, 6, "NA"),
+        ("China, Ji Lin", "China", 318, 24, 33, "AS"),
+        ("Russia (Asiatic)", "Asiatic Russia", 15, 17, 30, "AS"),
+    ];
+
+    #[test]
+    fn existing_country_and_codes_are_never_rewritten() {
+        for (old, new, dxcc, cqz, ituz, cont) in RENAMES {
+            let mut qso = QsoRecord {
+                callsign: "QA1AA".into(),
+                country: Some(old.into()),
+                dxcc: Some(dxcc),
+                cqz: Some(cqz),
+                ituz: Some(ituz),
+                continent: Some(cont.into()),
+                ..QsoRecord::default()
+            };
+            let before = qso.clone();
+            // Even a source reporting other zones must not touch a stored QSO.
+            apply_prefix_info(&mut qso, &info(new, dxcc, cqz + 1, ituz + 1, cont));
+            assert_eq!(qso, before, "{old}");
+        }
+    }
+
+    #[test]
+    fn new_qso_gets_code_and_current_source_name() {
+        for (_, new, dxcc, cqz, ituz, cont) in RENAMES {
+            let mut qso = QsoRecord {
+                callsign: "QA1AA".into(),
+                ..QsoRecord::default()
+            };
+            apply_prefix_info(&mut qso, &info(new, dxcc, cqz, ituz, cont));
+            assert_eq!(qso.dxcc, Some(dxcc));
+            assert_eq!(qso.country.as_deref(), Some(new));
+            assert_eq!((qso.cqz, qso.ituz), (Some(cqz), Some(ituz)));
+            assert_eq!(qso.continent.as_deref(), Some(cont));
+        }
+    }
+
+    #[test]
+    fn stored_names_survive_adif_export_and_import() {
+        let qsos: Vec<QsoRecord> = RENAMES
+            .iter()
+            .map(|(old, _, dxcc, cqz, ituz, cont)| QsoRecord {
+                callsign: "QA1AA".into(),
+                qso_date: "20261101".into(),
+                time_on: "1200".into(),
+                band: "20m".into(),
+                mode: "CW".into(),
+                country: Some((*old).into()),
+                dxcc: Some(*dxcc),
+                cqz: Some(*cqz),
+                ituz: Some(*ituz),
+                continent: Some((*cont).into()),
+                ..QsoRecord::default()
+            })
+            .collect();
+        let text = crate::core::adif::export_adif(&qsos, "SPLogbook", "QA1AA");
+        let back = crate::core::adif::parse_adif(&text);
+        assert_eq!(back.len(), qsos.len());
+        for (a, b) in qsos.iter().zip(&back) {
+            assert_eq!(a.country, b.country);
+            assert_eq!(a.dxcc, b.dxcc);
+            assert_eq!((a.cqz, a.ituz), (b.cqz, b.ituz));
+            assert_eq!(a.continent, b.continent);
+        }
+        // Re-enriching imported QSOs keeps their names.
+        let mut again = back.clone();
+        for (q, (_, new, dxcc, cqz, ituz, cont)) in again.iter_mut().zip(RENAMES) {
+            apply_prefix_info(q, &info(new, dxcc, cqz, ituz, cont));
+        }
+        assert_eq!(again, back);
+    }
+}
