@@ -22,6 +22,7 @@ pub mod qso_store;
 pub mod schema;
 pub mod search;
 mod stats;
+pub mod upload_selection;
 
 #[cfg(test)]
 mod tests;
