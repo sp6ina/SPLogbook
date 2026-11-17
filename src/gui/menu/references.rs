@@ -42,6 +42,13 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.gui.dialogs.prefix_manager_dialog.open();
             ui.close();
         }
+        if ui
+            .button(icons::BOOKS.label(tr(key::REF_CLUBS_EDITOR, lang)))
+            .clicked()
+        {
+            app.open_clubs_editor();
+            ui.close();
+        }
         ui.separator();
         if ui
             .button(icons::MOON.label(tr(key::REF_MOON_SUN, lang)))

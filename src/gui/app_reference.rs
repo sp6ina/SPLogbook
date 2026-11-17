@@ -253,6 +253,94 @@ impl SpLogApp {
         let _ = self.online.sync_log_tx.send((msg, false));
     }
 
+    /// Opens the club editor with the memberships currently in effect.
+    pub fn open_clubs_editor(&mut self) {
+        let (root, _) = self.reference_paths();
+        let rows = crate::core::clubs::current_rows(Some(&root));
+        self.gui.dialogs.clubs_editor.open_with(rows);
+    }
+
+    /// Carries out what the club editor asked for.
+    pub fn handle_clubs_action(&mut self, action: crate::gui::clubs_editor::ClubsEditorAction) {
+        use crate::core::clubs::{self, ClubRegistry, ClubsStoreError};
+        use crate::gui::clubs_editor::ClubsEditorAction;
+        let lang = self.gui.appearance.language;
+        let (root, _) = self.reference_paths();
+        let rejected = |issues: &[clubs::ClubIssue]| {
+            Msg::new(key::CLUBS_REJECTED)
+                .arg("count", issues.len().to_string())
+                .arg("line", issues.first().map_or(0, |i| i.line).to_string())
+                .text(lang)
+        };
+        let msg = match action {
+            ClubsEditorAction::None => return,
+            ClubsEditorAction::Reload => {
+                ClubRegistry::reload(Some(&root));
+                self.gui
+                    .dialogs
+                    .clubs_editor
+                    .set_rows(clubs::current_rows(Some(&root)));
+                return;
+            }
+            ClubsEditorAction::Save(rows) => match clubs::save_clubs(&root, &rows) {
+                Ok(()) => {
+                    ClubRegistry::reload(Some(&root));
+                    self.gui
+                        .dialogs
+                        .clubs_editor
+                        .set_rows(clubs::current_rows(Some(&root)));
+                    Msg::new(key::CLUBS_SAVED)
+                        .arg("count", rows.len().to_string())
+                        .text(lang)
+                }
+                Err(ClubsStoreError::Invalid(issues)) => rejected(&issues),
+                Err(e) => {
+                    log::warn!("clubs not saved: {e}");
+                    tr(key::CLUBS_FAILED, lang).to_string()
+                }
+            },
+            ClubsEditorAction::Import => {
+                let Some(path) = rfd::FileDialog::new()
+                    .add_filter(tr(key::REF_FILTER_TABLE, lang), &["csv"])
+                    .set_title(tr(key::REF_PICK_TABLE, lang))
+                    .pick_file()
+                else {
+                    return;
+                };
+                match clubs::import_clubs(&root, &path) {
+                    Ok((rows, warnings)) => {
+                        ClubRegistry::reload(Some(&root));
+                        self.gui.dialogs.clubs_editor.set_rows(rows.clone());
+                        Msg::new(key::CLUBS_IMPORTED)
+                            .arg("count", rows.len().to_string())
+                            .arg("warnings", warnings.len().to_string())
+                            .text(lang)
+                    }
+                    Err(ClubsStoreError::Invalid(issues)) => rejected(&issues),
+                    Err(e) => {
+                        log::warn!("clubs not imported: {e}");
+                        tr(key::CLUBS_FAILED, lang).to_string()
+                    }
+                }
+            }
+            ClubsEditorAction::Export => {
+                let Some(dest) = rfd::FileDialog::new()
+                    .add_filter(tr(key::REF_FILTER_TABLE, lang), &["csv"])
+                    .set_title(tr(key::REF_SAVE_TABLE, lang))
+                    .set_file_name(clubs::CLUBS_FILE)
+                    .save_file()
+                else {
+                    return;
+                };
+                match clubs::export_clubs(&root, &dest) {
+                    Ok(_) => tr(key::CLUBS_EXPORTED, lang).to_string(),
+                    Err(_) => tr(key::REF_TABLE_NOTHING_TO_EXPORT, lang).to_string(),
+                }
+            }
+        };
+        let _ = self.online.sync_log_tx.send((msg, false));
+    }
+
     /// Exports the installed regional rules or user overrides (backup).
     pub fn trigger_rules_export(&mut self, kind: RulesKind) {
         let lang = self.gui.appearance.language;

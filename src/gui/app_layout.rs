@@ -658,6 +658,12 @@ impl SpLogApp {
             .dialogs
             .wol_dialog
             .show(ctx, self.gui.appearance.language);
+        let clubs_action = self
+            .gui
+            .dialogs
+            .clubs_editor
+            .show(ctx, self.gui.appearance.language);
+        self.handle_clubs_action(clubs_action);
 
         // 2. Położenie Księżyca i Słońca (EME / Kalkulator astronomiczny)
         let my_grid = self.config.station.gridsquare.clone();
