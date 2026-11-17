@@ -425,3 +425,73 @@ The verification is software-only. Selection completeness, batching invariants, 
 scoping, partial/timeout/cancellation handling, credential redaction and production exclusion are
 verified programmatically against official documentation and synthetic data. Nothing here verifies
 a real service response, a real account, a real certificate or hardware behaviour.
+
+## 15. P1-F20R persistent upload checkpoints, ADIF sent dates and download-credential confinement (2026-11-17)
+
+Measured on the `STAGE-P1-F20R-SOFTWARE` tree with the canonical command of §1 (`-j 1`,
+`--skip powershell_real_execution_full_cycle_success`) and
+`cargo test --workspace --all-targets -j 1 -- --list` for the registered count. Software-only
+verification: in-memory and temporary-directory databases, synthetic `TST…` callsigns, injected
+test clocks, a loopback `127.0.0.1:0` HTTP double. No real account, credential, certificate,
+upload, download or login was used.
+
+| Item | Value |
+|---|---|
+| TOTAL REGISTERED TESTS | **3468** |
+| TOTAL EXECUTED TESTS | **3457** |
+| TOTAL PASSED TESTS | **3457** |
+| TOTAL FAILED TESTS | **0** |
+| TOTAL IGNORED TESTS | 10 (`#[ignore = "hardware-in-the-loop"]`, unchanged) |
+| TOTAL FILTERED TESTS | 1 (`windows_helper_test::powershell_real_execution_full_cycle_success`, host limitation) |
+| Test binaries | **36** (was 33) |
+| Doc-tests | 0 |
+| `p1_f20r_recovery` | **31 / 31** |
+| `p1_f20r_sent_dates` | **21 / 21** |
+| `p1_f20r_credential_safety` | **13 / 13** |
+| `p1_f20_upload_selection` (F-20 regression, unmodified) | **29 / 29** |
+| `security_guard` | **203 / 203** (12 unchanged `p1_f20_*` rules + 12 new `p1_f20r_*` rules) |
+| `core::database` unit tests (incl. migration 8/9, rollback, interrupted, idempotent) | **127 / 127** |
+| `cloud::upload_checkpoint` unit tests | **19 / 19** |
+| `SOFTWARE_ONLY_VERIFICATION` | true |
+| `REAL_USER_DATA_USED` | false |
+| `REAL_CREDENTIALS_USED` | false |
+| `REAL_LOTW_UPLOAD_EXECUTED` / `REAL_EQSL_UPLOAD_EXECUTED` | false / false |
+| `REAL_LOTW_DOWNLOAD_EXECUTED` / `REAL_EQSL_DOWNLOAD_EXECUTED` | false / false |
+| `EXTERNAL_ACCOUNT_LOGIN_EXECUTED` | false |
+| `POSTHOC_ACCEPTANCE_QUERY_EXECUTED` | false |
+| `NETWORK_MUTATION_EXECUTED` | false |
+| `HIL_EXECUTED` | false |
+| `HIL_TESTS_REMAIN_IGNORED` | true (10) |
+| `HARDWARE_CONNECTED` / `REAL_TRANSCEIVER_CONNECTED` | false / false |
+| `REAL_PTT_EXECUTED` / `RF_TRANSMISSION_EXECUTED` | false / false |
+| `CARGO_TOML_UNCHANGED` / `CARGO_LOCK_UNCHANGED` | true / true (no dependency change) |
+| `DB_SCHEMA_VERSION` | 9 (was 7) |
+| `DB_SCHEMA_MIGRATION_REQUIRED` | true — schema 8 (checkpoint tables) and 9 (sent-date columns) |
+| `F20R_PERSISTENT_CHECKPOINT_IMPLEMENTED` | true |
+| `F20R_PLAN_RECOVERY_VERIFIED` / `F20R_BATCH_RECOVERY_VERIFIED` | true / true |
+| `F20R_INFLIGHT_RESTART_IS_UNKNOWN` | true |
+| `F20R_UNKNOWN_NOT_AUTO_RETRIED` / `F20R_COMPLETED_NOT_RESENT` | true / true |
+| `F20R_STATUS_DATE_ATOMIC` | true |
+| `F20R_LOTW_QSLSDATE_IMPLEMENTED` / `F20R_EQSL_QSLSDATE_IMPLEMENTED` | true / true |
+| `F20R_LEGACY_DATES_NOT_INVENTED` | true |
+| `F20R_DOWNLOAD_PATHS_INVENTORIED` / `F20R_OFFICIAL_AUTH_CONTRACTS_VERIFIED` | true / true |
+| `OFFICIAL_ENDPOINT_REQUIRES_QUERY_CREDENTIALS` | true (LoTW `lotwreport.adi`, eQSL `DownloadInBox.cfm`) |
+| `QUERY_CREDENTIALS_NOT_LOGGED` / `_NOT_PERSISTED` / `_NOT_EXPOSED_IN_ERRORS` | true / true / true |
+| `CREDENTIALS_NOT_IN_QUERY` | **false** — never claimed |
+| `F-20` | remains **CLOSED** (`COMPLETED_JOURNAL_SCOPED_UPLOAD_SELECTION_REMEDIATION_VERIFIED`) |
+| `F-14` / `CAT-018` / `CAT-019` / `F-15` / `F-16` / `F-17` / `F-19` | remain CLOSED |
+| `F-21` | remains **OPEN**, not started |
+| `NATIVE-7B` | remains **NOT_STARTED** |
+
+Static checks on this tree: `cargo fmt --all -- --check` = EXIT 0, `cargo clippy --workspace
+--all-targets --all-features -j 1 -- -D warnings` = EXIT 0, `cargo doc --no-deps` = EXIT 0 with
+**23** pre-existing rustdoc warnings (baseline 25; two `SecretUrl` links introduced and fixed by this
+gate), `cargo tree -d` = **47** duplicate dependency versions (unchanged), `cargo audit --no-fetch`
+= **EXIT 0** (1509 advisories, 663 packages, the seven approved `--ignore` entries only; the plain
+fetching run cannot write `~/.cargo/advisory-db..lock` on this host, which is the documented
+environment limitation of §5), `git diff --check` = EXIT 0, `Cargo.toml` / `Cargo.lock` unchanged.
+
+The verification is software-only. Durable checkpointing, crash recovery, UNKNOWN semantics, sent-date
+atomicity, migration/rollback and credential confinement are verified programmatically against
+official documentation and synthetic data. Nothing here verifies a real service response, a real
+account, a real certificate, real idempotency or hardware behaviour.

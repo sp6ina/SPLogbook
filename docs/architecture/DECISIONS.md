@@ -280,3 +280,57 @@ Traceability: `src/cloud/upload_plan.rs`, `src/core/database/upload_selection.rs
 `src/cloud/lotw.rs`, `src/cloud/eqsl.rs`, `src/gui/online_sync_upload.rs`,
 `tests/p1_f20_upload_selection.rs`, `tests/security_guard.rs` (`p1_f20_*`),
 `docs/UPLOAD_SELECTION.md`.
+
+## D-20R-01 — durable upload checkpoints instead of re-deriving the eligible set
+
+**Context.** F-20 documented "recovery is idempotent re-derivation". That cannot distinguish *never
+sent* from *sent and accepted but not recorded*, and offers no evidence for `Unknown`.
+
+**Decision.** Persist plan identity, ordered batch membership, per-batch state and the acceptance
+instant. Recovery is driven exclusively by durable state. `InFlight` becomes `Unknown`; `Accepted`
+completes the local commit without re-uploading; `Completed` is never resent.
+
+**Alternatives rejected.** (a) Re-derivation — cannot answer the recovery question. (b) A single
+`last_plan` row — cannot represent concurrent plans or partial progress. (c) Storing the ADIF payload
+in the checkpoint — unnecessary, and it would duplicate user data outside the QSO table.
+
+## D-20R-02 — at-most-once / unknown instead of "exactly once"
+
+**Context.** Neither LoTW nor eQSL documents upload idempotency; LoTW explicitly cannot delete a
+submitted QSO, and eQSL's duplicate rejection is documented as a `Warning`, not as an idempotent
+guarantee.
+
+**Decision.** Model the upload as *at-most-once for `Completed`* and *unknown for `InFlight`*. Never
+retry `Unknown` automatically. Never use the term "exactly-once".
+
+## D-20R-03 — the sent date is the acceptance date, not the QSO date
+
+**Context.** ADIF defines `*_QSLSDATE` as the date the QSL was *sent* and gates it on status
+`Y`/`Q`/`I`; no service documents a "date sent". SPLogbook holds exactly one provable instant: the
+moment it obtained durable acceptance evidence (`accepted_at`).
+
+**Decision.** Write `*_QSLSDATE` from `accepted_at` in the same transaction as the status, using
+`COALESCE` so a retry cannot overwrite the original. Never derive it from `QSO_DATE`, from the commit
+clock, from the migration time or from the recovery time. Historical `Y` rows keep `Y + NULL`.
+
+## D-20R-04 — keep query credentials where the official contract requires them
+
+**Context.** Both documented download interfaces accept credentials only in the query string. POST,
+Basic auth, sessions, cookies and API keys are undocumented for those endpoints.
+
+**Decision.** Do not change the method and do not invent an endpoint. Confine the exposure
+(`SecretUrl` with redacted `Debug`/`Display`, redirects disabled, sanitised errors, no logging, no
+persistence) and publish the limitation with the precise status vocabulary. `CREDENTIALS_NOT_IN_QUERY`
+must never be claimed.
+
+**Revisit trigger.** A new official document that specifies POST, a session/cookie flow or an API
+key for either download endpoint.
+
+## D-20R-05 — migration transactions use `BEGIN IMMEDIATE`
+
+**Context.** The previous loop used a deferred transaction, so a concurrent writer could raise
+`SQLITE_BUSY` after earlier DDL had already executed inside the same migration.
+
+**Decision.** Use `TransactionBehavior::Immediate`. The official SQLite documentation guarantees that
+after `BEGIN IMMEDIATE` no subsequent statement returns `SQLITE_BUSY`, closing the partially-applied
+migration window.

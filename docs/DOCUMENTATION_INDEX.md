@@ -36,7 +36,7 @@ not listed in this index.
 | Path | Role | Status |
 |---|---|---|
 | `docs/architecture/ARCHITECTURE.md` | module map, entry points, data flows, security boundaries, test map | CURRENT |
-| `docs/UPLOAD_SELECTION.md` | LoTW/eQSL journal-scoped selection, lossless batching, partial-success and credential rules | CURRENT |
+| `docs/UPLOAD_SELECTION.md` | LoTW/eQSL journal-scoped selection, lossless batching, partial-success, persistent upload checkpoints, ADIF sent dates and credential rules | CURRENT |
 | `docs/architecture/DECISIONS.md` | binding owner decisions, architectural invariants, decision → code → guard traceability | REFERENCE |
 | `docs/architecture/THEMES.md` | semantic palette and theme subsystem, theme guard contract | CURRENT |
 | `DESIGN_3_0_A_WINDOWS_UPDATE.md` | approved Windows installer and updater design | REFERENCE |
@@ -103,3 +103,5 @@ consolidated into the CURRENT and REFERENCE documents above.
 3. Counters appear only in `docs/VERIFICATION_BASELINE.md` and always carry a measurement date.
 4. `EVIDENCE` documents are not rewritten to look current.
 5. No tracked document links to a path that is not tracked.
+
+| [`LOTW_EQSL_CONTRACT.md`](LOTW_EQSL_CONTRACT.md) | Official current contract register for ADIF 3.1.8, LoTW/TQSL 2.8.7 and eQSL.cc: exit codes, duplicate/idempotency wording, download authentication, stale-source notes |

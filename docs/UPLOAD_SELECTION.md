@@ -1,6 +1,6 @@
 # LoTW / eQSL upload selection and transport contract
 
-Status: **CURRENT** (introduced by `STAGE-P1-F20-SOFTWARE`, 2026-11-17)
+Status: **CURRENT** (introduced by `STAGE-P1-F20-SOFTWARE`, extended by `STAGE-P1-F20R-SOFTWARE`, 2026-11-17)
 Scope: how SPLogbook decides *which* QSOs are uploaded, how the batch plan is built, what evidence
 counts as acceptance, and what is deliberately **not** verified.
 
@@ -197,3 +197,161 @@ status is impossible.
 | credential safety | `src/cloud/eqsl.rs`, `src/gui/online_sync_upload.rs` | `p1_f20_credentials_never_in_upload_url_or_logs_guard` |
 | test-scope-only transports | `src/cloud/eqsl.rs` | `p1_f20_test_transport_is_test_scope_only_guard` |
 | no real endpoints in tests | `tests/**` | `p1_f20_no_real_endpoints_in_tests_guard` |
+
+---
+
+# Part II — F-20 residual hardening (`STAGE-P1-F20R-SOFTWARE`, 2026-11-17)
+
+This part closes the three risks that F-20 left open. It does **not** reopen anything F-20
+closed: selection, batching, plan identity, journal-scoped status updates, LoTW/eQSL partial-result
+interpretation, `ImportADIF.cfm` and upload-path credential redaction are unchanged, and the F-20
+suites still pass unmodified.
+
+## 10. Persistent upload checkpoints (F20-R1)
+
+Before this gate the only durable trace of an upload was `{service}_qsl_sent = 'Y'` on the QSO row.
+The plan, the batch split, the attempt id, the per-batch outcome and the acceptance instant existed
+only in memory, so 8 of the 10 crash windows were structurally unrecoverable.
+
+Three additive tables now make the plan durable (schema version **8**):
+
+| Table | Purpose | Deliberately absent |
+|---|---|---|
+| `upload_plans` | `plan_id`, `schema_version`, `service`, `journal_id`, `selection_policy` (+ version), `canonical_order_version`, `batch_policy_version`, `plan_digest`, `total_qsos`, `total_batches`, `created_at`, `state`, `updated_at`, `error_class` | no credentials, no URL, no payload |
+| `upload_batches` | `(plan_id, ordinal)` PK, `batch_id` UNIQUE per plan, `service`, `journal_id`, `record_count`, `batch_digest`, `attempt_id`, `state`, `started_at`, **`accepted_at`**, `completed_at`, `accepted_count`, `rejected_count`, `unknown_count`, `evidence_digest`, `error_class`, `retry_eligible` | no response body, no URL, no certificate |
+| `upload_batch_members` | `(plan_id, ordinal, position)` PK → `qso_id`: the **ordered, durable membership** | — |
+
+`accepted_at` is the instant at which durable acceptance evidence was obtained. It is the **only**
+source of the ADIF sent date (§11); neither the commit time, nor the migration time, nor `QSO_DATE`
+is used.
+
+### States
+
+Plan: `Planned → Running → {Completed | Cancelled | RecoveryRequired}`.
+Batch: `Planned → Prepared → InFlight → {Accepted | PartiallyAccepted | Rejected | Unknown |
+Cancelled}`; `Accepted → Committing → Completed`; anything invariant-violating → `RecoveryRequired`.
+
+`Committing` is written **inside** the same transaction that writes `Completed`. A crash therefore
+exposes either `Accepted` (transaction rolled back) or `Completed` (committed) — never `Committing`.
+That non-observability *is* the proof of atomicity; an observed `Committing` is treated as
+`RecoveryRequired`.
+
+### Recovery matrix (no transport is ever executed during recovery)
+
+| Durable state after crash | Action | Result |
+|---|---|---|
+| `Planned` | resume allowed | batch may start |
+| `Prepared` | resume allowed | batch may start |
+| `InFlight` | **fail closed** | → `Unknown` (`interrupted_in_flight`), never `Accepted`, never auto-retried |
+| `Accepted` | local commit only | status + date written from the durable `accepted_at`; **no re-upload** |
+| `Committing` | invariant violation | → `RecoveryRequired` |
+| `PartiallyAccepted` | manual | no automatic action |
+| `Rejected` | manual | no automatic action |
+| `Unknown` | manual | never auto-retried |
+| `Cancelled` | terminal | never auto-sent |
+| `Completed` | terminal | **never resent** |
+
+Recovery runs once at application start (`SpLogApp::build` → `recover_interrupted_uploads`) and is
+purely local.
+
+### Idempotency and transport model
+
+* A batch carries a `batch_digest` over `(service, journal, plan_id, ordinal, ordered ids)`; a
+  changed composition, order or size is detected and rejected (`MembershipMismatch`).
+* `open_or_create_upload_checkpoint` reuses an existing checkpoint only when `plan_digest` and the
+  counts match; otherwise it returns `PlanConflict`. A different batch policy for the same record
+  set produces the same F-20 `plan_id` but a different digest, so the durable plan is **not**
+  rewritten.
+* The model is **at-most-once for `Completed`** and **unknown for `InFlight`**. The words
+  "exactly-once" are not used anywhere, because neither LoTW nor eQSL documents idempotency.
+
+## 11. ADIF sent dates (F20-R2)
+
+Schema version **9** adds the two nullable `TEXT` columns `lotw_qslsdate` and `eqsl_qslsdate`.
+They are **not** backfilled: a historical `Y` row keeps `Y + NULL`, because no documented source for
+that date exists. The migration contains no `UPDATE`, no `datetime()` and no `DEFAULT`.
+
+Per the official ADIF 3.1.8 specification:
+
+* `LOTW_QSLSDATE` — `Date` — "date QSL sent to ARRL Logbook of the World (only valid if
+  LOTW_QSL_SENT is Y, Q, or I)".
+* `EQSL_QSLSDATE` — `Date` — "date QSL sent to eQSL.cc (only valid if EQSL_QSL_SENT is Y, Q, or I)".
+* `Date` is exactly 8 digits, UTC, `YYYYMMDD`, with `1930 <= YYYY`.
+
+Implementation rules:
+
+* the date is written **only** in the same transaction that writes `{service}_qsl_sent = 'Y'`, and
+  only from a confirmed `Accepted` batch;
+* the column is written as `COALESCE(<col>, ?date)`, so a later attempt cannot overwrite the
+  originally accepted date;
+* export is gated on the status (`Y`/`Q`/`I`) and on a valid 8-digit, ≥ 1930 date; an unusable value
+  is **omitted**, never repaired;
+* import keeps whatever the file contains and never invents a date;
+* rejected / timed-out / cancelled / partially accepted / unknown batches write **no** date;
+* the date is never derived from `QSO_DATE`.
+
+The ADIF specification calls the field the *sent* date while `Y` means *accepted*; neither LoTW nor
+eQSL publishes an official "date sent". The UTC date of confirmed acceptance is therefore the only
+value for which this application holds proof, and it is documented as an interpretation rather than
+as a restatement of the specification.
+
+## 12. Download credential transport (F20-R3)
+
+Every download path was inventoried against the current official documentation:
+
+| Path | Endpoint | Method | Credential location | Safer documented variant |
+|---|---|---|---|---|
+| LoTW confirmation report | `https://lotw.arrl.org/lotwuser/lotwreport.adi` | **GET** ("Each query is an HTTP \"GET\" string") | `login`, `password` in the query | **none documented** (POST, Basic, session, cookie, API key and OAuth are all undocumented) |
+| eQSL inbox download | `https://www.eqsl.cc/qslcard/DownloadInBox.cfm` | **GET** ("call the program with the following parameters in the URL") | `UserName`, `Password` in the query | **none documented** (POST undocumented; a login/session flow is mentioned without any mechanism) |
+| eQSL outbox download | `DownloadADIF.cfm` | GET | same | same (not used by this build) |
+| eQSL archive | **no such endpoint** — `DownloadArchive.cfm` returns 404 | — | `Archive` is a *parameter* of `DownloadInBox.cfm` | do not invent an endpoint |
+
+Because the official contract provides **no** safer mechanism, the method and the endpoint are
+unchanged. Instead the exposure is confined:
+
+* a `SecretUrl` wrapper renders only `scheme://host/path` from `Debug` and `Display`; the full
+  address is not reachable through any public accessor that returns `&str`/`String`;
+* the download clients use `http_client_no_redirect` (`reqwest::redirect::Policy::none()`), so a
+  `3xx` can never replay the query to another address; a redirect is returned as an ordinary
+  response without evidence of success;
+* every transport error is sanitised through `sanitize_network_error` before it leaves the client;
+* `build_report_url` — the only helper that ever produced a credential-bearing `String` — now exists
+  **only** under `#[cfg(test)]`;
+* no URL is logged, persisted, put in a checkpoint, put in telemetry or emitted in an error.
+
+The honest status vocabulary is therefore:
+
+```
+Persistent upload checkpoints = IMPLEMENTED_AND_SOFTWARE_VERIFIED
+Crash recovery = SOFTWARE_VERIFIED
+Unknown remote outcome = FAIL_CLOSED_MANUAL_RECONCILIATION_REQUIRED
+LOTW_QSLSDATE = IMPLEMENTED
+EQSL_QSLSDATE = IMPLEMENTED
+Download credential transport = OFFICIAL_CONTRACT_VERIFIED
+Real service login = NOT_EXECUTED
+Real upload/download = NOT_EXECUTED
+
+OFFICIAL_ENDPOINT_REQUIRES_QUERY_CREDENTIALS=true
+QUERY_CREDENTIALS_NOT_LOGGED=true
+QUERY_CREDENTIALS_NOT_PERSISTED=true
+QUERY_CREDENTIALS_NOT_EXPOSED_IN_ERRORS=true
+```
+
+`CREDENTIALS_NOT_IN_QUERY` is **false** and is never claimed.
+
+## 13. Traceability (F-20R)
+
+| Contract element | Code | Guard / test |
+|---|---|---|
+| durable plan and batch model | `src/cloud/upload_checkpoint.rs` | `cloud::upload_checkpoint` unit tests, `p1_f20r_persistent_checkpoint_schema_guard` |
+| persistence, transitions, atomic commit | `src/core/database/upload_checkpoint.rs` | `p1_f20r_recovery`, `p1_f20r_sent_dates` |
+| checkpoint-driven orchestration | `src/gui/online_sync_upload.rs` | `p1_f20r_orchestration_is_checkpoint_driven_guard` |
+| startup recovery | `src/gui/app.rs` | `crash_*` / `restart_*` tests |
+| InFlight is never Accepted | `src/cloud/upload_checkpoint.rs` | `p1_f20r_in_flight_never_becomes_accepted_guard`, `stress_3000_in_flight_restarts_all_become_unknown` |
+| Unknown not retried, Completed not resent | `src/cloud/upload_checkpoint.rs` | `p1_f20r_unknown_not_retried_and_completed_not_resent_guard` |
+| status + date atomicity | `src/core/database/upload_checkpoint.rs` | `p1_f20r_status_and_sent_date_are_atomic_guard`, `a_failed_row_count_rolls_back_both_status_and_date` |
+| `LOTW_QSLSDATE` / `EQSL_QSLSDATE` | `src/core/qso.rs`, `src/core/adif.rs`, schema v9 | `p1_f20r_sent_date_fields_exist_and_round_trip_guard`, `p1_f20r_sent_dates` |
+| no invented historical dates | schema v9, export gate | `p1_f20r_no_invented_historical_dates_guard`, `legacy_accepted_rows_keep_status_without_a_sent_date` |
+| download credential confinement | `src/core/http.rs`, `src/cloud/lotw.rs`, `src/cloud/eqsl.rs` | `p1_f20r_download_credentials_are_confined_guard`, `p1_f20r_credential_safety` |
+| no secret in checkpoints | schema v8 tables | `p1_f20r_checkpoints_store_no_secret_guard`, `f20r_checkpoint_tables_contain_no_secret_or_url` |
+| test-scope-only hooks | `src/core/database/mod.rs` | `p1_f20r_test_only_helpers_never_reach_production_guard` |

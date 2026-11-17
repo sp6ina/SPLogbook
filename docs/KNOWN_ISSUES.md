@@ -574,3 +574,74 @@ directory name that happened to contain the letters `iex` made the test fail wit
 defect. The assertion now strips the random installation-root prefix before checking the
 forbidden tokens; every security assertion is unchanged. Found during the final verification
 of the environment-determinism gate.
+
+---
+
+## 6. F-20 residual risks after `STAGE-P1-F20R-SOFTWARE` (2026-11-17)
+
+### F20-R1 — no durable checkpoint of plans and batches (CLOSED, software verified)
+
+Up to F-20 the only durable trace of an upload was `{service}_qsl_sent = 'Y'`. Plan, batch split,
+attempt id, per-batch outcome and the acceptance instant were in memory, so 8 of 10 crash windows
+were structurally unrecoverable. Schema version 8 adds `upload_plans`, `upload_batches` and
+`upload_batch_members`; recovery at startup is unambiguous and never executes a transport. See
+[`UPLOAD_SELECTION.md`](UPLOAD_SELECTION.md) §10. Closed as
+`IMPLEMENTED_AND_SOFTWARE_VERIFIED`.
+
+### F20-R2 — no `LOTW_QSLSDATE` / `EQSL_QSLSDATE` (CLOSED, software verified)
+
+Schema version 9 adds both ADIF `Date` columns, written only in the same transaction as the
+`Y` status and only from a confirmed `Accepted` batch. Historical `Y` rows keep `Y + NULL`; nothing
+is backfilled. See [`UPLOAD_SELECTION.md`](UPLOAD_SELECTION.md) §11.
+
+### F20-R3 — credentials in the query string of download paths (CONFINED, residual official limitation)
+
+**Status: `OFFICIAL_ENDPOINT_REQUIRES_QUERY_CREDENTIALS=true`.** This is **not** a closed risk in the
+sense "credentials are no longer in the query"; it cannot be, without inventing a protocol.
+
+The current official documentation documents **only** query credentials for both download endpoints:
+
+* LoTW `https://lotw.arrl.org/lotwuser/lotwreport.adi` — *"Each query is an HTTP \"GET\" string"*,
+  parameters `login`, `password`; POST, HTTP Basic, session cookies, API keys and OAuth are
+  **undocumented**; no safer variant is documented and there is no warning about credentials in
+  URLs.
+* eQSL `https://www.eqsl.cc/qslcard/DownloadInBox.cfm` — *"You can call the program with the
+  following parameters in the URL"*, parameters `UserName`, `Password`; POST is **undocumented**; a
+  session/login flow is mentioned (`"mandatory if not logged in"`) but no mechanism, cookie name or
+  token lifetime is documented. There is **no** `DownloadArchive.cfm` (HTTP 404); `Archive` is a
+  parameter of `DownloadInBox.cfm`.
+
+What this gate guarantees instead:
+
+```text
+QUERY_CREDENTIALS_NOT_LOGGED=true
+QUERY_CREDENTIALS_NOT_PERSISTED=true
+QUERY_CREDENTIALS_NOT_EXPOSED_IN_ERRORS=true
+```
+
+`CREDENTIALS_NOT_IN_QUERY` is **false** and is never claimed anywhere.
+
+Residual exposure that remains, by design of the remote service:
+
+1. the credential is present in the outbound request line and therefore visible to anything that can
+   observe the TLS-terminated request at the service, to the local network stack, and to any
+   intermediary that terminates TLS;
+2. changing the method to POST, or introducing a session, would be an **undocumented protocol
+   invention** and is forbidden by the gate; it must not be attempted without a new official
+   contract;
+3. URL-based credentials are incompatible with HTTP Basic-style per-request scoping, so there is no
+   application-level way to reduce the exposure further.
+
+Mitigations that **are** implemented: `SecretUrl` with redacted `Debug`/`Display`, redirects
+disabled, all transport errors sanitised, the only credential-bearing `String` helper gated to
+`#[cfg(test)]`, and no URL persisted in the checkpoint tables
+(`f20r_checkpoint_tables_contain_no_secret_or_url`).
+
+### F20-R4 — invented received date on the LoTW download path (OPEN, out of scope)
+
+`parse_lotw_confirmations` falls back to `chrono::Utc::now()` when a confirmation has no
+`APP_LOTW_RXQSL`/`LOTW_QSLRDATE`, so a fabricated *received* date can be written to
+`lotw_qslrdate`. This is the same class of defect as F20-R2 but lives on the confirmation
+(download) path, which this gate only touches for credential transport. It is recorded here as an
+open residual risk, not fixed here, and not claimed as closed. The fix requires deciding which
+records may be written when the service supplies no date, which is a separate owner decision.

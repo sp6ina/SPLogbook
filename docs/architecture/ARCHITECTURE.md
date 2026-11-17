@@ -127,3 +127,21 @@ GUI button (src/gui/online_sync.rs)
 Niezmienniki: każdy plan ma jawny `journal_id`; każdy rekord należy do dokładnie jednej paczki;
 suma paczek równa się liczbie rekordów planu; kolejność jest stabilna; status jest zapisywany
 wyłącznie po dowodzie; częściowy sukces, timeout i anulowanie nigdy nie są sukcesem.
+
+## F-20R — persistent upload checkpoints and download credential confinement (2026-11-17)
+
+The online-upload subsystem gained a durable state machine:
+
+```
+src/cloud/upload_checkpoint.rs        pure model: states, transitions, digests, recovery actions
+src/core/database/upload_checkpoint.rs SQLite persistence: plan/batch/member tables, atomic commit, recovery scan
+src/gui/online_sync_upload.rs          orchestration: prepare -> start -> transport -> record -> commit
+src/gui/app.rs                         startup recovery (local only, no transport)
+```
+
+Schema version 8 adds `upload_plans`, `upload_batches`, `upload_batch_members`; schema version 9
+adds `qso_records.lotw_qslsdate` and `qso_records.eqsl_qslsdate`. Both migrations are additive,
+transactional (`BEGIN IMMEDIATE`) and reversible in test scope.
+
+The download path uses `core::http::SecretUrl` plus `http_client_no_redirect` for the two
+documented query-credential endpoints. No new module depends on the network at construction time.

@@ -289,3 +289,26 @@ and pinned by guards:
    can select a test transport, and no automatic fallback.
 9. **No real endpoints in tests.** `tests/**` must not reference `lotw.arrl.org` or
    `www.eqsl.cc`.
+
+## 14. Download credentials in a query string (F-20R)
+
+`STAGE-P1-F20R-SOFTWARE` reviewed every download path against the current official documentation.
+**Both documented download interfaces require credentials in the query string** and document no
+alternative (no POST, no Basic auth, no session, no cookie, no API key). Adding one would be an
+undocumented protocol invention and is forbidden.
+
+Therefore the rule is not "keep secrets out of the query" but:
+
+1. the credential must never be logged, persisted, put in telemetry or emitted in an error;
+2. the URL must never be formatted from a `String` that carries the query — a `SecretUrl` wrapper is
+   mandatory, and its `Debug`/`Display` render only `scheme://host/path`;
+3. redirects must be disabled on download clients so the query cannot be replayed to another host;
+4. transport errors must pass through `sanitize_network_error` before leaving the client;
+5. a helper that returns a credential-bearing `String` may exist only under `#[cfg(test)]`.
+
+Any future change to POST, to a session, or to a new endpoint requires a **new official document**
+from the service, cited with URL, version, date and access time, and a new owner decision. The audit
+trail for the current decision is in `docs/LOTW_EQSL_CONTRACT.md`.
+
+`CREDENTIALS_NOT_IN_QUERY=true` must never be claimed while the official contract requires the
+query.

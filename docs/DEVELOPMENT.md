@@ -531,3 +531,22 @@ is that a plan must never lose a record.
 
 When adding an i18n key for upload progress, add it to all seven catalogues at once —
 `tests/i18n_guard.rs` requires identical key sets, identical parameter sets and no dead keys.
+
+## Persistent upload checkpoints (F-20R)
+
+The upload path now has a durable state machine. When changing anything in
+`src/gui/online_sync_upload.rs`, `src/cloud/upload_checkpoint.rs` or
+`src/core/database/upload_checkpoint.rs`, respect these rules:
+
+1. never send a batch whose durable state is `Completed`, `Cancelled`, `Unknown`, `PartiallyAccepted`,
+   `Rejected`, `Committing` or `RecoveryRequired`;
+2. never treat `InFlight` as `Accepted` after a restart — it becomes `Unknown`;
+3. never retry `Unknown` automatically; there is no documented idempotency;
+4. never write `{service}_qsl_sent` or `{service}_qslsdate` outside
+   `commit_batch_acceptance_with_dates`;
+5. never derive the sent date from `QSO_DATE`, the wall clock at commit time, the migration time or
+   the recovery time — it comes from the batch's durable `accepted_at`;
+6. never persist a credential, a URL or a response body in a checkpoint table.
+
+Schema changes require a new numbered migration, a transaction, a rollback test in
+`src/core/database/tests.rs`, and a re-run of `tests/p1_f20r_recovery.rs`.

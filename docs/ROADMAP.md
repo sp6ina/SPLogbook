@@ -162,3 +162,19 @@ Open defects and limitations are tracked in [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md)
    rewriting a published one.
 5. Dependency updates and security remediations happen only in dedicated changes with a green
    `cargo audit` before and after.
+
+## 8. F-20 residual hardening — `STAGE-P1-F20R-SOFTWARE` (2026-11-17)
+
+| Item | Status |
+|---|---|
+| F-20 | remains **CLOSED** — nothing F-20 closed was reopened; all 29 F-20 tests and all 12 F-20 guards pass unmodified |
+| F20-R1 persistent upload checkpoints | **CLOSED** — `IMPLEMENTED_AND_SOFTWARE_VERIFIED` |
+| F20-R2 `LOTW_QSLSDATE` / `EQSL_QSLSDATE` | **CLOSED** — `IMPLEMENTED` |
+| F20-R3 download credential transport | **CONFINED** — `OFFICIAL_ENDPOINT_REQUIRES_QUERY_CREDENTIALS=true`; the official contract offers no safer mechanism, so the limitation is documented instead of being falsely closed |
+| F20-R4 invented received date on the LoTW download path | **OPEN** — recorded, not started, needs an owner decision |
+| F-21 | remains **OPEN**, not started |
+| NATIVE-7B | remains **NOT_STARTED** |
+
+Storage: schema version **9** (`upload_plans`, `upload_batches`, `upload_batch_members`,
+`qso_records.lotw_qslsdate`, `qso_records.eqsl_qslsdate`). Migration is additive and reversible in
+test scope; no historical row is rewritten.
