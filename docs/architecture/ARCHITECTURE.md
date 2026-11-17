@@ -106,3 +106,24 @@ manifest (Ed25519, raw bytes) → select_manifest_asset (SHA-256 + size)
 - WinKeyer — transport szeregowy zależny od sprzętu (HIL).
 - AppImage / DEB / RPM / Flatpak — **ZREALIZOWANE** i zweryfikowane w CI (M3-G, M3-H, M3-I, M3-J).
 - MSI/Setup nie są budowane ani publikowane przez CI (F-05).
+## 8. Upload selection and batching (stan po `STAGE-P1-F20-SOFTWARE`)
+
+```
+GUI button (src/gui/online_sync.rs)
+   └─ start_upload(target, transport, credentials)      src/gui/online_sync_upload.rs
+        ├─ JournalId::new(active_journal.id)            (tożsamość z journals.id)
+        ├─ LogDatabase::select_upload_candidates_for_journal(journal, target)
+        │      WHERE journal_id = ?1  AND sent NOT IN ('Y','I')     -- bez LIMIT
+        ├─ UploadPlan::build(...)                       src/cloud/upload_plan.rs
+        │      sort kanoniczny (data, czas, id) · plan_id = SHA-256 · batch_size = polityka
+        └─ run_plan(plan, cancel, transport)            pętla paczek, brak retry
+               ├─ LogDatabase::get_qsos_by_ids_for_journal   -- ładunek tylko z tego dziennika
+               ├─ export_adif(...)                            -- jeden pakiet = jedna paczka
+               ├─ transport: TQSL / eQSL POST / ADIF / per-QSO
+               └─ po dowodzie akceptacji:
+                     LogDatabase::commit_batch_acceptance  -- transakcja + kontrola liczby wierszy
+```
+
+Niezmienniki: każdy plan ma jawny `journal_id`; każdy rekord należy do dokładnie jednej paczki;
+suma paczek równa się liczbie rekordów planu; kolejność jest stabilna; status jest zapisywany
+wyłącznie po dowodzie; częściowy sukces, timeout i anulowanie nigdy nie są sukcesem.

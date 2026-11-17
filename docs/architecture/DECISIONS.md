@@ -262,3 +262,21 @@ security contract.
 | `DEC-P1-F19-CSV-01` | The SOTA CSV V2 export uses each record's own `MY_SOTA_REF` for column 3 (`[My Summit]`) and falls back to the activation-context value only when the record has none; column 9 (`[His Summit]`) is `SOTA_REF`. A chaser row leaves column 3 empty. One dialog value can no longer overwrite a per-record summit. | IMPLEMENTED |
 | `DEC-P1-F19-NO-MIGRATION-01` | No schema change and no historical rewrite: each role already has its own nullable column (`my_sota_ref`, `sota_ref`, `my_pota_ref`, `pota_ref`). Rows written before the fix keep their stored values; the gate performs no automatic repair and no irreversible migration. | IMPLEMENTED |
 | `DEC-P1-F19-SCOPE-01` | The remediation is software-only and uses synthetic data only. `REAL_USER_DATA_USED=false`, `EXTERNAL_SOTA_UPLOAD_EXECUTED=false`, `EXTERNAL_POTA_UPLOAD_EXECUTED=false`; no account is used and no file is uploaded. Hardware readiness and hardware PTT remain NOT_VERIFIED; the ten HIL tests stay `#[ignore = "hardware-in-the-loop"]`; `NATIVE-7B = NOT_STARTED`; F-14, CAT-018, CAT-019, F-15, F-16 and F-17 stay CLOSED. Verified by `tests/p1_f19_award_references.rs` and the `p1_f19_*` guards. | IMPLEMENTED |
+### 2.15 P1-F20 journal-scoped upload selection decisions
+
+| Decision | Value | Rationale |
+|---|---|---|
+| `OWNER-P1-F20-01` | Upload scope is defined by a materialised `UploadPlan` carrying `journal_id`, a deterministic `plan_id` and a lossless batch partition | A selector cannot express "exactly these records"; a plan can, and it is immutable against journal switches and later edits |
+| `OWNER-P1-F20-02` | Journal identity is `journals.id`; journal names and GUI indices are not identities | Names are user-editable and indices are display state |
+| `OWNER-P1-F20-03` | Eligibility is `sent NOT IN ('Y','I')` per the ADIF `QSL Sent` enumeration | `Y` officially means "uploaded to, and accepted by, the online service"; `I` means ignore/invalid |
+| `OWNER-P1-F20-04` | Batch sizes are client transport policy, not service limits (LoTW 500, eQSL 250, Club Log 5000, QRZ 1000, per-QSO 100) | No record-count limit is documented for TQSL or the eQSL real-time interface; the ≈1000 figure belongs to the manual browser upload |
+| `OWNER-P1-F20-05` | TQSL exit codes are mapped explicitly; only `0` is acceptance, `9` is partial, `8` is no-records-processed, `1` is cancellation | Based on ARRL's documented `Status Information` table |
+| `OWNER-P1-F20-06` | eQSL acceptance requires `Result: x out of y records added` with `x == y == records sent`; HTTP 200 alone is not acceptance | Based on eQSL's documented `RETURN PAGE FORMAT` section |
+| `OWNER-P1-F20-07` | No database migration: `<service>_qsl_sent = 'Y'` is the acceptance marker; `LOTW_QSLSDATE`/`EQSL_QSLSDATE` stay unpersisted | Avoids `BLOCKED_BY_REQUIRED_UPLOAD_STATE_SCHEMA_MIGRATION`; the existing columns already make selection idempotent |
+| `OWNER-P1-F20-08` | No automatic upload retry; recovery is idempotent re-derivation of not-yet-accepted records | Both services tolerate duplicates, but an ambiguous outcome must never be reported as success |
+| `OWNER-P1-F20-09` | Test transports live only in `#[cfg(test)]`; no env/CLI/config/GUI path may select them | The gate forbids a production-reachable test transport |
+
+Traceability: `src/cloud/upload_plan.rs`, `src/core/database/upload_selection.rs`,
+`src/cloud/lotw.rs`, `src/cloud/eqsl.rs`, `src/gui/online_sync_upload.rs`,
+`tests/p1_f20_upload_selection.rs`, `tests/security_guard.rs` (`p1_f20_*`),
+`docs/UPLOAD_SELECTION.md`.

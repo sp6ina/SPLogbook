@@ -4,7 +4,7 @@ Single source of truth for verified test counters and dependency-audit state. Co
 only here; every other document links to this file. Never update a counter without a real
 measurement, and always record the measurement date.
 
-**Data pomiaru:** 2026-11-16 (ostatni pomiar: po `STAGE-P1-F19-SOFTWARE`)
+**Data pomiaru:** 2026-11-17 (ostatni pomiar: po `STAGE-P1-F20-SOFTWARE`)
 **Środowisko:** Windows 10/11 x86_64, `rustc 1.99.0`, `cargo 1.99.0`, `-j 1`
 **HEAD pomiaru:** commit zawierający ten plik (`git log -1 --format=%H`)
 
@@ -26,15 +26,15 @@ cargo test --workspace --all-targets -j 1 -- --skip powershell_real_execution_fu
 
 | Metric | Value |
 |---|---|
-| TOTAL REGISTERED TESTS: | 3243 |
-| TOTAL EXECUTED TESTS: | 3232 |
-| TOTAL PASSED TESTS: | 3232 |
+| TOTAL REGISTERED TESTS: | 3362 |
+| TOTAL EXECUTED TESTS: | 3351 |
+| TOTAL PASSED TESTS: | 3351 |
 | TOTAL FAILED TESTS: | 0 |
 | TOTAL IGNORED TESTS: | 10 |
 | HIL IGNORED TESTS: | 10 |
 | TOTAL FILTERED TESTS: | 1 |
 | Doc-tests | 0 |
-| Test binaries | 31 |
+| Test binaries | 33 |
 
 The single filtered test is `windows_helper_test::powershell_real_execution_full_cycle_success`.
 It can block on a Windows security prompt in an interactive sandbox, so it is filtered in the
@@ -45,7 +45,9 @@ a product defect.
 
 | Suite | Value |
 |---|---|
-| `security_guard` (incl. 12 `p1_f19_*` rules) | 179 / 179 |
+| `security_guard` (incl. 12 `p1_f19_*` and 12 `p1_f20_*` rules) | 191 / 191 |
+| `p1_f20_upload_selection` | 29 / 29 |
+| library unit tests (`--lib`) | 2131 / 2131 |
 | `p1_f19_award_references` | 51 / 51 |
 | `p1_f16_logbook_pagination` | 55 / 55 |
 | pagination model (`gui::pagination`, lib) | 23 / 23 |
@@ -386,3 +388,40 @@ POTA local/remote, S2S, P2P, import, export, round-trip, spot perspective, activ
 and conflict handling. This does **not** verify any upload to SOTA or POTA, any real user database,
 or any historical record written before this gate. The contract is documented in
 [`ADIF_AWARD_REFERENCES.md`](ADIF_AWARD_REFERENCES.md).
+## 14. P1-F20 journal-scoped, lossless LoTW/eQSL upload selection (2026-11-17)
+
+| Property | Value |
+|---|---|
+| `F-20` | CLOSED — `COMPLETED_JOURNAL_SCOPED_UPLOAD_SELECTION_REMEDIATION_VERIFIED` |
+| `LoTW selection` | `JOURNAL_SCOPED` |
+| `eQSL selection` | `JOURNAL_SCOPED` |
+| `Silent truncation` | `REMOVED` |
+| `Batching` | `LOSSLESS_SOFTWARE_VERIFIED` |
+| `Partial success` | `MODELED` |
+| `Real LOTW upload executed` | false — NOT_EXECUTED |
+| `Real EQSL upload executed` | false — NOT_EXECUTED |
+| `REAL_CREDENTIALS_USED` / `REAL_USER_DATA_USED` | false / false |
+| `REAL_TQSL_CERTIFICATE_USED` | false |
+| `NETWORK_MUTATION_EXECUTED` | false |
+| `TEST_UPLOAD_TRANSPORT_TEST_SCOPE_ONLY` | true |
+| `CARGO_TOML_UNCHANGED` / `CARGO_LOCK_UNCHANGED` | true / true |
+| `DB_SCHEMA_MIGRATION_REQUIRED` | false |
+| `F-14` / `CAT-018` / `CAT-019` / `F-15` / `F-16` / `F-17` / `F-19` | remain CLOSED |
+| `F-21` | remains OPEN |
+| `NATIVE-7B` | NOT_STARTED |
+
+Measured counters for this gate (canonical command of §1, measurement 2026-11-17):
+3362 registered / 3351 executed / 3351 passed / 0 failed / 10 ignored (`#[ignore]` HIL) /
+1 host-filtered (`windows_helper_test::powershell_real_execution_full_cycle_success`) / 33 binaries.
+`security_guard` = 191 / 191 (12 new `p1_f20_*` rules). `cargo audit` = EXIT 0. `cargo tree -d` = 47.
+`cargo fmt --check` = EXIT 0. `cargo clippy --all-targets -D warnings` = EXIT 0.
+
+New suite: `tests/p1_f20_upload_selection.rs` (29 tests). New unit tests inside
+`src/cloud/upload_plan.rs`, `src/cloud/eqsl.rs`, `src/cloud/lotw.rs` and
+`src/gui/online_sync_upload.rs`. `tests/security_guard.rs` gained twelve `p1_f20_*` guards.
+The contract is documented in [`UPLOAD_SELECTION.md`](UPLOAD_SELECTION.md).
+
+The verification is software-only. Selection completeness, batching invariants, per-QSO status
+scoping, partial/timeout/cancellation handling, credential redaction and production exclusion are
+verified programmatically against official documentation and synthetic data. Nothing here verifies
+a real service response, a real account, a real certificate or hardware behaviour.

@@ -340,10 +340,91 @@ Files: `src/core/award_refs.rs`, `src/core/adif.rs`, `src/core/qso.rs`, `src/cor
 
 This defect must not be reopened without a reproducible regression.
 
-### F-20 (P1) — LoTW/eQSL upload selection is global and truncated
+### F-20 (P1) — LoTW/eQSL upload selection was global and truncated — F-20 = CLOSED
 
-The upload path selects the most recent 1000 QSOs without a journal scope, so uploads can
-mix journals and silently omit older QSOs. Files: `src/gui/online_sync.rs`.
+Original defect: the LoTW upload button selected the most recent 1000 QSOs with **no journal
+scope** (`db.get_recent_qsos(1000)`), so one submission could mix every journal in the database,
+omit older QSOs of the active journal, and never record which QSOs were actually uploaded. The
+eQSL button was journal-scoped but still applied `LIMIT 1000` as a silent truncation, posted to
+`.../ImportADIF.txt` (the documentation page, not the processor) and classified success from loose
+body substrings without ever looking at the HTTP status. Files: `src/gui/online_sync.rs`,
+`src/cloud/lotw.rs`, `src/cloud/eqsl.rs`.
+
+Root causes (four independent defects):
+
+1. a **global** selector (`get_recent_qsos`) used as an upload selection;
+2. `LIMIT N` used as the selection instead of as a batch size, in all seven services;
+3. TQSL's documented twelve-value exit-code contract collapsed to a boolean, so the documented
+   partial outcome (code `9`) and the "no QSOs processed" outcome (code `8`) were reported as a
+   generic error;
+4. no write-back of the upload result, so nothing prevented resubmitting accepted QSOs and nothing
+   distinguished a completed batch from an unstarted one after a restart.
+
+Software remediation (2026-11-17, `STAGE-P1-F20-SOFTWARE`, software-only verification):
+
+- one central, pure model `src/cloud/upload_plan.rs` owns the upload **scope**: a validated
+  `JournalId` taken from `journals.id` (never a journal name, never a GUI index), a materialised
+  and canonically ordered QSO identity set, a deterministic `plan_id` (SHA-256 over service,
+  journal, policy and ordered ids), and a lossless, disjoint batch partition — every record in
+  exactly one batch, the sum of batch lengths equal to the plan size, no empty batch, and
+  `batch_size == 0` as a controlled error;
+- `src/core/database/upload_selection.rs` selects **all** eligible records of exactly one journal
+  with no `LIMIT` and no pagination, using the officially documented ADIF `QSL Sent` semantics
+  (`Y` = "uploaded to, and accepted by, the online service" and `I` = "ignore or invalid" are
+  excluded; `N`/`R`/`Q` stay eligible);
+- status is written only by `commit_batch_acceptance`, which sets `<service>_qsl_sent = 'Y'` in one
+  transaction **after** the service returned batch-level proof of acceptance, asserts that the
+  number of updated rows equals the batch size, and rolls back on any mismatch;
+- LoTW uses the documented TQSL exit-code table (`classify_tqsl_exit`): only code `0` is
+  acceptance, code `9` is partial, code `8` means nothing was processed, code `1` is cancellation
+  and code `11` a connection error; the `Final Status:` stderr line is parsed as a secondary
+  signal only;
+- eQSL posts to the documented processor `https://www.eqsl.cc/qslcard/ImportADIF.cfm` (FORM POST
+  carrying `EQSL_USER`, `EQSL_PSWD`, `ADIFData`), never retries an upload automatically, checks the
+  HTTP status, and requires the documented `Result: x out of y records added` line with
+  `x == y == records sent` before any acceptance is recorded; the response is redacted of the
+  password before it leaves the client;
+- every online upload (LoTW, eQSL, Club Log, QRZ.com, HamQTH, Cloudlog, HRDLog) now goes through
+  the same plan, so no service can silently truncate;
+- cancellation is explicit: it stops subsequent batches, keeps already accepted batches and can
+  never produce a success status.
+
+Verification boundaries recorded by this gate:
+
+```
+F-20 = CLOSED
+COMPLETED_JOURNAL_SCOPED_UPLOAD_SELECTION_REMEDIATION_VERIFIED
+LoTW selection = JOURNAL_SCOPED
+eQSL selection = JOURNAL_SCOPED
+Silent truncation = REMOVED
+Batching = LOSSLESS_SOFTWARE_VERIFIED
+Partial success = MODELED
+Real LoTW upload = NOT_EXECUTED
+Real eQSL upload = NOT_EXECUTED
+Real credentials = NOT_USED
+SOFTWARE_ONLY_VERIFICATION=true
+F-14 / CAT-018 / CAT-019 / F-15 / F-16 / F-17 / F-19 = remain CLOSED
+F-21 = remains OPEN
+NATIVE-7B = NOT_STARTED
+```
+
+This is a software-only verification. It does **not** claim that LoTW or eQSL accepted a real
+submission: no real upload was performed, no account was used, no real credentials or TQSL
+certificate were handled, and every fixture is synthetic. It also does not claim empirical
+verification of every service response — the classifiers are pinned to the official documented
+contract and exercised with test doubles. Hardware readiness and hardware PTT remain NOT_VERIFIED,
+the ten hardware-in-the-loop tests remain `#[ignore = "hardware-in-the-loop"]`, and NATIVE-7B
+remains NOT_STARTED. No database migration was required: the existing `*_qsl_sent` columns make the
+selection idempotent, and `LOTW_QSLSDATE` / `EQSL_QSLSDATE` are still not persisted (documented
+residual gap).
+
+Files: `src/cloud/upload_plan.rs`, `src/cloud/eqsl.rs`, `src/cloud/lotw.rs`,
+`src/cloud/scheduler.rs`, `src/core/database/upload_selection.rs`, `src/core/database/mod.rs`,
+`src/gui/online_sync.rs`, `src/gui/online_sync_upload.rs`, `src/gui/state/online_sync.rs`,
+`src/gui/mod.rs`, `locales/*.json`, `tests/p1_f20_upload_selection.rs`, `tests/security_guard.rs`,
+`docs/UPLOAD_SELECTION.md`.
+
+This defect must not be reopened without a reproducible regression.
 
 ### F-21 (P1) — Cabrillo export caps at 10 000 QSOs
 

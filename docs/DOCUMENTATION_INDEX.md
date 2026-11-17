@@ -36,6 +36,7 @@ not listed in this index.
 | Path | Role | Status |
 |---|---|---|
 | `docs/architecture/ARCHITECTURE.md` | module map, entry points, data flows, security boundaries, test map | CURRENT |
+| `docs/UPLOAD_SELECTION.md` | LoTW/eQSL journal-scoped selection, lossless batching, partial-success and credential rules | CURRENT |
 | `docs/architecture/DECISIONS.md` | binding owner decisions, architectural invariants, decision → code → guard traceability | REFERENCE |
 | `docs/architecture/THEMES.md` | semantic palette and theme subsystem, theme guard contract | CURRENT |
 | `DESIGN_3_0_A_WINDOWS_UPDATE.md` | approved Windows installer and updater design | REFERENCE |

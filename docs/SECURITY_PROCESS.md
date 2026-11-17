@@ -262,3 +262,30 @@ PTT remain `NOT_VERIFIED`, `HIL_EXECUTED=false`, the ten HIL tests stay
 F-15 and F-17 remain CLOSED.
 
 ## 8. Reviewing a security-sensitive change
+## 9. Journal-scoped upload selection and upload credentials (P1-F20)
+
+Upload scope is a security boundary, not a convenience: LoTW submissions cannot be deleted, so a
+cross-journal submission is an irreversible disclosure. The following rules are enforced in code
+and pinned by guards:
+
+1. **Journal scope is mandatory.** Selection, payload read and status write all carry
+   `journal_id`; a missing or malformed journal id is a controlled refusal before any transport.
+2. **No global selection, no truncation.** Upload selection never uses a global selector, `LIMIT`,
+   `OFFSET` or pagination. The complete eligible set is materialised; batching is lossless.
+3. **Status only on evidence.** `<service>_qsl_sent = 'Y'` is written only after the service
+   confirmed the whole batch, in one transaction, asserting that the updated row count equals the
+   batch size (rollback otherwise).
+4. **No automatic retry of an upload.** An ambiguous outcome (timeout, unknown body, partial) is
+   never laundered into success; retry is explicit and re-derives the eligible set.
+5. **Credentials stay in the request body.** eQSL receives `EQSL_USER`/`EQSL_PSWD` as FORM fields
+   over HTTPS; the pre-existing LoTW *download* endpoint keeps ARRL's documented query-parameter
+   contract (out of F-20's upload scope, recorded as a residual risk).
+6. **Redaction at the source.** The eQSL response body is redacted of the password before it
+   returns from the client; the upload credentials snapshot has a `Debug` impl that prints
+   `<redacted>` for every secret.
+7. **No certificate password on the command line.** SPLogbook never passes `-p` to TQSL.
+8. **Test doubles are test-scope only.** The loopback server and the endpoint override live in
+   `#[cfg(test)]`; there is no environment variable, feature flag, config key or CLI switch that
+   can select a test transport, and no automatic fallback.
+9. **No real endpoints in tests.** `tests/**` must not reference `lotw.arrl.org` or
+   `www.eqsl.cc`.

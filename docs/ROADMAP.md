@@ -132,6 +132,13 @@ Rawhide, backports, release candidates) never set the minimum.
 - `F-24` (non-hermetic installer tests): **CLOSED** — native E2E is explicit opt-in,
   path- and digest-pinned, and fail-closed.
 
+- `F-20` (LoTW/eQSL upload selection was global and truncated): **CLOSED** — the upload scope is a
+  journal-scoped (`JOURNAL_SCOPED`) materialised plan; silent truncation is removed and batching
+  is lossless (`LOSSLESS`) and deterministic; partial, timeout and cancelled outcomes are modelled and never counted as
+  success; status is written only after batch-level service evidence. Software-only verification:
+  no real LoTW or eQSL upload, no real credentials and no real user data were used, so real
+  submission remains NOT_EXECUTED and production credentials remain unverified.
+
 ## 5. Not started / not delivered
 
 | Item | Status | Note |

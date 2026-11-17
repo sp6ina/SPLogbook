@@ -502,3 +502,32 @@ injection, a 100 000-case combinatorial matrix and deterministic sleep-free stre
 data, no account, no hardware, no PTT, no RF and no upload to SOTA or POTA is used. F-14, CAT-018,
 CAT-019, F-15, F-16 and F-17 remain CLOSED; hardware readiness and hardware PTT remain NOT_VERIFIED
 and NATIVE-7B remains NOT_STARTED.
+## P1-F20 — journal-scoped, lossless upload selection (software-only)
+
+Every online upload is driven by one pure model, `src/cloud/upload_plan.rs`. To add or change a
+service you must:
+
+1. add the target to `UploadTarget` (id, label, batch size, whether it has a sent-status column);
+2. select records only through `LogDatabase::select_upload_candidates_for_journal`
+   (`src/core/database/upload_selection.rs`) — never with `get_recent_qsos*`, never with `LIMIT`;
+3. build an `UploadPlan` (it sorts canonically and validates the batch size) and run it with
+   `run_plan`, injecting the transport;
+4. write the result through `commit_batch_acceptance` (accepted batches only, row count asserted,
+   rollback on mismatch).
+
+Rules that the guard enforces (`security_guard::p1_f20_*`):
+
+- no upload code path may call the global `get_recent_qsos(` selector;
+- no upload selection may use `LIMIT`/`OFFSET` or a numeric "recent N" call;
+- no service may build an ADIF payload outside the plan orchestrator;
+- a test transport must live in `#[cfg(test)]` or `tests/` and must never be reachable from the
+  GUI, CLI, config, environment or a release artefact;
+- no test may reference a real service endpoint;
+- credential-bearing fields never travel in a URL.
+
+Batch sizes are **client transport policy**, not service limits. No documented service record
+limit exists for TQSL or for the eQSL real-time interface, so none is encoded; the only hard rule
+is that a plan must never lose a record.
+
+When adding an i18n key for upload progress, add it to all seven catalogues at once —
+`tests/i18n_guard.rs` requires identical key sets, identical parameter sets and no dead keys.
