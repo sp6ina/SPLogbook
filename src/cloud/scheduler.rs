@@ -426,10 +426,22 @@ pub async fn execute_upload(
         UploadService::Eqsl => {
             let client =
                 crate::cloud::eqsl::EqslClient::new(&creds.eqsl_username, &creds.eqsl_password);
-            client
+            let submission = client
                 .upload_adif(adif)
                 .await
-                .map_err(|e| UploadExecutionError::Eqsl(e.to_string()))
+                .map_err(|e| UploadExecutionError::Eqsl(e.to_string()))?;
+            let classification = crate::cloud::eqsl::classify_eqsl_response(
+                submission.http_status,
+                &submission.body,
+            );
+            match classification {
+                crate::cloud::eqsl::EqslClassification::RecordsResult { added, total }
+                    if added == total && total > 0 =>
+                {
+                    Ok(format!("eQSL: dodano {added} rekordów"))
+                }
+                other => Err(UploadExecutionError::Eqsl(other.to_string())),
+            }
         }
     }
 }

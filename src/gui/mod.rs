@@ -28,6 +28,7 @@ pub mod mini_hud;
 pub mod multi_op_window;
 pub use multi_op_window::SyncUiState;
 pub mod online_sync;
+pub mod online_sync_upload;
 pub mod operator_assistant;
 pub mod pagination;
 pub mod photo_viewer;

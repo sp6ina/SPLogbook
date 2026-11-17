@@ -110,29 +110,18 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     ui.add_space(6.0);
                                     ui.horizontal(|ui| {
                                         if ui.button(egui::RichText::new(format!("📤 {}", tr(key::SYNC_LOTW_TQSL, lang))).strong()).clicked() {
-                                            let qsos = if let Ok(db) = app.services.log_db.lock() {
-                                                db.get_recent_qsos(1000).unwrap_or_default()
+                                            if app.config.lotw_tqsl_path.trim().is_empty() {
+                                                app.online.online_sync_logs.push(tr(key::SYNC_TQSL_NOT_FOUND, lang).to_string());
                                             } else {
-                                                vec![]
-                                            };
-                                            let qso_count = qsos.len();
-                                            let adif = crate::core::adif::export_adif(&qsos, "SPLogbook", &app.config.station.callsign);
-                                            let tqsl_path = app.config.lotw_tqsl_path.clone();
-                                            let station_loc = app.config.lotw_station_name.clone();
-                                            let tx = app.online.sync_log_tx.clone();
-                                            app.online.online_sync_logs.push(Msg::new(key::SYNC_LOTW_SIGNING_LOG).arg("count", qso_count).text(lang));
-                                            app.gui.chrome.status_message = Some(tr(key::SYNC_LOTW_IN_PROGRESS, lang).to_string());
-
-                                            tokio::spawn(async move {
-                                                match crate::cloud::lotw::export_and_sign_tqsl_async(&tqsl_path, &station_loc, &adif).await {
-                                                    Ok(msg) => {
-                                                        let _ = tx.send((Msg::new(key::SYNC_LOTW_SUCCESS).arg("count", qso_count).arg("msg", &msg).text(lang), false));
-                                                    }
-                                                    Err(e) => {
-                                                        let _ = tx.send((Msg::new(key::SYNC_LOTW_ERROR).arg("err", &e).text(lang), false));
-                                                    }
-                                                }
-                                            });
+                                                let credentials = crate::gui::online_sync_upload::UploadCredentialsSnapshot::from_app(app);
+                                                crate::gui::online_sync_upload::start_upload(
+                                                    app,
+                                                    crate::cloud::upload_plan::UploadTarget::Lotw,
+                                                    crate::gui::online_sync_upload::Transport::Tqsl,
+                                                    credentials,
+                                                    lang,
+                                                );
+                                            }
                                         }
 
                                         if ui.button(egui::RichText::new(format!("📥 {}", tr(key::SYNC_LOTW_DOWNLOAD, lang)))).clicked() {
@@ -196,20 +185,14 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                             if app.config.eqsl_username.is_empty() || app.config.eqsl_password.is_empty() {
                                                 app.online.online_sync_logs.push(tr(key::SYNC_EQSL_MISSING_CREDS, lang).to_string());
                                             } else {
-                                                let tx = app.online.sync_log_tx.clone();
-                                                let user = app.config.eqsl_username.clone();
-                                                let pass = app.config.eqsl_password.clone();
-                                                let journal_id = app.active_journal.id.clone();
-                                                let qsos = if let Ok(db) = app.services.log_db.lock() { db.get_recent_qsos_for_journal(&journal_id, 1000).unwrap_or_default() } else { vec![] };
-                                                let adif = crate::core::adif::export_adif(&qsos, "SPLogbook", &app.config.station.callsign);
-                                                tokio::spawn(async move {
-                                                    let client = crate::cloud::eqsl::EqslClient::new(user, pass);
-                                                    let _ = tx.send((Msg::new(key::SYNC_EQSL_SENDING).arg("count", qsos.len()).text(lang), false));
-                                                    match client.upload_adif(&adif).await {
-                                                        Ok(msg) => { let _ = tx.send((format!("[eQSL SUKCES] {msg}"), false)); }
-                                                        Err(e) => { let _ = tx.send((Msg::new(key::SYNC_EQSL_ERROR).arg("err", &e).text(lang), false)); }
-                                                    }
-                                                });
+                                                let credentials = crate::gui::online_sync_upload::UploadCredentialsSnapshot::from_app(app);
+                                                crate::gui::online_sync_upload::start_upload(
+                                                    app,
+                                                    crate::cloud::upload_plan::UploadTarget::Eqsl,
+                                                    crate::gui::online_sync_upload::Transport::Eqsl,
+                                                    credentials,
+                                                    lang,
+                                                );
                                             }
                                         }
                                         if ui.button(format!("📥 {}", tr(key::SYNC_EQSL_DOWNLOAD, lang))).clicked() {
@@ -280,22 +263,14 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         if app.config.clublog_callsign.is_empty() || app.config.clublog_password.is_empty() {
                                             app.online.online_sync_logs.push(tr(key::SYNC_CLUBLOG_MISSING_CREDS, lang).to_string());
                                         } else {
-                                            let tx = app.online.sync_log_tx.clone();
-                                            let call = app.config.clublog_callsign.clone();
-                                            let email = app.config.clublog_email.clone();
-                                            let pass = app.config.clublog_password.clone();
-                                            let api = app.config.clublog_api_key.clone();
-                                            let journal_id = app.active_journal.id.clone();
-                                            let qsos = if let Ok(db) = app.services.log_db.lock() { db.get_recent_qsos_for_journal(&journal_id, 5000).unwrap_or_default() } else { vec![] };
-                                            let adif = crate::core::adif::export_adif(&qsos, "SPLogbook", &app.config.station.callsign);
-                                            tokio::spawn(async move {
-                                                let client = crate::cloud::clublog::ClubLogClient::new();
-                                                let _ = tx.send((Msg::new(key::SYNC_CLUBLOG_SENDING).arg("count", qsos.len()).text(lang), false));
-                                                match client.upload_adif(&call, &email, &pass, &api, &adif).await {
-                                                    Ok(msg) => { let _ = tx.send((format!("[Club Log SUKCES] {msg}"), false)); }
-                                                    Err(e) => { let _ = tx.send((Msg::new(key::SYNC_CLUBLOG_ERROR).arg("err", &e).text(lang), false)); }
-                                                }
-                                            });
+                                            let credentials = crate::gui::online_sync_upload::UploadCredentialsSnapshot::from_app(app);
+                                            crate::gui::online_sync_upload::start_upload(
+                                                app,
+                                                crate::cloud::upload_plan::UploadTarget::ClubLog,
+                                                crate::gui::online_sync_upload::Transport::AdifRequest,
+                                                credentials,
+                                                lang,
+                                            );
                                         }
                                     }
                                 });
@@ -326,18 +301,14 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         if app.config.qrz_api_key.is_empty() {
                                             app.online.online_sync_logs.push(tr(key::SYNC_QRZ_MISSING_API_KEY, lang).to_string());
                                         } else {
-                                            let tx = app.online.sync_log_tx.clone();
-                                            let api = app.config.qrz_api_key.clone();
-                                            let journal_id = app.active_journal.id.clone();
-                                            let qsos = if let Ok(db) = app.services.log_db.lock() { db.get_recent_qsos_for_journal(&journal_id, 1000).unwrap_or_default() } else { vec![] };
-                                            let adif = crate::core::adif::export_adif(&qsos, "SPLogbook", &app.config.station.callsign);
-                                            tokio::spawn(async move {
-                                                let _ = tx.send((Msg::new(key::SYNC_QRZ_SENDING).arg("count", qsos.len()).text(lang), false));
-                                                match crate::cloud::qrz::QrzClient::upload_to_logbook(&api, &adif).await {
-                                                    Ok(msg) => { let _ = tx.send((format!("[QRZ.com SUKCES] {msg}"), false)); }
-                                                    Err(e) => { let _ = tx.send((Msg::new(key::SYNC_QRZ_ERROR).arg("err", &e).text(lang), false)); }
-                                                }
-                                            });
+                                            let credentials = crate::gui::online_sync_upload::UploadCredentialsSnapshot::from_app(app);
+                                            crate::gui::online_sync_upload::start_upload(
+                                                app,
+                                                crate::cloud::upload_plan::UploadTarget::Qrz,
+                                                crate::gui::online_sync_upload::Transport::AdifRequest,
+                                                credentials,
+                                                lang,
+                                            );
                                         }
                                     }
                                 });
@@ -358,29 +329,14 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         if app.config.hamqth_username.is_empty() || app.config.hamqth_password.is_empty() {
                                             app.online.online_sync_logs.push(tr(key::SYNC_HAMQTH_MISSING_CREDS, lang).to_string());
                                         } else {
-                                            let tx = app.online.sync_log_tx.clone();
-                                            let user = app.config.hamqth_username.clone();
-                                            let pass = app.config.hamqth_password.clone();
-                                            let journal_id = app.active_journal.id.clone();
-                                            let qsos = if let Ok(db) = app.services.log_db.lock() { db.get_recent_qsos_for_journal(&journal_id, 100).unwrap_or_default() } else { vec![] };
-                                            app.gui.chrome.status_message = Some(tr(key::SYNC_HAMQTH_IN_PROGRESS, lang).to_string());
-                                            app.online.online_sync_logs.push(Msg::new(key::SYNC_HAMQTH_SENDING).arg("count", qsos.len()).text(lang));
-                                            tokio::spawn(async move {
-                                                let client = crate::cloud::hamqth::HamQthClient::new(user, pass);
-                                                let mut ok_count = 0usize;
-                                                let mut last_err = None;
-                                                for qso in &qsos {
-                                                    match client.upload_qso(qso).await {
-                                                        Ok(_) => ok_count += 1,
-                                                        Err(e) => last_err = Some(e),
-                                                    }
-                                                }
-                                                if let Some(e) = last_err {
-                                                    let _ = tx.send((Msg::new(key::SYNC_HAMQTH_PARTIAL_ERROR).arg("ok_count", ok_count).arg("total_count", qsos.len()).arg("err", e.to_string()).text(lang), false));
-                                                } else {
-                                                    let _ = tx.send((Msg::new(key::SYNC_HAMQTH_SUCCESS).arg("count", ok_count).text(lang), false));
-                                                }
-                                            });
+                                            let credentials = crate::gui::online_sync_upload::UploadCredentialsSnapshot::from_app(app);
+                                            crate::gui::online_sync_upload::start_upload(
+                                                app,
+                                                crate::cloud::upload_plan::UploadTarget::HamQth,
+                                                crate::gui::online_sync_upload::Transport::PerQso,
+                                                credentials,
+                                                lang,
+                                            );
                                         }
                                     }
                                 });
@@ -440,29 +396,14 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         if app.config.cloudlog_url.trim().is_empty() || app.config.cloudlog_api_key.trim().is_empty() {
                                             app.online.online_sync_logs.push(tr(key::SYNC_CLOUDLOG_MISSING_CREDS, lang).to_string());
                                         } else {
-                                            let tx = app.online.sync_log_tx.clone();
-                                            let url = app.config.cloudlog_url.clone();
-                                            let api_key = app.config.cloudlog_api_key.clone();
-                                            let journal_id = app.active_journal.id.clone();
-                                            let qsos = if let Ok(db) = app.services.log_db.lock() { db.get_recent_qsos_for_journal(&journal_id, 100).unwrap_or_default() } else { vec![] };
-                                            app.gui.chrome.status_message = Some(tr(key::SYNC_CLOUDLOG_IN_PROGRESS, lang).to_string());
-                                            app.online.online_sync_logs.push(Msg::new(key::SYNC_CLOUDLOG_SENDING).arg("count", qsos.len()).text(lang));
-                                            tokio::spawn(async move {
-                                                let client = crate::cloud::cloudlog::CloudlogClient::new(&url, api_key, "1".to_string());
-                                                let mut ok_count = 0usize;
-                                                let mut last_err = None;
-                                                for qso in &qsos {
-                                                    match client.upload_qso(qso).await {
-                                                        Ok(_) => ok_count += 1,
-                                                        Err(e) => last_err = Some(e),
-                                                    }
-                                                }
-                                                if let Some(e) = last_err {
-                                                    let _ = tx.send((Msg::new(key::SYNC_CLOUDLOG_PARTIAL_ERROR).arg("ok_count", ok_count).arg("total_count", qsos.len()).arg("err", e.to_string()).text(lang), false));
-                                                } else {
-                                                    let _ = tx.send((Msg::new(key::SYNC_CLOUDLOG_SUCCESS).arg("count", ok_count).text(lang), false));
-                                                }
-                                            });
+                                            let credentials = crate::gui::online_sync_upload::UploadCredentialsSnapshot::from_app(app);
+                                            crate::gui::online_sync_upload::start_upload(
+                                                app,
+                                                crate::cloud::upload_plan::UploadTarget::Cloudlog,
+                                                crate::gui::online_sync_upload::Transport::PerQso,
+                                                credentials,
+                                                lang,
+                                            );
                                         }
                                     }
                                 });
@@ -483,29 +424,14 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         if app.config.hrdlog_username.trim().is_empty() || app.config.hrdlog_upload_code.trim().is_empty() {
                                             app.online.online_sync_logs.push(tr(key::SYNC_HRDLOG_MISSING_CREDS, lang).to_string());
                                         } else {
-                                            let tx = app.online.sync_log_tx.clone();
-                                            let call = app.config.hrdlog_username.clone();
-                                            let code = app.config.hrdlog_upload_code.clone();
-                                            let journal_id = app.active_journal.id.clone();
-                                            let qsos = if let Ok(db) = app.services.log_db.lock() { db.get_recent_qsos_for_journal(&journal_id, 100).unwrap_or_default() } else { vec![] };
-                                            app.gui.chrome.status_message = Some(tr(key::SYNC_HRDLOG_IN_PROGRESS, lang).to_string());
-                                            app.online.online_sync_logs.push(Msg::new(key::SYNC_HRDLOG_SENDING).arg("count", qsos.len()).text(lang));
-                                            tokio::spawn(async move {
-                                                let client = crate::cloud::hrdlog::HrdlogClient::new(call, code);
-                                                let mut ok_count = 0usize;
-                                                let mut last_err = None;
-                                                for qso in &qsos {
-                                                    match client.upload_qso(qso).await {
-                                                        Ok(_) => ok_count += 1,
-                                                        Err(e) => last_err = Some(e),
-                                                    }
-                                                }
-                                                if let Some(e) = last_err {
-                                                    let _ = tx.send((Msg::new(key::SYNC_HRDLOG_PARTIAL_ERROR).arg("ok_count", ok_count).arg("total_count", qsos.len()).arg("err", e.to_string()).text(lang), false));
-                                                } else {
-                                                    let _ = tx.send((Msg::new(key::SYNC_HRDLOG_SUCCESS).arg("count", ok_count).text(lang), false));
-                                                }
-                                            });
+                                            let credentials = crate::gui::online_sync_upload::UploadCredentialsSnapshot::from_app(app);
+                                            crate::gui::online_sync_upload::start_upload(
+                                                app,
+                                                crate::cloud::upload_plan::UploadTarget::HrdLog,
+                                                crate::gui::online_sync_upload::Transport::PerQso,
+                                                credentials,
+                                                lang,
+                                            );
                                         }
                                     }
                                 });
@@ -642,6 +568,11 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                                     ui.add_space(6.0);
                                     ui.horizontal(|ui| {
+                                        if ui.button(tr(key::SYNC_UPLOAD_CANCEL_BTN, lang)).clicked() {
+                                            app.online.request_upload_cancel();
+                                            let msg = tr(key::SYNC_UPLOAD_CANCEL_REQUESTED, lang).to_string();
+                                            app.online.online_sync_logs.push(msg);
+                                        }
                                         if ui.button(tr(key::SYNC_RETRY_FAILED_BTN, lang)).clicked() {
                                             let now = crate::cloud::scheduler::now_unix();
                                             let retry_count = app.services.upload_scheduler.lock().map_or(0, |mut s| {
