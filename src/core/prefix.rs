@@ -93,6 +93,140 @@ fn cty_match_to_info(
     }
 }
 
+/// Tabela starszej bazy referencyjnej.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LegacyTable {
+    UniqueCalls,
+    CountryDataEx,
+    Province,
+}
+
+/// Rodzaj problemu z rekordem starszej bazy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LegacyRuleIssueKind {
+    /// Wiersz nie dał się odczytać (np. niezgodny typ kolumny).
+    UnreadableRow(String),
+    /// Wzorzec nie kompiluje się nawet po normalizacji kotwic.
+    InvalidPattern(String),
+}
+
+/// Typowane ostrzeżenie: rekord pominięty podczas ładowania starszej bazy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LegacyRuleIssue {
+    pub table: LegacyTable,
+    /// Indeks rekordu w wyniku zapytania (od 0).
+    pub index: usize,
+    /// Nazwa encji/regionu, jeśli dostępna.
+    pub label: String,
+    pub kind: LegacyRuleIssueKind,
+}
+
+impl std::fmt::Display for LegacyRuleIssue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let what = match &self.kind {
+            LegacyRuleIssueKind::UnreadableRow(e) => format!("unreadable row: {e}"),
+            LegacyRuleIssueKind::InvalidPattern(e) => format!("invalid pattern: {e}"),
+        };
+        write!(f, "{:?}[{}] {}: {what}", self.table, self.index, self.label)
+    }
+}
+
+/// Liczniki i ostrzeżenia z ładowania starszej bazy.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LegacyLoadReport {
+    pub exact_calls: usize,
+    pub country_rules: usize,
+    pub province_rules: usize,
+    /// Reguły, w których przetłumaczono kotwicę końca tekstu `\Z` na `\z`.
+    pub normalized_anchors: usize,
+    pub issues: Vec<LegacyRuleIssue>,
+}
+
+/// Tłumaczy historyczną kotwicę końca tekstu `\Z` (składnia PCRE/Python) na
+/// `\z` obsługiwaną przez crate `regex`. Zmienia wyłącznie niepoprzedzoną
+/// innym ukośnikiem sekwencję `\Z` poza klasą znaków; `\\Z` (literalny
+/// ukośnik i litera Z) oraz zawartość `[...]` pozostają bez zmian.
+/// Zwraca wzorzec i liczbę przetłumaczonych kotwic.
+pub fn normalize_legacy_end_anchors(pattern: &str) -> (String, usize) {
+    let mut out = String::with_capacity(pattern.len());
+    let mut chars = pattern.chars();
+    let mut in_class = false;
+    let mut class_start = false;
+    let mut count = 0;
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => match chars.next() {
+                Some('Z') if !in_class => {
+                    out.push_str("\\z");
+                    count += 1;
+                }
+                Some(next) => {
+                    out.push('\\');
+                    out.push(next);
+                }
+                None => out.push('\\'),
+            },
+            '[' if !in_class => {
+                in_class = true;
+                class_start = true;
+                out.push(c);
+                continue;
+            }
+            ']' if in_class && !class_start => {
+                in_class = false;
+                out.push(c);
+            }
+            '^' if in_class && class_start => {
+                out.push(c);
+                continue;
+            }
+            _ => {
+                out.push(c);
+            }
+        }
+        class_start = false;
+    }
+    (out, count)
+}
+
+fn compile_legacy_rule(
+    table: LegacyTable,
+    index: usize,
+    mut info: PrefixInfo,
+    raw_regex: &str,
+    rules: &mut Vec<CompiledRule>,
+    report: &mut LegacyLoadReport,
+) {
+    let (normalized, anchors) = normalize_legacy_end_anchors(raw_regex);
+    let pattern = if normalized.starts_with('^') {
+        normalized
+    } else {
+        format!("^(?:{normalized})")
+    };
+    match Regex::new(&pattern) {
+        Ok(regex) => {
+            if anchors > 0 {
+                report.normalized_anchors += 1;
+            }
+            info.wpx_prefix = extract_wpx_prefix(&info.arrl_prefix);
+            rules.push(CompiledRule { regex, info });
+            match table {
+                LegacyTable::Province => report.province_rules += 1,
+                _ => report.country_rules += 1,
+            }
+        }
+        Err(e) => report.issues.push(LegacyRuleIssue {
+            table,
+            index,
+            label: info
+                .province
+                .clone()
+                .unwrap_or_else(|| info.country.clone()),
+            kind: LegacyRuleIssueKind::InvalidPattern(e.to_string()),
+        }),
+    }
+}
+
 fn is_operational_suffix(s: &str) -> bool {
     matches!(
         s,
@@ -183,8 +317,21 @@ fn extract_wpx_base(call: &str) -> String {
 }
 
 impl PrefixMatcher {
-    /// Ładuje reguły prefiksów z bazy danych serviceLOG.db
+    /// Ładuje reguły prefiksów ze starszej bazy referencyjnej SQLite.
+    /// Problemy z poszczególnymi regułami są logowane jako ostrzeżenia;
+    /// pełny raport zwraca [`Self::load_from_db_with_report`].
     pub fn load_from_db(db_path: impl AsRef<Path>) -> Result<Self> {
+        let (matcher, report) = Self::load_from_db_with_report(db_path)?;
+        for issue in &report.issues {
+            log::warn!("legacy prefix rule skipped: {issue}");
+        }
+        Ok(matcher)
+    }
+
+    /// Jak [`Self::load_from_db`], ale zwraca też liczniki reguł i typowane
+    /// ostrzeżenia o pominiętych rekordach.
+    pub fn load_from_db_with_report(db_path: impl AsRef<Path>) -> Result<(Self, LegacyLoadReport)> {
+        let mut report = LegacyLoadReport::default();
         let conn = Connection::open_with_flags(
             db_path,
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
@@ -219,16 +366,20 @@ impl PrefixMatcher {
             })
         })?;
 
-        for r in rows {
-            let r = match r {
-                Ok(r) => r,
-                Err(e) => {
-                    eprintln!("Ignorowanie błędu w prefix.rs: {e}");
-                    continue;
+        for (index, r) in rows.enumerate() {
+            match r {
+                Ok(r) => {
+                    unique_calls.insert(r.callsign.to_uppercase(), r);
                 }
-            };
-            unique_calls.insert(r.callsign.to_uppercase(), r);
+                Err(e) => report.issues.push(LegacyRuleIssue {
+                    table: LegacyTable::UniqueCalls,
+                    index,
+                    label: String::new(),
+                    kind: LegacyRuleIssueKind::UnreadableRow(e.to_string()),
+                }),
+            }
         }
+        report.exact_calls = unique_calls.len();
 
         // 2. CountryDataEx
         let mut country_rules = Vec::new();
@@ -260,23 +411,24 @@ impl PrefixMatcher {
             ))
         })?;
 
-        for row_res in rows {
-            let (mut info, raw_regex) = match row_res {
-                Ok(val) => val,
-                Err(e) => {
-                    eprintln!("Ignorowanie błędu w prefix.rs: {e}");
-                    continue;
+        for (index, row_res) in rows.enumerate() {
+            match row_res {
+                Ok((info, raw_regex)) => {
+                    compile_legacy_rule(
+                        LegacyTable::CountryDataEx,
+                        index,
+                        info,
+                        &raw_regex,
+                        &mut country_rules,
+                        &mut report,
+                    );
                 }
-            };
-            let pattern = if raw_regex.starts_with('^') {
-                raw_regex
-            } else {
-                format!("^(?:{raw_regex})")
-            };
-
-            if let Ok(reg) = Regex::new(&pattern) {
-                info.wpx_prefix = extract_wpx_prefix(&info.arrl_prefix);
-                country_rules.push(CompiledRule { regex: reg, info });
+                Err(e) => report.issues.push(LegacyRuleIssue {
+                    table: LegacyTable::CountryDataEx,
+                    index,
+                    label: String::new(),
+                    kind: LegacyRuleIssueKind::UnreadableRow(e.to_string()),
+                }),
             }
         }
 
@@ -314,33 +466,37 @@ impl PrefixMatcher {
             ))
         })?;
 
-        for row_res in rows {
-            let (mut info, raw_regex) = match row_res {
-                Ok(val) => val,
-                Err(e) => {
-                    eprintln!("Ignorowanie błędu w prefix.rs: {e}");
-                    continue;
+        for (index, row_res) in rows.enumerate() {
+            match row_res {
+                Ok((info, raw_regex)) => {
+                    compile_legacy_rule(
+                        LegacyTable::Province,
+                        index,
+                        info,
+                        &raw_regex,
+                        &mut province_rules,
+                        &mut report,
+                    );
                 }
-            };
-            let pattern = if raw_regex.starts_with('^') {
-                raw_regex
-            } else {
-                format!("^(?:{raw_regex})")
-            };
-
-            if let Ok(reg) = Regex::new(&pattern) {
-                info.wpx_prefix = extract_wpx_prefix(&info.arrl_prefix);
-                province_rules.push(CompiledRule { regex: reg, info });
+                Err(e) => report.issues.push(LegacyRuleIssue {
+                    table: LegacyTable::Province,
+                    index,
+                    label: String::new(),
+                    kind: LegacyRuleIssueKind::UnreadableRow(e.to_string()),
+                }),
             }
         }
 
-        Ok(Self::with_rules(RuleSet {
-            unique_calls,
-            province_rules,
-            country_rules,
-            cty: None,
-            source: PrefixSource::LegacyDatabase,
-        }))
+        Ok((
+            Self::with_rules(RuleSet {
+                unique_calls,
+                province_rules,
+                country_rules,
+                cty: None,
+                source: PrefixSource::LegacyDatabase,
+            }),
+            report,
+        ))
     }
 
     fn with_rules(rules: RuleSet) -> Self {
@@ -604,6 +760,138 @@ mod tests {
         assert_eq!(extract_wpx_prefix("SP6INA/1"), "SP1");
         assert_eq!(extract_wpx_prefix("SP6INA/W6"), "W6");
         assert_eq!(extract_wpx_prefix("DL/SP6INA/P"), "DL0");
+    }
+
+    #[test]
+    fn legacy_end_anchor_is_normalized_only_where_it_is_an_anchor() {
+        // Kotwica końca tekstu.
+        assert_eq!(
+            normalize_legacy_end_anchors(r"G\Z"),
+            (r"G\z".to_string(), 1)
+        );
+        assert_eq!(
+            normalize_legacy_end_anchors(r"Q\Z|QA[0-9].*|QB\Z"),
+            (r"Q\z|QA[0-9].*|QB\z".to_string(), 2)
+        );
+        // Literalny ukośnik, po którym następuje litera Z — bez zmian.
+        assert_eq!(
+            normalize_legacy_end_anchors(r"Q\\Z"),
+            (r"Q\\Z".to_string(), 0)
+        );
+        // Wewnątrz klasy znaków — bez zmian (także z ']' na początku i negacją).
+        assert_eq!(
+            normalize_legacy_end_anchors(r"[\Z]"),
+            (r"[\Z]".to_string(), 0)
+        );
+        assert_eq!(
+            normalize_legacy_end_anchors(r"[]\Z]"),
+            (r"[]\Z]".to_string(), 0)
+        );
+        assert_eq!(
+            normalize_legacy_end_anchors(r"[^]\Z]"),
+            (r"[^]\Z]".to_string(), 0)
+        );
+        // Escapowany ']' nie zamyka klasy; kotwica po klasie jest tłumaczona.
+        assert_eq!(
+            normalize_legacy_end_anchors(r"[^\]]\Z"),
+            (r"[^\]]\z".to_string(), 1)
+        );
+        // Inne sekwencje i wzorce bez kotwic pozostają identyczne.
+        for p in [r"\d+", r"\bQ", r"2[BEGORQV].*", r"Q\.", r"Q\z", ""] {
+            assert_eq!(normalize_legacy_end_anchors(p), (p.to_string(), 0));
+        }
+        // Samotny ukośnik na końcu nie powoduje paniki.
+        assert_eq!(normalize_legacy_end_anchors("Q\\"), ("Q\\".to_string(), 0));
+    }
+
+    fn synthetic_legacy_db(rows_sql: &str) -> String {
+        let uri = format!(
+            "file:legacy_rules_{}_{}?mode=memory&cache=shared",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let conn = Connection::open_with_flags(
+            &uri,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE
+                | rusqlite::OpenFlags::SQLITE_OPEN_CREATE
+                | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+        )
+        .unwrap();
+        conn.execute_batch(&format!(
+            "CREATE TABLE UniqueCalls (
+                Callsign TEXT, Country TEXT, ARRLPrefix TEXT, DXCC TEXT, Continent TEXT,
+                CQZone INTEGER, ITUZone INTEGER, Latitude TEXT, Longitude TEXT, Enable TEXT);
+             CREATE TABLE CountryDataEx (
+                Country TEXT, ARRLPrefix TEXT, DXCC INTEGER, Continent TEXT,
+                CQZone INTEGER, ITUZone INTEGER, Latitude TEXT, Longitude TEXT,
+                PrefixList TEXT, EndDate TEXT);
+             CREATE TABLE Province (
+                Country TEXT, ARRLPrefix TEXT, DXCC TEXT, Continent TEXT,
+                CQZone INTEGER, ITUZone INTEGER, Latitude TEXT, Longitude TEXT,
+                PrefixList TEXT, Comment TEXT, EndDate TEXT);
+             {rows_sql}"
+        ))
+        .unwrap();
+        // Połączenie musi żyć, aby baza w pamięci istniała podczas ładowania.
+        std::mem::forget(conn);
+        uri
+    }
+
+    #[test]
+    fn legacy_loader_compiles_anchored_rules_and_reports_invalid_ones() {
+        let uri = synthetic_legacy_db(
+            r"INSERT INTO CountryDataEx VALUES
+                ('Alpha Land', 'QA', 901, 'EU', 14, 27, '50.0N', '20.0E', 'QA\Z|QA[0-9].*', ''),
+                ('Beta Isles', 'QB', 902, 'NA', 3, 6, '20.0N', '100.0W', 'QB(', ''),
+                ('Gamma Rock', 'QG', 903, 'AF', 33, 37, '10.0S', '15.0E', 'QG\\Z.*', ''),
+                ('Retired',    'QR', 904, 'EU', 14, 27, '50.0N', '20.0E', 'QR.*', '2001-01-01');
+              INSERT INTO Province VALUES
+                ('Alpha Land', 'QA', '901', 'EU', 15, 28, '51.0N', '21.0E', 'QA9[\Z]', 'Alpha North', ''),
+                ('Alpha Land', 'QA', '901', 'EU', 16, 29, '49.0N', '19.0E', 'QA8.*', 'Alpha South', '');
+              INSERT INTO UniqueCalls VALUES
+                ('QA1X', 'Alpha Land', 'QA', '901', 'EU', 14, 27, '50.0N', '20.0E', '1'),
+                ('QA2X', 'Alpha Land', 'QA', '901', 'EU', 14, 'bad', '50.0N', '20.0E', '1');",
+        );
+        let (m, report) = PrefixMatcher::load_from_db_with_report(&uri).unwrap();
+        assert_eq!(report.country_rules, 2, "{report:?}");
+        assert_eq!(report.province_rules, 1, "{report:?}");
+        assert_eq!(report.exact_calls, 1, "{report:?}");
+        assert_eq!(report.normalized_anchors, 1);
+        let kinds: Vec<(LegacyTable, &str, bool)> = report
+            .issues
+            .iter()
+            .map(|i| {
+                (
+                    i.table,
+                    i.label.as_str(),
+                    matches!(i.kind, LegacyRuleIssueKind::InvalidPattern(_)),
+                )
+            })
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                (LegacyTable::UniqueCalls, "", false),
+                (LegacyTable::CountryDataEx, "Beta Isles", true),
+                (LegacyTable::Province, "Alpha North", true),
+            ]
+        );
+
+        // Kotwica \Z działa jak koniec tekstu: sam prefiks "QA" pasuje.
+        assert_eq!(m.lookup("QA").unwrap().country, "Alpha Land");
+        assert_eq!(m.lookup("QA5ZZ").unwrap().country, "Alpha Land");
+        assert_eq!(
+            m.lookup("QA8ZZ").unwrap().province.as_deref(),
+            Some("Alpha South")
+        );
+        // Literalny "\Z" w regule Gamma pozostał literalny: QG… nie pasuje.
+        assert_eq!(m.lookup("QG1AB"), None);
+        // Pominięta reguła Beta nie jest dopasowywana; wycofana reguła też nie.
+        assert_eq!(m.lookup("QB1AB"), None);
+        assert_eq!(m.lookup("QR1AB"), None);
     }
 
     #[test]
