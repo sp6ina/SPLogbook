@@ -4,6 +4,7 @@
 
 use crate::core::awards::AwardsEngine;
 use crate::core::i18n::{Language, Msg, key, tr};
+use crate::core::reference::tables::TableKind;
 use crate::core::service_db::{IotaRecord, ServiceDatabase};
 use crate::gui::theme::{Palette, ThemeExt};
 use eframe::egui;
@@ -89,6 +90,9 @@ impl IotaBrowserDialog {
             .default_width(580.0)
             .show(ctx, |ui| {
                 let palette = ui.palette();
+                if !sdb.has_data(TableKind::Iota) {
+                    ui.label(tr(key::REF_DATA_NOT_INSTALLED_HINT, lang));
+                }
                 ui.horizontal(|ui| {
                     ui.label(tr(key::IOTA_SEARCH_LABEL, lang));
                     let resp = ui.add(

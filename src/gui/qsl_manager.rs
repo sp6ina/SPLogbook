@@ -3,6 +3,7 @@
 // Okno przeglądarki managerów QSL (z bazy serviceLOG.db - 29 102 rekordów)
 
 use crate::core::i18n::{Language, Msg, key, tr};
+use crate::core::reference::tables::TableKind;
 use crate::core::service_db::{QslManagerRecord, ServiceDatabase};
 use crate::gui::theme::ThemeExt;
 use eframe::egui;
@@ -70,6 +71,9 @@ impl QslManagerDialog {
             .default_height(420.0)
             .show(ctx, |ui| {
                 let palette = ui.palette();
+                if !db.has_data(TableKind::QslManagers) {
+                    ui.label(tr(key::REF_DATA_NOT_INSTALLED_HINT, lang));
+                }
                 ui.horizontal(|ui| {
                     ui.label(tr(key::QSL_MGR_SEARCH_LABEL, lang));
                     let edit = ui.add(

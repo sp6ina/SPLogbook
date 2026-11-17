@@ -4,6 +4,7 @@
 
 use crate::core::awards::AwardsEngine;
 use crate::core::i18n::{Language, Msg, key, tr};
+use crate::core::reference::tables::TableKind;
 use crate::core::service_db::{ServiceDatabase, StateRecord};
 use crate::gui::theme::{Palette, ThemeExt};
 use eframe::egui;
@@ -85,6 +86,9 @@ impl StatesBrowserDialog {
             .default_width(520.0)
             .show(ctx, |ui| {
                 let palette = ui.palette();
+                if !sdb.has_data(TableKind::States) {
+                    ui.label(tr(key::REF_DATA_NOT_INSTALLED_HINT, lang));
+                }
                 ui.horizontal(|ui| {
                     ui.label(tr(key::STATES_SEARCH_LABEL, lang));
                     let resp = ui.add(

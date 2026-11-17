@@ -86,6 +86,8 @@ pub struct LocalCallbook {
     cache_ttl_days: u32,
     callbook_conn: Option<Arc<Mutex<Connection>>>,
     servicelog_conn: Option<Arc<Mutex<Connection>>>,
+    /// Callbook i managerowie QSL zaimportowani przez użytkownika.
+    user: Arc<std::sync::RwLock<crate::core::reference::tables::UserTables>>,
 }
 
 impl LocalCallbook {
@@ -105,7 +107,18 @@ impl LocalCallbook {
             cache_ttl_days: 30,
             callbook_conn,
             servicelog_conn,
+            user: crate::core::reference::loader::user_tables(),
         }
+    }
+
+    /// Korzysta z podanych tabel użytkownika zamiast współdzielonych.
+    #[must_use]
+    pub fn with_user_tables(
+        mut self,
+        user: Arc<std::sync::RwLock<crate::core::reference::tables::UserTables>>,
+    ) -> Self {
+        self.user = user;
+        self
     }
 
     /// Włącza trwały cache offline dla wyników zapytań online.
@@ -213,7 +226,32 @@ impl LocalCallbook {
 
         let mut data: Option<CallbookData> = None;
 
-        if let Some(ref conn_mutex) = self.callbook_conn {
+        // Callbook zaimportowany przez użytkownika (pełny znak, potem bazowy).
+        if data.is_none() {
+            let user = self
+                .user
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            data = [clean.as_str(), base_call]
+                .iter()
+                .find_map(|c| user.find_callbook(c))
+                .map(|e| CallbookData {
+                    callsign: clean.clone(),
+                    name: e.name.clone(),
+                    qth: e.qth.clone(),
+                    gridsquare: e.grid.clone(),
+                    state: e.state.clone(),
+                    dxcc: None,
+                    country: None,
+                    qsl_manager: e.manager.clone(),
+                    email: None,
+                    image_url: None,
+                });
+        }
+
+        if data.is_none()
+            && let Some(ref conn_mutex) = self.callbook_conn
+        {
             let conn = conn_mutex
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -256,6 +294,39 @@ impl LocalCallbook {
                 if let Some(res) = found {
                     data = Some(res);
                     break;
+                }
+            }
+        }
+
+        // Managerowie QSL zaimportowani przez użytkownika.
+        if data
+            .as_ref()
+            .is_none_or(|d| d.qsl_manager.as_deref().is_none_or(str::is_empty))
+        {
+            let user = self
+                .user
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Some(m) = [clean.as_str(), base_call]
+                .iter()
+                .find_map(|c| user.find_manager(c))
+            {
+                match &mut data {
+                    Some(d) => d.qsl_manager = Some(m.manager),
+                    None => {
+                        data = Some(CallbookData {
+                            callsign: clean.clone(),
+                            name: None,
+                            qth: None,
+                            gridsquare: None,
+                            state: None,
+                            dxcc: None,
+                            country: None,
+                            qsl_manager: Some(m.manager),
+                            email: None,
+                            image_url: None,
+                        });
+                    }
                 }
             }
         }
@@ -708,5 +779,61 @@ mod tests {
         assert_eq!(got.country.as_deref(), Some("Poland"));
 
         let _ = std::fs::remove_file(&cache_path);
+    }
+}
+
+#[cfg(test)]
+mod user_table_tests {
+    use super::*;
+    use crate::core::reference::tables::{TableKind, UserTables, import_table};
+    use std::sync::RwLock;
+
+    fn shared(files: &[(TableKind, &str)]) -> Arc<RwLock<UserTables>> {
+        let root = tempfile::tempdir().unwrap();
+        for (kind, text) in files {
+            let p = root.path().join(format!("{}.csv", kind.set_name()));
+            std::fs::write(&p, text).unwrap();
+            import_table(root.path(), *kind, &p).unwrap();
+        }
+        Arc::new(RwLock::new(UserTables::load(root.path()).0))
+    }
+
+    #[test]
+    fn user_callbook_answers_offline_lookups() {
+        let cb = LocalCallbook::new(None, None).with_user_tables(shared(&[(
+            TableKind::Callbook,
+            "#splogbook-callbook,1\ncallsign,name,qth,grid,state,manager\nQA1AA,Test Operator,Testville,JO81wa,QS,QB1BB\n",
+        )]));
+        let d = cb.lookup("qa1aa").unwrap();
+        assert_eq!(d.callsign, "QA1AA");
+        assert_eq!(d.name.as_deref(), Some("Test Operator"));
+        assert_eq!(d.qth.as_deref(), Some("Testville"));
+        assert_eq!(d.gridsquare.as_deref(), Some("JO81wa"));
+        assert_eq!(d.state.as_deref(), Some("QS"));
+        assert_eq!(d.qsl_manager.as_deref(), Some("QB1BB"));
+        // Portable and guest forms fall back to the base call.
+        assert_eq!(
+            cb.lookup("QA1AA/P").unwrap().name.as_deref(),
+            Some("Test Operator")
+        );
+        assert!(cb.lookup("QA9ZZ").is_none());
+    }
+
+    #[test]
+    fn user_managers_complete_a_lookup_without_callbook_entry() {
+        let cb = LocalCallbook::new(None, None).with_user_tables(shared(&[(
+            TableKind::QslManagers,
+            "#splogbook-qsl-managers,1\ncallsign,manager\nQA2AA,QB2BB\n",
+        )]));
+        let d = cb.lookup("QA2AA").unwrap();
+        assert_eq!(d.qsl_manager.as_deref(), Some("QB2BB"));
+        assert_eq!(d.name, None);
+    }
+
+    #[test]
+    fn no_data_gives_no_result_and_no_panic() {
+        let cb = LocalCallbook::new(None, None).with_user_tables(Arc::default());
+        assert!(cb.lookup("QA1AA").is_none());
+        assert!(cb.lookup("").is_none());
     }
 }

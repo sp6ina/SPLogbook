@@ -214,7 +214,7 @@ const COLUMNS: &[&str] = &[
 ];
 
 /// Splits one CSV line (RFC 4180 quoting, no embedded newlines).
-fn split_csv_line(line: &str) -> Result<Vec<String>, RuleIssueKind> {
+pub(crate) fn split_csv_line(line: &str) -> Result<Vec<String>, RuleIssueKind> {
     let mut fields = Vec::new();
     let mut cur = String::new();
     let mut chars = line.chars().peekable();

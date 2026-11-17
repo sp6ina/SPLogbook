@@ -266,6 +266,9 @@ fn main() -> Result<(), eframe::Error> {
             reference_context.legacy_db.as_deref(),
         );
     log::info!("reference data: {reference_status:?}");
+    let table_status =
+        splogbook::core::reference::loader::reload_user_tables(&reference_context.root);
+    log::info!("user reference tables: {table_status:?}");
     splogbook::core::reference::loader::set_context(reference_context);
 
     let log_db = match LogDatabase::open(&log_db_path) {

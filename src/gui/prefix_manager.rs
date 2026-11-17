@@ -3,6 +3,7 @@
 // Okno bazy prefiksów i znaków specjalnych (UniqueCalls z serviceLOG.db - 4 310 rekordów)
 
 use crate::core::i18n::{Language, Msg, key, tr};
+use crate::core::prefix::PrefixMatcher;
 use crate::core::service_db::{ServiceDatabase, UniqueCallRecord};
 use crate::gui::theme::ThemeExt;
 use eframe::egui;
@@ -32,15 +33,21 @@ impl PrefixManagerDialog {
         self.is_open = true;
     }
 
-    pub fn execute_search(&mut self, db: &ServiceDatabase) {
+    pub fn execute_search(&mut self, db: &ServiceDatabase, matcher: &PrefixMatcher) {
         if self.search_query.trim().is_empty() {
             self.results.clear();
         } else {
-            self.results = db.search_unique_calls(&self.search_query);
+            self.results = db.search_exception_calls(&self.search_query, matcher);
         }
     }
 
-    pub fn show(&mut self, ctx: &egui::Context, db: &ServiceDatabase, lang: Language) {
+    pub fn show(
+        &mut self,
+        ctx: &egui::Context,
+        db: &ServiceDatabase,
+        matcher: &PrefixMatcher,
+        lang: Language,
+    ) {
         if !self.is_open {
             return;
         }
@@ -54,6 +61,9 @@ impl PrefixManagerDialog {
             .default_height(450.0)
             .show(ctx, |ui| {
                 let palette = ui.palette();
+                if !matcher.has_data() && !db.has_legacy_database() {
+                    ui.label(tr(key::REF_DATA_NOT_INSTALLED_HINT, lang));
+                }
                 ui.horizontal(|ui| {
                     ui.label(tr(key::PREFIX_SEARCH_LABEL, lang));
                     let edit = ui.add(
@@ -65,14 +75,14 @@ impl PrefixManagerDialog {
                         || (ui.input(|i| i.key_pressed(egui::Key::Enter)) && edit.has_focus())
                     {
                         self.search_query = self.search_query.to_uppercase();
-                        self.execute_search(db);
+                        self.execute_search(db, matcher);
                     }
 
                     if ui
                         .button(format!("🔍 {}", tr(key::BTN_SEARCH, lang)))
                         .clicked()
                     {
-                        self.execute_search(db);
+                        self.execute_search(db, matcher);
                     }
 
                     if ui.button(tr(key::BTN_CLEAR, lang)).clicked() {

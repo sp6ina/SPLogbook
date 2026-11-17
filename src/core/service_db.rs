@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Obsługa bazy referencyjnej serviceLOG.db (IOTA, Stany/Okręgi, Managerowie QSL, Unikalne znaki)
 
+use crate::core::reference::tables::{TableKind, UserTables};
 use crate::core::text::escape_like;
 use rusqlite::{Connection, OpenFlags, params};
 use std::path::{Path, PathBuf};
@@ -42,6 +43,8 @@ pub struct UniqueCallRecord {
 
 pub struct ServiceDatabase {
     conn: Option<Arc<Mutex<Connection>>>,
+    /// Tabele zaimportowane przez użytkownika (pierwszeństwo przed starszą bazą).
+    user: Arc<std::sync::RwLock<UserTables>>,
 }
 
 impl ServiceDatabase {
@@ -80,7 +83,30 @@ impl ServiceDatabase {
 
         Self {
             conn: conn.map(|c| Arc::new(Mutex::new(c))),
+            user: crate::core::reference::loader::user_tables(),
         }
+    }
+
+    /// Baza bez starszego pliku, korzystająca wyłącznie z podanych tabel użytkownika.
+    pub fn with_user_tables(user: Arc<std::sync::RwLock<UserTables>>) -> Self {
+        Self { conn: None, user }
+    }
+
+    fn user(&self) -> std::sync::RwLockReadGuard<'_, UserTables> {
+        self.user
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// `true`, gdy otwarto starszą bazę referencyjną (warstwa zgodności).
+    pub fn has_legacy_database(&self) -> bool {
+        self.conn.is_some()
+    }
+
+    /// `true`, gdy dla kategorii istnieje jakiekolwiek źródło danych
+    /// (tabela użytkownika lub starsza baza).
+    pub fn has_data(&self, kind: TableKind) -> bool {
+        self.user().is_installed(kind) || self.conn.is_some()
     }
 
     pub fn open_at(path: &Path) -> Result<Connection, rusqlite::Error> {
@@ -93,6 +119,15 @@ impl ServiceDatabase {
     /// Wyszukuje grupy wysp IOTA (po kodzie np. 'EU-001' lub nazwie)
     pub fn search_iota(&self, query: &str) -> Vec<IotaRecord> {
         let clean = query.trim().to_uppercase();
+        {
+            let user = self.user();
+            if user.is_installed(TableKind::Iota) {
+                let res = user.search_iota(&clean);
+                if !res.is_empty() {
+                    return res;
+                }
+            }
+        }
         if let Some(ref conn_mutex) = self.conn
             && let Ok(conn) = conn_mutex.lock()
         {
@@ -124,6 +159,9 @@ impl ServiceDatabase {
 
     pub fn find_iota(&self, code: &str) -> Option<IotaRecord> {
         let clean = code.trim().to_uppercase();
+        if let Some(rec) = self.user().find_iota(&clean) {
+            return Some(rec);
+        }
         if let Some(ref conn_mutex) = self.conn
             && let Ok(conn) = conn_mutex.lock()
             && let Ok(mut stmt) =
@@ -160,7 +198,17 @@ impl ServiceDatabase {
             }
         }
 
-        // 2. Jeśli podłączono serviceLOG.db, dołącz wpisy z bazy STATE
+        // 2. Tabela stanów i jednostek administracyjnych użytkownika
+        for r in self.user().search_states(&clean) {
+            if !results
+                .iter()
+                .any(|s| s.code == r.code && s.country == r.country)
+            {
+                results.push(r);
+            }
+        }
+
+        // 3. Jeśli podłączono serviceLOG.db, dołącz wpisy z bazy STATE
         if let Some(ref conn_mutex) = self.conn
             && let Ok(conn) = conn_mutex.lock()
         {
@@ -197,6 +245,9 @@ impl ServiceDatabase {
         if clean.is_empty() {
             return None;
         }
+        if let Some(rec) = self.user().find_manager(&clean) {
+            return Some(rec);
+        }
 
         if let Some(ref conn_mutex) = self.conn
             && let Ok(conn) = conn_mutex.lock()
@@ -223,6 +274,15 @@ impl ServiceDatabase {
         let clean = query.trim().to_uppercase();
         if clean.is_empty() {
             return Vec::new();
+        }
+        {
+            let user = self.user();
+            if user.is_installed(TableKind::QslManagers) {
+                let res = user.search_managers(&clean);
+                if !res.is_empty() {
+                    return res;
+                }
+            }
         }
 
         if let Some(ref conn_mutex) = self.conn
@@ -282,6 +342,38 @@ impl ServiceDatabase {
         }
 
         None
+    }
+
+    /// Wyjątki pełnych znaków: ze starszej bazy, a bez niej — z załadowanych
+    /// plików krajów (`=ZNAK`). Dopasowanie po znaku lub nazwie kraju,
+    /// sortowanie po znaku, najwyżej 100 wyników.
+    pub fn search_exception_calls(
+        &self,
+        query: &str,
+        matcher: &crate::core::prefix::PrefixMatcher,
+    ) -> Vec<UniqueCallRecord> {
+        if self.conn.is_some() {
+            return self.search_unique_calls(query);
+        }
+        let clean = query.trim().to_uppercase();
+        if clean.is_empty() {
+            return Vec::new();
+        }
+        matcher
+            .exception_calls()
+            .into_iter()
+            .filter(|i| i.callsign.contains(&clean) || i.country.to_uppercase().contains(&clean))
+            .take(100)
+            .map(|i| UniqueCallRecord {
+                call: i.callsign,
+                country: i.country,
+                dxcc: i.dxcc,
+                arrl_prefix: i.arrl_prefix,
+                continent: i.continent,
+                cq_zone: i.cqz,
+                itu_zone: i.ituz,
+            })
+            .collect()
     }
 
     /// Przeszukuje tabelę unikalnych przypisań prefiksów i znaków specjalnych
@@ -428,5 +520,70 @@ mod tests {
         let db = ServiceDatabase::open();
         let iota = db.find_iota("EU-001");
         assert!(iota.is_some());
+    }
+}
+
+#[cfg(test)]
+mod user_table_tests {
+    use super::*;
+    use crate::core::reference::tables::{TableKind, UserTables, import_table};
+    use std::sync::RwLock;
+
+    fn tables_with(files: &[(TableKind, &str)]) -> Arc<RwLock<UserTables>> {
+        let root = tempfile::tempdir().unwrap();
+        for (kind, text) in files {
+            let p = root.path().join(format!("{}.csv", kind.set_name()));
+            std::fs::write(&p, text).unwrap();
+            import_table(root.path(), *kind, &p).unwrap();
+        }
+        Arc::new(RwLock::new(UserTables::load(root.path()).0))
+    }
+
+    #[test]
+    fn empty_user_tables_give_data_not_installed_and_safe_results() {
+        let db = ServiceDatabase::with_user_tables(Arc::default());
+        for kind in TableKind::ALL {
+            assert!(!db.has_data(kind));
+        }
+        assert!(db.find_manager("QA1AA").is_none());
+        assert_eq!(db.search_managers("QA"), Vec::<QslManagerRecord>::new());
+        // The built-in US list stays available without any data file.
+        assert_eq!(db.search_states("").len(), US_STATES.len());
+        // The built-in IOTA sample stays available as before.
+        assert_ne!(db.search_iota("AF"), Vec::<IotaRecord>::new());
+    }
+
+    #[test]
+    fn imported_tables_drive_every_browser_query() {
+        let shared = tables_with(&[
+            (
+                TableKind::Iota,
+                "#splogbook-iota,1\nreference,name,prefix\nEU-901,Testing Isle,QA\n",
+            ),
+            (
+                TableKind::States,
+                "#splogbook-states,1\ncode,name,country\nQN,North Test,Alpha Land\n",
+            ),
+            (
+                TableKind::QslManagers,
+                "#splogbook-qsl-managers,1\ncallsign,manager,years,notes\nQA1AA,QB1BB,2026,test\n",
+            ),
+        ]);
+        let db = ServiceDatabase::with_user_tables(shared.clone());
+        assert!(db.has_data(TableKind::Iota));
+        assert_eq!(db.search_iota("testing")[0].iota, "EU-901");
+        assert_eq!(db.find_iota("eu-901").unwrap().name, "Testing Isle");
+        let states = db.search_states("north");
+        assert!(
+            states
+                .iter()
+                .any(|s| s.code == "QN" && s.country == "Alpha Land")
+        );
+        assert_eq!(db.find_manager("qa1aa").unwrap().manager, "QB1BB");
+        assert_eq!(db.search_managers("QB1").len(), 1);
+
+        // Reload through the shared handle: no restart, same ServiceDatabase.
+        *shared.write().unwrap() = UserTables::default();
+        assert!(db.find_manager("QA1AA").is_none());
     }
 }

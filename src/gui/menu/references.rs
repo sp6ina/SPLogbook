@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use crate::core::i18n::{Msg, key, tr};
+use crate::core::reference::tables::TableKind;
 use crate::core::reference::user_rules::RulesKind;
 use crate::gui::app::SpLogApp;
 use crate::gui::app::app_reference::source_status_text;
@@ -128,6 +129,52 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         {
             ui.close();
             app.trigger_rules_export(RulesKind::Overrides);
+        }
+        for (kind, status_key, import_key, export_key) in [
+            (
+                TableKind::Iota,
+                key::REF_IOTA_STATUS,
+                key::REF_IOTA_IMPORT,
+                key::REF_IOTA_EXPORT,
+            ),
+            (
+                TableKind::States,
+                key::REF_STATES_STATUS,
+                key::REF_STATES_IMPORT,
+                key::REF_STATES_EXPORT,
+            ),
+            (
+                TableKind::QslManagers,
+                key::REF_MANAGERS_STATUS,
+                key::REF_MANAGERS_IMPORT,
+                key::REF_MANAGERS_EXPORT,
+            ),
+            (
+                TableKind::Callbook,
+                key::REF_CALLBOOK_STATUS,
+                key::REF_CALLBOOK_IMPORT,
+                key::REF_CALLBOOK_EXPORT,
+            ),
+        ] {
+            ui.separator();
+            ui.label(status_line(
+                status_key,
+                &crate::core::reference::loader::table_status(kind),
+            ));
+            if ui
+                .button(icons::BOOKS.label(tr(import_key, lang)))
+                .clicked()
+            {
+                ui.close();
+                app.trigger_table_import(kind);
+            }
+            if ui
+                .button(icons::BOOKS.label(tr(export_key, lang)))
+                .clicked()
+            {
+                ui.close();
+                app.trigger_table_export(kind);
+            }
         }
     });
 }

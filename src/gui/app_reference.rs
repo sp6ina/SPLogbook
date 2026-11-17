@@ -11,6 +11,7 @@ use crate::core::i18n::{Language, Msg, key, tr};
 use crate::core::reference::country_files::{self, CountryFilesError};
 use crate::core::reference::install::SetOrigin;
 use crate::core::reference::loader::{self, SourceStatus};
+use crate::core::reference::tables::{self, TableImportError, TableKind};
 use crate::core::reference::user_rules::{self, RulesImportError, RulesKind};
 use std::path::PathBuf;
 
@@ -197,6 +198,57 @@ impl SpLogApp {
                 log::warn!("{} not imported: {e}", kind.set_name());
                 tr(key::REF_RULES_FAILED, lang).to_string()
             }
+        };
+        let _ = self.online.sync_log_tx.send((msg, false));
+    }
+
+    /// Imports one user table (IOTA, states, QSL managers, callbook) and
+    /// reloads the shared tables.
+    pub fn trigger_table_import(&mut self, kind: TableKind) {
+        let lang = self.gui.appearance.language;
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter(tr(key::REF_FILTER_TABLE, lang), &["csv"])
+            .set_title(tr(key::REF_PICK_TABLE, lang))
+            .pick_file()
+        else {
+            return;
+        };
+        let (root, _) = self.reference_paths();
+        let msg = match tables::import_table(&root, kind, &path) {
+            Ok(report) => {
+                let _ = loader::reload_user_tables(&root);
+                Msg::new(key::REF_TABLE_IMPORTED)
+                    .arg("count", report.rows.to_string())
+                    .arg("warnings", report.warnings.len().to_string())
+                    .text(lang)
+            }
+            Err(TableImportError::Invalid(issues)) => Msg::new(key::REF_TABLE_REJECTED)
+                .arg("count", issues.len().to_string())
+                .arg("line", issues.first().map_or(0, |i| i.line).to_string())
+                .text(lang),
+            Err(e) => {
+                log::warn!("{} not imported: {e}", kind.set_name());
+                tr(key::REF_TABLE_FAILED, lang).to_string()
+            }
+        };
+        let _ = self.online.sync_log_tx.send((msg, false));
+    }
+
+    /// Exports one user table (backup).
+    pub fn trigger_table_export(&mut self, kind: TableKind) {
+        let lang = self.gui.appearance.language;
+        let Some(dest) = rfd::FileDialog::new()
+            .add_filter(tr(key::REF_FILTER_TABLE, lang), &["csv"])
+            .set_title(tr(key::REF_SAVE_TABLE, lang))
+            .set_file_name(format!("{}.csv", kind.set_name()))
+            .save_file()
+        else {
+            return;
+        };
+        let (root, _) = self.reference_paths();
+        let msg = match tables::export_table(&root, kind, &dest) {
+            Ok(_) => tr(key::REF_TABLE_EXPORTED, lang).to_string(),
+            Err(_) => tr(key::REF_TABLE_NOTHING_TO_EXPORT, lang).to_string(),
         };
         let _ = self.online.sync_log_tx.send((msg, false));
     }

@@ -12,4 +12,5 @@ pub mod cty;
 pub mod install;
 pub mod loader;
 pub mod rules;
+pub mod tables;
 pub mod user_rules;

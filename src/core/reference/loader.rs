@@ -10,7 +10,7 @@ use super::install::SetManifest;
 use super::user_rules::{self, RulesKind};
 use crate::core::prefix::PrefixMatcher;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 /// Directory name of the user reference-data root inside the data directory.
 pub const REFERENCE_DIR: &str = "reference";
@@ -26,6 +26,55 @@ pub struct ReferenceContext {
 
 static CONTEXT: OnceLock<ReferenceContext> = OnceLock::new();
 static LAST_STATUS: Mutex<Option<ReferenceStatus>> = Mutex::new(None);
+
+static USER_TABLES: OnceLock<Arc<RwLock<super::tables::UserTables>>> = OnceLock::new();
+static TABLE_STATUS: Mutex<Vec<(super::tables::TableKind, SourceStatus)>> = Mutex::new(Vec::new());
+
+/// Shared user tables (IOTA, states, QSL managers, callbook) for this process.
+/// Empty until [`reload_user_tables`] loads installed data.
+pub fn user_tables() -> Arc<RwLock<super::tables::UserTables>> {
+    USER_TABLES.get_or_init(Arc::default).clone()
+}
+
+/// Loads the installed user tables from `root` into the shared instance and
+/// returns the status of each table. A broken table is reported and left empty.
+pub fn reload_user_tables(root: &Path) -> Vec<(super::tables::TableKind, SourceStatus)> {
+    use super::tables::{TableKind, UserTables};
+    let (tables, failures) = UserTables::load(root);
+    let statuses: Vec<(TableKind, SourceStatus)> = TableKind::ALL
+        .iter()
+        .map(|&kind| {
+            let status = if let Some((_, e)) = failures.iter().find(|(k, _)| *k == kind) {
+                log::warn!("{} not loaded: {e}", kind.set_name());
+                SourceStatus::failed(e)
+            } else if let Some(m) = tables.manifests.get(&kind) {
+                SourceStatus::loaded(m, tables.row_count(kind))
+            } else {
+                SourceStatus::NotInstalled
+            };
+            (kind, status)
+        })
+        .collect();
+    *user_tables()
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = tables;
+    TABLE_STATUS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone_from(&statuses);
+    statuses
+}
+
+/// Status of a user table from the most recent [`reload_user_tables`].
+pub fn table_status(kind: super::tables::TableKind) -> SourceStatus {
+    TABLE_STATUS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .find(|(k, _)| *k == kind)
+        .map(|(_, s)| s.clone())
+        .unwrap_or_default()
+}
 
 /// Status from the most recent [`build_prefix_matcher`] call in this process
 /// (cheap to read; used for menu labels).

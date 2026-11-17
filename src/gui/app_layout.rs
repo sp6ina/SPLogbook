@@ -734,6 +734,7 @@ impl SpLogApp {
         self.gui.dialogs.prefix_manager_dialog.show(
             ctx,
             &self.services.service_db,
+            &self.services.prefix_matcher,
             self.gui.appearance.language,
         );
 
