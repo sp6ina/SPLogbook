@@ -21,7 +21,65 @@ pub struct PrefixInfo {
     pub latitude: f64,
     pub longitude: f64,
     pub wpx_prefix: String,
+    /// Nazwa jednostki administracyjnej (prowincji, stanu, oblastu), jeśli znana.
     pub province: Option<String>,
+    /// Kod jednostki administracyjnej z reguły użytkownika, jeśli znany.
+    #[serde(default)]
+    pub subdivision_code: Option<String>,
+    /// Dokładność współrzędnych — GUI i API nie mogą jej zawyżać.
+    #[serde(default)]
+    pub location_precision: LocationPrecision,
+}
+
+/// Źródło i dokładność współrzędnych w [`PrefixInfo`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum LocationPrecision {
+    /// Brak wiarygodnych współrzędnych.
+    #[default]
+    Unknown,
+    /// Środek encji DXCC (pliki krajów).
+    EntityCentroid,
+    /// Współrzędne z nadpisania `<lat/lon>` w pliku krajów.
+    CountryFileOverride,
+    /// Współrzędne ze starszej bazy na poziomie encji.
+    LegacyEntity,
+    /// Współrzędne regionu ze starszej bazy (warstwa zgodności).
+    LegacyRegionalRule,
+    /// Współrzędne z reguły regionalnej zaimportowanej przez użytkownika.
+    UserRegionalRule,
+    /// Współrzędne z jawnego nadpisania użytkownika.
+    UserOverride,
+    /// Dokładna lokalizacja z danych QSO (lokator / współrzędne). Ustawiana
+    /// przez warstwę QSO, nigdy przez dopasowanie prefiksu.
+    ExactQsoLocation,
+}
+
+/// Warstwa reguł użytkownika, której dotyczy konflikt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuleLayer {
+    UserOverride,
+    UserRegional,
+}
+
+/// Konflikt wykryty podczas rozstrzygania znaku: reguła nie została użyta.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LayerConflict {
+    /// Kilka reguł wzorca o tym samym najwyższym priorytecie.
+    AmbiguousPatterns { layer: RuleLayer, lines: Vec<usize> },
+    /// Reguła regionalna wskazuje inną encję niż plik krajów (źródło nadrzędne).
+    EntityMismatch {
+        layer: RuleLayer,
+        line: usize,
+        rule_dxcc: u32,
+        resolved_dxcc: u32,
+    },
+}
+
+/// Wynik rozstrzygnięcia znaku wraz z konfliktami reguł użytkownika.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Resolution {
+    pub info: Option<PrefixInfo>,
+    pub conflicts: Vec<LayerConflict>,
 }
 
 struct CompiledRule {
@@ -58,6 +116,8 @@ struct RuleSet {
     province_rules: Vec<CompiledRule>,
     country_rules: Vec<CompiledRule>,
     cty: Option<crate::core::reference::cty::CtyData>,
+    regional: Option<crate::core::reference::rules::RuleBook>,
+    overrides: Option<crate::core::reference::rules::RuleBook>,
     source: PrefixSource,
 }
 
@@ -90,6 +150,12 @@ fn cty_match_to_info(
         // znaku, dla prefiksu — ze znaku po normalizacji.
         wpx_prefix: extract_wpx_prefix(if m.exact { clean } else { lookup_call }),
         province: None,
+        subdivision_code: None,
+        location_precision: if m.coordinates_overridden {
+            LocationPrecision::CountryFileOverride
+        } else {
+            LocationPrecision::EntityCentroid
+        },
     }
 }
 
@@ -363,6 +429,8 @@ impl PrefixMatcher {
                 longitude: parse_coord(&lon_str),
                 wpx_prefix: extract_wpx_prefix(&call),
                 province: None,
+                subdivision_code: None,
+                location_precision: LocationPrecision::LegacyEntity,
             })
         })?;
 
@@ -406,6 +474,8 @@ impl PrefixMatcher {
                     longitude: parse_coord(&lon_str),
                     wpx_prefix: String::new(),
                     province: None,
+                    subdivision_code: None,
+                    location_precision: LocationPrecision::LegacyEntity,
                 },
                 prefix_list,
             ))
@@ -461,6 +531,8 @@ impl PrefixMatcher {
                     longitude: parse_coord(&lon_str),
                     wpx_prefix: String::new(),
                     province: Some(province),
+                    subdivision_code: None,
+                    location_precision: LocationPrecision::LegacyRegionalRule,
                 },
                 prefix_list,
             ))
@@ -493,6 +565,8 @@ impl PrefixMatcher {
                 province_rules,
                 country_rules,
                 cty: None,
+                regional: None,
+                overrides: None,
                 source: PrefixSource::LegacyDatabase,
             }),
             report,
@@ -696,55 +770,420 @@ impl PrefixMatcher {
     }
 
     fn lookup_uncached(&self, clean: &str) -> Option<PrefixInfo> {
+        self.resolve_clean(clean).info
+    }
+
+    /// Rozstrzyga znak bez użycia cache i zwraca też konflikty reguł
+    /// użytkownika (reguły, które z powodu konfliktu nie zostały zastosowane).
+    pub fn lookup_detailed(&self, callsign: &str) -> Resolution {
+        let clean = callsign.trim().to_uppercase();
+        if clean.is_empty() {
+            return Resolution::default();
+        }
+        self.resolve_clean(&clean)
+    }
+
+    /// Kolejność warstw:
+    /// 1. jawne nadpisanie użytkownika;
+    /// 2. znak dokładny z plików krajów;
+    /// 3. dokładna reguła regionalna użytkownika;
+    /// 4. najdłuższy prefiks z plików krajów, doprecyzowany regułą regionalną
+    ///    użytkownika albo (w okresie przejściowym) regułą regionalną starszej bazy;
+    /// 5. starsza baza jako warstwa zgodności, gdy pliki krajów nic nie dają;
+    /// 6. sama reguła użytkownika z kodem encji;
+    /// 7. brak wyniku.
+    fn resolve_clean(&self, clean: &str) -> Resolution {
         let rules = self
             .rules
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let lookup_call = Self::normalize_call_for_prefix(clean);
+        let base = Self::strip_operational_suffixes(clean);
+        let mut conflicts = Vec::new();
 
-        // 0. Pliki krajów (cty.dat): znak dokładny (pełny, potem bez sufiksów
-        // operacyjnych typu /P), następnie najdłuższy prefiks.
-        if let Some(cty) = &rules.cty {
-            let lookup_call = Self::normalize_call_for_prefix(clean);
-            let base = Self::strip_operational_suffixes(clean);
-            return cty
-                .resolve_exact(clean)
-                .or_else(|| (base != clean).then(|| cty.resolve_exact(base)).flatten())
-                .or_else(|| cty.resolve_prefix(lookup_call))
-                .map(|m| cty_match_to_info(clean, lookup_call, m));
+        let mut info =
+            Self::resolve_without_overrides(&rules, clean, lookup_call, base, &mut conflicts);
+
+        if let Some(book) = &rules.overrides {
+            let rule = book.match_exact(clean, base).or_else(|| {
+                pick_rule(
+                    book.match_prefix(lookup_call),
+                    RuleLayer::UserOverride,
+                    &mut conflicts,
+                )
+            });
+            if let Some(rule) = rule {
+                info = apply_rule(
+                    info,
+                    rule,
+                    rules.cty.as_ref(),
+                    clean,
+                    lookup_call,
+                    LocationPrecision::UserOverride,
+                );
+            }
         }
 
-        // 1. Sprawdź UniqueCalls (dokładne dopasowanie)
-        if let Some(info) = rules.unique_calls.get(clean) {
-            let mut res = info.clone();
+        Resolution { info, conflicts }
+    }
+
+    fn resolve_without_overrides(
+        rules: &RuleSet,
+        clean: &str,
+        lookup_call: &str,
+        base: &str,
+        conflicts: &mut Vec<LayerConflict>,
+    ) -> Option<PrefixInfo> {
+        let regional = rules.regional.as_ref();
+
+        if let Some(cty) = &rules.cty {
+            // 2. Znak dokładny z plików krajów.
+            let exact = cty
+                .resolve_exact(clean)
+                .or_else(|| (base != clean).then(|| cty.resolve_exact(base)).flatten());
+            if let Some(m) = exact {
+                return Some(cty_match_to_info(clean, lookup_call, m));
+            }
+            let prefix_info = cty
+                .resolve_prefix(lookup_call)
+                .map(|m| cty_match_to_info(clean, lookup_call, m));
+
+            // 3. Dokładna reguła regionalna użytkownika (może zmienić encję).
+            if let Some(rule) = regional.and_then(|b| b.match_exact(clean, base)) {
+                return apply_rule(
+                    prefix_info,
+                    rule,
+                    Some(cty),
+                    clean,
+                    lookup_call,
+                    LocationPrecision::UserRegionalRule,
+                );
+            }
+
+            // 4. Najdłuższy prefiks + doprecyzowanie regionalne.
+            if let Some(info) = prefix_info {
+                if let Some(book) = regional
+                    && let Some(rule) = pick_rule(
+                        book.match_prefix(lookup_call),
+                        RuleLayer::UserRegional,
+                        conflicts,
+                    )
+                {
+                    match rule.attributes.dxcc {
+                        Some(d) if d != info.dxcc => {
+                            conflicts.push(LayerConflict::EntityMismatch {
+                                layer: RuleLayer::UserRegional,
+                                line: rule.line,
+                                rule_dxcc: d,
+                                resolved_dxcc: info.dxcc,
+                            });
+                        }
+                        _ => {
+                            return apply_rule(
+                                Some(info),
+                                rule,
+                                Some(cty),
+                                clean,
+                                lookup_call,
+                                LocationPrecision::UserRegionalRule,
+                            );
+                        }
+                    }
+                }
+                if let Some(refined) = legacy_regional_refinement(rules, &info, lookup_call) {
+                    return Some(refined);
+                }
+                return Some(info);
+            }
+
+            // 5. Warstwa zgodności: starsza baza.
+            if let Some(info) = legacy_lookup(rules, clean, lookup_call) {
+                return Some(info);
+            }
+
+            // 6. Sama reguła regionalna z kodem encji.
+            if let Some(book) = regional
+                && let Some(rule) = pick_rule(
+                    book.match_prefix(lookup_call),
+                    RuleLayer::UserRegional,
+                    conflicts,
+                )
+            {
+                return apply_rule(
+                    None,
+                    rule,
+                    Some(cty),
+                    clean,
+                    lookup_call,
+                    LocationPrecision::UserRegionalRule,
+                );
+            }
+            return None;
+        }
+
+        // Bez plików krajów: dotychczasowa ścieżka starszej bazy, potem reguły użytkownika.
+        let legacy = legacy_lookup(rules, clean, lookup_call);
+        let Some(book) = regional else {
+            return legacy;
+        };
+        if let Some(rule) = book.match_exact(clean, base) {
+            return apply_rule(
+                legacy,
+                rule,
+                None,
+                clean,
+                lookup_call,
+                LocationPrecision::UserRegionalRule,
+            );
+        }
+        let Some(rule) = pick_rule(
+            book.match_prefix(lookup_call),
+            RuleLayer::UserRegional,
+            conflicts,
+        ) else {
+            return legacy;
+        };
+        match (rule.attributes.dxcc, &legacy) {
+            (Some(d), Some(l)) if d != l.dxcc => {
+                conflicts.push(LayerConflict::EntityMismatch {
+                    layer: RuleLayer::UserRegional,
+                    line: rule.line,
+                    rule_dxcc: d,
+                    resolved_dxcc: l.dxcc,
+                });
+                legacy
+            }
+            _ => apply_rule(
+                legacy,
+                rule,
+                None,
+                clean,
+                lookup_call,
+                LocationPrecision::UserRegionalRule,
+            ),
+        }
+    }
+
+    /// Dołącza reguły regionalne użytkownika (zastępuje poprzednie).
+    #[must_use]
+    pub fn with_regional_rules(self, book: crate::core::reference::rules::RuleBook) -> Self {
+        self.rules
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .regional = Some(book);
+        self.clear_cache();
+        self
+    }
+
+    /// Dołącza jawne nadpisania użytkownika (zastępuje poprzednie).
+    #[must_use]
+    pub fn with_overrides(self, book: crate::core::reference::rules::RuleBook) -> Self {
+        self.rules
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .overrides = Some(book);
+        self.clear_cache();
+        self
+    }
+
+    /// Dołącza reguły starszej bazy jako warstwę zgodności (okres przejściowy).
+    #[must_use]
+    pub fn with_legacy_compatibility(self, legacy: Self) -> Self {
+        let legacy = legacy
+            .rules
+            .into_inner()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        {
+            let mut rules = self
+                .rules
+                .write()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            rules.unique_calls = legacy.unique_calls;
+            rules.province_rules = legacy.province_rules;
+            rules.country_rules = legacy.country_rules;
+            if rules.source == PrefixSource::None {
+                rules.source = legacy.source;
+            }
+        }
+        self.clear_cache();
+        self
+    }
+
+    /// Opis załadowanych warstw.
+    pub fn layers(&self) -> LayerSummary {
+        let rules = self
+            .rules
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        LayerSummary {
+            source: rules.source,
+            country_files: rules.cty.is_some(),
+            legacy_rules: rules.unique_calls.len()
+                + rules.province_rules.len()
+                + rules.country_rules.len(),
+            regional_rules: rules
+                .regional
+                .as_ref()
+                .map_or(0, crate::core::reference::rules::RuleBook::len),
+            override_rules: rules
+                .overrides
+                .as_ref()
+                .map_or(0, crate::core::reference::rules::RuleBook::len),
+        }
+    }
+}
+
+/// Liczba reguł w poszczególnych warstwach.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct LayerSummary {
+    pub source: PrefixSource,
+    pub country_files: bool,
+    pub legacy_rules: usize,
+    pub regional_rules: usize,
+    pub override_rules: usize,
+}
+
+fn pick_rule<'a>(
+    m: crate::core::reference::rules::RuleMatch<'a>,
+    layer: RuleLayer,
+    conflicts: &mut Vec<LayerConflict>,
+) -> Option<&'a crate::core::reference::rules::Rule> {
+    use crate::core::reference::rules::RuleMatch;
+    match m {
+        RuleMatch::None => None,
+        RuleMatch::Matched(r) => Some(r),
+        RuleMatch::Conflict(rs) => {
+            conflicts.push(LayerConflict::AmbiguousPatterns {
+                layer,
+                lines: rs.iter().map(|r| r.line).collect(),
+            });
+            None
+        }
+    }
+}
+
+/// Nakłada atrybuty reguły na wynik niższych warstw. Kod encji z reguły
+/// zmienia encję (nazwa, prefiks i wartości domyślne z pliku krajów, jeśli
+/// dostępny); dokładność współrzędnych rośnie tylko, gdy reguła je podaje.
+fn apply_rule(
+    base: Option<PrefixInfo>,
+    rule: &crate::core::reference::rules::Rule,
+    cty: Option<&crate::core::reference::cty::CtyData>,
+    clean: &str,
+    lookup_call: &str,
+    precision: LocationPrecision,
+) -> Option<PrefixInfo> {
+    let a = &rule.attributes;
+    let mut info = match (base, a.dxcc) {
+        (Some(b), Some(d)) if b.dxcc != d => entity_info(cty, d, clean, lookup_call),
+        (Some(b), _) => b,
+        (None, Some(d)) => entity_info(cty, d, clean, lookup_call),
+        (None, None) => return None,
+    };
+    if let Some(z) = a.cq_zone {
+        info.cqz = z;
+    }
+    if let Some(z) = a.itu_zone {
+        info.ituz = z;
+    }
+    if let Some(c) = &a.continent {
+        info.continent.clone_from(c);
+    }
+    if let Some((lat, lon)) = a.coordinates {
+        info.latitude = lat;
+        info.longitude = lon;
+        info.location_precision = precision;
+    }
+    if a.subdivision_name.is_some() {
+        info.province.clone_from(&a.subdivision_name);
+    }
+    if a.subdivision_code.is_some() {
+        info.subdivision_code.clone_from(&a.subdivision_code);
+    }
+    Some(info)
+}
+
+/// Dane encji o podanym kodzie z plików krajów; bez nich — tylko kod, bez
+/// współrzędnych (dokładność `Unknown`).
+fn entity_info(
+    cty: Option<&crate::core::reference::cty::CtyData>,
+    dxcc: u32,
+    clean: &str,
+    lookup_call: &str,
+) -> PrefixInfo {
+    let entity = cty.and_then(|c| c.entity_for_dxcc(dxcc));
+    match entity {
+        Some(e) => PrefixInfo {
+            callsign: clean.to_string(),
+            country: e.name.clone(),
+            arrl_prefix: e.primary_prefix.clone(),
+            dxcc,
+            cqz: e.cq_zone,
+            ituz: e.itu_zone,
+            continent: e.continent.clone(),
+            latitude: e.latitude,
+            longitude: e.longitude,
+            wpx_prefix: extract_wpx_prefix(lookup_call),
+            province: None,
+            subdivision_code: None,
+            location_precision: LocationPrecision::EntityCentroid,
+        },
+        None => PrefixInfo {
+            callsign: clean.to_string(),
+            country: String::new(),
+            arrl_prefix: String::new(),
+            dxcc,
+            cqz: 0,
+            ituz: 0,
+            continent: String::new(),
+            latitude: 0.0,
+            longitude: 0.0,
+            wpx_prefix: extract_wpx_prefix(lookup_call),
+            province: None,
+            subdivision_code: None,
+            location_precision: LocationPrecision::Unknown,
+        },
+    }
+}
+
+/// Dotychczasowa ścieżka starszej bazy (UniqueCalls → Province → CountryDataEx).
+fn legacy_lookup(rules: &RuleSet, clean: &str, lookup_call: &str) -> Option<PrefixInfo> {
+    if let Some(info) = rules.unique_calls.get(clean) {
+        let mut res = info.clone();
+        res.callsign = clean.to_string();
+        return Some(res);
+    }
+    for rule in rules.province_rules.iter().chain(&rules.country_rules) {
+        if rule.regex.is_match(lookup_call) {
+            let mut res = rule.info.clone();
             res.callsign = clean.to_string();
+            res.wpx_prefix = extract_wpx_prefix(lookup_call);
             return Some(res);
         }
-
-        // Znormalizuj znak do rozpoznania prefiksu (np. SP6INA/P -> SP6INA, OE3/SP6INA -> OE3, DL/SP6INA/M -> DL)
-        let lookup_call = Self::normalize_call_for_prefix(clean);
-
-        // 2. Sprawdź Province (specyficzne regiony)
-        for rule in &rules.province_rules {
-            if rule.regex.is_match(lookup_call) {
-                let mut res = rule.info.clone();
-                res.callsign = clean.to_string();
-                res.wpx_prefix = extract_wpx_prefix(lookup_call);
-                return Some(res);
-            }
-        }
-
-        // 3. Sprawdź CountryDataEx
-        for rule in &rules.country_rules {
-            if rule.regex.is_match(lookup_call) {
-                let mut res = rule.info.clone();
-                res.callsign = clean.to_string();
-                res.wpx_prefix = extract_wpx_prefix(lookup_call);
-                return Some(res);
-            }
-        }
-
-        None
     }
+    None
+}
+
+/// Doprecyzowanie wyniku z plików krajów regułą regionalną starszej bazy tej
+/// samej encji (strefy, współrzędne, nazwa regionu) — warstwa zgodności.
+fn legacy_regional_refinement(
+    rules: &RuleSet,
+    info: &PrefixInfo,
+    lookup_call: &str,
+) -> Option<PrefixInfo> {
+    let rule = rules
+        .province_rules
+        .iter()
+        .find(|r| r.info.dxcc == info.dxcc && info.dxcc != 0 && r.regex.is_match(lookup_call))?;
+    let mut refined = info.clone();
+    refined.cqz = rule.info.cqz;
+    refined.ituz = rule.info.ituz;
+    refined.continent.clone_from(&rule.info.continent);
+    refined.latitude = rule.info.latitude;
+    refined.longitude = rule.info.longitude;
+    refined.province.clone_from(&rule.info.province);
+    refined.location_precision = LocationPrecision::LegacyRegionalRule;
+    Some(refined)
 }
 
 #[cfg(test)]
@@ -1069,6 +1508,189 @@ QB,Beta Isles,902,NA,3,6,20.00,100.00,8.0,QB;
         shared.replace_rules_from(v2);
         assert_eq!(shared.lookup("QA5XYZ").unwrap().dxcc, 0);
         assert_eq!(shared.lookup("QA5XYZ").unwrap().arrl_prefix, "QA");
+    }
+
+    fn rule_book(body: &str) -> crate::core::reference::rules::RuleBook {
+        let text = format!(
+            "#splogbook-rules,1\nrule_type,callsign_or_prefix,dxcc_entity_code,subdivision_code,subdivision_name,cq_zone,itu_zone,continent,latitude,longitude,priority\n{body}"
+        );
+        let parsed = crate::core::reference::rules::parse_rules(&text);
+        assert!(parsed.is_valid(), "{:?}", parsed.issues);
+        crate::core::reference::rules::RuleBook::from_rules(parsed.rules)
+    }
+
+    fn cty_matcher() -> PrefixMatcher {
+        let dir = tempfile::tempdir().unwrap();
+        write_country_files(dir.path(), SYNTH_DAT, Some(SYNTH_CSV));
+        PrefixMatcher::load_from_country_files(
+            &dir.path().join("cty.dat"),
+            Some(&dir.path().join("cty.csv")),
+        )
+        .unwrap()
+        .0
+    }
+
+    #[test]
+    fn country_file_results_report_entity_or_override_precision() {
+        let m = cty_matcher();
+        assert_eq!(
+            m.lookup("QA5XYZ").unwrap().location_precision,
+            LocationPrecision::EntityCentroid
+        );
+        let empty = PrefixMatcher::empty();
+        assert_eq!(empty.lookup("QA5XYZ"), None);
+    }
+
+    #[test]
+    fn regional_prefix_rule_refines_zones_coordinates_and_region() {
+        let m = cty_matcher().with_regional_rules(rule_book(
+            "prefix,QA7,901,QA-N,Alpha North,16,29,,55.5,22.5,0\n\
+             prefix,QA8,,,Alpha Zone Only,17,,,,,0\n",
+        ));
+        let r = m.lookup("QA7AB/P").unwrap();
+        assert_eq!(r.dxcc, 901);
+        assert_eq!(r.country, "Alpha Land");
+        assert_eq!((r.cqz, r.ituz), (16, 29));
+        assert_eq!(r.province.as_deref(), Some("Alpha North"));
+        assert_eq!(r.subdivision_code.as_deref(), Some("QA-N"));
+        assert_eq!((r.latitude, r.longitude), (55.5, 22.5));
+        assert_eq!(r.location_precision, LocationPrecision::UserRegionalRule);
+
+        // Reguła bez współrzędnych nie podnosi deklarowanej dokładności.
+        let z = m.lookup("QA8AB").unwrap();
+        assert_eq!(z.cqz, 17);
+        assert_eq!(z.province.as_deref(), Some("Alpha Zone Only"));
+        assert_eq!(z.location_precision, LocationPrecision::EntityCentroid);
+        assert_eq!((z.latitude, z.longitude), (50.0, 20.0));
+    }
+
+    #[test]
+    fn regional_rule_cannot_change_entity_resolved_by_country_files() {
+        let m = cty_matcher().with_regional_rules(rule_book("prefix,QA7,902,,,16,,,,,0\n"));
+        let res = m.lookup_detailed("QA7AB");
+        let info = res.info.unwrap();
+        assert_eq!(info.dxcc, 901);
+        assert_eq!(info.cqz, 14);
+        assert_eq!(
+            res.conflicts,
+            vec![LayerConflict::EntityMismatch {
+                layer: RuleLayer::UserRegional,
+                line: 3,
+                rule_dxcc: 902,
+                resolved_dxcc: 901,
+            }]
+        );
+    }
+
+    #[test]
+    fn country_file_exact_call_ranks_above_regional_exact_rule() {
+        let m = cty_matcher().with_regional_rules(rule_book(
+            "exact,QA1EXACT,,,,20,,,,,0\nexact,QA5XYZ,902,,,21,,,,,0\n",
+        ));
+        // Znak dokładny z pliku krajów wygrywa z dokładną regułą regionalną.
+        assert_eq!(m.lookup("QA1EXACT").unwrap().cqz, 14);
+        // Dokładna reguła regionalna wygrywa z prefiksem i może zmienić encję.
+        let r = m.lookup("QA5XYZ").unwrap();
+        assert_eq!(r.dxcc, 902);
+        assert_eq!(r.country, "Beta Isles");
+        assert_eq!(r.cqz, 21);
+        assert_eq!(r.location_precision, LocationPrecision::EntityCentroid);
+    }
+
+    #[test]
+    fn user_override_ranks_above_every_other_layer() {
+        let m = cty_matcher()
+            .with_regional_rules(rule_book("prefix,QA,,,,16,,,,,0\n"))
+            .with_overrides(rule_book(
+                "exact,QA1EXACT,902,,,7,,,1.5,2.5,0\nprefix,QA9,,,Override Region,,,,,,0\n",
+            ));
+        let r = m.lookup("QA1EXACT/P").unwrap();
+        assert_eq!(r.dxcc, 902);
+        assert_eq!(r.country, "Beta Isles");
+        assert_eq!(r.cqz, 7);
+        assert_eq!((r.latitude, r.longitude), (1.5, 2.5));
+        assert_eq!(r.location_precision, LocationPrecision::UserOverride);
+        let p = m.lookup("QA9ZZ").unwrap();
+        assert_eq!(p.province.as_deref(), Some("Override Region"));
+        assert_eq!(p.cqz, 16); // strefa z reguły regionalnej pozostaje
+        assert_eq!(m.layers().override_rules, 2);
+        assert_eq!(m.layers().regional_rules, 1);
+    }
+
+    #[test]
+    fn override_can_resolve_a_call_no_source_knows() {
+        let m = cty_matcher().with_overrides(rule_book("prefix,QZ,902,,,,,,,,0\n"));
+        let r = m.lookup("QZ1AB").unwrap();
+        assert_eq!(r.country, "Beta Isles");
+        assert_eq!(r.location_precision, LocationPrecision::EntityCentroid);
+        // Bez plików krajów encja jest znana tylko z kodu — bez współrzędnych.
+        let bare = PrefixMatcher::empty().with_overrides(rule_book("prefix,QZ,902,,,,,,,,0\n"));
+        let b = bare.lookup("QZ1AB").unwrap();
+        assert_eq!(b.dxcc, 902);
+        assert_eq!(b.location_precision, LocationPrecision::Unknown);
+    }
+
+    #[test]
+    fn ambiguous_patterns_are_reported_and_not_applied() {
+        let m = cty_matcher().with_regional_rules(rule_book(
+            "pattern,QA[0-9].*,,,,30,,,,,1\npattern,QA5.*,,,,31,,,,,1\n",
+        ));
+        let res = m.lookup_detailed("QA5AB");
+        assert_eq!(res.info.unwrap().cqz, 14);
+        assert_eq!(
+            res.conflicts,
+            vec![LayerConflict::AmbiguousPatterns {
+                layer: RuleLayer::UserRegional,
+                lines: vec![3, 4],
+            }]
+        );
+    }
+
+    #[test]
+    fn legacy_regional_rules_refine_country_file_results_during_transition() {
+        let uri = synthetic_legacy_db(
+            r"INSERT INTO Province VALUES
+                ('Alpha Land, North', 'QA', '901', 'EU', 15, 28, '51.0N', '21.0E', 'QA6.*', 'Alpha North', ''),
+                ('Other', 'QB', '902', 'NA', 4, 7, '21.0N', '99.0W', 'QA4.*', 'Wrong Entity', '');
+              INSERT INTO CountryDataEx VALUES
+                ('Legacy Only', 'QL', 903, 'AF', 33, 37, '1.0N', '1.0E', 'QL.*', '');",
+        );
+        let legacy = PrefixMatcher::load_from_db(&uri).unwrap();
+        let m = cty_matcher().with_legacy_compatibility(legacy);
+        let r = m.lookup("QA6AB").unwrap();
+        assert_eq!(r.country, "Alpha Land");
+        assert_eq!((r.cqz, r.ituz), (15, 28));
+        assert_eq!(r.province.as_deref(), Some("Alpha North"));
+        assert_eq!(r.location_precision, LocationPrecision::LegacyRegionalRule);
+        // Reguła starszej bazy innej encji nie zmienia wyniku plików krajów.
+        let w = m.lookup("QA4AB").unwrap();
+        assert_eq!((w.dxcc, w.province), (901, None));
+        // Prefiks nieznany plikom krajów: warstwa zgodności.
+        let l = m.lookup("QL1AB").unwrap();
+        assert_eq!(l.country, "Legacy Only");
+        assert_eq!(l.location_precision, LocationPrecision::LegacyEntity);
+        assert!(m.layers().country_files);
+        assert_eq!(m.layers().legacy_rules, 3);
+    }
+
+    #[test]
+    fn legacy_only_matcher_keeps_its_previous_results() {
+        let uri = synthetic_legacy_db(
+            r"INSERT INTO Province VALUES
+                ('Alpha Land', 'QA', '901', 'EU', 15, 28, '51.0N', '21.0E', 'QA6.*', 'Alpha North', '');
+              INSERT INTO CountryDataEx VALUES
+                ('Alpha Land', 'QA', 901, 'EU', 14, 27, '50.0N', '20.0E', 'QA.*', '');",
+        );
+        let m = PrefixMatcher::load_from_db(&uri).unwrap();
+        let r = m.lookup("QA6AB").unwrap();
+        assert_eq!((r.cqz, r.province.as_deref()), (15, Some("Alpha North")));
+        assert_eq!(r.location_precision, LocationPrecision::LegacyRegionalRule);
+        let e = m.lookup("QA1AB").unwrap();
+        assert_eq!((e.cqz, e.province), (14, None));
+        assert_eq!(e.location_precision, LocationPrecision::LegacyEntity);
+        // Reguły użytkownika działają także bez plików krajów.
+        let m = m.with_regional_rules(rule_book("prefix,QA1,,,Alpha One,18,,,,,0\n"));
+        assert_eq!(m.lookup("QA1AB").unwrap().cqz, 18);
     }
 
     #[test]

@@ -90,6 +90,9 @@ pub struct CtyMatch {
     /// The alias that matched (prefix or complete callsign, without `=`).
     pub matched: String,
     pub exact: bool,
+    /// `true` when the alias carried a `<lat/lon>` override, i.e. the
+    /// coordinates are more specific than the entity centre.
+    pub coordinates_overridden: bool,
 }
 
 /// Kind of a non-fatal problem found while reading a country file.
@@ -595,7 +598,16 @@ impl CtyData {
             utc_offset: o.utc_offset.unwrap_or(e.utc_offset),
             matched: matched.to_string(),
             exact,
+            coordinates_overridden: o.coordinates.is_some(),
         }
+    }
+
+    /// First entity carrying ADIF entity code `dxcc`, preferring entities
+    /// that are not WAE-only.
+    pub fn entity_for_dxcc(&self, dxcc: u32) -> Option<&CtyEntity> {
+        let mut with_code = self.entities.iter().filter(|e| e.dxcc == Some(dxcc));
+        let first = with_code.clone().find(|e| !e.wae_only);
+        first.or_else(|| with_code.next())
     }
 
     /// Joins ADIF entity codes from `cty.csv` rows onto the entities, keyed by
