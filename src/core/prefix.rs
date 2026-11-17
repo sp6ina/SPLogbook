@@ -6,7 +6,7 @@ use rusqlite::{Connection, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Mutex, RwLock};
 
 /// Informacje o kraju, strefach i prefiksie dla danego znaku wywoławczego
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -29,14 +29,68 @@ struct CompiledRule {
     pub info: PrefixInfo,
 }
 
-/// Silnik dopasowywania znaków do danych DXCC i stref
-pub struct PrefixMatcher {
+/// Źródło reguł aktualnie załadowanych do [`PrefixMatcher`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PrefixSource {
+    /// Brak danych referencyjnych (stan początkowy).
+    #[default]
+    None,
+    /// Starsza baza referencyjna SQLite.
+    LegacyDatabase,
+    /// Pliki krajów `cty.dat` (+ opcjonalnie `cty.csv` z kodami encji ADIF).
+    CountryFiles { entity_codes: bool },
+}
+
+/// Podsumowanie wczytania plików krajów.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CountryFileReport {
+    pub entities: usize,
+    pub prefixes: usize,
+    pub exact_calls: usize,
+    pub issues: Vec<crate::core::reference::cty::CtyIssue>,
+    pub csv_issues: Vec<crate::core::reference::cty::CtyIssue>,
+    pub entity_codes: Option<crate::core::reference::cty::EntityCodeReport>,
+}
+
+#[derive(Default)]
+struct RuleSet {
     unique_calls: HashMap<String, PrefixInfo>,
     province_rules: Vec<CompiledRule>,
     country_rules: Vec<CompiledRule>,
+    cty: Option<crate::core::reference::cty::CtyData>,
+    source: PrefixSource,
+}
+
+/// Silnik dopasowywania znaków do danych DXCC i stref
+pub struct PrefixMatcher {
+    /// Reguły za blokadą RW — umożliwia przeładowanie danych bez restartu
+    /// (współdzielony `Arc<PrefixMatcher>` w GUI i API pozostaje ten sam).
+    rules: RwLock<RuleSet>,
     /// Cache wyników `lookup()` — eliminuje wielokrotne skanowanie setek regexów
     /// przy renderowaniu spotów klastra i mapy świata w każdej klatce.
     cache: Mutex<HashMap<String, Option<PrefixInfo>>>,
+}
+
+fn cty_match_to_info(
+    clean: &str,
+    lookup_call: &str,
+    m: crate::core::reference::cty::CtyMatch,
+) -> PrefixInfo {
+    PrefixInfo {
+        callsign: clean.to_string(),
+        country: m.entity_name,
+        arrl_prefix: m.primary_prefix,
+        dxcc: m.dxcc.unwrap_or(0),
+        cqz: m.cq_zone,
+        ituz: m.itu_zone,
+        continent: m.continent,
+        latitude: m.latitude,
+        longitude: m.longitude,
+        // Jak w ścieżce starszej bazy: dla znaku dokładnego WPX liczony z pełnego
+        // znaku, dla prefiksu — ze znaku po normalizacji.
+        wpx_prefix: extract_wpx_prefix(if m.exact { clean } else { lookup_call }),
+        province: None,
+    }
 }
 
 fn parse_coord(s: &str) -> f64 {
@@ -273,22 +327,103 @@ impl PrefixMatcher {
             }
         }
 
-        Ok(Self {
+        Ok(Self::with_rules(RuleSet {
             unique_calls,
             province_rules,
             country_rules,
+            cty: None,
+            source: PrefixSource::LegacyDatabase,
+        }))
+    }
+
+    fn with_rules(rules: RuleSet) -> Self {
+        Self {
+            rules: RwLock::new(rules),
             cache: Mutex::new(HashMap::new()),
-        })
+        }
     }
 
     /// Tworzy pusty silnik dopasowywania prefiksów (np. gdy brak bazy danych)
     pub fn empty() -> Self {
-        Self {
-            unique_calls: HashMap::new(),
-            province_rules: Vec::new(),
-            country_rules: Vec::new(),
-            cache: Mutex::new(HashMap::new()),
+        Self::with_rules(RuleSet::default())
+    }
+
+    /// Ładuje reguły z plików krajów: `cty.dat` (prefiksy, znaki dokładne,
+    /// strefy, kontynent, współrzędne) oraz opcjonalnie `cty.csv` (kody encji
+    /// ADIF DXCC). Bez `cty.csv` pole `dxcc` ma wartość 0 (nieznane).
+    pub fn load_from_country_files(
+        dat_path: &Path,
+        csv_path: Option<&Path>,
+    ) -> std::result::Result<(Self, CountryFileReport), crate::core::reference::cty::CtyError> {
+        use crate::core::reference::cty;
+        let mut data = cty::CtyData::load(dat_path)?;
+        let mut report = CountryFileReport::default();
+        if let Some(csv) = csv_path {
+            let (rows, csv_issues) = cty::load_cty_csv(csv)?;
+            report.entity_codes = Some(data.apply_entity_codes(&rows));
+            report.csv_issues = csv_issues;
         }
+        report.entities = data.entities().len();
+        report.prefixes = data.prefix_count();
+        report.exact_calls = data.exact_count();
+        report.issues.clone_from(&data.issues);
+        let entity_codes = report.entity_codes.is_some();
+        Ok((
+            Self::with_rules(RuleSet {
+                cty: Some(data),
+                source: PrefixSource::CountryFiles { entity_codes },
+                ..RuleSet::default()
+            }),
+            report,
+        ))
+    }
+
+    /// Zastępuje reguły regułami z `other` i czyści cache. Pozwala przeładować
+    /// dane referencyjne we współdzielonym `Arc<PrefixMatcher>` bez restartu.
+    pub fn replace_rules_from(&self, other: Self) {
+        let new_rules = other
+            .rules
+            .into_inner()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *self
+            .rules
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = new_rules;
+        self.clear_cache();
+    }
+
+    /// Aktualne źródło reguł.
+    pub fn source(&self) -> PrefixSource {
+        self.rules
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .source
+    }
+
+    /// `true`, gdy załadowano jakiekolwiek dane referencyjne.
+    pub fn has_data(&self) -> bool {
+        self.source() != PrefixSource::None
+    }
+
+    /// Znaki dokładne (wyjątki pełnych znaków) z aktualnego źródła, posortowane.
+    pub fn exception_calls(&self) -> Vec<PrefixInfo> {
+        let rules = self
+            .rules
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut out: Vec<PrefixInfo> = if let Some(cty) = &rules.cty {
+            cty.exact_calls()
+                .into_iter()
+                .map(|m| {
+                    let call = m.matched.clone();
+                    cty_match_to_info(&call, &call, m)
+                })
+                .collect()
+        } else {
+            rules.unique_calls.values().cloned().collect()
+        };
+        out.sort_by(|a, b| a.callsign.cmp(&b.callsign));
+        out
     }
 
     /// Normalizuje znak wywoławczy dla potrzeb dopasowania prefiksu (obsługa /P, /M, prefiksów gościnnych itp.)
@@ -383,8 +518,21 @@ impl PrefixMatcher {
     }
 
     fn lookup_uncached(&self, clean: &str) -> Option<PrefixInfo> {
+        let rules = self
+            .rules
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        // 0. Pliki krajów (cty.dat): znak dokładny, potem najdłuższy prefiks.
+        if let Some(cty) = &rules.cty {
+            let lookup_call = Self::normalize_call_for_prefix(clean);
+            return cty
+                .resolve(clean, lookup_call)
+                .map(|m| cty_match_to_info(clean, lookup_call, m));
+        }
+
         // 1. Sprawdź UniqueCalls (dokładne dopasowanie)
-        if let Some(info) = self.unique_calls.get(clean) {
+        if let Some(info) = rules.unique_calls.get(clean) {
             let mut res = info.clone();
             res.callsign = clean.to_string();
             return Some(res);
@@ -394,7 +542,7 @@ impl PrefixMatcher {
         let lookup_call = Self::normalize_call_for_prefix(clean);
 
         // 2. Sprawdź Province (specyficzne regiony)
-        for rule in &self.province_rules {
+        for rule in &rules.province_rules {
             if rule.regex.is_match(lookup_call) {
                 let mut res = rule.info.clone();
                 res.callsign = clean.to_string();
@@ -404,7 +552,7 @@ impl PrefixMatcher {
         }
 
         // 3. Sprawdź CountryDataEx
-        for rule in &self.country_rules {
+        for rule in &rules.country_rules {
             if rule.regex.is_match(lookup_call) {
                 let mut res = rule.info.clone();
                 res.callsign = clean.to_string();
@@ -455,6 +603,128 @@ mod tests {
             PrefixMatcher::normalize_call_for_prefix("3D2/SP6INA/P"),
             "3D2"
         );
+    }
+
+    // Syntetyczne pliki krajów (blok prefiksów Q nie jest przydzielony żadnemu krajowi).
+    const SYNTH_DAT: &str = "\
+Alpha Land:               14:  27:  EU:   50.00:   -20.00:    -1.0:  QA:
+    QA,QA2(15)[28],=QA1EXACT{AS};
+Beta Isles:               3:   6:   NA:   20.00:   100.00:     8.0:  QB:
+    QB;
+";
+    const SYNTH_CSV: &str = "\
+QA,Alpha Land,901,EU,14,27,50.00,-20.00,-1.0,QA QA2(15)[28] =QA1EXACT{AS};
+QB,Beta Isles,902,NA,3,6,20.00,100.00,8.0,QB;
+";
+
+    fn write_country_files(dir: &Path, dat: &str, csv: Option<&str>) {
+        std::fs::write(dir.join("cty.dat"), dat).unwrap();
+        if let Some(csv) = csv {
+            std::fs::write(dir.join("cty.csv"), csv).unwrap();
+        }
+    }
+
+    #[test]
+    fn country_files_resolve_through_call_normalisation() {
+        let dir = tempfile::tempdir().unwrap();
+        write_country_files(dir.path(), SYNTH_DAT, Some(SYNTH_CSV));
+        let (m, report) = PrefixMatcher::load_from_country_files(
+            &dir.path().join("cty.dat"),
+            Some(&dir.path().join("cty.csv")),
+        )
+        .unwrap();
+        assert_eq!(report.entities, 2);
+        assert_eq!(report.exact_calls, 1);
+        assert_eq!(report.entity_codes.as_ref().unwrap().matched, 2);
+        assert_eq!(
+            m.source(),
+            PrefixSource::CountryFiles { entity_codes: true }
+        );
+
+        let info = m.lookup("qa5xyz/p").unwrap();
+        assert_eq!(info.callsign, "QA5XYZ/P");
+        assert_eq!(info.country, "Alpha Land");
+        assert_eq!(info.arrl_prefix, "QA");
+        assert_eq!(info.dxcc, 901);
+        assert_eq!((info.cqz, info.ituz), (14, 27));
+        assert_eq!(info.continent, "EU");
+        assert!((info.latitude - 50.0).abs() < 1e-9);
+        assert!((info.longitude - 20.0).abs() < 1e-9);
+        assert_eq!(info.wpx_prefix, "QA5");
+        assert_eq!(info.province, None);
+
+        // Prefiks gościnny: QB/QA5XYZ -> QB.
+        assert_eq!(m.lookup("QB/QA5XYZ").unwrap().country, "Beta Isles");
+        // Nadpisanie stref dla dłuższego prefiksu.
+        let z = m.lookup("QA2AA").unwrap();
+        assert_eq!((z.cqz, z.ituz), (15, 28));
+        // Znak dokładny z nadpisaniem kontynentu.
+        assert_eq!(m.lookup("QA1EXACT").unwrap().continent, "AS");
+        assert_eq!(m.lookup("X1ABC"), None);
+
+        let ex = m.exception_calls();
+        assert_eq!(ex.len(), 1);
+        assert_eq!(ex[0].callsign, "QA1EXACT");
+        assert_eq!(ex[0].dxcc, 901);
+    }
+
+    #[test]
+    fn country_files_without_csv_report_unknown_entity_code() {
+        let dir = tempfile::tempdir().unwrap();
+        write_country_files(dir.path(), SYNTH_DAT, None);
+        let (m, report) =
+            PrefixMatcher::load_from_country_files(&dir.path().join("cty.dat"), None).unwrap();
+        assert!(report.entity_codes.is_none());
+        assert_eq!(
+            m.source(),
+            PrefixSource::CountryFiles {
+                entity_codes: false
+            }
+        );
+        assert_eq!(m.lookup("QA5XYZ").unwrap().dxcc, 0);
+    }
+
+    #[test]
+    fn missing_country_files_are_errors_and_matcher_stays_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(PrefixMatcher::load_from_country_files(&dir.path().join("cty.dat"), None).is_err());
+        write_country_files(dir.path(), SYNTH_DAT, None);
+        assert!(
+            PrefixMatcher::load_from_country_files(
+                &dir.path().join("cty.dat"),
+                Some(&dir.path().join("cty.csv"))
+            )
+            .is_err()
+        );
+        let m = PrefixMatcher::empty();
+        assert!(!m.has_data());
+        assert_eq!(m.source(), PrefixSource::None);
+        assert_eq!(m.exception_calls(), Vec::<PrefixInfo>::new());
+    }
+
+    #[test]
+    fn replace_rules_reloads_shared_matcher_and_clears_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let shared = std::sync::Arc::new(PrefixMatcher::empty());
+        assert_eq!(shared.lookup("QA5XYZ"), None); // trafia do cache jako None
+
+        write_country_files(dir.path(), SYNTH_DAT, Some(SYNTH_CSV));
+        let (fresh, _) = PrefixMatcher::load_from_country_files(
+            &dir.path().join("cty.dat"),
+            Some(&dir.path().join("cty.csv")),
+        )
+        .unwrap();
+        shared.replace_rules_from(fresh);
+        assert!(shared.has_data());
+        assert_eq!(shared.lookup("QA5XYZ").unwrap().dxcc, 901);
+
+        // Kolejna wersja danych zastępuje poprzednią.
+        write_country_files(dir.path(), &SYNTH_DAT.replace("QA,QA2", "QA,QA5,QA2"), None);
+        let (v2, _) =
+            PrefixMatcher::load_from_country_files(&dir.path().join("cty.dat"), None).unwrap();
+        shared.replace_rules_from(v2);
+        assert_eq!(shared.lookup("QA5XYZ").unwrap().dxcc, 0);
+        assert_eq!(shared.lookup("QA5XYZ").unwrap().arrl_prefix, "QA");
     }
 
     #[test]

@@ -29,6 +29,7 @@ pub mod propagation;
 pub mod propagation_history;
 pub mod qsl_print;
 pub mod qso;
+pub mod reference;
 pub mod satellite;
 pub mod scp;
 pub mod service_db;
