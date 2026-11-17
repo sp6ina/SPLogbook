@@ -9704,3 +9704,651 @@ fn p1_f19_synthetic_data_only_guard() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// STAGE-P1-F20-SOFTWARE - LoTW/eQSL journal-scoped, lossless upload selection
+// ---------------------------------------------------------------------------
+
+fn p1_f20_read(path: &str) -> String {
+    fs::read_to_string(path).unwrap_or_else(|error| panic!("cannot read {path}: {error}"))
+}
+
+fn p1_f20_count(haystack: &str, needle: &str) -> usize {
+    haystack.matches(needle).count()
+}
+
+/// Checks whether the `window` bytes preceding `position` contain `needle`,
+/// without ever slicing inside a UTF-8 code point.
+fn p1_f20_preceded_by(source: &str, position: usize, needle: &str, window: usize) -> bool {
+    let mut start = position.saturating_sub(window);
+    while start > 0 && !source.is_char_boundary(start) {
+        start -= 1;
+    }
+    source[start..position].contains(needle)
+}
+
+#[test]
+fn p1_f20_upload_selection_is_journal_scoped_guard() {
+    let gui = p1_f20_read("src/gui/online_sync.rs");
+    let orchestration = p1_f20_read("src/gui/online_sync_upload.rs");
+    let selection = p1_f20_read("src/core/database/upload_selection.rs");
+
+    // F-20: no GUI upload path may select data itself, and no upload path may
+    // build the ADIF payload outside the central plan orchestrator.
+    for forbidden in [
+        "get_recent_qsos(",
+        "get_recent_qsos_for_journal(",
+        "export_adif(",
+    ] {
+        assert!(
+            !gui.contains(forbidden),
+            "F-20: src/gui/online_sync.rs must not contain `{forbidden}`"
+        );
+    }
+
+    // Every online service goes through the central plan upload.
+    assert_eq!(
+        p1_f20_count(&gui, "start_upload("),
+        7,
+        "F-20: all seven online services must start a plan upload"
+    );
+    for target in [
+        "UploadTarget::Lotw",
+        "UploadTarget::Eqsl",
+        "UploadTarget::ClubLog",
+        "UploadTarget::Qrz",
+        "UploadTarget::HamQth",
+        "UploadTarget::Cloudlog",
+        "UploadTarget::HrdLog",
+    ] {
+        assert!(
+            gui.contains(target),
+            "F-20: src/gui/online_sync.rs must dispatch {target}"
+        );
+    }
+
+    // The orchestrator must use the central model, never a bare selector.
+    for required in [
+        "UploadPlan",
+        "run_plan",
+        "JournalId::new",
+        "select_upload_candidates_for_journal",
+        "commit_batch_acceptance",
+    ] {
+        assert!(
+            orchestration.contains(required),
+            "F-20: src/gui/online_sync_upload.rs must use `{required}`"
+        );
+    }
+    assert!(
+        !orchestration.contains("get_recent_qsos"),
+        "F-20: the orchestrator must not use a recent-QSO selector"
+    );
+
+    // Every selection statement is journal scoped and none of them truncates.
+    assert!(
+        p1_f20_count(&selection, "journal_id = ?1") >= 3,
+        "F-20: every upload selection/update statement must be journal scoped"
+    );
+    let selection_code: String = selection
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        !selection_code.contains("LIMIT"),
+        "F-20: upload selection must never use LIMIT as the selection"
+    );
+    assert!(
+        !selection_code.contains("OFFSET"),
+        "F-20: upload selection must not depend on pagination"
+    );
+    assert!(
+        selection.contains("'Y', 'I'"),
+        "F-20: eligibility must exclude accepted (Y) and ignored (I) records"
+    );
+}
+
+#[test]
+fn p1_f20_no_global_or_truncated_upload_selector_guard() {
+    // The global selector may exist only as a definition and as a test helper;
+    // no upload path may call it.
+    let allowed = ["src/core/database/qso_store.rs", "src/core/backup.rs"];
+    let mut offenders = Vec::new();
+    let mut truncating_calls = Vec::new();
+    for path in p1_f17_tracked_sources("src") {
+        let source = p1_f20_read(&path);
+        if source.contains("get_recent_qsos(") && !allowed.contains(&path.as_str()) {
+            offenders.push(path.clone());
+        }
+        // A numeric literal limit on a journal-scoped "recent" selector in an
+        // upload path is the exact F-20 truncation shape.
+        for forbidden in [
+            "get_recent_qsos_for_journal(&journal_id, 1000)",
+            "get_recent_qsos_for_journal(&self.active_journal.id, 1000)",
+            ".take(1000)",
+        ] {
+            if source.contains(forbidden) {
+                truncating_calls.push(format!("{path}: {forbidden}"));
+            }
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "F-20: the global upload selector must not be called: {offenders:?}"
+    );
+    assert!(
+        truncating_calls.is_empty(),
+        "F-20: silent truncation shapes must not exist: {truncating_calls:?}"
+    );
+}
+
+#[test]
+fn p1_f20_lossless_batching_invariants_guard() {
+    use splogbook::cloud::upload_plan::{
+        JournalId, LOTW_BATCH_SIZE, PlanError, PlanRecord, SelectionPolicy, UploadPlan,
+        UploadTarget,
+    };
+
+    let records: Vec<PlanRecord> = (1..=1505i64)
+        .map(|id| PlanRecord::new(id, "20260101", format!("{id:06}")))
+        .collect();
+    let plan = UploadPlan::build(
+        UploadTarget::Lotw,
+        JournalId::new("GUARD_JOURNAL").expect("journal"),
+        SelectionPolicy::PendingOnly,
+        "attempt",
+        0,
+        records,
+        LOTW_BATCH_SIZE,
+    )
+    .expect("plan");
+
+    let batches = plan.batches();
+    assert_eq!(plan.total_records(), 1505);
+    assert_eq!(batches.len(), 1505usize.div_ceil(LOTW_BATCH_SIZE));
+    let mut seen = HashSet::new();
+    let mut flat = Vec::new();
+    for batch in &batches {
+        assert!(!batch.record_ids().is_empty());
+        for id in batch.record_ids() {
+            assert!(seen.insert(*id), "F-20: duplicate record across batches");
+            flat.push(*id);
+        }
+    }
+    assert_eq!(seen.len(), 1505, "F-20: batches must cover the whole plan");
+    assert_eq!(flat, plan.record_ids(), "F-20: order must be preserved");
+    assert_eq!(
+        batches.iter().map(|batch| batch.count()).sum::<usize>(),
+        1505,
+        "F-20: sum of batches must equal the plan size"
+    );
+
+    // Zero is a controlled error, never "no batches".
+    assert_eq!(
+        UploadPlan::build(
+            UploadTarget::Eqsl,
+            JournalId::new("GUARD_JOURNAL").expect("journal"),
+            SelectionPolicy::PendingOnly,
+            "attempt",
+            0,
+            vec![PlanRecord::new(1, "20260101", "000000")],
+            0,
+        ),
+        Err(PlanError::ZeroBatchSize)
+    );
+
+    // A batch size larger than the set still yields exactly one complete batch.
+    let single = UploadPlan::build(
+        UploadTarget::Eqsl,
+        JournalId::new("GUARD_JOURNAL").expect("journal"),
+        SelectionPolicy::PendingOnly,
+        "attempt",
+        0,
+        vec![
+            PlanRecord::new(1, "20260101", "000000"),
+            PlanRecord::new(2, "20260101", "000001"),
+        ],
+        usize::MAX,
+    )
+    .expect("plan");
+    assert_eq!(single.batches().len(), 1);
+    assert_eq!(single.batches()[0].count(), 2);
+}
+
+#[test]
+fn p1_f20_partial_timeout_cancellation_are_not_success_guard() {
+    use splogbook::cloud::upload_plan::{
+        BatchOutcome, JournalId, PlanRecord, RunStatus, SelectionPolicy, UploadPlan, UploadTarget,
+        run_plan,
+    };
+
+    let plan = UploadPlan::build(
+        UploadTarget::Lotw,
+        JournalId::new("GUARD_JOURNAL").expect("journal"),
+        SelectionPolicy::PendingOnly,
+        "attempt",
+        0,
+        (1..=6i64)
+            .map(|id| PlanRecord::new(id, "20260101", format!("{id:06}")))
+            .collect(),
+        2,
+    )
+    .expect("plan");
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+
+    for outcome in [
+        BatchOutcome::PartiallyAccepted {
+            rejected: 1,
+            detail: "guard".to_string(),
+        },
+        BatchOutcome::NoRecordsProcessed {
+            detail: "guard".to_string(),
+        },
+        BatchOutcome::Rejected {
+            detail: "guard".to_string(),
+        },
+        BatchOutcome::Unknown {
+            detail: "guard".to_string(),
+        },
+        BatchOutcome::TimedOut {
+            detail: "guard".to_string(),
+        },
+        BatchOutcome::Failed {
+            detail: "guard".to_string(),
+        },
+        BatchOutcome::Cancelled,
+    ] {
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        let planned = outcome.clone();
+        let report = runtime.block_on(run_plan(&plan, &cancel, move |_batch| {
+            let planned = planned.clone();
+            async move { planned }
+        }));
+        assert!(
+            !report.status.is_success(),
+            "F-20: `{outcome:?}` must never produce a success status"
+        );
+        assert_ne!(report.status, RunStatus::Complete);
+        assert_eq!(report.accepted_records, 0);
+        assert!(report.accounting_consistent());
+    }
+
+    // Full acceptance is the only path to Complete.
+    let cancel = std::sync::atomic::AtomicBool::new(false);
+    let report = runtime.block_on(run_plan(&plan, &cancel, |_batch| async {
+        BatchOutcome::Accepted
+    }));
+    assert_eq!(report.status, RunStatus::Complete);
+    assert_eq!(report.accepted_records, 6);
+}
+
+#[test]
+fn p1_f20_status_update_is_journal_scoped_guard() {
+    use splogbook::cloud::upload_plan::JournalId;
+    use splogbook::cloud::upload_plan::UploadTarget;
+    use splogbook::core::database::Journal;
+    use splogbook::core::database::LogDatabase;
+    use splogbook::core::qso::QsoRecord;
+
+    let selection = p1_f20_read("src/core/database/upload_selection.rs");
+    assert!(
+        selection.contains("WHERE journal_id = ?1 AND id IN"),
+        "F-20: the acceptance commit must be journal scoped"
+    );
+    assert!(
+        selection.contains("RowCountMismatch"),
+        "F-20: a partial status write must be detected and rolled back"
+    );
+
+    let db = LogDatabase::open_in_memory().expect("db");
+    for (id, is_default) in [("GUARD_A", true), ("GUARD_B", false)] {
+        db.create_journal(&Journal {
+            id: id.to_string(),
+            name: id.to_string(),
+            station_callsign: "TSTSTN".to_string(),
+            operator: "TSTOP".to_string(),
+            my_gridsquare: "JO90AA".to_string(),
+            my_pga: String::new(),
+            description: String::new(),
+            is_default,
+        })
+        .expect("journal");
+    }
+
+    let mut qsos = Vec::new();
+    for journal in ["GUARD_A", "GUARD_B"] {
+        for index in 0..3 {
+            let mut qso = QsoRecord::new(format!("TST{index:03}"), "20m", "CW");
+            qso.journal_id = Some(journal.to_string());
+            qso.qso_date = "20260101".to_string();
+            qso.time_on = format!("12000{index}");
+            qsos.push(qso);
+        }
+    }
+    db.batch_insert_qsos(&qsos).expect("insert");
+
+    let a = JournalId::new("GUARD_A").expect("journal");
+    let b = JournalId::new("GUARD_B").expect("journal");
+    let a_ids: Vec<i64> = db
+        .select_upload_candidates_for_journal(&a, UploadTarget::Lotw)
+        .expect("candidates A")
+        .into_iter()
+        .map(|record| record.id)
+        .collect();
+    assert_eq!(a_ids.len(), 3);
+
+    db.commit_batch_acceptance(&a, UploadTarget::Lotw, &a_ids)
+        .expect("commit A");
+    assert!(
+        db.select_upload_candidates_for_journal(&a, UploadTarget::Lotw)
+            .expect("remaining A")
+            .is_empty()
+    );
+    assert_eq!(
+        db.select_upload_candidates_for_journal(&b, UploadTarget::Lotw)
+            .expect("remaining B")
+            .len(),
+        3,
+        "F-20: status update must never touch another journal"
+    );
+    assert_eq!(
+        db.select_upload_candidates_for_journal(&a, UploadTarget::Eqsl)
+            .expect("remaining eQSL A")
+            .len(),
+        3,
+        "F-20: LoTW status must never change the eQSL status"
+    );
+
+    // Foreign identifiers under journal A must affect nothing.
+    let b_ids: Vec<i64> = db
+        .select_upload_candidates_for_journal(&b, UploadTarget::Lotw)
+        .expect("candidates B")
+        .into_iter()
+        .map(|record| record.id)
+        .collect();
+    assert!(
+        db.commit_batch_acceptance(&a, UploadTarget::Lotw, &b_ids)
+            .is_err()
+    );
+    assert_eq!(
+        db.select_upload_candidates_for_journal(&b, UploadTarget::Lotw)
+            .expect("remaining B after foreign commit")
+            .len(),
+        3
+    );
+}
+
+#[test]
+fn p1_f20_credentials_never_in_upload_url_or_logs_guard() {
+    let eqsl = p1_f20_read("src/cloud/eqsl.rs");
+
+    // The upload is a documented FORM POST carrying the payload and the
+    // credentials in the body - never in the URL.
+    assert!(
+        eqsl.contains(".form(&["),
+        "F-20: the eQSL upload must use a form body"
+    );
+    for field in ["EQSL_USER", "EQSL_PSWD", "ADIFData"] {
+        assert!(
+            eqsl.contains(field),
+            "F-20: the eQSL form must carry the documented field {field}"
+        );
+    }
+    assert!(
+        eqsl.contains("https://www.eqsl.cc/qslcard/ImportADIF.cfm"),
+        "F-20: the eQSL upload must target the documented processor"
+    );
+    // The documentation page may only be mentioned as documentation, never as
+    // the upload endpoint constant.
+    let endpoint_line = eqsl
+        .lines()
+        .find(|line| line.contains("EQSL_IMPORT_ENDPOINT: &str"))
+        .expect("endpoint constant");
+    assert!(
+        !endpoint_line.contains("ImportADIF.txt"),
+        "F-20: the eQSL documentation page must never be used as an endpoint"
+    );
+    assert!(
+        !endpoint_line.contains(".txt"),
+        "F-20: the eQSL endpoint must be the processor, not a text page"
+    );
+    assert!(
+        eqsl.contains("redact_secret"),
+        "F-20: eQSL response text must be redacted before it leaves the client"
+    );
+    assert!(
+        eqsl.contains("body: redact_secret(&body, &self.password)"),
+        "F-20: the eQSL body must be redacted at the source"
+    );
+
+    // No automatic retry around an upload whose outcome may be ambiguous.
+    assert!(
+        !eqsl.contains("retry_async"),
+        "F-20: the eQSL upload must not retry automatically"
+    );
+
+    // The endpoint constant must not carry query parameters or credentials.
+    let endpoint_line = eqsl
+        .lines()
+        .find(|line| line.contains("EQSL_IMPORT_ENDPOINT: &str"))
+        .expect("endpoint constant");
+    assert!(
+        !endpoint_line.contains('?'),
+        "F-20: the upload endpoint must not carry a query string"
+    );
+
+    let lotw = p1_f20_read("src/cloud/lotw.rs");
+    assert!(
+        !lotw.contains("\"-p\""),
+        "F-20: the TQSL certificate password must never be passed on the command line"
+    );
+    assert!(
+        p1_f20_count(&lotw, ".arg(\"-u\")") >= 1,
+        "F-20: TQSL must be invoked with the documented upload switch"
+    );
+}
+
+#[test]
+fn p1_f20_test_transport_is_test_scope_only_guard() {
+    let eqsl = p1_f20_read("src/cloud/eqsl.rs");
+
+    let marker = "pub fn with_test_endpoint";
+    let position = eqsl
+        .find(marker)
+        .expect("the test endpoint override must exist in test scope");
+    assert!(
+        p1_f20_preceded_by(&eqsl, position, "#[cfg(test)]", 400),
+        "F-20: the endpoint override must be #[cfg(test)] only"
+    );
+
+    let field = eqsl
+        .find("endpoint: Option<String>")
+        .expect("the override field must exist");
+    assert!(
+        p1_f20_preceded_by(&eqsl, field, "#[cfg(test)]", 300),
+        "F-20: the test endpoint field must not exist in production builds"
+    );
+
+    // No environment/feature/config path may select the test transport.
+    for forbidden in [
+        "SPLOG_TEST",
+        "TEST_UPLOAD",
+        "EQSL_TEST_ENDPOINT",
+        "cfg(not(test))",
+        "env::var(\"EQSL",
+    ] {
+        assert!(
+            !eqsl.contains(forbidden),
+            "F-20: no `{forbidden}` hook may exist"
+        );
+    }
+
+    // The loopback server lives only in the eQSL unit tests and nowhere else.
+    for path in p1_f17_tracked_sources("src") {
+        let source = p1_f20_read(&path);
+        if source.contains("LoopbackServer") && path != "src/cloud/eqsl.rs" {
+            panic!("F-20: test transport leaked into {path}");
+        }
+    }
+}
+
+#[test]
+fn p1_f20_no_real_endpoints_in_tests_guard() {
+    let mut offenders = Vec::new();
+    for entry in walkdir::WalkDir::new("tests")
+        .into_iter()
+        .filter_map(Result::ok)
+    {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+            continue;
+        }
+        let raw_path = path.to_string_lossy().replace('\\', "/");
+        // The guard itself necessarily names the endpoints it forbids.
+        if raw_path == "tests/security_guard.rs" {
+            continue;
+        }
+        let source = p1_f20_read(&raw_path);
+        for forbidden in ["www.eqsl.cc", "lotw.arrl.org", "eqsl.cc/qslcard/ImportADIF"] {
+            if source.contains(forbidden) {
+                offenders.push(format!("{}: {forbidden}", path.display()));
+            }
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "F-20: tests must never reference a real service endpoint: {offenders:?}"
+    );
+}
+
+#[test]
+fn p1_f20_synthetic_data_only_guard() {
+    let suite = p1_f20_read("tests/p1_f20_upload_selection.rs");
+    let body: String = suite
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    for forbidden in [
+        "SP6INA",
+        "DL1ABC",
+        "K1ABC",
+        "http://",
+        "https://",
+        "TEST_SECRET",
+    ] {
+        assert!(
+            !body.contains(forbidden),
+            "F-20: the suite must not contain `{forbidden}`"
+        );
+    }
+    assert!(
+        body.contains("TST"),
+        "F-20: the suite must use synthetic fixture callsigns"
+    );
+
+    let orchestration = p1_f20_read("src/gui/online_sync_upload.rs");
+    let orchestration_code: String = orchestration
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    for forbidden in ["SP6INA", "password=", "Authorization"] {
+        assert!(
+            !orchestration_code.contains(forbidden),
+            "F-20: the orchestrator must not contain `{forbidden}`"
+        );
+    }
+}
+
+#[test]
+fn p1_f20_documentation_records_the_closed_remediation_guard() {
+    let known = p1_f20_read("docs/KNOWN_ISSUES.md");
+    let baseline = p1_f20_read("docs/VERIFICATION_BASELINE.md");
+    let roadmap = p1_f20_read("docs/ROADMAP.md");
+
+    for required in [
+        "F-20 = CLOSED",
+        "COMPLETED_JOURNAL_SCOPED_UPLOAD_SELECTION_REMEDIATION_VERIFIED",
+        "LoTW selection = JOURNAL_SCOPED",
+        "eQSL selection = JOURNAL_SCOPED",
+        "Silent truncation = REMOVED",
+        "Batching = LOSSLESS_SOFTWARE_VERIFIED",
+        "Partial success = MODELED",
+        "Real LoTW upload = NOT_EXECUTED",
+        "Real eQSL upload = NOT_EXECUTED",
+        "Real credentials = NOT_USED",
+    ] {
+        assert!(
+            known.contains(required),
+            "F-20: docs/KNOWN_ISSUES.md must record `{required}`"
+        );
+    }
+
+    for (label, source) in [("VERIFICATION_BASELINE", &baseline), ("ROADMAP", &roadmap)] {
+        for required in ["F-20", "JOURNAL_SCOPED", "LOSSLESS", "NOT_EXECUTED"] {
+            assert!(
+                source.contains(required),
+                "F-20: docs/{label}.md must record `{required}`"
+            );
+        }
+    }
+}
+
+#[test]
+fn p1_f20_prior_gates_remain_closed_guard() {
+    let known = p1_f20_read("docs/KNOWN_ISSUES.md");
+    for closed in [
+        "F-14 software remediation = CLOSED",
+        "CAT-018 = CLOSED",
+        "CAT-019 = CLOSED",
+        "F-15 software remediation = CLOSED",
+        "F-16 = CLOSED",
+        "F-17 software remediation = CLOSED",
+        "F-19 = CLOSED",
+    ] {
+        assert!(
+            known.contains(closed),
+            "F-20: a previously closed gate was reopened: `{closed}`"
+        );
+    }
+    assert!(
+        !known.contains("F-21 = CLOSED"),
+        "F-20: F-21 must remain OPEN"
+    );
+    assert!(
+        known.contains("F-21 (P1)"),
+        "F-20: F-21 must remain recorded as open"
+    );
+
+    let roadmap = p1_f20_read("docs/ROADMAP.md");
+    assert!(
+        roadmap.contains("NOT_STARTED"),
+        "F-20: NATIVE-7B must remain NOT_STARTED"
+    );
+}
+
+#[test]
+fn p1_f20_hil_tests_remain_ignored_guard() {
+    let native = p1_f20_read("tests/cat_native_7.rs");
+    // Count actual attributes, not prose that mentions the attribute text.
+    let ignored = native
+        .lines()
+        .filter(|line| {
+            line.trim_start()
+                .starts_with("#[ignore = \"hardware-in-the-loop\"]")
+        })
+        .count();
+    assert_eq!(
+        ignored, 10,
+        "F-20: exactly 10 hardware-in-the-loop tests must remain ignored"
+    );
+}
