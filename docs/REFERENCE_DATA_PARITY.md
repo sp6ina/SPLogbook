@@ -1,115 +1,238 @@
 # SPLogbook — Reference data inventory and functional parity
 
-Status: **R1A inventory (no file removed)**. Measured on 2026-11-17 against `c326572`.
+Status: **R1B — replacement sources implemented, bundled files still present.**
+Measured on 2026-11-17. Earlier inventory (R1A) against `c326572`.
 
-This document maps every feature that reads bundled reference data to its current source and to
-the planned replacement. A bundled data file may only be removed once every feature it serves
-reaches `FUNCTIONAL_PARITY_VERIFIED`. A feature without a replacement stays
-`BLOCKED_MISSING_REPLACEMENT` and its source file stays in the tree.
+A bundled data file may only be removed once every feature it serves is
+`FUNCTIONAL_PARITY_VERIFIED`. A feature without a complete replacement stays
+`BLOCKED_MISSING_REPLACEMENT` and its source stays in the tree. Allowed statuses:
+`FUNCTIONAL_PARITY_VERIFIED`, `BLOCKED_MISSING_REPLACEMENT`, `OWNER_DECISION_REQUIRED`,
+`NOT_APPLICABLE`.
 
-## 1. Bundled data files
+## 1. Bundled data files (unchanged in R1B)
 
-| File | Size | Content | Read by |
-|---|---|---|---|
-| `databases/serviceLOG.db` | 3.4 MB | 9 tables, see §2 | `core::prefix`, `core::service_db`, `core::callbook`, `main.rs`, `gui::app` |
-| `databases/callbook.db` | 4.4 MB | `Callbook` (51 955 rows: call, name, QTH, grid, state, manager, note), `inform` (1 row) | `core::callbook::LocalCallbook` |
-| `databases/clubs.csv` | 0.9 KB | 17 club memberships with member numbers | `core::clubs::ClubRegistry` |
-
-All three files contain records about identifiable third parties (callsigns combined with names,
-locations, member numbers or QSL routes).
+| File | Content | Read by |
+|---|---|---|
+| `databases/serviceLOG.db` | 11 tables, see §2 | `core::prefix` (legacy layer), `core::service_db`, `core::callbook` |
+| `databases/callbook.db` | `Callbook` (51 955 rows), `inform` | `core::callbook::LocalCallbook` |
+| `databases/clubs.csv` | 17 club memberships | `core::clubs::ClubRegistry` (transitional source) |
 
 ## 2. `serviceLOG.db` table map
 
-| Table | Rows | Columns read by code | Code path | Feature |
-|---|---|---|---|---|
-| `UniqueCalls` | 4 310 | Callsign, Country, ARRLPrefix, DXCC, Continent, CQZone, ITUZone, Latitude, Longitude, Enable | `PrefixMatcher::load_from_db`, `ServiceDatabase::find_unique_call`, `search_unique_calls` | exact-callsign DXCC/zone exceptions; prefix browser window |
-| `CountryDataEx` | 453 | Country, ARRLPrefix, DXCC, Continent, CQZone, ITUZone, Latitude, Longitude, PrefixList (regex), EndDate | `PrefixMatcher::load_from_db` | DXCC entity, zones, continent, coordinates by prefix |
-| `Province` | 623 | same as above + Comment (province name), EndDate | `PrefixMatcher::load_from_db` | zone / coordinate overrides for sub-national prefixes; `PrefixInfo::province` is never displayed |
-| `managers` | 29 102 | Call, Manager, Years, Notes | `ServiceDatabase::find_manager`, `search_managers`, `LocalCallbook::lookup` | QSL manager lookup and browser |
-| `IOTA` | 1 190 | IOTA, Name, Prefix1 | `ServiceDatabase::search_iota`, `find_iota` | IOTA browser and validation (code fallback: 30-entry sample list) |
-| `STATE` | 3 545 | State, Name, Country | `ServiceDatabase::search_states` | states / administrative subdivisions browser (code always adds the 50 US states) |
-| `Modes` | 47 | — | none | not read; modes come from static code |
-| `Bands` | 26 | — | none | not read; bands come from `core::bandplan` / `core::propagation` |
-| `PropMode` | 18 | — | none | not read |
-| `contest` | 227 | — | none | not read; contests come from static code |
-| `Satellite` | 80 | — | none | not read; satellites come from static code |
+| Table | Rows | Used by | Replacement |
+|---|---|---|---|
+| `UniqueCalls` | 4 310 | exact-call exceptions, prefix browser | `=CALL` entries of the country files; user overrides |
+| `CountryDataEx` | 453 | entity, zones, continent, coordinates by prefix | country files (`cty.dat` + `cty.csv`) |
+| `Province` | 623 | sub-national zones, coordinates, region name | user regional rules (§5.2); no public source identified |
+| `managers` | 29 102 | QSL manager lookup and browser | user table `qsl-managers` |
+| `IOTA` | 1 190 | IOTA browser and validation | user table `iota` (+ built-in 30-entry sample) |
+| `STATE` | 3 545 | states / subdivisions browser | user table `states` (+ built-in US list) |
+| `Modes`, `Bands`, `PropMode`, `contest`, `Satellite` | — | not read by code | `NOT_APPLICABLE` |
 
-## 3. Data written into code
+## 3. External sources
 
-| Location | Content | Classification |
+### 3.1 Contest country files (`cty.dat`, `cty.csv`)
+
+| Item | Finding |
+|---|---|
+| Data owner | Country Files project (`www.country-files.com`) |
+| Format documentation | `cty.dat`: <https://www.country-files.com/cty-dat-format/>. `cty.csv`: no published description; it ships inside the release archives and carries the same entities in the same order with the ADIF DXCC entity code as third column |
+| Terms | <https://www.country-files.com/copyright/> and `copyright.txt` inside every archive: MIT-style permission to use, copy, modify, merge, publish, distribute, sublicense; the notice must be kept in copies |
+| Redistribution | permitted by those terms; **not used**: SPLogbook ships no country files (decision D1) |
+| Download | user-triggered only. Default: `https://www.country-files.com/bigcty/download/bigcty.zip` ("Big CTY", complete zone overrides for everyday logging). This URL is not linked from the site pages; on 2026-11-17 it was byte-identical (SHA-256) to the dated release `bigcty-20261114.zip` linked from the Big CTY page |
+| Update cadence | several releases per month; release marker `VERyyyymmdd` inside `cty.dat` |
+| Limits | one entity per callsign; the first occurrence wins; coordinates are entity centres unless an alias carries `<lat/lon>` |
+
+### 3.2 ADIF specification (entity names, decision E3)
+
+The current specification is ADIF 3.1.8 (updated 2026-10-12, <https://adif.org/318/ADIF_318.htm>).
+The document contains no licence or redistribution statement. Canonical ADIF entity names are
+therefore **not** embedded; see §7.
+
+## 4. File formats introduced in R1B
+
+All formats are UTF-8 CSV (RFC 4180 quoting), start with a format marker line, allow `#`
+comments, identify columns by header name and are validated **as a whole**: one invalid row
+rejects the file and the installed data stays in use. Exact duplicates are kept once with a
+warning; same key with different content is a conflict.
+
+| Data | Marker | Columns (required in bold) | Code |
+|---|---|---|---|
+| regional rules, user overrides | `#splogbook-rules,1` | **`rule_type`** (`exact`, `prefix`, `pattern`), **`callsign_or_prefix`**, `dxcc_entity_code`, `subdivision_code`, `subdivision_name`, `cq_zone`, `itu_zone`, `continent`, `latitude`, `longitude`, `priority`, `source`, `source_version`, `source_date`, `notes` | `core::reference::rules` |
+| IOTA | `#splogbook-iota,1` | **`reference`**, **`name`**, `prefix` | `core::reference::tables` |
+| states / subdivisions | `#splogbook-states,1` | **`code`**, **`name`**, **`country`** | `core::reference::tables` |
+| QSL managers | `#splogbook-qsl-managers,1` | **`callsign`**, **`manager`**, `years`, `notes` | `core::reference::tables` |
+| local callbook | `#splogbook-callbook,1` | **`callsign`**, `name`, `qth`, `grid`, `state`, `manager`, `notes` | `core::reference::tables` |
+| clubs | header `callsign,club_code,club_name,member_number,badge_r,badge_g,badge_b` (unchanged format) | all seven | `core::clubs` |
+
+Rules: a rule must set at least one attribute; zones 1–40 / 1–90; coordinates in degrees,
++North/+East, both or neither; priority −1000…1000; `source_date` is `YYYY-MM-DD`. Within one
+rule book `exact` (full call, then the call without operational suffixes), then the longest
+`prefix`, then `pattern`; equal-priority matching patterns are a reported conflict and none is
+applied.
+
+## 5. Storage, installation and resolution
+
+### 5.1 Storage
+
+Everything lives under `<data dir>/reference/` (next to `databases/`, so a portable
+installation keeps it beside the executable). Each source is an independent set
+(`country-files`, `regional-rules`, `user-overrides`, `iota`, `states`, `qsl-managers`,
+`callbook`, `clubs`) with a hashed `manifest.json`. Installation stages and verifies the files,
+lets the caller validate them, then swaps `current → .prev` and `staging → current`; an
+interrupted swap is completed or rolled back on the next access. Updating country files never
+touches user rules or tables.
+
+### 5.2 Prefix resolution layers (decisions E2, E4)
+
+1. explicit user override;
+2. exact call from the country files (also without `/P`, `/M`, `/QRP`…);
+3. exact user regional rule;
+4. longest country-file prefix, refined by a user regional rule of the same entity, or during
+   the transition by a legacy `Province` rule of the same entity;
+5. legacy database as compatibility layer when the country files give nothing;
+6. a bare user rule with an entity code;
+7. no result.
+
+A regional rule naming a different entity than the country files is reported
+(`LayerConflict::EntityMismatch`) and not applied.
+
+### 5.3 Source precision
+
+Every `PrefixInfo` carries `location_precision`: `ExactQsoLocation` (set only by the QSO layer),
+`UserOverride`, `UserRegionalRule`, `LegacyRegionalRule`, `CountryFileOverride`,
+`EntityCentroid`, `LegacyEntity`, `Unknown`. A rule that sets no coordinates never raises the
+declared precision.
+
+### 5.4 User flows
+
+References menu: status of every source (not installed / version and date / cannot be loaded);
+download current Big CTY after confirming the source; import country files from a ZIP or from
+`cty.dat` + `cty.csv`; restore previous country files; import and export regional rules, user
+overrides, IOTA, states, QSL managers and the local callbook; club membership editor (filter,
+add, edit, delete, save, import, export, reload). Every success reloads the shared data without a
+restart; every failure keeps the installed data and shows a translated message. Browsers show a
+neutral hint when no data is installed. Nothing is downloaded automatically.
+
+### 5.5 Archive safety (decision E5)
+
+`zip` 9.6.1 (MIT, MSRV 1.88), default features off, only `deflate-flate2`. The archive is read in
+memory: archive ≤ 16 MiB, ≤ 256 entries, each wanted entry ≤ 16 MiB with the declared size never
+trusted (read stops one byte past the limit); absolute, drive, `..` and control-character names
+reject the whole archive; duplicated wanted entries, encryption and methods other than Stored and
+Deflate are rejected. The pair is installed only if every `cty.dat` entity has an entity code in
+`cty.csv`. The download is bounded in memory independently of `Content-Length`.
+
+## 6. Differential comparison (Level C)
+
+Inputs: 64 524 calls — every legacy exact call, every country-file exact call, generated calls for
+every prefix of both sources, and `/P`, `/MM`, guest-prefix and `/9` variants. Country files:
+Big CTY of 2026-11-14 (346 entities, 6 331 prefixes, 23 155 exact calls, all entity codes
+matched). The comparison runs locally against the bundled database; no record of it is stored in
+the repository.
+
+### 6.1 Legacy defect corrected first (E1)
+
+203 of 941 active legacy prefix rules (49 entity rules, among them United States, England, Italy,
+Japan, Spain, France, European Russia, Australia, Argentina and Brazil, and 154 regional rules)
+used the end anchor `\Z`, which the regex crate rejects, and were silently dropped. After the
+fix all 347 entity rules and 594 regional rules compile; the fix alone changes 21 927 of the
+64 524 results (`LEGACY_DEFECT_CORRECTED`). One unreadable `UniqueCalls` row is now reported.
+
+### 6.2 Fixed legacy versus country files
+
+| Class | Inputs | Status |
 |---|---|---|
-| `src/core/clubs.rs` `default_registry()` | 7 real memberships with member numbers | personal data; to be emptied |
-| `src/core/clubs.rs` tests | real callsigns asserted against the bundled CSV | to be replaced by synthetic CSV in a tempdir |
-| `src/main.rs` SCP seed | 12 callsigns, several real private stations | to be removed; SCP is fed from the log and from `MASTER.SCP` |
-| `src/core/callbook.rs` `test_local_callbook_lookup` | real station name and QTH asserted against `callbook.db` | to be replaced by a synthetic fixture |
-| `src/core/service_db.rs` `fallback_iota` | 30 IOTA group names | public reference facts; kept |
-| `src/core/service_db.rs` `US_STATES` | 50 US states | normative public data; kept |
-| `tests/hil/ic7300_lab_bench.json` | real operator, callsign, serial number, port | to be renamed to `.example.json` with synthetic values |
+| identical | 12 027 | — |
+| resolved only by the country files (prefix) | 2 262 | `EXPECTED_SOURCE_IMPROVEMENT` |
+| resolved only by a country-file exact entry | 3 951 | `EXPECTED_SOURCE_IMPROVEMENT` |
+| different result from a country-file exact entry | 21 593 | `EXPECTED_SOURCE_IMPROVEMENT` |
+| entity centre differs, same zones | 16 353 | `SOURCE_DATA_DIFFERENCE` (most legacy coordinates are regional) |
+| entity-level zone/continent differs | 6 222 | `SOURCE_DATA_DIFFERENCE` / `REGIONAL_DATA_NOT_AVAILABLE` |
+| legacy-only exact data differs | 1 683 | `CUSTOM_OVERRIDE_REQUIRED` |
+| different entity for a prefix (37 groups) | 252 | `SOURCE_DATA_DIFFERENCE` → `OWNER_DECISION_REQUIRED` |
+| legacy-only result (43 groups) | 181 | `OWNER_DECISION_REQUIRED` |
 
-## 4. Existing acquisition mechanisms
+Entity groups (C3), legacy → country files: South Shetland Is. → Antarctica (LU1–LU8 Z),
+Argentina regional → Antarctica (AY1–AY8 Z), Antarctica → United States (KC4), S. Cook Is. → New
+Zealand (ZK1), Antarctica → Chile (CA9–CD9, XQ9, 3G9), Bouvet → Antarctica (3Y/), Taiwan →
+Pratas Island (BU9/BW9), Antarctica → South Shetland Islands (CE9, XR9), USA → Guantanamo Bay
+(KG4), New Zealand → Antarctica (ZM5), Swains Is. → American Samoa (KH8), Alaska → Republic of
+Korea (KL9), France → Wallis & Futuna (TW), Heard Is. → Antarctica (VK0), Russian regions →
+European Russia / Kaliningrad / Franz Josef Land, Macquarie Is. → Antarctica, Lord Howe Is. →
+Norfolk Island, ITU HQ → Italy, Antarctic stations → their national entity, Sardinia → Italy,
+East/West Malaysia, Southern Sudan → Sudan (ST0), Sudan → Egypt (SS0), New Caledonia → France
+(TX8), Christmas Is. → Norfolk Island, NZ Sub-Antarctic Is. → New Zealand, Conway Reef / Rotuma
+→ Fiji, Austria → Italy (4U).
 
-* `DatabaseUpdater::update_all_with_report` (menu action only) downloads `cty.dat`,
-  `MASTER.SCP` and `lotw-user-activity.csv`. `cty.dat` is downloaded but **not parsed** anywhere.
-* `trigger_database_update` writes into `./databases` when that directory exists in the current
-  working directory; started from a source checkout this writes into the repository (R1D item).
-* No import action exists for the local callbook, QSL managers, IOTA, states or clubs: the only
-  way to supply them is to place the file at a fixed relative path.
+Legacy-only groups (C4): former colonial prefixes mapped to England (VQ1, VQ6, VQ8, VS2, VS4,
+VS5, ZD4, ZE1) — `INVALID_LEGACY_RULE`; VS9, ZC5, ZC6, JZ0, VO0, VO9 — `OBSOLETE_PREFIX`; deleted
+entities (St. Maarten, Desroches) — `HISTORICAL_ENTITY`; unofficial prefixes (1B, 1S, 1C,
+regional political entities) and legacy-only exact calls — `USER_OVERRIDE_CANDIDATE`; England
+`2O…`, Scarborough Reef `BS7…`, St. Kitts `VP2`, Minami Torishima `JD/M` — `OWNER_DECISION_REQUIRED`.
 
-## 5. Functional parity matrix
+### 6.3 User tables
 
-Columns: FUNCTION · CURRENT_IMPLEMENTATION · CURRENT_DATA_SOURCE · REPLACEMENT_IMPLEMENTATION ·
-REPLACEMENT_DATA_SOURCE · FLOW_BEFORE · FLOW_AFTER · TEST_BEFORE · TEST_AFTER · OFFLINE · ONLINE ·
-PARITY_STATUS · RESIDUAL_RISK.
+`core::service_db` and `core::callbook` differential tests serve the same synthetic rows from
+the legacy SQLite layout and from imported user tables and require identical results for every
+query (case, `%` and `_`, ordering, 100-row limit, base-call fallback, manager merge).
 
-| Function | Current impl. | Current source | Replacement impl. | Replacement source | Flow before | Flow after | Test before | Test after | Offline | Online | Parity | Residual risk |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Local callbook | `LocalCallbook::lookup` | `callbook.db` | same API, user data dir path + import action | user-supplied SQLite/CSV | data out of the box | empty until import; neutral notice | `test_local_callbook_lookup` (real record, silently passes without file) | synthetic fixture in tempdir | yes after import | n/a | BLOCKED_MISSING_REPLACEMENT | flow change requires owner acceptance (D4) |
-| QRZ | `CallbookSource::Qrz` | network | unchanged | network | unchanged | unchanged | existing unit tests | unchanged | no | yes | not affected | none |
-| HamQTH | `CallbookSource::HamQth` | network | unchanged | network | unchanged | unchanged | existing | unchanged | no | yes | not affected | none |
-| Callbook cache | `cache_lookup/cache_store` | user cache DB | unchanged | user cache DB | unchanged | unchanged | `test_callbook_cache_roundtrip` | unchanged | yes | n/a | not affected | test fixture uses owner data (R1C) |
-| DXCC entity number | `PrefixMatcher` | `CountryDataEx.DXCC`, `UniqueCalls.DXCC` | cty parser + entity-code table | `cty.dat` has **no DXCC numbers** | out of the box | after user download | `app_tests` synthetic schema | synthetic cty in tempdir | yes after download | download | BLOCKED_MISSING_REPLACEMENT | needs D1 |
-| CQ zone | `PrefixMatcher` | `CountryDataEx`, `Province`, `UniqueCalls` | cty parser incl. `(n)` overrides | `cty.dat` | out of the box | after user download | synthetic | synthetic | yes | download | planned R1B | rule-order differences vs regex rules |
-| ITU zone | `PrefixMatcher` | same | cty parser incl. `[n]` overrides | `cty.dat` | same | same | synthetic | synthetic | yes | download | planned R1B | same |
-| Continent | `PrefixMatcher` | same | cty parser incl. `{XX}` overrides | `cty.dat` | same | same | synthetic | synthetic | yes | download | planned R1B | none known |
-| Prefixes | `PrefixMatcher` regex rules | `CountryDataEx.PrefixList` | longest-prefix match | `cty.dat` | same | same | synthetic | synthetic | yes | download | planned R1B | regex semantics differ from longest match; parity tests required |
-| Full-call exceptions | `UniqueCalls` | serviceLOG | `=CALL` entries | `cty.dat` | same | same | synthetic | synthetic | yes | download | planned R1B | cty exception set differs in content from `UniqueCalls` |
-| Coordinates | `PrefixMatcher` lat/lon | serviceLOG | cty lat/lon (longitude sign inverted), `<lat/lon>` overrides | `cty.dat` | same | same | none | synthetic | yes | download | planned R1B | sign convention must be tested |
-| Prefix browser | `PrefixManagerWindow` | `UniqueCalls` | search over loaded `=CALL` exceptions | `cty.dat` | data out of the box | after download | none | synthetic | yes | download | planned R1B | column content changes (no ARRL "QSL" column used) |
-| IOTA | `ServiceDatabase::search_iota/find_iota` | `IOTA` table + code sample | same API over neutral user DB | user import | 1 190 groups | 30-entry sample until import | none | synthetic | yes | n/a | BLOCKED_MISSING_REPLACEMENT | no licence-clear redistributable source identified (D3) |
-| States / admin. units | `ServiceDatabase::search_states` | `STATE` + code US list | same API over neutral user DB + US list | user import | 3 545 rows | 50 US states until import | none | synthetic | yes | n/a | BLOCKED_MISSING_REPLACEMENT | D3 |
-| QSL managers | `find_manager`, `search_managers`, callbook fallback | `managers` | same API over neutral user DB | user import; QRZ/HamQTH manager field | 29 102 rows | empty until import | none | synthetic | yes | QRZ/HamQTH | BLOCKED_MISSING_REPLACEMENT | D3 |
-| Clubs | `ClubRegistry` | `clubs.csv` + hard-coded registry | same API; empty default; CSV from user data dir | user CSV | 7–17 memberships | empty until user CSV | unit tests (part real) | synthetic tempdir CSV | yes | n/a | planned R1B | none; format unchanged |
-| Modes | static code | — | unchanged | — | unchanged | unchanged | existing | unchanged | yes | n/a | not affected | `Modes` table unused |
-| Bands | `core::bandplan` | — | unchanged | — | unchanged | unchanged | existing | unchanged | yes | n/a | not affected | `Bands` table unused |
-| Contests | static code | — | unchanged | — | unchanged | unchanged | existing | unchanged | yes | n/a | not affected | `contest` table unused |
-| Satellites | static code | — | unchanged | — | unchanged | unchanged | existing | unchanged | yes | n/a | not affected | `Satellite` table unused |
-| SCP | `ScpEngine` | hard-coded seed + log + `MASTER.SCP` | log + `MASTER.SCP` | user download | seed visible at start | log-derived until download | `scp.rs` tests | synthetic calls | yes | download | planned R1C | none |
-| Data import | none for reference data | fixed file paths | import actions per category | user files | copy file manually | menu action | none | synthetic | yes | n/a | planned R1B | GUI surface added, none removed |
-| Data export | ADIF/Cabrillo/CSV | log DB | unchanged | log DB | unchanged | unchanged | existing | unchanged | yes | n/a | not affected | none |
-| User-triggered download | `DatabaseUpdater` | network | unchanged + parse after download | network | unchanged | unchanged | existing | + reload test | n/a | yes | planned R1B | must write to user data dir, not CWD |
-| Data update | same menu action | network | same | network | unchanged | unchanged | existing | + reload test | n/a | yes | planned R1B | none |
-| Offline operation | all lookups local | bundled files | all lookups local | installed user data | full | full after data install | none | first-run test | yes | n/a | planned R1D | first run has no reference data |
-| Clean first run | `main.rs` path search | CWD / exe dir / app data | user data layer | user data dir | may read repo `databases/` | user data dir only | none | isolated-process test | yes | n/a | planned R1D | — |
-| Portable mode | implicit (`exe_dir/databases`) | exe dir | explicit marker | exe dir | implicit | explicit | updater tests | + first-run test | yes | n/a | planned R1D | migration for existing implicit portable installs |
-| Installers | Inno/MSI/workflow copy the 3 files | repo files | no reference files shipped | — | seeded | empty, import later | installer tests | updated tests | yes | n/a | planned R1C | existing installs keep their files (never uninstalled) |
-| Updater | classifies the 3 files as first-install seeds | — | classification kept for existing installs | — | preserve | preserve | updater tests | unchanged | yes | n/a | not affected | none |
-| API | `/lookup` uses `PrefixMatcher`, `ClubRegistry` | serviceLOG, clubs | same | cty, user CSV | data | data after install | server tests | unchanged | yes | n/a | follows rows above | none |
-| GUI | IOTA, states, QSL manager, prefix browsers | serviceLOG | same windows, same options | user data | populated | empty state + import hint | none | snapshot of options | yes | n/a | follows rows above | no option removed |
-| Tests | some tests read bundled files | repo files | synthetic tempdir fixtures | synthetic | — | — | — | — | — | — | planned R1C | none |
+## 7. Functional parity matrix
 
-## 6. Owner decisions required before R1B
+Columns: FUNCTION · OLD_SOURCE · NEW_SOURCE · FLOW_BEFORE · FLOW_AFTER · OFFLINE_BEFORE ·
+OFFLINE_AFTER · TEST_BEFORE · TEST_AFTER · DIFFERENCES · PARITY_STATUS · RESIDUAL_RISK.
 
-* **D1 — DXCC entity numbers.** `cty.dat` carries no ADIF DXCC entity code. Options: (a) add the
-  same provider's `cty.csv` (contains entity codes) as a second user-triggered download and
-  parser; (b) ship the ADIF DXCC entity enumeration as static normative data, subject to licence
-  confirmation; (c) user-imported mapping. Recommended: (a).
-* **D2 — Prefix rule semantics.** Current matching is regex-based (`PrefixList`); `cty.dat` uses
-  longest-prefix matching with exact-call entries. Parity is defined as identical results on a
-  synthetic corpus, not on the removed private data.
-* **D3 — IOTA, states and QSL managers.** No redistributable, licence-clear source has been
-  identified. Proposed parity definition: identical API, windows, search, filter and sort over a
-  neutral user database filled by an explicit import; the bundled content is not replaced.
-* **D4 — Local callbook.** Same parity definition as D3 (import of a user-supplied file).
-* **D5 — Clubs.** Empty default registry; CSV read from the user data directory, same format.
-* **D6 — Unused tables.** `Modes`, `Bands`, `PropMode`, `contest`, `Satellite`, `inform` need
-  no replacement because no code reads them.
+| Function | Old source | New source | Flow before | Flow after | Offline before | Offline after | Test before | Test after | Differences | Status | Residual risk |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Local callbook | `callbook.db` | user table `callbook` | data out of the box | import, then same lookups | yes | yes after import | real-record test | unit, integration, differential | none on identical data | FUNCTIONAL_PARITY_VERIFIED | user must supply data |
+| QRZ | network | unchanged | unchanged | unchanged | no | no | existing | existing | none | NOT_APPLICABLE | — |
+| HamQTH | network | unchanged | unchanged | unchanged | no | no | existing | existing | none | NOT_APPLICABLE | — |
+| Callbook cache | user cache | unchanged | unchanged | unchanged | yes | yes | existing | existing | none | NOT_APPLICABLE | — |
+| DXCC entity | `CountryDataEx`, `UniqueCalls` | country files | out of the box | download or import | yes | yes after install | synthetic | unit, corpus, differential | §6.2 C3/C4 | OWNER_DECISION_REQUIRED | 37 entity groups, 43 legacy-only groups |
+| ADIF entity code | same | `cty.csv` | same | same | yes | yes | synthetic | unit, consistency check | none at entity level | OWNER_DECISION_REQUIRED | depends on C3 acceptance |
+| CQ zone | legacy incl. `Province` | country files + regional rules | same | same | yes | yes | synthetic | unit, differential | regional zones missing | BLOCKED_MISSING_REPLACEMENT | no regional data source |
+| ITU zone | same | same | same | same | yes | yes | synthetic | unit, differential | same | BLOCKED_MISSING_REPLACEMENT | same |
+| Continent | same | same | same | same | yes | yes | synthetic | unit, differential | few regional | BLOCKED_MISSING_REPLACEMENT | same |
+| Prefixes | regex rules | longest prefix + rules | same | same | yes | yes | synthetic | corpus, differential | §6.2 | OWNER_DECISION_REQUIRED | as DXCC |
+| Exact calls | `UniqueCalls` | `=CALL` + overrides | same | same | yes | yes | synthetic | unit, differential | 1 683 legacy-only | BLOCKED_MISSING_REPLACEMENT | user overrides needed |
+| Coordinates | legacy regional | entity centre / regional rules | regional | entity unless rule | yes | yes | none | unit, precision tests | 16 353 inputs coarser | BLOCKED_MISSING_REPLACEMENT | precision is reported, not hidden |
+| Province / state / oblast level | `Province` | user regional rules | out of the box | import only | yes | yes after import | none | unit, layer tests | no data source | BLOCKED_MISSING_REPLACEMENT | owner must supply or approve a source |
+| Prefix browser | `UniqueCalls` | country-file exceptions | out of the box | after install | yes | yes | none | integration | content per §6.2 | OWNER_DECISION_REQUIRED | follows C2 |
+| IOTA | `IOTA` | user table `iota` | 1 190 groups | import | yes | yes after import | none | unit, integration, differential | none on identical data | FUNCTIONAL_PARITY_VERIFIED | user must supply data |
+| States / subdivisions | `STATE` | user table `states` | 3 545 rows | import (+ US list) | yes | yes after import | none | unit, integration, differential | none on identical data | FUNCTIONAL_PARITY_VERIFIED | same |
+| QSL managers | `managers` | user table `qsl-managers` | 29 102 rows | import | yes | yes after import | none | unit, integration, differential | none on identical data | FUNCTIONAL_PARITY_VERIFIED | same |
+| Clubs | `clubs.csv` + built-in | user clubs file | file or built-in | import or editor | yes | yes | partly real | unit, store tests | none | FUNCTIONAL_PARITY_VERIFIED | built-in seed removed in R1C |
+| SCP | seed + log + `MASTER.SCP` | unchanged | unchanged | unchanged | yes | yes | existing | existing | seed removal in R1C | NOT_APPLICABLE | — |
+| Modes, bands, contests, satellites | static code | unchanged | unchanged | unchanged | yes | yes | existing | existing | none | NOT_APPLICABLE | — |
+| Import | fixed file paths | per-source import actions | copy files | menu actions | — | — | none | unit, integration | added, nothing removed | FUNCTIONAL_PARITY_VERIFIED | — |
+| Update | `cty.dat` written to CWD, unused | Big CTY install + reload | unused download | validated install | — | — | existing | unit, archive tests | old action kept | FUNCTIONAL_PARITY_VERIFIED | old action still writes to CWD (R1D) |
+| Offline operation | bundled files | installed user data | full | full after install | yes | yes | none | loader tests | first run has no data | BLOCKED_MISSING_REPLACEMENT | follows rows above |
+| Clean first run | — | — | — | — | — | — | — | — | — | NOT_APPLICABLE (R1D) | — |
+| Portable | implicit | reference root beside data | — | unchanged | yes | yes | updater tests | root test | none | NOT_APPLICABLE (R1D) | — |
+| Installers | ship the three files | unchanged in R1B | seeded | seeded | — | — | installer tests | unchanged | none yet | NOT_APPLICABLE (R1C) | — |
+| Updater | first-install seeds | unchanged | preserve | preserve | — | — | existing | existing | none | NOT_APPLICABLE | — |
+| API | `PrefixMatcher`, `ClubRegistry` | same, layered | — | — | — | — | server tests | unchanged | follows prefix rows | OWNER_DECISION_REQUIRED | follows prefix rows |
+| GUI | browsers | same windows + import actions + hints | — | — | — | — | — | integration | options added, none removed | FUNCTIONAL_PARITY_VERIFIED | — |
+
+Regional detail: entity-level fallback — implemented, precision `EntityCentroid`;
+province-level data — `BLOCKED_MISSING_REPLACEMENT`; state-level data — `BLOCKED_MISSING_REPLACEMENT`;
+exact-call overrides — mechanism implemented, legacy-only data `CUSTOM_OVERRIDE_REQUIRED`;
+source precision — reported on every result; coordinate precision — never raised without
+coordinates.
+
+## 8. Open decisions
+
+* **C3 / C4 acceptance** — confirm the country files as the deciding source for the 37 entity
+  groups, and the proposed handling of the 43 legacy-only groups.
+* **Regional data source** — the province, state and oblast rules (`Province`) have no identified
+  public source with clear terms. Options: the owner supplies a regional rules file under the
+  documented format; an approved external source is evaluated; `serviceLOG.db` stays as the
+  compatibility layer.
+* **Legacy-only exact calls** — 1 683 inputs depend on callsign data that exists only in the
+  bundled database; they can be preserved only as user overrides supplied by the owner.
+* **ADIF entity names (E3)** — the ADIF specification carries no redistribution statement, so
+  canonical names are not embedded. Stored COUNTRY values are never rewritten; new QSOs get the
+  country-file name and the entity code.
+
+R1C may start only when no feature that depends on a bundled file is
+`BLOCKED_MISSING_REPLACEMENT`.
