@@ -8,3 +8,4 @@
 //! an empty, valid state and never a panic.
 
 pub mod cty;
+pub mod install;
