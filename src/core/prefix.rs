@@ -93,6 +93,13 @@ fn cty_match_to_info(
     }
 }
 
+fn is_operational_suffix(s: &str) -> bool {
+    matches!(
+        s,
+        "P" | "M" | "MM" | "AM" | "QRP" | "LGT" | "LH" | "B" | "R" | "A" | "J"
+    )
+}
+
 fn parse_coord(s: &str) -> f64 {
     let s = s.trim();
     if s.is_empty() {
@@ -426,6 +433,21 @@ impl PrefixMatcher {
         out
     }
 
+    /// Usuwa wyłącznie końcowe sufiksy operacyjne (/P, /M, /QRP…), które nie
+    /// zmieniają lokalizacji stacji. Prefiksy gościnne i zmiany okręgu (/9)
+    /// pozostają bez zmian.
+    pub fn strip_operational_suffixes(clean: &str) -> &str {
+        let mut end = clean.len();
+        while let Some(pos) = clean[..end].rfind('/') {
+            if is_operational_suffix(&clean[pos + 1..end]) {
+                end = pos;
+            } else {
+                break;
+            }
+        }
+        &clean[..end]
+    }
+
     /// Normalizuje znak wywoławczy dla potrzeb dopasowania prefiksu (obsługa /P, /M, prefiksów gościnnych itp.)
     pub fn normalize_call_for_prefix(clean: &str) -> &str {
         let is_operational_suffix = |s: &str| -> bool {
@@ -523,11 +545,15 @@ impl PrefixMatcher {
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        // 0. Pliki krajów (cty.dat): znak dokładny, potem najdłuższy prefiks.
+        // 0. Pliki krajów (cty.dat): znak dokładny (pełny, potem bez sufiksów
+        // operacyjnych typu /P), następnie najdłuższy prefiks.
         if let Some(cty) = &rules.cty {
             let lookup_call = Self::normalize_call_for_prefix(clean);
+            let base = Self::strip_operational_suffixes(clean);
             return cty
-                .resolve(clean, lookup_call)
+                .resolve_exact(clean)
+                .or_else(|| (base != clean).then(|| cty.resolve_exact(base)).flatten())
+                .or_else(|| cty.resolve_prefix(lookup_call))
                 .map(|m| cty_match_to_info(clean, lookup_call, m));
         }
 
@@ -578,6 +604,31 @@ mod tests {
         assert_eq!(extract_wpx_prefix("SP6INA/1"), "SP1");
         assert_eq!(extract_wpx_prefix("SP6INA/W6"), "W6");
         assert_eq!(extract_wpx_prefix("DL/SP6INA/P"), "DL0");
+    }
+
+    #[test]
+    fn strip_operational_suffixes_keeps_location_parts() {
+        assert_eq!(
+            PrefixMatcher::strip_operational_suffixes("QA1AB/P"),
+            "QA1AB"
+        );
+        assert_eq!(
+            PrefixMatcher::strip_operational_suffixes("QA1AB/QRP/M"),
+            "QA1AB"
+        );
+        assert_eq!(
+            PrefixMatcher::strip_operational_suffixes("QA1AB/9"),
+            "QA1AB/9"
+        );
+        assert_eq!(
+            PrefixMatcher::strip_operational_suffixes("QB/QA1AB"),
+            "QB/QA1AB"
+        );
+        assert_eq!(
+            PrefixMatcher::strip_operational_suffixes("QB/QA1AB/P"),
+            "QB/QA1AB"
+        );
+        assert_eq!(PrefixMatcher::strip_operational_suffixes("QA1AB"), "QA1AB");
     }
 
     #[test]
@@ -658,8 +709,13 @@ QB,Beta Isles,902,NA,3,6,20.00,100.00,8.0,QB;
         // Nadpisanie stref dla dłuższego prefiksu.
         let z = m.lookup("QA2AA").unwrap();
         assert_eq!((z.cqz, z.ituz), (15, 28));
-        // Znak dokładny z nadpisaniem kontynentu.
+        // Znak dokładny z nadpisaniem kontynentu — także z sufiksem operacyjnym.
         assert_eq!(m.lookup("QA1EXACT").unwrap().continent, "AS");
+        assert_eq!(m.lookup("QA1EXACT/P").unwrap().continent, "AS");
+        assert_eq!(m.lookup("QA1EXACT/QRP/M").unwrap().continent, "AS");
+        // Zmiana okręgu i prefiks gościnny nie dziedziczą znaku dokładnego.
+        assert_eq!(m.lookup("QA1EXACT/2").unwrap().continent, "EU");
+        assert_eq!(m.lookup("QB/QA1EXACT").unwrap().country, "Beta Isles");
         assert_eq!(m.lookup("X1ABC"), None);
 
         let ex = m.exception_calls();
