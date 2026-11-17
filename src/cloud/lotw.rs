@@ -484,6 +484,13 @@ impl LotwClient {
     }
 
     /// Buduje pełny URL zapytania raportu LoTW z parametrami, w tym poprawnie zakodowanym qso_qslsince.
+    ///
+    /// **Wyłącznie do testów.** W kompilacji produkcyjnej funkcja nie istnieje,
+    /// ponieważ zwracała adres zawierający hasło jako zwykły `String` — czyli
+    /// dokładnie tę postać, która mogła wyciec do logu, błędu lub telemetrii.
+    /// Produkcja buduje [`crate::core::http::SecretUrl`] i nigdy nie zamienia go
+    /// na tekst.
+    #[cfg(test)]
     pub fn build_report_url(&self, since_date: Option<&str>) -> Result<String, LotwError> {
         let mut params = vec![
             ("login", self.username.as_str()),
@@ -524,36 +531,47 @@ impl LotwClient {
 }
 
 /// Pobiera raport potwierdzeń (QSL report) z serwerów ARRL LoTW w formacie ADIF.
+///
+/// Oficjalna dokumentacja (`https://lotw.arrl.org/lotw-help/developer-query-qsos-qsls/`)
+/// dopuszcza **wyłącznie** `GET` z poświadczeniami `login`/`password` w query
+/// stringu; nie dokumentuje POST, HTTP Basic, sesji, cookies, klucza API ani
+/// OAuth. Zmiana metody byłaby wymyśleniem protokołu, dlatego:
+///
+///  * adres powstaje jako [`crate::core::http::SecretUrl`] i nigdy nie jest zamieniany na tekst,
+///  * klient ma **wyłączone przekierowania**, więc query nie może zostać
+///    przeniesiony do innego adresu,
+///  * każdy błąd transportu jest sanowany, zanim opuści tę funkcję,
+///  * adres nie jest logowany, zapisywany ani emitowany w błędzie.
 pub async fn download_lotw_report(
     username: &str,
     password: &str,
     since_date: Option<&str>,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    let client = crate::core::http::http_client_with_timeout(30);
+    use crate::core::http::{SecretUrl, http_client_no_redirect, retry_async};
 
-    let mut query: Vec<(&str, String)> = vec![
-        ("login", username.to_string()),
-        ("password", password.to_string()),
-    ];
+    let client = http_client_no_redirect(30);
+
+    let mut query: Vec<(&str, &str)> = vec![("login", username), ("password", password)];
+    let validated;
     if let Some(since) = since_date {
-        let validated = LotwClient::validate_date(since)?;
-        query.push(("qso_qslsince", validated));
+        validated = LotwClient::validate_date(since)?;
+        query.push(("qso_qslsince", validated.as_str()));
     }
 
-    let resp = crate::core::http::retry_async(
+    let secret_url =
+        SecretUrl::parse_with_params("https://lotw.arrl.org/lotwuser/lotwreport.adi", &query)?;
+
+    let resp = retry_async(
         || {
             let client = client.clone();
-            let query = query.clone();
+            let secret_url = secret_url.clone();
             async move {
-                client
-                    .get("https://lotw.arrl.org/lotwuser/lotwreport.adi")
-                    .query(&query)
-                    .send()
-                    .await
-                    .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+                secret_url.get(&client).send().await.map_err(
+                    |e| -> Box<dyn std::error::Error + Send + Sync> {
                         let sanitized = crate::core::http::sanitize_network_error(&e);
                         LotwClient::redact_credentials(&sanitized).into()
-                    })
+                    },
+                )
             }
         },
         3,

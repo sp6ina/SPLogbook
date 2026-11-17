@@ -194,21 +194,60 @@ impl EqslClient {
         })
     }
 
-    /// Pobiera skrzynkę odbiorczą potwierdzonych łączności z serwisu eQSL.cc
+    /// Pobiera skrzynkę odbiorczą potwierdzonych łączności z serwisu eQSL.cc.
+    ///
+    /// Oficjalna dokumentacja (`https://www.eqsl.cc/qslcard/DownloadInBox.txt`,
+    /// wersja z 12.10.2025) opisuje ten interfejs **wyłącznie** jako wywołanie
+    /// z parametrami `UserName` i `Password` w URL. POST nie jest udokumentowany,
+    /// a sesja/cookie są wzmiankowane bez żadnego mechanizmu (brak adresu
+    /// logowania, nazwy cookie i czasu życia tokenu). Zmiana metody byłaby
+    /// wymyśleniem protokołu, dlatego:
+    ///
+    ///  * adres powstaje jako [`crate::core::http::SecretUrl`] i nigdy nie jest zamieniany na tekst,
+    ///  * klient ma **wyłączone przekierowania**, więc query nie może zostać
+    ///    przeniesiony do innego adresu,
+    ///  * błąd transportu jest sanowany, a treść odpowiedzi jest redagowana
+    ///    z hasła, zanim opuści tę funkcję.
     pub async fn download_inbox_adif(
         &self,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        let resp = self
-            .client
-            .get("https://www.eqsl.cc/qslcard/DownloadInBox.cfm")
-            .query(&[("UserName", &self.username), ("Password", &self.password)])
-            .send()
-            .await
-            .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
-                crate::core::http::sanitize_network_error(&e).into()
-            })?;
+        use crate::core::http::{SecretUrl, http_client_no_redirect};
+        use reqwest::StatusCode;
 
-        let body = resp.text().await?;
+        let client = http_client_no_redirect(30);
+        let secret_url = SecretUrl::parse_with_params(
+            "https://www.eqsl.cc/qslcard/DownloadInBox.cfm",
+            &[
+                ("UserName", self.username.as_str()),
+                ("Password", self.password.as_str()),
+            ],
+        )?;
+
+        let resp = secret_url.get(&client).send().await.map_err(
+            |e| -> Box<dyn std::error::Error + Send + Sync> {
+                crate::core::http::sanitize_network_error(&e).into()
+            },
+        )?;
+
+        let status = resp.status();
+        let body = resp.text().await.map_err(|e| {
+            format!(
+                "eQSL: błąd odczytu odpowiedzi ({}): {}",
+                status.as_u16(),
+                crate::core::http::sanitize_network_error(&e)
+            )
+        })?;
+        let body = redact_secret(&body, &self.password);
+
+        // Oficjalna dokumentacja: HTTP 200 jest zwracane także dla strony
+        // „You are not yet logged in”, więc status HTTP nie jest dowodem.
+        if status != StatusCode::OK {
+            return Err(format!(
+                "eQSL: pobieranie skrzynki odrzucone (HTTP {})",
+                status.as_u16()
+            )
+            .into());
+        }
         if body.contains("<EOH>")
             || body.contains("<eoh>")
             || body.contains("<CALL:")
@@ -216,7 +255,7 @@ impl EqslClient {
         {
             Ok(body)
         } else {
-            Err(redact_secret(&body, &self.password).into())
+            Err(body.into())
         }
     }
 }

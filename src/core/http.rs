@@ -130,6 +130,93 @@ pub fn sanitize_network_error(err: &reqwest::Error) -> String {
     }
 }
 
+/// Klient HTTP, który **nie podąża za przekierowaniami**.
+///
+/// Ścieżki pobierania z LoTW i eQSL wymagają poświadczeń w query stringu
+/// (oficjalny kontrakt nie dokumentuje innego mechanizmu). Automatyczne
+/// przekierowanie mogłoby przenieść ten query — wraz z sekretem — do innego
+/// adresu, dlatego polityka przekierowań jest wyłączona, a odpowiedź `3xx`
+/// jest traktowana jak każda inna odpowiedź bez dowodu sukcesu.
+pub fn http_client_no_redirect(secs: u64) -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(secs))
+        .user_agent(USER_AGENT)
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
+}
+
+/// Błąd budowy [`SecretUrl`]. Nie zawiera adresu ani sekretu.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SecretUrlError {
+    /// Adres bazowy nie jest poprawnym URL-em.
+    InvalidBase,
+}
+
+impl std::fmt::Display for SecretUrlError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidBase => write!(f, "nieprawidłowy adres bazowy usługi"),
+        }
+    }
+}
+
+impl std::error::Error for SecretUrlError {}
+
+/// Adres żądania zawierający poświadczenia w query stringu.
+///
+/// Powstaje **wyłącznie** tam, gdzie oficjalny kontrakt usługi wymaga
+/// poświadczeń w query i nie dokumentuje bezpieczniejszego wariantu (LoTW
+/// `lotwreport.adi`, eQSL `DownloadInBox.cfm`). Opakowanie egzekwuje cztery
+/// niezmienniki:
+///
+/// 1. `Debug` i `Display` pokazują wyłącznie `scheme://host/path` — bez query,
+///    bez `userinfo`, bez fragmentu,
+/// 2. pełny adres nie jest dostępny przez żadne publiczne API zwracające
+///    `&str`/`String`,
+/// 3. żądanie buduje się przez [`SecretUrl::get`], więc adres nie krąży po
+///    kodzie jako wartość tekstowa,
+/// 4. błędy transportu są sanowane przez [`sanitize_network_error`], zanim
+///    opuszczą klienta.
+///
+/// Typ **nie** zawiera metod zapisu do logu, pliku ani telemetrii.
+#[derive(Clone)]
+pub struct SecretUrl {
+    url: reqwest::Url,
+}
+
+impl SecretUrl {
+    /// Buduje adres z parametrami zapytania.
+    pub fn parse_with_params(base: &str, params: &[(&str, &str)]) -> Result<Self, SecretUrlError> {
+        let url = reqwest::Url::parse_with_params(base, params)
+            .map_err(|_| SecretUrlError::InvalidBase)?;
+        Ok(Self { url })
+    }
+
+    /// Adres pozbawiony sekretów — jedyna postać dopuszczona w logach,
+    /// błędach, telemetrii i raportach.
+    pub fn redacted(&self) -> String {
+        sanitize_url(&self.url)
+    }
+
+    /// Buduje żądanie `GET`. Pełny adres pozostaje wewnątrz `reqwest`.
+    pub fn get(&self, client: &reqwest::Client) -> reqwest::RequestBuilder {
+        client.get(self.url.clone())
+    }
+}
+
+impl std::fmt::Debug for SecretUrl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SecretUrl({})", self.redacted())
+    }
+}
+
+impl std::fmt::Display for SecretUrl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.redacted())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
