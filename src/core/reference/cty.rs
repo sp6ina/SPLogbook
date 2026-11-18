@@ -539,8 +539,8 @@ impl CtyData {
             .collect()
     }
 
-    /// Number of primary prefixes registered implicitly (see
-    /// [`Self::register_primary_prefixes`]).
+    /// Number of entity primary prefixes that were missing from every alias
+    /// list and were registered as implicit prefix aliases by [`Self::parse`].
     pub fn implicit_primary_count(&self) -> usize {
         self.implicit_primaries
     }
