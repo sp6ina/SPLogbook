@@ -124,7 +124,9 @@ impl BackupManager {
             return Err(BackupError::SamePath);
         }
 
-        let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S%.3f").to_string();
+        let timestamp = jiff::Timestamp::now()
+            .strftime("%Y%m%d_%H%M%S%.3f")
+            .to_string();
         let file_stem = source_db_path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -309,7 +311,9 @@ impl BackupManager {
     pub fn backup_adif(adif_content: &str, backup_dir: &Path) -> Result<PathBuf, BackupError> {
         fs::create_dir_all(backup_dir).map_err(|e| BackupError::CreateDir(e.to_string()))?;
 
-        let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S%.3f").to_string();
+        let timestamp = jiff::Timestamp::now()
+            .strftime("%Y%m%d_%H%M%S%.3f")
+            .to_string();
         let dest_filename = format!("SPLogbook_backup_{timestamp}.adi");
         let dest_path = backup_dir.join(&dest_filename);
         let tmp_path = backup_dir.join(format!(".{dest_filename}.tmp"));

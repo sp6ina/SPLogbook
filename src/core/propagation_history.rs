@@ -95,7 +95,7 @@ impl PropagationHistory {
             forecast_reliability_pct,
             forecast_status,
             observed: None,
-            timestamp_unix: chrono::Utc::now().timestamp(),
+            timestamp_unix: jiff::Timestamp::now().as_second(),
         });
         if self.records.len() > self.max_records {
             let overflow = self.records.len() - self.max_records;

@@ -26,11 +26,7 @@ pub struct AstronomyEngine;
 
 impl AstronomyEngine {
     /// Oblicza aktualną pozycję Księżyca i Słońca oraz przesunięcie Dopplera EME dla danej pozycji na Ziemi
-    pub fn calculate_eme(
-        lat_deg: f64,
-        lon_deg: f64,
-        now_utc: chrono::DateTime<chrono::Utc>,
-    ) -> EmeStatus {
+    pub fn calculate_eme(lat_deg: f64, lon_deg: f64, now_utc: jiff::Timestamp) -> EmeStatus {
         let julian_day = Self::datetime_to_jd(now_utc);
         let d = julian_day - 2_451_543.5; // Dni od J2000.0
 
@@ -65,30 +61,9 @@ impl AstronomyEngine {
         }
     }
 
-    fn datetime_to_jd(dt: chrono::DateTime<chrono::Utc>) -> f64 {
-        use chrono::Datelike;
-        use chrono::Timelike;
-
-        let year = dt.year();
-        let month = dt.month() as i32;
-        let day = dt.day() as i32;
-        let hour = dt.hour() as f64 + dt.minute() as f64 / 60.0 + dt.second() as f64 / 3600.0;
-
-        let (y, m) = if month <= 2 {
-            (year - 1, month + 12)
-        } else {
-            (year, month)
-        };
-
-        let a = (y as f64 / 100.0).floor();
-        let b = 2.0 - a + (a / 4.0).floor();
-
-        (365.25 * (y as f64 + 4716.0)).floor()
-            + (30.6001 * (m as f64 + 1.0)).floor()
-            + day as f64
-            + hour / 24.0
-            + b
-            - 1524.5
+    /// Julian Day of a UTC instant: the Unix epoch is JD 2440587.5 and a day has 86 400 s.
+    fn datetime_to_jd(ts: jiff::Timestamp) -> f64 {
+        ts.as_second() as f64 / 86_400.0 + 2_440_587.5
     }
 
     fn calculate_sun(lat_deg: f64, lon_deg: f64, d: f64, jd: f64) -> CelestialPosition {
@@ -254,11 +229,19 @@ mod tests {
         // Obliczenia dla Wrocławia (JO81WA)
         let wroclaw_lat = 51.1079;
         let wroclaw_lon = 17.0385;
-        let now = chrono::Utc::now();
+        let now = jiff::Timestamp::now();
         let eme = AstronomyEngine::calculate_eme(wroclaw_lat, wroclaw_lon, now);
 
         assert!(eme.moon.distance_km >= 350_000.0 && eme.moon.distance_km <= 410_000.0);
         assert!(eme.sun.distance_km >= 140_000_000.0);
         assert!(eme.path_loss_144_db >= 250.0 && eme.path_loss_144_db <= 255.0);
+    }
+
+    #[test]
+    fn julian_day_matches_the_calendar_algorithm() {
+        let jd = |s: &str| AstronomyEngine::datetime_to_jd(s.parse::<jiff::Timestamp>().unwrap());
+        assert_eq!(jd("1970-01-01T00:00:00Z"), 2_440_587.5);
+        assert_eq!(jd("2000-01-01T12:00:00Z"), 2_451_545.0);
+        assert_eq!(jd("2026-03-01T18:00:00Z"), 2_461_101.25);
     }
 }

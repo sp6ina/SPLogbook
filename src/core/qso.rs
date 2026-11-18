@@ -3,7 +3,6 @@
 
 use std::sync::OnceLock;
 
-use chrono::Utc;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
@@ -79,15 +78,16 @@ pub struct QsoRecord {
 
 impl Default for QsoRecord {
     fn default() -> Self {
-        let now = Utc::now();
+        // A single clock read, so `qso_date` and `time_on` describe the same instant.
+        let now = jiff::Timestamp::now();
         Self {
             id: None,
             callsign: String::new(),
             band: "20m".to_string(),
             mode: "CW".to_string(),
             submode: None,
-            qso_date: now.format("%Y%m%d").to_string(),
-            time_on: now.format("%H%M%S").to_string(),
+            qso_date: now.strftime("%Y%m%d").to_string(),
+            time_on: now.strftime("%H%M%S").to_string(),
             time_off: None,
             freq: Some(14.025),
             freq_rx: None,
@@ -629,7 +629,7 @@ impl QsoRecord {
         if date.len() != 8 || !date.chars().all(|c| c.is_ascii_digit()) {
             return Err(QsoIssue::DateFormat(self.qso_date.clone()));
         }
-        if chrono::NaiveDate::parse_from_str(&date, "%Y%m%d").is_err() {
+        if jiff::civil::Date::strptime("%Y%m%d", &date).is_err() {
             return Err(QsoIssue::DateInvalid(self.qso_date.clone()));
         }
 

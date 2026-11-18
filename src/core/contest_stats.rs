@@ -5,27 +5,31 @@
 //! macierz mnożników per pasmo z podświetleniem potrzebnych mnożników.
 
 use crate::core::qso::QsoRecord;
-use chrono::{NaiveDate, NaiveTime};
+use jiff::civil::{Date, Time};
+use jiff::tz::TimeZone;
 
 /// Konwertuje datę i czas QSO na uniksowy znacznik czasu (sekundy, UTC).
 /// Obsługuje formaty ADIF: `YYYY-MM-DD`/`YYYYMMDD` oraz `HH:MM:SS`/`HHMMSS`.
 pub fn qso_epoch_secs(q: &QsoRecord) -> Option<i64> {
     let d = q.qso_date.trim();
     let date = if d.len() == 8 && d.bytes().all(|b| b.is_ascii_digit()) {
-        NaiveDate::parse_from_str(d, "%Y%m%d").ok()
+        Date::strptime("%Y%m%d", d).ok()
     } else {
-        NaiveDate::parse_from_str(d, "%Y-%m-%d").ok()
+        Date::strptime("%Y-%m-%d", d).ok()
     }?;
 
     let t = q.time_on.trim();
     let time = if t.len() == 6 && t.bytes().all(|b| b.is_ascii_digit()) {
-        NaiveTime::parse_from_str(t, "%H%M%S").ok()
+        Time::strptime("%H%M%S", t).ok()
     } else {
-        NaiveTime::parse_from_str(t, "%H:%M:%S").ok()
+        Time::strptime("%H:%M:%S", t).ok()
     }
-    .unwrap_or_else(|| NaiveTime::from_hms_opt(0, 0, 0).unwrap());
+    .unwrap_or(Time::midnight());
 
-    Some(date.and_time(time).and_utc().timestamp())
+    TimeZone::UTC
+        .to_timestamp(date.to_datetime(time))
+        .ok()
+        .map(jiff::Timestamp::as_second)
 }
 
 /// Wynik pomiaru tempa pracy w kontescie.
@@ -338,12 +342,15 @@ mod tests {
         let b = qso("SP6INA", "20m", "20260101", "123456", None, None);
         assert_eq!(qso_epoch_secs(&a), qso_epoch_secs(&b));
         // 2026-01-01 12:34:56 UTC
-        let expected = NaiveDate::from_ymd_opt(2026, 1, 1)
+        let expected = "2026-01-01T12:34:56Z"
+            .parse::<jiff::Timestamp>()
             .unwrap()
-            .and_time(NaiveTime::from_hms_opt(12, 34, 56).unwrap())
-            .and_utc()
-            .timestamp();
+            .as_second();
         assert_eq!(qso_epoch_secs(&a), Some(expected));
+        let midnight = qso("SP6INA", "20m", "20260101", "", None, None);
+        assert_eq!(qso_epoch_secs(&midnight), Some(expected - 45_296));
+        let bad = qso("SP6INA", "20m", "20261301", "123456", None, None);
+        assert_eq!(qso_epoch_secs(&bad), None);
     }
 
     #[test]

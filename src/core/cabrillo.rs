@@ -314,6 +314,8 @@ pub fn build(input: &CabrilloInput) -> Result<String, ContestError> {
             .then_with(|| a.id.cmp(&b.id))
     });
 
+    // One clock read per export: a QSO without date or time gets the same fallback instant.
+    let export_time = jiff::Timestamp::now();
     for (idx, qso) in sorted_qsos.iter().enumerate() {
         let freq_khz = qso.freq.map_or_else(
             || band_to_cabrillo_freq(&qso.band),
@@ -328,13 +330,13 @@ pub fn build(input: &CabrilloInput) -> Result<String, ContestError> {
                 &qso.qso_date[6..8]
             )
         } else {
-            chrono::Utc::now().format("%Y-%m-%d").to_string()
+            export_time.strftime("%Y-%m-%d").to_string()
         };
 
         let time_str = if qso.time_on.len() >= 4 && qso.time_on.is_ascii() {
             qso.time_on[0..4].to_string()
         } else {
-            chrono::Utc::now().format("%H%M").to_string()
+            export_time.strftime("%H%M").to_string()
         };
 
         let mode_cab = cabrillo_mode(&qso.mode);

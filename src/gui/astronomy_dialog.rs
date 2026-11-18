@@ -6,7 +6,6 @@ use crate::cat::rotor::{EmeRotorCommand, RotatorId, RotorState};
 use crate::core::astronomy::AstronomyEngine;
 use crate::core::geo::locator_to_coordinates;
 use crate::gui::theme::ThemeExt;
-use chrono::Utc;
 use eframe::egui;
 
 pub struct AstronomyDialog {
@@ -48,7 +47,7 @@ impl AstronomyDialog {
             Err(_) => (52.0, 19.0), // Środek Polski
         };
 
-        let now = Utc::now();
+        let now = jiff::Timestamp::now();
         let eme = AstronomyEngine::calculate_eme(lat, lon, now);
         let moon = &eme.moon;
         let sun = &eme.sun;
@@ -71,7 +70,7 @@ impl AstronomyDialog {
                             lat,
                             lon,
                             tr(key::EME_TIME, lang),
-                            now.format("%H:%M:%S UTC")
+                            now.strftime("%H:%M:%S UTC")
                         ))
                         .small()
                         .color(palette.text_muted),
