@@ -11,7 +11,9 @@ pub struct LotwConfirmation {
     pub band: String,
     pub mode: String,
     pub qso_date: String,
-    pub qsl_rdate: String,
+    /// Date the QSL was received from LoTW (ADIF `Date`, `YYYYMMDD`); `None` when the
+    /// report supplies no valid date. It is never invented.
+    pub qsl_rdate: Option<String>,
 }
 
 /// Domyślne potencjalne ścieżki do instalacji programu Trusted QSL (tqsl / tqsl.exe)
@@ -593,15 +595,25 @@ pub async fn download_lotw_report(
     }
 }
 
-/// Parsuje raport ADIF z LoTW i wyciąga potwierdzone łączności
+/// Parsuje raport ADIF z LoTW i wyciąga potwierdzone łączności.
+///
+/// F20-R4: the received date is, in order, `LOTW_QSLRDATE`, the date part of
+/// `APP_LoTW_RXQSL` (both resolved by the ADIF import), then `QSLRDATE` when the report says
+/// `QSL_RCVD=Y`. Without a valid date it stays `None`.
 pub fn parse_lotw_confirmations(adif: &str) -> Vec<LotwConfirmation> {
     let mut confirmations = Vec::new();
     let qsos = crate::core::adif::parse_adif(adif);
 
     for qso in qsos {
-        let rdate = qso
-            .lotw_qslrdate
-            .unwrap_or_else(|| chrono::Utc::now().format("%Y%m%d").to_string());
+        let rdate = qso.lotw_qslrdate.or_else(|| {
+            if qso.qsl_rcvd.trim().eq_ignore_ascii_case("Y") {
+                qso.qsl_rcvd_date
+                    .as_deref()
+                    .and_then(crate::core::adif::adif_date_part)
+            } else {
+                None
+            }
+        });
         confirmations.push(LotwConfirmation {
             callsign: qso.callsign,
             band: qso.band.to_lowercase(),
@@ -663,7 +675,7 @@ mod tests {
 
     #[test]
     fn lotw_report_handles_utc_day_boundary() {
-        let utc_today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        let utc_today = jiff::Timestamp::now().strftime("%Y-%m-%d").to_string();
         let valid = LotwClient::validate_date(&utc_today).unwrap();
         assert_eq!(valid, utc_today);
     }
@@ -700,6 +712,78 @@ mod tests {
         assert_eq!(confs[0].band, "20m");
         assert_eq!(confs[0].mode, "CW");
         assert_eq!(confs[0].qso_date, "20260920");
+        assert_eq!(confs[0].qsl_rdate.as_deref(), Some("20260920"));
+    }
+
+    fn rdate_of(fields: &str) -> Option<String> {
+        let adif = format!(
+            "<CALL:6>SP6INA<BAND:3>20M<MODE:2>CW<QSO_DATE:8>20260920<TIME_ON:6>120000{fields}<EOR>"
+        );
+        let confs = parse_lotw_confirmations(&adif);
+        assert_eq!(confs.len(), 1);
+        confs[0].qsl_rdate.clone()
+    }
+
+    #[test]
+    fn f20r4_received_date_uses_explicit_lotw_qslrdate_first() {
+        assert_eq!(
+            rdate_of("<LOTW_QSLRDATE:8>20260921").as_deref(),
+            Some("20260921")
+        );
+        assert_eq!(
+            rdate_of(
+                "<LOTW_QSLRDATE:8>20260921<APP_LoTW_RXQSL:19>2026-09-22 10:00:00\
+                 <QSL_RCVD:1>Y<QSLRDATE:8>20260923"
+            )
+            .as_deref(),
+            Some("20260921")
+        );
+    }
+
+    #[test]
+    fn f20r4_received_date_falls_back_to_app_lotw_rxqsl() {
+        assert_eq!(
+            rdate_of("<QSL_RCVD:1>Y<APP_LoTW_RXQSL:19>2026-09-22 10:11:12").as_deref(),
+            Some("20260922")
+        );
+        assert_eq!(
+            rdate_of("<QSL_RCVD:1>Y<APP_LoTW_RXQSL:19>2026-09-22 10:11:12<QSLRDATE:8>20260923")
+                .as_deref(),
+            Some("20260922")
+        );
+        // An invalid LOTW_QSLRDATE does not hide a valid APP_LoTW_RXQSL.
+        assert_eq!(
+            rdate_of("<LOTW_QSLRDATE:8>20261341<APP_LoTW_RXQSL:19>2026-09-22 10:11:12").as_deref(),
+            Some("20260922")
+        );
+    }
+
+    #[test]
+    fn f20r4_received_date_falls_back_to_qslrdate_only_when_qsl_rcvd_is_y() {
+        assert_eq!(
+            rdate_of("<QSL_RCVD:1>Y<QSLRDATE:8>20260923").as_deref(),
+            Some("20260923")
+        );
+        assert_eq!(
+            rdate_of("<QSL_RCVD:1>y<APP_LoTW_RXQSL:10>not-a-date<QSLRDATE:10>2026-09-23")
+                .as_deref(),
+            Some("20260923")
+        );
+        assert_eq!(rdate_of("<QSL_RCVD:1>N<QSLRDATE:8>20260923"), None);
+        assert_eq!(rdate_of("<QSLRDATE:8>20260923"), None);
+    }
+
+    #[test]
+    fn f20r4_received_date_is_none_without_a_valid_date() {
+        assert_eq!(rdate_of(""), None);
+        assert_eq!(rdate_of("<QSL_RCVD:1>Y"), None);
+        assert_eq!(
+            rdate_of(
+                "<LOTW_QSLRDATE:8>20260230<APP_LoTW_RXQSL:19>1929-12-31 23:59:59\
+                 <QSL_RCVD:1>Y<QSLRDATE:8>2026093X"
+            ),
+            None
+        );
     }
 }
 

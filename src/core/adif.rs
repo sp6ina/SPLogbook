@@ -750,7 +750,14 @@ impl AdifEngine {
         if let Some(q) = fields.remove("LOTW_QSL_RCVD") {
             qso.lotw_qsl_rcvd = q;
         }
-        qso.lotw_qslrdate = fields.remove("LOTW_QSLRDATE");
+        // F20-R4: the LoTW report sends `APP_LoTW_RXQSL` (`YYYY-MM-DD HH:MM:SS`), never
+        // `LOTW_QSLRDATE`; an explicit `LOTW_QSLRDATE` wins. Only a valid ADIF `Date` is kept.
+        let lotw_rxqsl = fields.remove("APP_LOTW_RXQSL");
+        qso.lotw_qslrdate = fields
+            .remove("LOTW_QSLRDATE")
+            .as_deref()
+            .and_then(adif_date_part)
+            .or_else(|| lotw_rxqsl.as_deref().and_then(adif_date_part));
         // F-20R / F20-R2: ADIF 3.1.8 `Date` — 8 cyfr, UTC, `YYYYMMDD`.
         qso.lotw_qslsdate = fields.remove("LOTW_QSLSDATE");
         if let Some(q) = fields.remove("EQSL_QSL_SENT") {
@@ -1016,6 +1023,26 @@ fn find_tag_end_ci(bytes: &[u8], start: usize, tag: &[u8]) -> Option<usize> {
         .windows(tag.len())
         .position(|w| w.eq_ignore_ascii_case(tag))
         .map(|pos| start + pos + tag.len())
+}
+
+/// Normalises a date to an ADIF 3.1.8 `Date` (`YYYYMMDD`, `1930 <= YYYY`, a real calendar day).
+///
+/// Accepts `YYYYMMDD` or `YYYY-MM-DD`, optionally followed by a time after a space or `T`
+/// (the LoTW `APP_LoTW_RXQSL` timestamp is `YYYY-MM-DD HH:MM:SS`). Anything else is `None`:
+/// a date is never invented.
+pub fn adif_date_part(raw: &str) -> Option<String> {
+    let head = raw.trim().split([' ', 'T']).next()?;
+    let bytes = head.as_bytes();
+    let digits = if bytes.len() == 10 && bytes[4] == b'-' && bytes[7] == b'-' {
+        head.replace('-', "")
+    } else {
+        head.to_string()
+    };
+    if digits.len() != 8 || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let date = jiff::civil::Date::strptime("%Y%m%d", &digits).ok()?;
+    (date.year() >= 1930).then_some(digits)
 }
 
 pub fn parse_adif(content: &str) -> Vec<QsoRecord> {

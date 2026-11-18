@@ -11,7 +11,8 @@ pub struct QslConfirmationRecord<'a> {
     pub band: &'a str,
     pub mode: &'a str,
     pub qso_date: &'a str,
-    pub rdate: &'a str,
+    /// Received date; `None` (or blank) keeps the date already stored (F20-R4).
+    pub rdate: Option<&'a str>,
 }
 
 impl LogDatabase {
@@ -28,7 +29,7 @@ impl LogDatabase {
         let rdate_col = channel.rdate_column();
         let sql = format!(
             "UPDATE qso_records
-             SET {rcvd_col} = 'Y', {rdate_col} = ?1
+             SET {rcvd_col} = 'Y', {rdate_col} = COALESCE(?1, {rdate_col})
              WHERE UPPER(callsign) = UPPER(?2)
                AND UPPER(band) = UPPER(?3)
                AND (UPPER(mode) = UPPER(?4) OR (UPPER(?4) IN ('SSB', 'USB', 'LSB') AND UPPER(mode) IN ('SSB', 'USB', 'LSB')))
@@ -41,7 +42,7 @@ impl LogDatabase {
             let mut stmt = tx.prepare(&sql)?;
             for rec in records {
                 total += stmt.execute(params![
-                    rec.rdate.trim(),
+                    rec.rdate.map(str::trim).filter(|d| !d.is_empty()),
                     rec.callsign.trim(),
                     rec.band.trim(),
                     rec.mode.trim(),
@@ -69,7 +70,7 @@ impl LogDatabase {
             band,
             mode,
             qso_date,
-            rdate,
+            rdate: Some(rdate),
         };
         self.mark_confirmed_batch(journal_id, channel, &[rec])
     }
@@ -129,7 +130,7 @@ impl LogDatabase {
                 band: &c.band,
                 mode: &c.mode,
                 qso_date: &c.qso_date,
-                rdate: &c.qsl_rdate,
+                rdate: c.qsl_rdate.as_deref(),
             })
             .collect();
         self.mark_confirmed_batch(journal_id, QslChannel::Lotw, &records)
@@ -148,7 +149,7 @@ impl LogDatabase {
                 band: &q.band,
                 mode: &q.mode,
                 qso_date: &q.qso_date,
-                rdate: q.eqsl_qslrdate.as_deref().unwrap_or(&q.qso_date),
+                rdate: Some(q.eqsl_qslrdate.as_deref().unwrap_or(&q.qso_date)),
             })
             .collect();
         self.mark_confirmed_batch(journal_id, QslChannel::Eqsl, &records)

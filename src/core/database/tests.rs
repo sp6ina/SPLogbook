@@ -303,6 +303,48 @@ fn test_mark_lotw_and_eqsl() {
 }
 
 #[test]
+fn f20r4_lotw_confirmation_without_date_keeps_the_stored_date() {
+    use crate::cloud::lotw::LotwConfirmation;
+    let db = LogDatabase::open_in_memory().unwrap();
+    let mut qso = QsoRecord::new("W1AW", "20m", "CW");
+    qso.qso_date = "20260920".to_string();
+    db.insert_qso(&qso).unwrap();
+    let conf = |rdate: Option<&str>| LotwConfirmation {
+        callsign: "W1AW".to_string(),
+        band: "20m".to_string(),
+        mode: "CW".to_string(),
+        qso_date: "20260920".to_string(),
+        qsl_rdate: rdate.map(str::to_string),
+    };
+    let stored = |db: &LogDatabase| {
+        let list = db.find_previous_qsos("W1AW").unwrap();
+        (list[0].lotw_qsl_rcvd.clone(), list[0].lotw_qslrdate.clone())
+    };
+
+    // No date at all: confirmed, but no date is invented.
+    assert_eq!(
+        db.mark_lotw_confirmed_batch_for_journal("DEFAULT", &[conf(None)])
+            .unwrap(),
+        1
+    );
+    assert_eq!(stored(&db), ("Y".to_string(), None));
+
+    assert_eq!(
+        db.mark_lotw_confirmed_batch_for_journal("DEFAULT", &[conf(Some("20260921"))])
+            .unwrap(),
+        1
+    );
+    assert_eq!(stored(&db), ("Y".to_string(), Some("20260921".to_string())));
+
+    // A later report without a date (or with a blank one) must not erase it.
+    for rdate in [None, Some(""), Some("  ")] {
+        db.mark_lotw_confirmed_batch_for_journal("DEFAULT", &[conf(rdate)])
+            .unwrap();
+        assert_eq!(stored(&db), ("Y".to_string(), Some("20260921".to_string())));
+    }
+}
+
+#[test]
 fn test_search_with_apostrophe() {
     let db = LogDatabase::open_in_memory().unwrap();
     let mut qso = QsoRecord::new("EI2O", "20m", "SSB");

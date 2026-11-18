@@ -556,18 +556,12 @@ pub const ADIF_DATE_MIN_YEAR: i32 = 1930;
 /// Funkcja jest czysta i deterministyczna — dzięki temu testy używają zegara
 /// wstrzykiwanego, a nie czasu ściennego.
 pub fn adif_date_from_unix(timestamp: i64) -> Option<String> {
-    use chrono::Datelike as _;
-
-    let datetime = chrono::DateTime::from_timestamp(timestamp, 0)?;
-    if datetime.year() < ADIF_DATE_MIN_YEAR {
+    let instant = jiff::Timestamp::from_second(timestamp).ok()?;
+    let date = jiff::tz::TimeZone::UTC.to_datetime(instant).date();
+    if i32::from(date.year()) < ADIF_DATE_MIN_YEAR {
         return None;
     }
-    Some(format!(
-        "{:04}{:02}{:02}",
-        datetime.year(),
-        datetime.month(),
-        datetime.day()
-    ))
+    Some(date.strftime("%Y%m%d").to_string())
 }
 
 /// Wylicza stan planu na podstawie stanów jego paczek.

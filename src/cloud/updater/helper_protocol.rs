@@ -12,7 +12,7 @@
 //! - Zwracane są stabilne, typowane kody wyjścia (`WindowsHelperExitCode`) oraz wersjonowany
 //!   rekord wyniku (`WindowsHelperResult`).
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt::Write as _;
@@ -672,7 +672,7 @@ pub struct WindowsHelperResult {
     #[serde(default)]
     pub verified_commit_after_operation: Option<String>,
     /// Znacznik czasu zakończenia działania pomocnika w UTC.
-    pub completion_time: DateTime<Utc>,
+    pub completion_time: Timestamp,
 }
 
 impl WindowsHelperResult {
@@ -709,7 +709,7 @@ impl WindowsHelperResult {
             sanitized_diagnostic_summary: sanitized_diagnostic_summary.into(),
             verified_version_after_operation: None,
             verified_commit_after_operation: None,
-            completion_time: Utc::now(),
+            completion_time: Timestamp::now(),
         }
     }
 

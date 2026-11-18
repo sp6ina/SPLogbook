@@ -14,7 +14,7 @@
 //! 9. Sprzątanie (`cleanup`) artefaktów z zachowaniem kopii zapasowej do czasu decyzji retencyjnej;
 //! 10. Zapis wersjonowanego rekordu wyniku `WindowsHelperResult` i typowany kod wyjścia.
 
-use chrono::Utc;
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -71,7 +71,7 @@ pub struct OperationJournalEntry {
     /// Czy operacja została wycofana w ramach procedury rollbacku.
     pub rollback_performed: bool,
     /// Znacznik czasu operacji.
-    pub timestamp: chrono::DateTime<Utc>,
+    pub timestamp: Timestamp,
 }
 
 /// Dziennik operacji pomocnika umożliwiający precyzyjny i idempotentny rollback.
@@ -115,7 +115,7 @@ impl HelperOperationJournal {
                 backup_sha256: Some(sha.to_string()),
                 apply_performed: false,
                 rollback_performed: false,
-                timestamp: Utc::now(),
+                timestamp: Timestamp::now(),
             });
         }
     }
@@ -128,7 +128,7 @@ impl HelperOperationJournal {
             .find(|e| e.relative_path == rel_path)
         {
             existing.apply_performed = true;
-            existing.timestamp = Utc::now();
+            existing.timestamp = Timestamp::now();
         } else {
             let idx = self.entries.len();
             self.entries.push(OperationJournalEntry {
@@ -139,7 +139,7 @@ impl HelperOperationJournal {
                 backup_sha256: None,
                 apply_performed: true,
                 rollback_performed: false,
-                timestamp: Utc::now(),
+                timestamp: Timestamp::now(),
             });
         }
     }
@@ -152,7 +152,7 @@ impl HelperOperationJournal {
             .find(|e| e.relative_path == rel_path)
         {
             existing.rollback_performed = true;
-            existing.timestamp = Utc::now();
+            existing.timestamp = Timestamp::now();
         }
     }
 
@@ -1234,7 +1234,7 @@ impl<'a> WindowsHelperEngine<'a> {
     /// Zapisuje zredagowany log diagnostyczny do wskazanego pliku.
     fn log_diagnostic(&self, message: &str) {
         let log_path = &self.request.diagnostic_log_path;
-        let now = Utc::now().to_rfc3339();
+        let now = Timestamp::now().to_string();
         let attempt = self.request.attempt_id;
         let line = format!("[{now}] [{attempt}] {message}\n");
 

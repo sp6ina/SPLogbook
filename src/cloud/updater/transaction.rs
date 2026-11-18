@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Model transakcji aktualizacji i trwały, crash-safe zapis stanu (M3-A)
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -90,9 +90,9 @@ pub struct UpdateTransaction {
     /// Opcjonalna tożsamość nabytej blokady concurrency.
     pub lock_identity: Option<String>,
     /// Znacznik czasu UTC utworzenia transakcji.
-    pub creation_time: DateTime<Utc>,
+    pub creation_time: Timestamp,
     /// Znacznik czasu UTC ostatniego przejścia stanu.
-    pub last_transition_time: DateTime<Utc>,
+    pub last_transition_time: Timestamp,
     /// Status anulowania.
     pub cancellation_status: CancellationStatus,
     /// Status odzyskiwania po awarii.
@@ -128,7 +128,7 @@ impl UpdateTransaction {
         // Walidacja ścieżki stagingu pod kątem bezpieczeństwa
         validate_path_under_root(&staging_path, installation_root)?;
 
-        let now = Utc::now();
+        let now = Timestamp::now();
         let state_machine = UpdateStateMachine::new();
 
         Ok(Self {
@@ -194,7 +194,7 @@ impl UpdateTransaction {
     pub fn transition_to(&mut self, next_state: UpdateStateId) -> Result<(), UpdaterError> {
         self.state_machine.transition_to(next_state)?;
         self.current_state = next_state;
-        self.last_transition_time = Utc::now();
+        self.last_transition_time = Timestamp::now();
         Ok(())
     }
 

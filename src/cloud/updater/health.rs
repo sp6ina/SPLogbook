@@ -14,7 +14,7 @@
 //! - Dowód nie zawiera żadnych sekretów, kluczy prywatnych ani poświadczeń.
 //! - Dowód nie pozwala na pominięcie kroków automatu stanów (wymaga stanu `AwaitingHealth` przed przejściem do `Committed`).
 
-use chrono::{DateTime, Duration, Utc};
+use jiff::{SignedDuration, Timestamp};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::Write;
@@ -50,7 +50,7 @@ pub struct HealthProof {
     /// Rodzaj instalacji kandydata.
     pub installation_type: InstallationType,
     /// Znacznik czasu UTC wygenerowania dowodu zdrowia.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 impl HealthProof {
@@ -69,7 +69,7 @@ impl HealthProof {
             target_commit: target_commit.into(),
             platform: platform.into(),
             installation_type,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         }
     }
 
@@ -136,20 +136,20 @@ impl HealthProof {
         }
 
         // 5. Weryfikacja świeżości dowodu (ochrona przed stale / replay proof)
-        let now = Utc::now();
-        let max_age = Duration::seconds(max_age_seconds as i64);
-        let age = now.signed_duration_since(self.created_at);
+        let now = Timestamp::now();
+        let max_age = SignedDuration::from_secs(max_age_seconds as i64);
+        let age = now.duration_since(self.created_at);
 
         if age > max_age {
             return Err(UpdaterError::SafetyGate(format!(
                 "Dowód zdrowia wygasł (wiek: {}s, maksymalny dozwolony: {}s)",
-                age.num_seconds(),
+                age.as_secs(),
                 max_age_seconds
             )));
         }
 
         // Zabezpieczenie przed cofniętym zegarem systemowym (> 5 sekund w przyszłość)
-        if age < Duration::seconds(-5) {
+        if age < SignedDuration::from_secs(-5) {
             return Err(UpdaterError::SafetyGate(format!(
                 "Dowód zdrowia posiada nieprawidłowy znacznik czasu z przyszłości: {}",
                 self.created_at
@@ -340,7 +340,7 @@ mod tests {
         );
 
         // Ustawienie znacznika czasu na 60 sekund wstecz przy limicie 15s
-        proof.created_at = Utc::now() - Duration::seconds(60);
+        proof.created_at = Timestamp::now() - SignedDuration::from_secs(60);
 
         let err = proof
             .validate(&attempt, "1.2.1", "abcdef123456", 15)

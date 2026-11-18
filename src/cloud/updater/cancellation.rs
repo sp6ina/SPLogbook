@@ -8,7 +8,7 @@
 
 use std::path::Path;
 
-use chrono::Utc;
+use jiff::Timestamp;
 
 use crate::cloud::updater::UpdaterError;
 use crate::cloud::updater::attempt_id::UpdateAttemptId;
@@ -204,7 +204,7 @@ pub fn execute_cancellation(
     // 4. Aktualizacja statusu transakcji
     tx.cancellation_status = CancellationStatus::Completed;
     tx.current_state = UpdateStateId::Cleanup;
-    tx.last_transition_time = Utc::now();
+    tx.last_transition_time = Timestamp::now();
 
     Ok(CancellationResult {
         attempt_id,

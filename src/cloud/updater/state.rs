@@ -3,7 +3,7 @@
 // Kompletny 20-stanowy deterministyczny automat stanów aktualizatora SPLogbook (M3-A)
 
 use crate::cloud::updater::UpdaterError;
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 /// Identyfikator stanu procesu aktualizacji (dokładnie 20 stanów wg specyfikacji DESIGN 3.0 C).
@@ -137,7 +137,7 @@ impl std::fmt::Display for UpdateStateId {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UpdateStateMachine {
     current_state: UpdateStateId,
-    history: Vec<(UpdateStateId, DateTime<Utc>)>,
+    history: Vec<(UpdateStateId, Timestamp)>,
 }
 
 impl Default for UpdateStateMachine {
@@ -152,7 +152,7 @@ impl UpdateStateMachine {
         let initial = UpdateStateId::Idle;
         Self {
             current_state: initial,
-            history: vec![(initial, Utc::now())],
+            history: vec![(initial, Timestamp::now())],
         }
     }
 
@@ -162,7 +162,7 @@ impl UpdateStateMachine {
     }
 
     /// Zwraca pełną audytową historię przejść stanów z sygnaturami czasowymi UTC.
-    pub fn history(&self) -> &[(UpdateStateId, DateTime<Utc>)] {
+    pub fn history(&self) -> &[(UpdateStateId, Timestamp)] {
         &self.history
     }
 
@@ -180,7 +180,7 @@ impl UpdateStateMachine {
             )));
         }
         self.current_state = target;
-        self.history.push((target, Utc::now()));
+        self.history.push((target, Timestamp::now()));
         Ok(())
     }
 

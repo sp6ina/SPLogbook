@@ -9202,7 +9202,7 @@ mod tests {
             sanitized_diagnostic_summary: "Success".to_string(),
             verified_version_after_operation: None,
             verified_commit_after_operation: None,
-            completion_time: chrono::Utc::now(),
+            completion_time: jiff::Timestamp::now(),
         };
         std::fs::write(&result_file, serde_json::to_vec_pretty(&res).unwrap()).unwrap();
 

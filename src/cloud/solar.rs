@@ -29,8 +29,8 @@ impl Default for SpaceWeather {
             x_ray: "B1.0".to_string(),
             geomagnetic_field: "Quiet".to_string(),
             aurora_latitude: 67,
-            updated_utc: chrono::Utc::now()
-                .format("%Y-%m-%d %H:%M:%S UTC")
+            updated_utc: jiff::Timestamp::now()
+                .strftime("%Y-%m-%d %H:%M:%S UTC")
                 .to_string(),
         }
     }
@@ -143,8 +143,8 @@ impl SpaceWeatherClient {
             x_ray,
             geomagnetic_field,
             aurora_latitude: 65,
-            updated_utc: chrono::Utc::now()
-                .format("%Y-%m-%d %H:%M:%S UTC")
+            updated_utc: jiff::Timestamp::now()
+                .strftime("%Y-%m-%d %H:%M:%S UTC")
                 .to_string(),
         })
     }

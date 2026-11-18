@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Atomowa blokada współbieżności aktualizatora SPLogbook (M3-A)
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -25,7 +25,7 @@ pub struct UpdateLockRecord {
     pub pid: u32,
     pub process_start_identity: Option<String>,
     pub installation_identity: String,
-    pub creation_time: DateTime<Utc>,
+    pub creation_time: Timestamp,
     pub sanitized_executable_identity: String,
 }
 
@@ -42,7 +42,7 @@ impl UpdateLockRecord {
             pid: std::process::id(),
             process_start_identity: None,
             installation_identity,
-            creation_time: Utc::now(),
+            creation_time: Timestamp::now(),
             sanitized_executable_identity: exe_name,
         }
     }
@@ -263,6 +263,36 @@ pub fn evaluate_lock_status(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Contract: every updater JSON timestamp is a `jiff::Timestamp` written as RFC 3339 in
+    /// UTC with `Z`; fractional seconds appear only when they are non-zero.
+    #[test]
+    fn updater_timestamps_serialize_as_rfc3339_zulu_and_round_trip() {
+        let whole: Timestamp = "2026-11-18T08:01:02Z".parse().unwrap();
+        assert_eq!(
+            serde_json::to_string(&whole).unwrap(),
+            "\"2026-11-18T08:01:02Z\""
+        );
+        let fractional: Timestamp = "2026-11-18T08:01:02.123456789Z".parse().unwrap();
+        assert_eq!(
+            serde_json::to_string(&fractional).unwrap(),
+            "\"2026-11-18T08:01:02.123456789Z\""
+        );
+        // The PowerShell fallback writes `yyyy-MM-ddTHH:mm:ssZ`; an explicit `+00:00`
+        // offset is the same instant. Both must be read.
+        for input in ["\"2026-11-18T08:01:02Z\"", "\"2026-11-18T08:01:02+00:00\""] {
+            assert_eq!(serde_json::from_str::<Timestamp>(input).unwrap(), whole);
+        }
+        // Without an offset the value is not an instant and must be rejected.
+        assert!(serde_json::from_str::<Timestamp>("\"2026-11-18T08:01:02\"").is_err());
+
+        let mut record = UpdateLockRecord::new(UpdateAttemptId::generate(), "install".into());
+        record.creation_time = fractional;
+        let json = serde_json::to_value(&record).unwrap();
+        assert_eq!(json["creation_time"], "2026-11-18T08:01:02.123456789Z");
+        let back: UpdateLockRecord = serde_json::from_value(json).unwrap();
+        assert_eq!(back, record);
+    }
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::thread;
@@ -363,7 +393,7 @@ mod tests {
             pid: 999_999, // Fikcyjny martwy PID
             process_start_identity: None,
             installation_identity: "test_root".into(),
-            creation_time: Utc::now(),
+            creation_time: Timestamp::now(),
             sanitized_executable_identity: "SPLogbook".into(),
         };
         std::fs::write(&lock_file, serde_json::to_vec_pretty(&record).unwrap()).unwrap();
