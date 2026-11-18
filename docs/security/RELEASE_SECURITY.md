@@ -256,11 +256,20 @@ Konfiguracja potoku wydawniczego znajduje się w `.github/workflows/build-and-re
 6. **Bezpieczne usuwanie materiału klucza:**
    - Klucz prywatny dekodowany z sekretu Base64 do pliku `priv.key` przy umask `077` i prawach `600`.
    - Rejestracja powłokowej pułapki `trap 'rm -f priv.key' EXIT` zapewniającej usunięcie pliku nawet w przypadku awarii późniejszych poleceń.
-7. **Wsparcie dla trybu Dry-Run:**
-   - Workflow wspiera uruchomienie ręczne `workflow_dispatch` z parametrem `dry_run: true` (wartość domyślna).
-   - Krok `Create GitHub Release` (`softprops/action-gh-release@v2`) jest wykonywany wyłącznie wtedy, gdy:
+7. **Uruchomienie ręczne (`workflow_dispatch`) nie publikuje i nie podpisuje (`OWNER-CI-PUBLISH-01`, 2026-11-18):**
+   - Job `Publish Release Assets` ma warunek
+     `startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'`: wykonuje się
+     wyłącznie po wypchnięciu tagu `v*`.
+   - Każde `workflow_dispatch` (dowolna gałąź, dowolna wartość `dry_run`) pomija ten job. Krok
+     podpisu się nie wykonuje, więc sekret `RELEASE_SIGNING_KEY` / `SPLOGBOOK_31102026` nie jest
+     odczytywany.
+   - Joby budujące i weryfikujące (Windows, Linux, AppImage, DEB, RPM, Flatpak, macierz
+     dystrybucji, fixtures negatywne) nie mają job-level `if:`, więc ręczne uruchomienie nadal
+     waliduje kompilację, pakowanie i weryfikację.
+   - Krok `Create GitHub Release` zachowuje warunek
      `startsWith(github.ref, 'refs/tags/v') && github.event.inputs.dry_run != 'true'`.
-   - Umożliwia to pełną walidację kompilacji, pakowania, sum kontrolnych i podpisywania bez publikowania wydania.
+   - Wcześniej `workflow_dispatch` z `dry_run: true` uruchamiał job publikacji i podpisywał
+     manifest kluczem produkcyjnym bez tworzenia wydania (§9, zapis historyczny).
 
 ---
 
@@ -310,6 +319,10 @@ Po wdrożeniu Etapu 2 (REL-001 + CI-001):
 - Stan wydawniczy SPLogbook: **`RELEASE_PIPELINE_READY`**.
 
 ## 9. Potwierdzenie weryfikacji potoku w trybie dry-run
+
+> **Zapis historyczny.** Opisuje przebieg z 2026-11-01, gdy job `Publish Release Assets`
+> wykonywał się także przy `workflow_dispatch`. Od `OWNER-CI-PUBLISH-01` (2026-11-18) ręczne
+> uruchomienie pomija ten job i nie odczytuje sekretu podpisu (§7 pkt 7).
 
 W ramach końcowej bramki weryfikacyjnej Etapu 2 przeprowadzono rzeczywisty, pełny i natywny przebieg potoku wydawniczego na GitHub Actions:
 

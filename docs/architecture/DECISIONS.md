@@ -177,6 +177,7 @@ All decisions are **IMPLEMENTED** and verified by `tests/linux_flatpak_packaging
 | `OWNER-DEP-RUSTIX-01` | `rustix 1.1.5 → 1.1.6` (targeted) to remove `RUSTSEC-2026-0486` | IMPLEMENTED |
 | — | `quinn-proto 0.11.19` / `quinn-udp 0.5.16` to remove `RUSTSEC-2026-0523`, `-0524`, `-0538` | IMPLEMENTED |
 | — | `rusqlite 0.41.1` / `libsqlite3-sys 0.39.1` to remove `RUSTSEC-2026-0459` | IMPLEMENTED |
+| `OWNER-CI-PUBLISH-01` | `Publish Release Assets` runs only for a pushed `v*` tag: `if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'`. Every `workflow_dispatch` (any branch, any `dry_run`) skips it and never reads the signing secret; build and verification jobs keep no job-level `if:` and still run on dispatch. Supersedes the dispatch dry-run signing path of `docs/security/RELEASE_SECURITY.md` §9. Guard: `m3_f_f03_fail_closed_verification_guard` (release gating) in `tests/security_guard.rs` | IMPLEMENTED |
 
 ### 2.9 P0-F14 safety decisions
 

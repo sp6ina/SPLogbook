@@ -166,7 +166,7 @@ never proof of a distribution kernel, and `uname -r` inside a container is not n
 | Formatter and linter gates | `cargo fmt --check`, `cargo clippy -D warnings`; no `continue-on-error` |
 | Dependency audit | pinned `cargo-audit 0.22.2`, explicit advisory baseline, `--deny warnings` |
 | Secret scan | tracked key files and PEM private keys rejected before the build |
-| Release gating | `publish-release` requires a `v*` tag, a non-dry-run dispatch, and every verification job |
+| Release gating | `publish-release` runs only for a pushed `v*` tag (`startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'`, `OWNER-CI-PUBLISH-01`) and needs every verification job; every `workflow_dispatch` skips it and never reads the signing secret |
 | Artifact set | incomplete or duplicate artifact names abort the release job |
 | Signature checks | manifest signature, key fingerprint, and `SHA256SUMS.txt` self-verification |
 

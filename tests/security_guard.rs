@@ -5942,6 +5942,66 @@ fn m3_f_f03_fail_closed_verification_guard() {
         publish.contains("if: startsWith(github.ref, 'refs/tags/v')"),
         "Publish Release Assets musi być warunkowany tagiem v*"
     );
+    // OWNER-CI-PUBLISH-01: job-level warunek publikacji to dokładnie push tagu v*;
+    // workflow_dispatch (dowolna gałąź, dowolne dry_run) zawsze pomija publikację.
+    let publish_header = publish
+        .split("    steps:")
+        .next()
+        .expect("nagłówek joba publish-release");
+    let publish_conditions: Vec<&str> = publish_header
+        .lines()
+        .filter(|line| line.starts_with("    if:"))
+        .collect();
+    assert_eq!(
+        publish_conditions,
+        ["    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'"],
+        "Publish Release Assets musi mieć dokładnie warunek push tagu v* (OWNER-CI-PUBLISH-01)"
+    );
+    assert!(
+        !publish_conditions
+            .iter()
+            .any(|condition| condition.contains("workflow_dispatch")),
+        "warunek joba publish-release nie może dopuszczać workflow_dispatch"
+    );
+    // Joby budujące i weryfikujące nie mają job-level `if:`, więc wykonują się
+    // także przy workflow_dispatch.
+    let jobs = workflow.split("\njobs:\n").nth(1).expect("sekcja jobs");
+    let mut job_names: Vec<String> = Vec::new();
+    let mut in_job_header = false;
+    for line in jobs.lines() {
+        let is_job_line = line.starts_with("  ")
+            && !line.starts_with("   ")
+            && line.trim_end().ends_with(':')
+            && !line.trim_start().starts_with('#');
+        if is_job_line {
+            job_names.push(line.trim().trim_end_matches(':').to_string());
+            in_job_header = true;
+        } else if line.starts_with("    steps:") {
+            in_job_header = false;
+        } else if in_job_header && line.starts_with("    if:") {
+            let name = job_names.last().map_or("", String::as_str);
+            assert_eq!(
+                name, "publish-release",
+                "job `{name}` nie może mieć job-level `if:`; musi działać także przy workflow_dispatch"
+            );
+        }
+    }
+    for required in [
+        "build-linux",
+        "build-windows",
+        "build-deb",
+        "build-rpm",
+        "build-flatpak",
+        "verify-linux-matrix",
+        "verify-appimage-fuse",
+        "verify-flatpak",
+        "publish-release",
+    ] {
+        assert!(
+            job_names.iter().any(|name| name == required),
+            "sekcja jobs musi zawierać `{required}` (parser strażnika)"
+        );
+    }
     assert!(
         publish.contains(
             "startsWith(github.ref, 'refs/tags/v') && github.event.inputs.dry_run != 'true'"
