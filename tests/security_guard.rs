@@ -5746,7 +5746,8 @@ fn m3_f_f03_fail_closed_verification_guard() {
     let installer = fs::read_to_string("scripts/install_linux_runtime_deps.sh")
         .expect("scripts/install_linux_runtime_deps.sh");
     let workflow = fs::read_to_string(".github/workflows/build-and-release.yml")
-        .expect(".github/workflows/build-and-release.yml");
+        .expect(".github/workflows/build-and-release.yml")
+        .replace("\r\n", "\n");
 
     // 1. Rygorystyczny tryb powłoki i brak markera legacy.
     assert!(
@@ -6126,9 +6127,11 @@ fn m3_g_appimage_integration_guard() {
         "instalator musi czytać piny i ograniczać URL do https://github.com/AppImage/"
     );
     let pins = fs::read_to_string("installer/linux/appimage/toolchain-pins")
-        .expect("installer/linux/appimage/toolchain-pins");
+        .expect("installer/linux/appimage/toolchain-pins")
+        .replace("\r\n", "\n");
     let decisions = fs::read_to_string("docs/architecture/DECISIONS.md")
-        .expect("docs/architecture/DECISIONS.md");
+        .expect("docs/architecture/DECISIONS.md")
+        .replace("\r\n", "\n");
     let pinning_row = decisions
         .lines()
         .find(|line| line.starts_with("| `OWNER-M3-G-10`"))
@@ -11024,7 +11027,7 @@ fn chrono_replacement_rust_sources() -> Vec<(String, String)> {
 fn chrono_replacement_chrono_cannot_return() {
     // Built at run time so this guard does not match itself.
     let chrono = concat!("chr", "ono");
-    let manifest = p1_f20_read("Cargo.toml");
+    let manifest = p1_f20_read("Cargo.toml").replace("\r\n", "\n");
     for line in manifest.lines() {
         let key = line.split('=').next().unwrap_or_default().trim();
         assert_ne!(key, chrono, "chrono must not return to Cargo.toml");
@@ -11033,7 +11036,7 @@ fn chrono_replacement_chrono_cannot_return() {
             "chrono must not return as a feature or a renamed package: {line}"
         );
     }
-    let lock = p1_f20_read("Cargo.lock");
+    let lock = p1_f20_read("Cargo.lock").replace("\r\n", "\n");
     assert_eq!(
         chrono_replacement_lock_versions(&lock, chrono),
         Vec::<String>::new(),
@@ -11070,7 +11073,7 @@ fn chrono_replacement_rustsec_2026_0543_is_never_ignored() {
 
 #[test]
 fn chrono_replacement_jiff_has_a_single_1x_line() {
-    let manifest = p1_f20_read("Cargo.toml");
+    let manifest = p1_f20_read("Cargo.toml").replace("\r\n", "\n");
     assert!(
         manifest.contains("jiff = { version = \"1.0.1\", features = [\"serde\"] }"),
         "jiff 1.x with serde is the time crate"
@@ -11083,7 +11086,7 @@ fn chrono_replacement_jiff_has_a_single_1x_line() {
         env_logger.contains("default-features = false") && !env_logger.contains("humantime"),
         "env_logger `humantime` pulls jiff 0.2 and must stay off: {env_logger}"
     );
-    let lock = p1_f20_read("Cargo.lock");
+    let lock = p1_f20_read("Cargo.lock").replace("\r\n", "\n");
     let jiff = chrono_replacement_lock_versions(&lock, "jiff");
     assert_eq!(
         jiff.len(),
