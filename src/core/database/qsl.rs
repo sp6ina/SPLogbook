@@ -142,14 +142,35 @@ impl LogDatabase {
         journal_id: &str,
         qsos: &[crate::core::qso::QsoRecord],
     ) -> Result<usize> {
-        let records: Vec<QslConfirmationRecord<'_>> = qsos
+        let resolved: Vec<(&crate::core::qso::QsoRecord, Option<String>)> = qsos
             .iter()
-            .map(|q| QslConfirmationRecord {
+            .map(|q| {
+                let rdate = q
+                    .eqsl_qslrdate
+                    .as_deref()
+                    .and_then(crate::core::adif::adif_date_part)
+                    .or_else(|| {
+                        if q.eqsl_qsl_rcvd.trim().eq_ignore_ascii_case("Y")
+                            || q.qsl_rcvd.trim().eq_ignore_ascii_case("Y")
+                        {
+                            q.qsl_rcvd_date
+                                .as_deref()
+                                .and_then(crate::core::adif::adif_date_part)
+                        } else {
+                            None
+                        }
+                    });
+                (q, rdate)
+            })
+            .collect();
+        let records: Vec<QslConfirmationRecord<'_>> = resolved
+            .iter()
+            .map(|(q, rdate)| QslConfirmationRecord {
                 callsign: &q.callsign,
                 band: &q.band,
                 mode: &q.mode,
                 qso_date: &q.qso_date,
-                rdate: Some(q.eqsl_qslrdate.as_deref().unwrap_or(&q.qso_date)),
+                rdate: rdate.as_deref(),
             })
             .collect();
         self.mark_confirmed_batch(journal_id, QslChannel::Eqsl, &records)

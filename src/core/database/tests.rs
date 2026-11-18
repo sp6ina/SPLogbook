@@ -345,6 +345,68 @@ fn f20r4_lotw_confirmation_without_date_keeps_the_stored_date() {
 }
 
 #[test]
+fn eqsl_confirmation_without_date_never_uses_qso_date_and_keeps_stored_date() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let mut qso = QsoRecord::new("W1AW", "20m", "CW");
+    qso.qso_date = "20260920".to_string();
+    db.insert_qso(&qso).unwrap();
+
+    let incoming = |eqsl_rdate: Option<&str>, qsl_rcvd: &str, qsl_rdate: Option<&str>| {
+        let mut rec = QsoRecord::new("W1AW", "20m", "CW");
+        rec.qso_date = "20260920".to_string();
+        rec.eqsl_qsl_rcvd = "Y".to_string();
+        rec.eqsl_qslrdate = eqsl_rdate.map(str::to_string);
+        rec.qsl_rcvd = qsl_rcvd.to_string();
+        rec.qsl_rcvd_date = qsl_rdate.map(str::to_string);
+        rec
+    };
+    let stored = |db: &LogDatabase| {
+        let list = db.find_previous_qsos("W1AW").unwrap();
+        (list[0].eqsl_qsl_rcvd.clone(), list[0].eqsl_qslrdate.clone())
+    };
+
+    // Case 3: No date at all -> confirmed ("Y"), eqsl_qslrdate stays None (never fabricated from qso_date).
+    assert_eq!(
+        db.mark_eqsl_confirmed_batch_for_journal("DEFAULT", &[incoming(None, "N", None)])
+            .unwrap(),
+        1
+    );
+    assert_eq!(stored(&db), ("Y".to_string(), None));
+
+    // Case 2: QSLRDATE when QSL_RCVD=Y populates eqsl_qslrdate.
+    assert_eq!(
+        db.mark_eqsl_confirmed_batch_for_journal(
+            "DEFAULT",
+            &[incoming(None, "Y", Some("2026-09-21"))],
+        )
+        .unwrap(),
+        1
+    );
+    assert_eq!(stored(&db), ("Y".to_string(), Some("20260921".to_string())));
+
+    // Case 1: Explicit EQSL_QSLRDATE updates eqsl_qslrdate.
+    assert_eq!(
+        db.mark_eqsl_confirmed_batch_for_journal(
+            "DEFAULT",
+            &[incoming(Some("20260922"), "Y", Some("20260921"))],
+        )
+        .unwrap(),
+        1
+    );
+    assert_eq!(stored(&db), ("Y".to_string(), Some("20260922".to_string())));
+
+    // Case 4: Later report without a date (or invalid date) preserves stored date via COALESCE.
+    for rdate in [None, Some(""), Some("invalid")] {
+        assert_eq!(
+            db.mark_eqsl_confirmed_batch_for_journal("DEFAULT", &[incoming(rdate, "N", None)])
+                .unwrap(),
+            1
+        );
+        assert_eq!(stored(&db), ("Y".to_string(), Some("20260922".to_string())));
+    }
+}
+
+#[test]
 fn test_search_with_apostrophe() {
     let db = LogDatabase::open_in_memory().unwrap();
     let mut qso = QsoRecord::new("EI2O", "20m", "SSB");

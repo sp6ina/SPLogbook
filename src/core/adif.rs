@@ -766,7 +766,19 @@ impl AdifEngine {
         if let Some(q) = fields.remove("EQSL_QSL_RCVD") {
             qso.eqsl_qsl_rcvd = q;
         }
-        qso.eqsl_qslrdate = fields.remove("EQSL_QSLRDATE");
+        qso.eqsl_qslrdate = fields
+            .remove("EQSL_QSLRDATE")
+            .as_deref()
+            .and_then(adif_date_part)
+            .or_else(|| {
+                if qso.eqsl_qsl_rcvd.trim().eq_ignore_ascii_case("Y")
+                    || qso.qsl_rcvd.trim().eq_ignore_ascii_case("Y")
+                {
+                    qso.qsl_rcvd_date.as_deref().and_then(adif_date_part)
+                } else {
+                    None
+                }
+            });
         qso.eqsl_qslsdate = fields.remove("EQSL_QSLSDATE");
         qso.sat_name = fields.remove("SAT_NAME");
         qso.sat_mode = fields.remove("SAT_MODE");
@@ -1696,5 +1708,36 @@ mod tests {
             0,
             "kanoniczny eksport nie może generować żadnych compatibility warnings przy reimporcie!"
         );
+    }
+
+    #[test]
+    fn eqsl_qslrdate_resolution_follows_priority_without_qso_date_fallback() {
+        // Case 1: explicit EQSL_QSLRDATE wins over QSLRDATE
+        let adif_explicit = "<CALL:4>W1AW<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261001<TIME_ON:6>120000<QSL_RCVD:1>Y<QSLRDATE:8>20261018<EQSL_QSL_RCVD:1>Y<EQSL_QSLRDATE:8>20261019<EOR>";
+        let qsos = parse_adif(adif_explicit);
+        assert_eq!(qsos.len(), 1);
+        assert_eq!(qsos[0].eqsl_qslrdate.as_deref(), Some("20261019"));
+
+        // Case 2: fallback to QSLRDATE when EQSL_QSLRDATE is absent and QSL_RCVD=Y (or EQSL_QSL_RCVD=Y)
+        let adif_fallback_qsl_rcvd = "<CALL:4>W1AW<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261001<TIME_ON:6>120000<QSL_RCVD:1>y<QSLRDATE:10>2026-10-18<EOR>";
+        let qsos = parse_adif(adif_fallback_qsl_rcvd);
+        assert_eq!(qsos.len(), 1);
+        assert_eq!(qsos[0].eqsl_qslrdate.as_deref(), Some("20261018"));
+
+        let adif_fallback_eqsl_rcvd = "<CALL:4>W1AW<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261001<TIME_ON:6>120000<EQSL_QSL_RCVD:1>Y<QSLRDATE:8>20261017<EOR>";
+        let qsos = parse_adif(adif_fallback_eqsl_rcvd);
+        assert_eq!(qsos.len(), 1);
+        assert_eq!(qsos[0].eqsl_qslrdate.as_deref(), Some("20261017"));
+
+        // Case 3: missing received date or unconfirmed QSL_RCVD -> None (never fabricates QSO_DATE)
+        let adif_no_date = "<CALL:4>W1AW<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261001<TIME_ON:6>120000<EQSL_QSL_RCVD:1>Y<EOR>";
+        let qsos = parse_adif(adif_no_date);
+        assert_eq!(qsos.len(), 1);
+        assert_eq!(qsos[0].eqsl_qslrdate, None);
+
+        let adif_not_rcvd = "<CALL:4>W1AW<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261001<TIME_ON:6>120000<QSL_RCVD:1>N<QSLRDATE:8>20261018<EOR>";
+        let qsos = parse_adif(adif_not_rcvd);
+        assert_eq!(qsos.len(), 1);
+        assert_eq!(qsos[0].eqsl_qslrdate, None);
     }
 }
