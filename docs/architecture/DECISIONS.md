@@ -127,7 +127,9 @@ Consequences of the Linux support policy:
 | `OWNER-M3-G-01` | Authorization for the AppImage integration milestone | IMPLEMENTED |
 | `OWNER-M3-G-03-R1` | `appimagetool` = official `appimagetool` repository, channel `continuous`, commit `11d54c9acc7f246df1398050a4b880314ac76862`, SHA-256 `e8c1169c4af66c3184d7ee110713d4be04befe671fa358e2c1591ee840553b03` | IMPLEMENTED |
 | `OWNER-M3-G-04-R1` | Type-2 runtime = channel `continuous`, commit `fedfad51acc2860b2916a1eef32ba4a500ff31ef`, SHA-256 `617aa77314d57c8b8e4fae9c3f0b35af7b30d5529cb69e98f64f92510ed98a46`, passed via explicit `--runtime-file` | IMPLEMENTED |
-| `OWNER-M3-G-08`, `OWNER-M3-G-09` | Use the latest *verified* official builds; no fallback to an older tool release | IMPLEMENTED |
+| `OWNER-M3-G-08` | Use the latest *verified* official builds (resolved dynamically through the GitHub REST API) | **SUPERSEDED** 2026-11-18 by `OWNER-M3-G-10` |
+| `OWNER-M3-G-09` | No fallback to an older tool release (appimagetool 1.9.1 stays forbidden) | IMPLEMENTED |
+| `OWNER-M3-G-10` | Static pin, no REST API, no cache (`STAGE-CI-APPIMAGE-TOOLCHAIN-PINNING`). The pins live in `installer/linux/appimage/toolchain-pins` and keep the builds of `-03-R1` / `-04-R1`. appimagetool: size `15133176`, SHA-256 `e8c1169c4af66c3184d7ee110713d4be04befe671fa358e2c1591ee840553b03`, URL `https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage`. Runtime: size `944632`, SHA-256 `617aa77314d57c8b8e4fae9c3f0b35af7b30d5529cb69e98f64f92510ed98a46`, URL `https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64`. Each asset is downloaded directly and must match the exact size and SHA-256 (fail closed, `PIN_STALE` when upstream replaced the `continuous` asset); a new pin needs a new owner decision | IMPLEMENTED |
 
 ### 2.6 DEB package contract (M3-H)
 

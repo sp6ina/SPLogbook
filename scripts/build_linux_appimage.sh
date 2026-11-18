@@ -14,7 +14,8 @@
 #     against EXPECTED_BUILD_COMMIT (the CI commit under test);
 #   * the AppDir follows the approved M3-G layout (no symlinks, no AppStream,
 #     only libhamlib.so.4 bundled);
-#   * appimagetool is the pinned, verified continuous build and receives the
+#   * appimagetool is the statically pinned, verified continuous build
+#     (installer/linux/appimage/toolchain-pins, OWNER-M3-G-10) and receives the
 #     pinned type-2 runtime explicitly through --runtime-file;
 #   * no update information, no signing, no publication, no tag;
 #   * a deterministic `.sha256` sidecar is produced next to the AppImage.
@@ -35,6 +36,7 @@ Usage: scripts/build_linux_appimage.sh <portable.tar.gz> [output_dir]
 
 Environment:
   APPIMAGE_TOOLCHAIN_DIR   directory with the pinned appimagetool + runtime
+                           (written by scripts/install_appimage_toolchain.sh)
                            (default: <repo>/dist/appimage-toolchain)
   EXPECTED_BUILD_COMMIT    required commit under test (CI); when set, the
                            portable marker must match it
@@ -326,7 +328,7 @@ fi
 log "[OK] AppDir structure, permissions, marker and desktop contract verified"
 
 # --------------------------------------------------------------------------
-# 6. Build the AppImage with the pinned continuous appimagetool.
+# 6. Build the AppImage with the statically pinned appimagetool.
 # --------------------------------------------------------------------------
 APPIMAGE_PATH="${OUTPUT_DIR}/${APPIMAGE_FILENAME}"
 rm -f "${APPIMAGE_PATH}" "${APPIMAGE_PATH}.sha256"

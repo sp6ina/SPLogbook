@@ -368,82 +368,191 @@ fn verifier_is_fail_closed_and_success_is_last() {
     );
 }
 
+/// Pins of one artifact read from `installer/linux/appimage/toolchain-pins`.
+fn toolchain_pins(pins: &str, artifact: &str) -> std::collections::BTreeMap<String, String> {
+    let prefix = format!("{artifact}.");
+    pins.lines()
+        .filter(|line| !line.trim().is_empty() && !line.starts_with('#'))
+        .filter_map(|line| line.split_once('='))
+        .filter_map(|(key, value)| {
+            key.strip_prefix(&prefix)
+                .map(|field| (field.to_string(), value.to_string()))
+        })
+        .collect()
+}
+
 #[test]
 fn toolchain_resolution_is_official_verified_and_pinned() {
     let script = read("scripts/install_appimage_toolchain.sh");
+    let pins = read("installer/linux/appimage/toolchain-pins");
+    let decisions = read("docs/architecture/DECISIONS.md");
 
-    assert!(
-        script.contains("APPIMAGETOOL_REPO=\"AppImage/appimagetool\""),
-        "appimagetool must come from the official AppImage/appimagetool repository"
-    );
-    assert!(
-        script.contains("APPIMAGETOOL_TAG=\"continuous\""),
-        "the continuous channel must be resolved explicitly"
-    );
-    assert!(
-        script.contains("APPIMAGETOOL_ASSET=\"appimagetool-x86_64.AppImage\""),
-        "the x86_64 asset must be selected explicitly"
-    );
-    assert!(
-        script.contains("releases/tags/${APPIMAGETOOL_TAG}"),
-        "the release metadata must be read from the official tag endpoint"
-    );
-    assert!(
-        script.contains("RUNTIME_REPO=\"AppImage/type2-runtime\""),
-        "the type-2 runtime must come from the official repository"
-    );
-
+    // Static pins only: no REST API, no moving "latest", no token, no cache.
+    for forbidden in [
+        "api.github.com",
+        "releases/latest",
+        "releases/tags/",
+        "Authorization",
+        "GITHUB_TOKEN",
+        "actions/cache",
+    ] {
+        assert!(
+            !script.contains(forbidden),
+            "the installer must not use `{forbidden}`: the toolchain is statically pinned"
+        );
+    }
+    for required in [
+        "PINS_FILE=\"${REPO_ROOT}/installer/linux/appimage/toolchain-pins\"",
+        "PINS_FORMAT=\"splogbook-appimage-toolchain-pins/1\"",
+        "OFFICIAL_URL_PREFIX=\"https://github.com/AppImage/\"",
+        "APPIMAGETOOL_REPO=\"AppImage/appimagetool\"",
+        "APPIMAGETOOL_ASSET=\"appimagetool-x86_64.AppImage\"",
+        "RUNTIME_REPO=\"AppImage/type2-runtime\"",
+        "RUNTIME_ASSET=\"runtime-x86_64\"",
+        "PINNED_CHANNEL=\"continuous\"",
+        "--proto '=https' --proto-redir '=https'",
+        "--write-out '%{http_code}'",
+    ] {
+        assert!(
+            script.contains(required),
+            "the installer must contain `{required}`"
+        );
+    }
     for code in [
-        "TOOL_CHECKSUM_MISMATCH",
-        "DIGEST_UNAVAILABLE",
-        "AMBIGUOUS_TOOL_ASSET",
-        "UNSUPPORTED_",
-        "CONTINUOUS_RELEASE_RACE",
+        "PINS_MISSING",
+        "PINS_INVALID",
+        "PINS_UNTRUSTED_URL",
+        "_DOWNLOAD_FAILED",
+        "_SIZE_MISMATCH",
+        "_CHECKSUM_MISMATCH",
+        "PIN_STALE",
     ] {
         assert!(
             script.contains(code),
-            "the resolver must fail closed with {code}"
+            "the installer must fail closed with {code}"
         );
     }
 
-    assert!(
-        !script.contains("AppImageKit")
-            || !executable_lines(&script).any(|line| line.contains("AppImageKit")),
-        "the resolver must never use the legacy AppImageKit repository"
-    );
-    assert!(
-        !executable_lines(&script).any(|line| line.contains("1.9.1")),
-        "the resolver must never fall back to appimagetool 1.9.1"
-    );
-    assert!(
-        !script.contains("http://"),
-        "the resolver must only use HTTPS"
-    );
-    for untrusted in ["mirror.", "cdn.", "objects.githubusercontent.com"] {
-        assert!(
-            !script.contains(untrusted),
-            "the resolver must not use the untrusted host marker {untrusted}"
-        );
-    }
-
+    // Size, then SHA-256, then the success value; the file is moved into place and made
+    // executable only after download_and_verify returned.
+    let size_at = script
+        .find("blocked 22 \"${kind}_SIZE_MISMATCH\"")
+        .expect("size mismatch must stop the installer");
+    let sha_at = script
+        .find("blocked 23 \"${kind}_CHECKSUM_MISMATCH\"")
+        .expect("SHA-256 mismatch must stop the installer");
+    let success_at = script
+        .find("printf '%s' \"${actual_sha}\"")
+        .expect("download_and_verify must return the verified SHA-256");
+    assert!(size_at < sha_at && sha_at < success_at);
     let download_at = script
-        .find("TOOL_LOCAL_SHA256=\"$(download_and_verify")
+        .find("TOOL_LOCAL_SHA256=\"$(download_and_verify TOOL")
         .expect("the tool must be downloaded and verified");
+    let move_at = script
+        .find("mv -f \"${TOOL_PARTIAL}\" \"${TOOL_PATH}\"")
+        .expect("the verified tool must be moved into place");
     let chmod_at = script
         .find("chmod 0755 \"${TOOL_PATH}\"")
         .expect("the executable bit must be applied explicitly");
     assert!(
-        download_at < chmod_at,
-        "the executable bit must be applied only after SHA-256 verification"
+        download_at < move_at && move_at < chmod_at,
+        "the tool must be verified before it is moved into place and made executable"
+    );
+    assert!(
+        script.contains("mktemp -d \"${OUTPUT_DIR}/.download_XXXXXX\""),
+        "downloads must land in a private work directory first"
     );
 
-    let recheck_at = script
-        .find("assert_release_unchanged \"${TOOL_JSON_RECHECK}\"")
-        .expect("the resolver must re-check the release for a continuous race");
     assert!(
-        recheck_at > download_at,
-        "the release race check must happen after the download"
+        !executable_lines(&script).any(|line| line.contains("AppImageKit")),
+        "the installer must never use the legacy AppImageKit repository"
     );
+    assert!(
+        !executable_lines(&script).any(|line| line.contains("1.9.1")),
+        "the installer must never fall back to appimagetool 1.9.1"
+    );
+    assert!(
+        !script.contains("http://"),
+        "the installer must only use HTTPS"
+    );
+    for untrusted in ["mirror.", "cdn.", "objects.githubusercontent.com"] {
+        assert!(
+            !script.contains(untrusted),
+            "the installer must not use the untrusted host marker {untrusted}"
+        );
+    }
+
+    // The committed pins are complete, official and match the owner decisions.
+    assert!(
+        pins.lines()
+            .any(|line| line == "format=splogbook-appimage-toolchain-pins/1"),
+        "the pins file must declare its format"
+    );
+    for (artifact, repo, asset, decision) in [
+        (
+            "appimagetool",
+            "AppImage/appimagetool",
+            "appimagetool-x86_64.AppImage",
+            "OWNER-M3-G-03-R1",
+        ),
+        (
+            "runtime",
+            "AppImage/type2-runtime",
+            "runtime-x86_64",
+            "OWNER-M3-G-04-R1",
+        ),
+    ] {
+        let pin = toolchain_pins(&pins, artifact);
+        let keys: Vec<&str> = pin.keys().map(String::as_str).collect();
+        assert_eq!(
+            keys,
+            [
+                "asset", "channel", "commit", "repo", "sha256", "size", "url"
+            ],
+            "{artifact}: exactly the seven pin fields"
+        );
+        assert_eq!(pin["repo"], repo);
+        assert_eq!(pin["channel"], "continuous");
+        assert_eq!(pin["asset"], asset);
+        assert_eq!(
+            pin["url"],
+            format!("https://github.com/{repo}/releases/download/continuous/{asset}"),
+            "{artifact}: only the official release URL"
+        );
+        assert!(
+            pin["commit"].len() == 40
+                && pin["commit"]
+                    .chars()
+                    .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+        );
+        assert!(
+            pin["sha256"].len() == 64
+                && pin["sha256"]
+                    .chars()
+                    .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+        );
+        assert!(pin["size"].parse::<u64>().is_ok_and(|size| size > 0));
+        let row = decisions
+            .lines()
+            .find(|line| line.starts_with(&format!("| `{decision}`")))
+            .unwrap_or_else(|| panic!("DECISIONS.md must record {decision}"));
+        for field in ["commit", "sha256"] {
+            assert!(
+                row.contains(&pin[field]),
+                "{artifact}.{field} must equal the value approved in {decision}"
+            );
+        }
+        let pinning = decisions
+            .lines()
+            .find(|line| line.starts_with("| `OWNER-M3-G-10`"))
+            .expect("DECISIONS.md must record OWNER-M3-G-10");
+        for field in ["sha256", "size", "url"] {
+            assert!(
+                pinning.contains(&pin[field]),
+                "{artifact}.{field} must equal the value pinned by OWNER-M3-G-10"
+            );
+        }
+    }
 }
 
 #[test]

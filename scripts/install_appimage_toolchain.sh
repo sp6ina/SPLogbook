@@ -2,317 +2,249 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 #
-# STAGE-M3-G: resolve, verify and pin the official AppImage toolchain.
+# STAGE-CI-APPIMAGE-TOOLCHAIN-PINNING: download and verify the statically pinned official
+# AppImage toolchain (appimagetool + type-2 runtime).
 #
-# Contract (OWNER-M3-G-03-R1 / -04-R1 / -08 / -09):
-#   1. resolve the LATEST official continuous build of AppImage/appimagetool;
-#   2. verify provenance (official GitHub repository, official download URL);
-#   3. record the source commit, release id, publication time, asset name and size;
-#   4. read the published SHA-256 digest;
-#   5. download the exact asset and compute the local SHA-256;
-#   6. REQUIRE both digests to match (fail closed on any mismatch);
-#   7. set the executable bit only AFTER verification;
-#   8. resolve and verify the latest official type-2 runtime the same way;
-#   9. write deterministic audit metadata for the whole gate;
-#  10. never use mirrors, never use `curl | sh`, never fall back to appimagetool 1.9.1;
-#  11. never commit the downloaded tool or runtime.
+# Contract (OWNER-M3-G-03-R1 / -04-R1 / -09 / -10):
+#   1. read the pins from installer/linux/appimage/toolchain-pins and validate the file
+#      (format tag, known keys only, no duplicates, hex commit/SHA-256, positive size,
+#      official URL https://github.com/AppImage/<repo>/releases/download/<channel>/<asset>);
+#   2. never query the GitHub REST API: no rate limit, no moving "latest" resolution;
+#   3. download each asset directly from its official release URL, HTTPS only, no mirror,
+#      no cache;
+#   4. on an HTTP or transport error, log the HTTP status code and stop with
+#      <KIND>_DOWNLOAD_FAILED (a 404 means the pinned continuous asset is gone: PIN_STALE);
+#   5. verify the exact byte size (<KIND>_SIZE_MISMATCH) and SHA-256
+#      (<KIND>_CHECKSUM_MISMATCH) inside a private work directory, fail closed; a mismatch
+#      usually means upstream replaced the continuous asset (PIN_STALE);
+#   6. only after both checks move the file into place, then set its mode
+#      (0755 for appimagetool, 0644 for the runtime);
+#   7. write appimage-toolchain.json in the format read by build_linux_appimage.sh and the
+#      verification jobs;
+#   8. never use `curl | sh`, never fall back to appimagetool 1.9.1;
+#   9. never commit the downloaded tool or runtime.
 #
-# Exit codes of the embedded resolver:
-#   10 digest unavailable | 11 ambiguous asset | 12 unsupported digest
-#   13 provenance mismatch | 14 asset missing
+# Usage
+#   bash scripts/install_appimage_toolchain.sh               # download, verify, write metadata
+#   bash scripts/install_appimage_toolchain.sh --pins-only   # validate the pins file, no network
+#
+# Exit codes
+#   20 pins file missing or invalid | 21 download failed (HTTP/transport)
+#   22 size mismatch | 23 SHA-256 mismatch | 24 required host tool missing
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
+PINS_FILE="${REPO_ROOT}/installer/linux/appimage/toolchain-pins"
+PINS_FORMAT="splogbook-appimage-toolchain-pins/1"
+OFFICIAL_URL_PREFIX="https://github.com/AppImage/"
 APPIMAGETOOL_REPO="AppImage/appimagetool"
-APPIMAGETOOL_TAG="continuous"
 APPIMAGETOOL_ASSET="appimagetool-x86_64.AppImage"
 RUNTIME_REPO="AppImage/type2-runtime"
-RUNTIME_TAG="latest"
 RUNTIME_ASSET="runtime-x86_64"
-GITHUB_API="https://api.github.com"
-USER_AGENT="SPLogbook-M3G/1.0"
+PINNED_CHANNEL="continuous"
+USER_AGENT="SPLogbook-AppImage-Toolchain/2.0"
+
+log() { printf '%s\n' "$*"; }
+blocked() {
+    # blocked <exit code> <reason> <message>
+    printf 'BLOCKED_%s: %s\n' "$2" "$3" >&2
+    exit "$1"
+}
+
+mode="install"
+for argument in "$@"; do
+    case "${argument}" in
+        --pins-only) mode="pins-only" ;;
+        *) blocked 20 "USAGE" "unknown argument: ${argument}" ;;
+    esac
+done
+
+# --------------------------------------------------------------------------
+# 1. Read and validate the static pins.
+# --------------------------------------------------------------------------
+[[ -f "${PINS_FILE}" ]] || blocked 20 "PINS_MISSING" "missing ${PINS_FILE}"
+
+declare -A PIN=()
+line_number=0
+while IFS= read -r line || [[ -n "${line}" ]]; do
+    line_number=$((line_number + 1))
+    line="${line%$'\r'}"
+    [[ -z "${line}" || "${line}" == \#* ]] && continue
+    if [[ ! "${line}" =~ ^([a-z0-9_.]+)=([^[:space:]]+)$ ]]; then
+        blocked 20 "PINS_INVALID" "line ${line_number} is not <key>=<value>"
+    fi
+    key="${BASH_REMATCH[1]}"
+    value="${BASH_REMATCH[2]}"
+    case "${key}" in
+        format) ;;
+        appimagetool.repo | appimagetool.channel | appimagetool.commit | appimagetool.asset) ;;
+        appimagetool.size | appimagetool.sha256 | appimagetool.url) ;;
+        runtime.repo | runtime.channel | runtime.commit | runtime.asset) ;;
+        runtime.size | runtime.sha256 | runtime.url) ;;
+        *) blocked 20 "PINS_INVALID" "unknown key ${key} on line ${line_number}" ;;
+    esac
+    if [[ -n "${PIN[${key}]+set}" ]]; then
+        blocked 20 "PINS_INVALID" "duplicate key ${key} on line ${line_number}"
+    fi
+    PIN["${key}"]="${value}"
+done < "${PINS_FILE}"
+
+[[ "${PIN[format]:-}" == "${PINS_FORMAT}" ]] \
+    || blocked 20 "PINS_INVALID" "format must be ${PINS_FORMAT}"
+
+validate_pins() {
+    # validate_pins <artifact> <expected repo> <expected asset>
+    local artifact="$1" expected_repo="$2" expected_asset="$3" field
+    for field in repo channel commit asset size sha256 url; do
+        [[ -n "${PIN[${artifact}.${field}]:-}" ]] \
+            || blocked 20 "PINS_INVALID" "missing ${artifact}.${field}"
+    done
+    local repo="${PIN[${artifact}.repo]}" channel="${PIN[${artifact}.channel]}"
+    local asset="${PIN[${artifact}.asset]}" url="${PIN[${artifact}.url]}"
+    [[ "${repo}" == "${expected_repo}" ]] \
+        || blocked 20 "PINS_INVALID" "${artifact}.repo must be ${expected_repo}"
+    [[ "${channel}" == "${PINNED_CHANNEL}" ]] \
+        || blocked 20 "PINS_INVALID" "${artifact}.channel must be ${PINNED_CHANNEL}"
+    [[ "${asset}" == "${expected_asset}" ]] \
+        || blocked 20 "PINS_INVALID" "${artifact}.asset must be ${expected_asset}"
+    [[ "${PIN[${artifact}.commit]}" =~ ^[0-9a-f]{40}$ ]] \
+        || blocked 20 "PINS_INVALID" "${artifact}.commit must be a 40-character lowercase hex commit"
+    [[ "${PIN[${artifact}.size]}" =~ ^[1-9][0-9]{0,11}$ ]] \
+        || blocked 20 "PINS_INVALID" "${artifact}.size must be a positive byte count"
+    [[ "${PIN[${artifact}.sha256]}" =~ ^[0-9a-f]{64}$ ]] \
+        || blocked 20 "PINS_INVALID" "${artifact}.sha256 must be 64 lowercase hex characters"
+    [[ "${url}" == "${OFFICIAL_URL_PREFIX}"* ]] \
+        || blocked 20 "PINS_UNTRUSTED_URL" "${artifact}.url must start with ${OFFICIAL_URL_PREFIX}"
+    [[ "${url}" == "https://github.com/${repo}/releases/download/${channel}/${asset}" ]] \
+        || blocked 20 "PINS_UNTRUSTED_URL" "${artifact}.url is not the official release URL of ${asset}"
+}
+
+validate_pins appimagetool "${APPIMAGETOOL_REPO}" "${APPIMAGETOOL_ASSET}"
+validate_pins runtime "${RUNTIME_REPO}" "${RUNTIME_ASSET}"
+
+TOOL_COMMIT="${PIN[appimagetool.commit]}"
+TOOL_SIZE="${PIN[appimagetool.size]}"
+TOOL_SHA256="${PIN[appimagetool.sha256]}"
+TOOL_URL="${PIN[appimagetool.url]}"
+RUNTIME_COMMIT="${PIN[runtime.commit]}"
+RUNTIME_SIZE="${PIN[runtime.size]}"
+RUNTIME_SHA256="${PIN[runtime.sha256]}"
+RUNTIME_URL="${PIN[runtime.url]}"
+
+log "=================================================================="
+log "SPLogbook AppImage toolchain (static pins, no REST API)"
+log "pins:         ${PINS_FILE#"${REPO_ROOT}/"}"
+log "appimagetool: ${APPIMAGETOOL_REPO}@${PINNED_CHANNEL} ${TOOL_COMMIT}"
+log "runtime:      ${RUNTIME_REPO}@${PINNED_CHANNEL} ${RUNTIME_COMMIT}"
+log "=================================================================="
+
+if [[ "${mode}" == "pins-only" ]]; then
+    log "PINS_VALID=true"
+    exit 0
+fi
+
+for required in curl sha256sum python3 mktemp; do
+    command -v "${required}" >/dev/null 2>&1 \
+        || blocked 24 "HOST_TOOL_MISSING" "${required} is required"
+done
 
 OUTPUT_DIR="${APPIMAGE_TOOLCHAIN_DIR:-${REPO_ROOT}/dist/appimage-toolchain}"
 mkdir -p "${OUTPUT_DIR}"
 OUTPUT_DIR="$(cd "${OUTPUT_DIR}" && pwd)"
-
 METADATA_JSON="${OUTPUT_DIR}/appimage-toolchain.json"
-WORK_DIR="$(mktemp -d "${OUTPUT_DIR}/.resolve_XXXXXX")"
+TOOL_PATH="${OUTPUT_DIR}/${APPIMAGETOOL_ASSET}"
+RUNTIME_PATH="${OUTPUT_DIR}/${RUNTIME_ASSET}"
+
+# A leftover from an earlier run is never trusted: only files verified now are kept.
+rm -f "${TOOL_PATH}" "${RUNTIME_PATH}" "${METADATA_JSON}"
+
+WORK_DIR="$(mktemp -d "${OUTPUT_DIR}/.download_XXXXXX")"
 trap 'rm -rf "${WORK_DIR}"' EXIT
-
-log() { printf '%s\n' "$*"; }
-blocked() {
-    printf 'BLOCKED_%s: %s\n' "$1" "$2" >&2
-    exit 1
-}
-
-log "=================================================================="
-log "SPLogbook AppImage toolchain resolver (STAGE-M3-G)"
-log "appimagetool: ${APPIMAGETOOL_REPO}@${APPIMAGETOOL_TAG}"
-log "runtime:      ${RUNTIME_REPO}@${RUNTIME_TAG}"
-log "output:       ${OUTPUT_DIR}"
-log "=================================================================="
 
 if [[ "${EUID}" -eq 0 ]]; then
     log "[WARN] running as root; the toolchain directory must stay outside the repository tree"
 fi
 
 # --------------------------------------------------------------------------
-# Official metadata fetch (HTTPS only, official API host only).
+# 2. Direct download into the private work directory, then size + SHA-256 checks.
+#    Prints the verified local SHA-256 on stdout; all diagnostics go to stderr.
 # --------------------------------------------------------------------------
-fetch_release_json() {
-    local url="$1" out="$2"
-    curl --fail --silent --show-error --location --retry 3 --retry-delay 2 \
-        --proto '=https' --tlsv1.2 --max-time 120 \
-        -H "Accept: application/vnd.github+json" \
-        -H "User-Agent: ${USER_AGENT}" \
-        "${url}" -o "${out}"
-}
-
-# --------------------------------------------------------------------------
-# Validate metadata and emit KEY=VALUE records.
-# --------------------------------------------------------------------------
-resolve_release() {
-    local repo="$1" tag="$2" asset="$3" json="$4" kind="$5" py_out rc
+download_and_verify() {
+    # download_and_verify <KIND> <url> <expected size> <expected sha256> <partial path>
+    local kind="$1" url="$2" expected_size="$3" expected_sha="$4" partial="$5"
+    local status rc actual_size actual_sha
     set +e
-    py_out="$(python3 - "${repo}" "${tag}" "${asset}" "${json}" "${kind}" <<'PY'
-import json
-import sys
-from urllib.parse import urlparse
-
-repo, tag, asset_name, path, kind = sys.argv[1:6]
-
-
-def die(code, message):
-    print(f"ERROR[{kind}]: {message}", file=sys.stderr)
-    raise SystemExit(code)
-
-
-with open(path, encoding="utf-8") as handle:
-    release = json.load(handle)
-
-if release.get("draft") or release.get("prerelease"):
-    die(13, "release is draft or prerelease")
-release_tag = release.get("tag_name")
-if tag != "latest" and release_tag != tag:
-    die(13, f"unexpected release tag {release_tag!r}")
-assets = [a for a in release.get("assets", []) if a.get("name") == asset_name]
-if len(assets) != 1:
-    die(11 if len(assets) > 1 else 14, f"expected exactly one asset {asset_name!r}, found {len(assets)}")
-asset = assets[0]
-size = asset.get("size")
-digest = asset.get("digest")
-if not digest:
-    die(10, f"asset {asset_name!r} has no published digest")
-algorithm, _, hexdigest = digest.partition(":")
-if algorithm != "sha256" or len(hexdigest) != 64 or any(c not in "0123456789abcdef" for c in hexdigest):
-    die(12, f"unsupported or malformed digest {digest!r}")
-url = asset.get("browser_download_url", "")
-parsed = urlparse(url)
-expected_prefix = f"/{repo}/releases/download/{release_tag}/"
-if parsed.scheme != "https" or parsed.netloc != "github.com" or not parsed.path.startswith(expected_prefix):
-    die(13, f"untrusted asset download URL {url!r}")
-if not isinstance(size, int) or size <= 0:
-    die(13, "asset size is missing or invalid")
-commit = release.get("target_commitish")
-if not isinstance(commit, str) or len(commit) < 7:
-    die(13, "release source commit is missing")
-
-print(f"RELEASE_ID={release.get('id')}")
-print(f"RELEASE_TAG={release_tag}")
-print(f"RELEASE_COMMIT={commit}")
-print(f"RELEASE_PUBLISHED={release.get('published_at')}")
-print(f"ASSET_NAME={asset_name}")
-print(f"ASSET_SIZE={size}")
-print(f"ASSET_SHA256={hexdigest}")
-print(f"ASSET_URL={url}")
-PY
-)"
+    status="$(curl --silent --show-error --location --retry 3 --retry-delay 2 \
+        --proto '=https' --proto-redir '=https' --tlsv1.2 --max-time 600 \
+        -H "User-Agent: ${USER_AGENT}" \
+        --output "${partial}" --write-out '%{http_code}' "${url}")"
     rc=$?
     set -e
-    case "${rc}" in
-        0) ;;
-        10) blocked "${kind}_DIGEST_UNAVAILABLE" "official release metadata publishes no SHA-256 digest" ;;
-        11)
-            if [[ "${kind}" == "TOOL" ]]; then
-                blocked "AMBIGUOUS_TOOL_ASSET" "more than one asset matches ${asset}"
-            else
-                blocked "AMBIGUOUS_RUNTIME_ASSET" "more than one asset matches ${asset}"
-            fi
-            ;;
-        12) blocked "UNSUPPORTED_${kind}_DIGEST" "published digest is not a supported SHA-256 value" ;;
-        13) blocked "${kind}_PROVENANCE_MISMATCH" "official provenance validation failed" ;;
-        14) blocked "${kind}_ASSET_MISSING" "official asset ${asset} is missing" ;;
-        *) blocked "${kind}_RESOLUTION_FAILED" "metadata resolver failed with exit code ${rc}" ;;
-    esac
-    printf '%s\n' "${py_out}"
-}
-
-assign_release_fields() {
-    local payload="$1"
-    while IFS='=' read -r key value; do
-        value="${value%$'\r'}"
-        case "${key}" in
-            RELEASE_ID) RESOLVED_RELEASE_ID="${value}" ;;
-            RELEASE_TAG) RESOLVED_TAG="${value}" ;;
-            RELEASE_COMMIT) RESOLVED_COMMIT="${value}" ;;
-            RELEASE_PUBLISHED) RESOLVED_PUBLISHED="${value}" ;;
-            ASSET_NAME) RESOLVED_ASSET_NAME="${value}" ;;
-            ASSET_SIZE) RESOLVED_ASSET_SIZE="${value}" ;;
-            ASSET_SHA256) RESOLVED_SHA256="${value}" ;;
-            ASSET_URL) RESOLVED_URL="${value}" ;;
-            '') ;;
-            *) blocked "MALFORMED_METADATA" "unexpected resolver record: ${key}" ;;
-        esac
-    done <<< "${payload}"
-    for required in RESOLVED_RELEASE_ID RESOLVED_TAG RESOLVED_COMMIT RESOLVED_PUBLISHED \
-        RESOLVED_ASSET_NAME RESOLVED_ASSET_SIZE RESOLVED_SHA256 RESOLVED_URL; do
-        if [[ -z "${!required:-}" ]]; then
-            blocked "MALFORMED_METADATA" "resolver did not return ${required}"
+    printf '%s_HTTP_STATUS=%s\n' "${kind}" "${status:-none}" >&2
+    if [[ "${rc}" -ne 0 || "${status}" != "200" ]]; then
+        rm -f "${partial}"
+        if [[ "${status}" == "404" || "${status}" == "410" ]]; then
+            blocked 21 "${kind}_DOWNLOAD_FAILED" \
+                "HTTP ${status} for ${url}; the pinned continuous asset is gone upstream (PIN_STALE): a new pin needs an owner decision"
         fi
-    done
-}
-
-download_and_verify() {
-    local url="$1" destination="$2" expected_size="$3" expected_sha="$4" kind="$5"
-    local actual_size actual_sha
-    curl --fail --silent --show-error --location --retry 3 --retry-delay 2 \
-        --proto '=https' --tlsv1.2 --max-time 600 \
-        -H "User-Agent: ${USER_AGENT}" \
-        "${url}" -o "${destination}.partial"
-    actual_size="$(wc -c < "${destination}.partial" | tr -d ' ')"
+        blocked 21 "${kind}_DOWNLOAD_FAILED" "HTTP ${status:-none}, curl exit ${rc} for ${url}"
+    fi
+    actual_size="$(wc -c < "${partial}" | tr -d ' ')"
     if [[ "${actual_size}" != "${expected_size}" ]]; then
-        rm -f "${destination}.partial"
-        blocked "${kind}_SIZE_MISMATCH" "downloaded size ${actual_size} != published size ${expected_size}"
+        rm -f "${partial}"
+        blocked 22 "${kind}_SIZE_MISMATCH" \
+            "downloaded ${actual_size} bytes, pinned ${expected_size}; upstream may have replaced the continuous asset (PIN_STALE)"
     fi
-    actual_sha="$(sha256sum "${destination}.partial" | awk '{print $1}')"
+    actual_sha="$(sha256sum "${partial}" | awk '{print $1}')"
     if [[ "${actual_sha}" != "${expected_sha}" ]]; then
-        rm -f "${destination}.partial"
-        if [[ "${kind}" == "TOOL" ]]; then
-            blocked "TOOL_CHECKSUM_MISMATCH" "local SHA-256 ${actual_sha} != published ${expected_sha}"
-        else
-            blocked "RUNTIME_CHECKSUM_MISMATCH" "local SHA-256 ${actual_sha} != published ${expected_sha}"
-        fi
+        rm -f "${partial}"
+        blocked 23 "${kind}_CHECKSUM_MISMATCH" \
+            "local SHA-256 ${actual_sha} != pinned ${expected_sha}; upstream may have replaced the continuous asset (PIN_STALE)"
     fi
-    # The executable bit is applied only after a successful digest comparison.
-    mv "${destination}.partial" "${destination}"
     printf '%s' "${actual_sha}"
 }
 
-assert_release_unchanged() {
-    local json="$1" expected_id="$2" expected_commit="$3" expected_sha="$4" expected_size="$5" kind="$6"
-    local payload
-    payload="$(resolve_release "$7" "${8}" "${9}" "${json}" "${kind}")"
-    assign_release_fields "${payload}"
-    if [[ "${RESOLVED_RELEASE_ID}" != "${expected_id}" ]] \
-        || [[ "${RESOLVED_COMMIT}" != "${expected_commit}" ]] \
-        || [[ "${RESOLVED_SHA256}" != "${expected_sha}" ]] \
-        || [[ "${RESOLVED_ASSET_SIZE}" != "${expected_size}" ]]; then
-        blocked "CONTINUOUS_RELEASE_RACE" "the continuous release changed between resolution and download (${kind})"
-    fi
-}
-
 # --------------------------------------------------------------------------
-# 1. appimagetool: resolve once, verify, pin for the whole gate.
+# 3. appimagetool: verify, then move into place, then make it executable.
 # --------------------------------------------------------------------------
-TOOL_JSON="${WORK_DIR}/appimagetool-release.json"
-TOOL_JSON_RECHECK="${WORK_DIR}/appimagetool-release-recheck.json"
-
-log "--- resolving ${APPIMAGETOOL_REPO}@${APPIMAGETOOL_TAG} ---"
-fetch_release_json "${GITHUB_API}/repos/${APPIMAGETOOL_REPO}/releases/tags/${APPIMAGETOOL_TAG}" "${TOOL_JSON}"
-TOOL_PAYLOAD="$(resolve_release "${APPIMAGETOOL_REPO}" "${APPIMAGETOOL_TAG}" "${APPIMAGETOOL_ASSET}" "${TOOL_JSON}" "TOOL")"
-assign_release_fields "${TOOL_PAYLOAD}"
-TOOL_RELEASE_ID="${RESOLVED_RELEASE_ID}"
-TOOL_COMMIT="${RESOLVED_COMMIT}"
-TOOL_PUBLISHED="${RESOLVED_PUBLISHED}"
-TOOL_SIZE="${RESOLVED_ASSET_SIZE}"
-TOOL_SHA256="${RESOLVED_SHA256}"
-TOOL_URL="${RESOLVED_URL}"
-
-log "APPIMAGETOOL_CHANNEL=${APPIMAGETOOL_TAG}"
-log "APPIMAGETOOL_SOURCE_COMMIT=${TOOL_COMMIT}"
-log "APPIMAGETOOL_RELEASE_ID=${TOOL_RELEASE_ID}"
-log "APPIMAGETOOL_PUBLISHED_AT=${TOOL_PUBLISHED}"
-log "APPIMAGETOOL_ASSET=${APPIMAGETOOL_ASSET}"
-log "APPIMAGETOOL_SIZE=${TOOL_SIZE}"
-log "APPIMAGETOOL_PUBLISHED_SHA256=${TOOL_SHA256}"
-
-if [[ -n "${APPIMAGETOOL_EXPECTED_SHA256:-}" && "${APPIMAGETOOL_EXPECTED_SHA256}" != "${TOOL_SHA256}" ]]; then
-    blocked "TOOL_PIN_MISMATCH" "resolved SHA-256 ${TOOL_SHA256} != expected pin ${APPIMAGETOOL_EXPECTED_SHA256}"
-fi
-
-TOOL_PATH="${OUTPUT_DIR}/${APPIMAGETOOL_ASSET}"
-log "--- downloading and verifying ${APPIMAGETOOL_ASSET} ---"
-TOOL_LOCAL_SHA256="$(download_and_verify "${TOOL_URL}" "${TOOL_PATH}" "${TOOL_SIZE}" "${TOOL_SHA256}" "TOOL")"
-log "APPIMAGETOOL_LOCAL_SHA256=${TOOL_LOCAL_SHA256}"
-if [[ "${TOOL_LOCAL_SHA256}" != "${TOOL_SHA256}" ]]; then
-    blocked "TOOL_CHECKSUM_MISMATCH" "digest comparison failed after download"
-fi
-log "APPIMAGETOOL_DIGEST_MATCH=true"
+log "--- downloading pinned ${APPIMAGETOOL_ASSET} ---"
+log "APPIMAGETOOL_URL=${TOOL_URL}"
+TOOL_PARTIAL="${WORK_DIR}/${APPIMAGETOOL_ASSET}.partial"
+TOOL_LOCAL_SHA256="$(download_and_verify TOOL "${TOOL_URL}" "${TOOL_SIZE}" "${TOOL_SHA256}" "${TOOL_PARTIAL}")"
+[[ "${TOOL_LOCAL_SHA256}" == "${TOOL_SHA256}" ]] \
+    || blocked 23 "TOOL_CHECKSUM_MISMATCH" "digest comparison failed after download"
+mv -f "${TOOL_PARTIAL}" "${TOOL_PATH}"
 chmod 0755 "${TOOL_PATH}"
-
-log "--- re-checking ${APPIMAGETOOL_REPO}@${APPIMAGETOOL_TAG} for a continuous release race ---"
-fetch_release_json "${GITHUB_API}/repos/${APPIMAGETOOL_REPO}/releases/tags/${APPIMAGETOOL_TAG}" "${TOOL_JSON_RECHECK}"
-assert_release_unchanged "${TOOL_JSON_RECHECK}" "${TOOL_RELEASE_ID}" "${TOOL_COMMIT}" "${TOOL_SHA256}" "${TOOL_SIZE}" "TOOL" \
-    "${APPIMAGETOOL_REPO}" "${APPIMAGETOOL_TAG}" "${APPIMAGETOOL_ASSET}"
+log "APPIMAGETOOL_SIZE=${TOOL_SIZE}"
+log "APPIMAGETOOL_LOCAL_SHA256=${TOOL_LOCAL_SHA256}"
+log "APPIMAGETOOL_DIGEST_MATCH=true"
 
 # --------------------------------------------------------------------------
-# 2. type-2 runtime: resolve latest official, verify, pin.
+# 4. type-2 runtime: verify, then move into place (never executable).
 # --------------------------------------------------------------------------
-RUNTIME_JSON="${WORK_DIR}/runtime-release.json"
-RUNTIME_JSON_RECHECK="${WORK_DIR}/runtime-release-recheck.json"
-
-log "--- resolving ${RUNTIME_REPO}@${RUNTIME_TAG} ---"
-fetch_release_json "${GITHUB_API}/repos/${RUNTIME_REPO}/releases/${RUNTIME_TAG}" "${RUNTIME_JSON}"
-RUNTIME_PAYLOAD="$(resolve_release "${RUNTIME_REPO}" "${RUNTIME_TAG}" "${RUNTIME_ASSET}" "${RUNTIME_JSON}" "RUNTIME")"
-assign_release_fields "${RUNTIME_PAYLOAD}"
-RUNTIME_RELEASE_ID="${RESOLVED_RELEASE_ID}"
-RUNTIME_RELEASE_TAG="${RESOLVED_TAG}"
-RUNTIME_COMMIT="${RESOLVED_COMMIT}"
-RUNTIME_PUBLISHED="${RESOLVED_PUBLISHED}"
-RUNTIME_SIZE="${RESOLVED_ASSET_SIZE}"
-RUNTIME_SHA256="${RESOLVED_SHA256}"
-RUNTIME_URL="${RESOLVED_URL}"
-
-log "RUNTIME_SOURCE=${RUNTIME_REPO}"
-log "RUNTIME_RELEASE_OR_COMMIT=${RUNTIME_RELEASE_TAG}@${RUNTIME_COMMIT}"
-log "RUNTIME_RELEASE_ID=${RUNTIME_RELEASE_ID}"
-log "RUNTIME_PUBLISHED_AT=${RUNTIME_PUBLISHED}"
-log "RUNTIME_ASSET=${RUNTIME_ASSET}"
-log "RUNTIME_SIZE=${RUNTIME_SIZE}"
-log "RUNTIME_PUBLISHED_SHA256=${RUNTIME_SHA256}"
-
-if [[ -n "${APPIMAGE_RUNTIME_EXPECTED_SHA256:-}" && "${APPIMAGE_RUNTIME_EXPECTED_SHA256}" != "${RUNTIME_SHA256}" ]]; then
-    blocked "RUNTIME_PIN_MISMATCH" "resolved SHA-256 ${RUNTIME_SHA256} != expected pin ${APPIMAGE_RUNTIME_EXPECTED_SHA256}"
-fi
-
-RUNTIME_PATH="${OUTPUT_DIR}/${RUNTIME_ASSET}"
-log "--- downloading and verifying ${RUNTIME_ASSET} ---"
-RUNTIME_LOCAL_SHA256="$(download_and_verify "${RUNTIME_URL}" "${RUNTIME_PATH}" "${RUNTIME_SIZE}" "${RUNTIME_SHA256}" "RUNTIME")"
-log "RUNTIME_LOCAL_SHA256=${RUNTIME_LOCAL_SHA256}"
-if [[ "${RUNTIME_LOCAL_SHA256}" != "${RUNTIME_SHA256}" ]]; then
-    blocked "RUNTIME_CHECKSUM_MISMATCH" "digest comparison failed after download"
-fi
-log "RUNTIME_DIGEST_MATCH=true"
+log "--- downloading pinned ${RUNTIME_ASSET} ---"
+log "RUNTIME_URL=${RUNTIME_URL}"
+RUNTIME_PARTIAL="${WORK_DIR}/${RUNTIME_ASSET}.partial"
+RUNTIME_LOCAL_SHA256="$(download_and_verify RUNTIME "${RUNTIME_URL}" "${RUNTIME_SIZE}" "${RUNTIME_SHA256}" "${RUNTIME_PARTIAL}")"
+[[ "${RUNTIME_LOCAL_SHA256}" == "${RUNTIME_SHA256}" ]] \
+    || blocked 23 "RUNTIME_CHECKSUM_MISMATCH" "digest comparison failed after download"
+mv -f "${RUNTIME_PARTIAL}" "${RUNTIME_PATH}"
 chmod 0644 "${RUNTIME_PATH}"
-
-log "--- re-checking ${RUNTIME_REPO}@${RUNTIME_TAG} for a runtime release race ---"
-fetch_release_json "${GITHUB_API}/repos/${RUNTIME_REPO}/releases/${RUNTIME_TAG}" "${RUNTIME_JSON_RECHECK}"
-assert_release_unchanged "${RUNTIME_JSON_RECHECK}" "${RUNTIME_RELEASE_ID}" "${RUNTIME_COMMIT}" "${RUNTIME_SHA256}" "${RUNTIME_SIZE}" "RUNTIME" \
-    "${RUNTIME_REPO}" "${RUNTIME_TAG}" "${RUNTIME_ASSET}"
+log "RUNTIME_SIZE=${RUNTIME_SIZE}"
+log "RUNTIME_LOCAL_SHA256=${RUNTIME_LOCAL_SHA256}"
+log "RUNTIME_DIGEST_MATCH=true"
 
 # --------------------------------------------------------------------------
-# 3. Deterministic audit metadata for the whole gate.
+# 5. Toolchain metadata (keys read by build_linux_appimage.sh and the verify jobs).
 # --------------------------------------------------------------------------
 python3 - "${METADATA_JSON}" \
-    "${APPIMAGETOOL_REPO}" "${APPIMAGETOOL_TAG}" "${TOOL_RELEASE_ID}" "${TOOL_COMMIT}" \
-    "${TOOL_PUBLISHED}" "${APPIMAGETOOL_ASSET}" "${TOOL_SIZE}" "${TOOL_SHA256}" "${TOOL_LOCAL_SHA256}" \
-    "${RUNTIME_REPO}" "${RUNTIME_RELEASE_TAG}" "${RUNTIME_COMMIT}" "${RUNTIME_RELEASE_ID}" \
-    "${RUNTIME_PUBLISHED}" "${RUNTIME_ASSET}" "${RUNTIME_SIZE}" "${RUNTIME_SHA256}" "${RUNTIME_LOCAL_SHA256}" \
-    "${APPIMAGETOOL_ASSET}" "${RUNTIME_ASSET}" <<'PY'
+    "${APPIMAGETOOL_REPO}" "${PINNED_CHANNEL}" "${TOOL_COMMIT}" "${APPIMAGETOOL_ASSET}" \
+    "${TOOL_SIZE}" "${TOOL_SHA256}" "${TOOL_LOCAL_SHA256}" "${TOOL_URL}" \
+    "${RUNTIME_REPO}" "${PINNED_CHANNEL}" "${RUNTIME_COMMIT}" "${RUNTIME_ASSET}" \
+    "${RUNTIME_SIZE}" "${RUNTIME_SHA256}" "${RUNTIME_LOCAL_SHA256}" "${RUNTIME_URL}" <<'PY'
 import json
 import sys
 
@@ -320,56 +252,51 @@ import sys
     path,
     tool_repo,
     tool_channel,
-    tool_release_id,
     tool_commit,
-    tool_published,
     tool_asset,
     tool_size,
     tool_sha,
     tool_local_sha,
+    tool_url,
     runtime_repo,
-    runtime_tag,
+    runtime_channel,
     runtime_commit,
-    runtime_release_id,
-    runtime_published,
     runtime_asset,
     runtime_size,
     runtime_sha,
     runtime_local_sha,
-    tool_file,
-    runtime_file,
-) = sys.argv[1:22]
+    runtime_url,
+) = sys.argv[1:18]
 
 payload = {
-    "schema_version": 1,
-    "gate": "STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE",
+    "schema_version": 2,
+    "gate": "STAGE-CI-APPIMAGE-TOOLCHAIN-PINNING",
+    "pins": "installer/linux/appimage/toolchain-pins",
     "appimagetool": {
         "source": f"https://github.com/{tool_repo}",
         "channel": tool_channel,
-        "release_id": int(tool_release_id),
         "source_commit": tool_commit,
-        "published_at": tool_published,
         "asset": tool_asset,
         "size": int(tool_size),
+        "url": tool_url,
         "published_sha256": tool_sha,
         "local_sha256": tool_local_sha,
         "digest_algorithm": "sha256",
         "digest_match": tool_sha == tool_local_sha,
-        "downloaded_filename": tool_file,
+        "downloaded_filename": tool_asset,
     },
     "runtime": {
         "source": f"https://github.com/{runtime_repo}",
-        "release": runtime_tag,
-        "release_id": int(runtime_release_id),
+        "release": runtime_channel,
         "source_commit": runtime_commit,
-        "published_at": runtime_published,
         "asset": runtime_asset,
         "size": int(runtime_size),
+        "url": runtime_url,
         "published_sha256": runtime_sha,
         "local_sha256": runtime_local_sha,
         "digest_algorithm": "sha256",
         "digest_match": runtime_sha == runtime_local_sha,
-        "downloaded_filename": runtime_file,
+        "downloaded_filename": runtime_asset,
     },
 }
 with open(path, "w", encoding="utf-8", newline="\n") as handle:
@@ -378,7 +305,7 @@ with open(path, "w", encoding="utf-8", newline="\n") as handle:
 PY
 
 log "=================================================================="
-log "SUCCESS: official AppImage toolchain resolved, verified and pinned"
+log "SUCCESS: pinned AppImage toolchain downloaded and verified"
 log "Metadata: ${METADATA_JSON}"
 log "APPIMAGETOOL_PINNED_COMMIT=${TOOL_COMMIT}"
 log "APPIMAGETOOL_PINNED_SHA256=${TOOL_SHA256}"

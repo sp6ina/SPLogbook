@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Mariusz Woźniak (SP6INA)
+#
+# Static pins of the official AppImage toolchain (STAGE-CI-APPIMAGE-TOOLCHAIN-PINNING,
+# OWNER-M3-G-10, which supersedes the dynamic "latest" resolution of OWNER-M3-G-08).
+#
+# scripts/install_appimage_toolchain.sh reads this file, downloads each asset directly from
+# its official GitHub release URL (no REST API, no cache), and fails closed unless the exact
+# byte size and SHA-256 below match. The values are the owner-approved builds of
+# OWNER-M3-G-03-R1 (appimagetool) and OWNER-M3-G-04-R1 (type-2 runtime).
+#
+# The `continuous` release assets are replaced upstream on every new build. When that
+# happens the download no longer matches and the installer stops with PIN_STALE; a new pin
+# requires a new owner decision and a separate gate. Never edit a value without one.
+#
+# Format: `<artifact>.<field>=<value>`, one per line, no spaces; `#` starts a comment line.
+# Artifacts: appimagetool, runtime. Fields: repo, channel, commit, asset, size, sha256, url.
+format=splogbook-appimage-toolchain-pins/1
+
+appimagetool.repo=AppImage/appimagetool
+appimagetool.channel=continuous
+appimagetool.commit=11d54c9acc7f246df1398050a4b880314ac76862
+appimagetool.asset=appimagetool-x86_64.AppImage
+appimagetool.size=15133176
+appimagetool.sha256=e8c1169c4af66c3184d7ee110713d4be04befe671fa358e2c1591ee840553b03
+appimagetool.url=https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+
+runtime.repo=AppImage/type2-runtime
+runtime.channel=continuous
+runtime.commit=fedfad51acc2860b2916a1eef32ba4a500ff31ef
+runtime.asset=runtime-x86_64
+runtime.size=944632
+runtime.sha256=617aa77314d57c8b8e4fae9c3f0b35af7b30d5529cb69e98f64f92510ed98a46
+runtime.url=https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64

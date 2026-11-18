@@ -6006,8 +6006,10 @@ fn m3_f_f03_fail_closed_verification_guard() {
 // wyłącznie libhamlib.so.4, cztery profile, testy negatywne, brak publikacji
 // release oraz utrzymane fail-closed F-03.
 //
-// Strażnik NIE wymaga konkretnego commita Continuous — konkretny commit i
-// SHA-256 są dowodem bieżącej bramki, nie wiecznym pinem projektu.
+// Od STAGE-CI-APPIMAGE-TOOLCHAIN-PINNING (OWNER-M3-G-10) toolchain jest
+// przypięty statycznie w installer/linux/appimage/toolchain-pins: bez REST API,
+// bez cache, z twardą weryfikacją rozmiaru i SHA-256; piny muszą być zgodne z
+// docs/architecture/DECISIONS.md.
 // ============================================================================
 
 #[test]
@@ -6033,34 +6035,94 @@ fn m3_g_appimage_integration_guard() {
         "appimagetool musi pochodzić z oficjalnego AppImage/appimagetool"
     );
     assert!(
-        install.contains("APPIMAGETOOL_TAG=\"continuous\""),
-        "kanał continuous musi być rozwiązany jawnie"
-    );
-    assert!(
-        install.contains("releases/tags/${APPIMAGETOOL_TAG}"),
-        "metadane muszą być czytane z oficjalnego endpointu tagu"
+        install.contains("PINNED_CHANNEL=\"continuous\""),
+        "przypięty kanał continuous musi być jawny"
     );
     assert!(
         !install.contains("AppImageKit"),
         "zakaz używania starego repozytorium AppImageKit"
     );
 
-    // 2. Odczyt oficjalnego SHA-256, lokalna kontrola i porównanie digestów.
+    // 2. Statyczny pin (OWNER-M3-G-10): zero zapytań REST API, bez cache, bez
+    //    tokenu; piny w installer/linux/appimage/toolchain-pins zgodne z DECISIONS.
+    for forbidden in [
+        "api.github.com",
+        "releases/latest",
+        "releases/tags/",
+        "Authorization",
+    ] {
+        assert!(
+            !install.contains(forbidden),
+            "instalator toolchainu nie może używać `{forbidden}` (statyczny pin)"
+        );
+    }
+    assert!(
+        !workflow.contains("actions/cache"),
+        "toolchain AppImage nie może pochodzić z cache"
+    );
+    assert!(
+        install.contains("installer/linux/appimage/toolchain-pins")
+            && install.contains("OFFICIAL_URL_PREFIX=\"https://github.com/AppImage/\""),
+        "instalator musi czytać piny i ograniczać URL do https://github.com/AppImage/"
+    );
+    let pins = fs::read_to_string("installer/linux/appimage/toolchain-pins")
+        .expect("installer/linux/appimage/toolchain-pins");
+    let decisions = fs::read_to_string("docs/architecture/DECISIONS.md")
+        .expect("docs/architecture/DECISIONS.md");
+    let pinning_row = decisions
+        .lines()
+        .find(|line| line.starts_with("| `OWNER-M3-G-10`"))
+        .expect("DECISIONS.md musi zapisywać OWNER-M3-G-10");
+    for (artifact, decision) in [
+        ("appimagetool", "OWNER-M3-G-03-R1"),
+        ("runtime", "OWNER-M3-G-04-R1"),
+    ] {
+        let approved = decisions
+            .lines()
+            .find(|line| line.starts_with(&format!("| `{decision}`")))
+            .unwrap_or_else(|| panic!("DECISIONS.md musi zapisywać {decision}"));
+        for field in ["commit", "sha256", "size", "url"] {
+            let value = pins
+                .lines()
+                .find_map(|line| line.strip_prefix(&format!("{artifact}.{field}=")))
+                .unwrap_or_else(|| panic!("brak pinu {artifact}.{field}"));
+            let row = if matches!(field, "commit" | "sha256") {
+                approved
+            } else {
+                pinning_row
+            };
+            assert!(
+                row.contains(value),
+                "pin {artifact}.{field} musi być zgodny z decyzją OWNER w DECISIONS.md"
+            );
+        }
+    }
+
+    // 3a. Twarda weryfikacja rozmiaru i SHA-256 (fail-closed), dopiero potem chmod.
+    for code in [
+        "_SIZE_MISMATCH",
+        "_CHECKSUM_MISMATCH",
+        "_DOWNLOAD_FAILED",
+        "PIN_STALE",
+    ] {
+        assert!(
+            install.contains(code),
+            "instalator musi kończyć się błędem {code}"
+        );
+    }
     assert!(
         install.contains("sha256sum"),
-        "resolver musi liczyć lokalny SHA-256"
+        "instalator musi liczyć lokalny SHA-256"
     );
+    let verified_at = install
+        .find("TOOL_LOCAL_SHA256=\"$(download_and_verify TOOL")
+        .expect("appimagetool musi przejść download_and_verify");
+    let chmod_at = install
+        .find("chmod 0755 \"${TOOL_PATH}\"")
+        .expect("bit wykonywania musi być nadany jawnie");
     assert!(
-        install.contains("TOOL_CHECKSUM_MISMATCH"),
-        "resolver musi odrzucać niezgodność lokalnego i opublikowanego SHA-256"
-    );
-    assert!(
-        install.contains("CONTINUOUS_RELEASE_RACE"),
-        "resolver musi wykrywać zmianę assetu między resolution a pobraniem"
-    );
-    assert!(
-        install.contains("APPIMAGETOOL_RELEASE_ID") && install.contains("RELEASE_PUBLISHED"),
-        "resolver musi zapisywać release/build identifier oraz czas publikacji"
+        verified_at < chmod_at,
+        "bit wykonywania wolno nadać dopiero po weryfikacji rozmiaru i SHA-256"
     );
 
     // 3. Brak fallbacku do 1.9.1, brak `curl | sh` i brak nieweryfikowanego latest.

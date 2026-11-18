@@ -21,6 +21,8 @@
 #   EXPECTED_BUILD_COMMIT, EXPECTED_DESKTOP_SHA256, EXPECTED_ICON_SHA256,
 #   EXPECTED_APPIMAGETOOL_SHA256, EXPECTED_APPIMAGETOOL_COMMIT,
 #   EXPECTED_RUNTIME_SHA256, EXPECTED_RUNTIME_COMMIT
+#   (the toolchain values come from appimage-toolchain.json, i.e. from the static
+#   pins in installer/linux/appimage/toolchain-pins, OWNER-M3-G-10)
 #
 # Usage:
 #   verify_appimage.sh [--appdir DIR]

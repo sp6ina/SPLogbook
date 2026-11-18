@@ -148,17 +148,18 @@ jobs:
           if-no-files-found: error
 
       # ------------------------------------------------------------------
-      # STAGE-M3-G: resolve the LATEST official continuous appimagetool build
-      # exactly once, verify its published SHA-256 against the local one, pin
-      # it for the whole gate, and build the AppImage with that exact file.
-      # The same pinned runtime is passed explicitly with --runtime-file.
+      # STAGE-CI-APPIMAGE-TOOLCHAIN-PINNING (OWNER-M3-G-10): download the
+      # statically pinned official appimagetool and type-2 runtime directly
+      # from their GitHub release URLs (installer/linux/appimage/toolchain-pins),
+      # with no REST API call and no cache, and fail closed unless the exact
+      # size and SHA-256 match. The pinned runtime is passed with --runtime-file.
       # ------------------------------------------------------------------
-      - name: Resolve, verify and pin the official AppImage toolchain
+      - name: Download and verify the pinned official AppImage toolchain
         run: |
           set -euo pipefail
           bash scripts/install_appimage_toolchain.sh | tee dist/appimage-toolchain-resolve.log
 
-      - name: Build the AppImage with the pinned continuous appimagetool
+      - name: Build the AppImage with the pinned appimagetool
         env:
           EXPECTED_BUILD_COMMIT: ${{ github.sha }}
         run: |
