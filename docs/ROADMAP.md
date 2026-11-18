@@ -150,6 +150,15 @@ Rawhide, backports, release candidates) never set the minimum.
   `redact_sensitive_info` in `src/cat/tx_arbiter.rs` matches ASCII secret markers directly on byte
   windows with `eq_ignore_ascii_case` (without `.to_lowercase()`) and aligns slice bounds with
   `ceil_char_boundary` / `floor_char_boundary`.
+- `R1C`, `R1D`, `F-07`, `F-09`, `F-11` (`STAGE-R1C-R1D-LEGACY-DATA-REMOVAL-AND-CLEAN-FIRST-RUN`):
+  **F-07 = CLOSED**, **F-09 = CLOSED**, **F-11 = CLOSED** (2026-11-18). Removed legacy binary/CSV
+  reference databases (`databases/serviceLOG.db`, `databases/callbook.db`, `databases/clubs.csv`),
+  `src/core/service_db.rs`, SQLite `v1.2.0` legacy lookup compatibility, hardcoded `scp.insert(`
+  seed callsigns, `UpdateFileClass::FirstInstallSeed`, installer/CI bundling of seed databases, and
+  portable `exe_dir`/`CWD` shadowing of XDG/`%APPDATA%` paths. All reference data is now supplied via
+  `UserTables`, Big CTY (`cty.dat`/`cty.csv`), and user-installed files in the canonical data
+  directory, with built-in IOTA samples (`fallback_iota`) and `US_STATES` retained in
+  `src/core/reference/tables.rs`.
 
 ## 5. Not started / not delivered
 

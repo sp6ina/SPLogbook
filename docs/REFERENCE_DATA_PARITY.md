@@ -1,8 +1,10 @@
 # SPLogbook — Reference data inventory and functional parity
 
-Status: **R1B CLOSED (R1B2 completed, D-R1B-FINAL §9.6) — every §7 row resolved; bundled files
-still present until R1C.**
-R1B measured on 2026-11-17, R1B2 on 2026-11-18. Earlier inventory (R1A) against `c326572`.
+Status: **R1C + R1D CLOSED (`STAGE-R1C-R1D-LEGACY-DATA-REMOVAL-AND-CLEAN-FIRST-RUN`, 2026-11-18) —
+`F-07`, `F-09`, `F-11` = CLOSED; `databases/serviceLOG.db`, `databases/callbook.db`,
+`databases/clubs.csv`, `src/core/service_db.rs`, SQLite `v1.2.0` legacy compatibility, and
+`UpdateFileClass::FirstInstallSeed` removed.**
+R1B measured on 2026-11-17, R1B2 on 2026-11-18, R1C/R1D closed on 2026-11-18. Earlier inventory (R1A) against `c326572`.
 
 A bundled data file may only be removed once every feature it serves is
 `FUNCTIONAL_PARITY_VERIFIED`. A feature without a complete replacement stays
@@ -374,15 +376,22 @@ Effects of the changes:
    the default source is Big CTY (`cty.dat` / `cty.csv`, MIT-style licence), with the D-ENT
    corrections (ARRL DXCC List / ADIF 3.1.8) and the user rules on top.
 5. **Result.** No row of §7 is `BLOCKED_MISSING_REPLACEMENT` or `OWNER_DECISION_REQUIRED`, which
-   meets the entry condition of R1C. R1C is **not started** and needs its own owner GO.
+   met the entry condition of R1C.
 
-Notes for R1C:
+R1C + R1D closure (2026-11-18, `STAGE-R1C-R1D-LEGACY-DATA-REMOVAL-AND-CLEAN-FIRST-RUN`):
 
-* `test_local_callbook_lookup` (`src/core/callbook.rs`, "Test stacji SP1ADT z bazy callbook.db")
-  reads the real `databases/callbook.db` and only asserts when the file exists. It must be
-  replaced by a synthetic test before `databases/callbook.db` is removed.
-* The three files are still shipped by the portable ZIP step of
-  `.github/workflows/build-and-release.yml`, the Inno Setup script and the MSI components, and
-  are preserved as first-install seeds by the updater; the legacy readers in `main.rs`,
-  `gui/app.rs`, `core::service_db`, `core::callbook`, `core::clubs` (built-in registry) and the
-  legacy compatibility layer of the prefix loader still look for them.
+* `databases/serviceLOG.db`, `databases/callbook.db`, `databases/clubs.csv`, and
+  `src/core/service_db.rs` have been removed from the repository; built-in `US_STATES` and
+  `fallback_iota` along with `IotaRecord`, `StateRecord`, `QslManagerRecord`, `UniqueCallRecord`, and
+  search helpers live in `src/core/reference/tables.rs`.
+* `test_local_callbook_lookup` (`src/core/callbook.rs`) and unit tests in `src/core/clubs.rs`,
+  `src/core/prefix.rs`, `src/api/server.rs`, `src/core/ingest/mod.rs`, and `src/gui/app_tests.rs`
+  now run strictly against synthetic in-memory data (`UserTables`, `PrefixMatcher`, CSV strings).
+* `F-07 = CLOSED`: `src/main.rs` and `src/gui/app_services.rs` respect canonical
+  XDG/`%APPDATA%` precedence without `exe_dir` or `CWD` `databases/` shadowing; clean first run
+  starts without bundled reference databases.
+* `F-09 = CLOSED`: Windows installers (`SPLogbook.iss`, `Components.wxs`), build scripts, and
+  `.github/workflows/build-and-release.yml` no longer bundle legacy reference databases;
+  `UpdateFileClass::FirstInstallSeed` was removed from `src/cloud/updater.rs` so every
+  `*.db`/`*.sqlite` in `databases/` is unconditionally `UpdateFileClass::UserData`.
+* `F-11 = CLOSED`: hardcoded `scp.insert(` seed calls were removed from `src/main.rs`.

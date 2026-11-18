@@ -59,8 +59,8 @@ These are not preferences; they are contract. Weakening them requires a new deci
 | `OWNER-M2-01`, `OWNER-M2-02`, `OWNER-M2-03` | Expanded Windows scope: portable ZIP + WiX MSI + Inno Setup; dual helper (native `splogbook-updater` primary, hardened PowerShell fallback) | IMPLEMENTED | `src/cloud/updater/**` | `m3_b_*`, `m3_c_*` guards |
 | `OWNER-M2-04`, `OWNER-M2-05`, `OWNER-M2-06`, `OWNER-M2-07` | Expanded Linux scope (portable tar.gz, AppImage, DEB, RPM, Flatpak declared); package-manager boundary; absolute ban on `sudo`/`doas`/`pkexec`/`runas` and on writes to `/usr` | IMPLEMENTED | `src/cloud/updater/**`, `scripts/**` | `updater_does_not_use_sudo_guard`, `m3_f_*` |
 | `OWNER-M2-08`, `OWNER-M2-09` | `.rollback` retention and backup-deletion policy | **OPEN** (non-blocking) | temporary conservative retention: `.rollback` is never auto-deleted and never contains user data | `m3_c_temporary_conservative_backup_retention_guard` |
-| `OWNER-M2-10` | Classification of `databases/serviceLOG.db` | **OPEN** (documentation dispute) — code treats it as a first-install seed | `src/cloud/updater/installation.rs` | `portable_database_files_are_protected_guard` |
-| `OWNER-M2-11` | `databases/callbook.db` is a first-install seed (create only if absent) | IMPLEMENTED | `src/cloud/updater/**` | `m3_a_data_preservation_matrix_guard` |
+| `OWNER-M2-10` | Classification of `databases/serviceLOG.db` | **CLOSED** (moot / superseded by `R1C`) — `serviceLOG.db` and `FirstInstallSeed` were removed; all `.db`/`.sqlite` in `databases/` are `UserData` | `src/cloud/updater.rs` | `portable_database_files_are_protected_guard`, `r1c_r1d_legacy_databases_removed_and_xdg_precedence_guard` |
+| `OWNER-M2-11` | Legacy bundled `databases/callbook.db` removed in `R1C`; all `*.db` in `databases/` protected as `UserData` | **SUPERSEDED BY R1C** (`callbook.db` and `FirstInstallSeed` removed) | `src/cloud/updater.rs` | `m3_a_data_preservation_matrix_guard`, `r1c_r1d_legacy_databases_removed_and_xdg_precedence_guard` |
 | `OWNER-M2-12` | Audit-log retention | **OPEN** | — | — |
 | `OWNER-M2-13` | Cancellation is prohibited once `Applying` has started | IMPLEMENTED | `src/cloud/updater/state.rs` | `cancellation_prohibited_from_applying_guard` |
 | `OWNER-M2-14` | Native tests on Windows and Linux | IMPLEMENTED | `tests/windows_*`, `tests/linux_*` | — |
@@ -233,8 +233,7 @@ All decisions are **IMPLEMENTED** and verified by `tests/linux_flatpak_packaging
   `LinuxPortableTarGz`, `LinuxAppImage`, `LinuxDeb`, `LinuxRpm`, `LinuxFlatpak`,
   `UnknownInstallation`. Self-managed: ZIP, tar.gz, AppImage. System-managed: MSI, Inno, DEB,
   RPM, Flatpak. No system-managed format supports self-apply.
-- Data classes: `ProgramFile`, `RuntimeLibrary`, `FirstInstallSeed`, `UserConfiguration`,
-  `UserData`, `ReferenceData`, `ReleaseMetadata`, `Unknown`.
+- Data classes: `ProgramFile`, `RuntimeLibrary`, `UserConfiguration`, `UserData`, `ReferenceData`, `ReleaseMetadata`, `Unknown` (`FirstInstallSeed` removed in `R1C`).
 
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the module map and
 [`../security/RELEASE_SECURITY.md`](../security/RELEASE_SECURITY.md) for the release

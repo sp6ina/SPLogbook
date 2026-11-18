@@ -4,7 +4,7 @@ Single source of truth for verified test counters and dependency-audit state. Co
 only here; every other document links to this file. Never update a counter without a real
 measurement, and always record the measurement date.
 
-**Data pomiaru:** 2026-11-18 (ostatni pomiar: po Fali 2 (F-18, eQSL, F-06))
+**Data pomiaru:** 2026-11-18 (ostatni pomiar: po `STAGE-R1C-R1D-LEGACY-DATA-REMOVAL-AND-CLEAN-FIRST-RUN`)
 **Środowisko:** Windows 10/11 x86_64, `rustc 1.99.0`, `cargo 1.99.0`, `-j 1`
 **HEAD pomiaru:** commit zawierający ten plik (`git log -1 --format=%H`)
 
@@ -26,9 +26,9 @@ cargo test --workspace --all-targets -j 1 -- --skip powershell_real_execution_fu
 
 | Metric | Value |
 |---|---|
-| TOTAL REGISTERED TESTS: | 3615 |
-| TOTAL EXECUTED TESTS: | 3604 |
-| TOTAL PASSED TESTS: | 3604 |
+| TOTAL REGISTERED TESTS: | 3605 |
+| TOTAL EXECUTED TESTS: | 3594 |
+| TOTAL PASSED TESTS: | 3594 |
 | TOTAL FAILED TESTS: | 0 |
 | TOTAL IGNORED TESTS: | 10 |
 | HIL IGNORED TESTS: | 10 |
@@ -45,10 +45,10 @@ a product defect.
 
 | Suite | Value |
 |---|---|
-| `security_guard` (incl. `chrono_replacement_*`, `f20r4_*`, `p1_f21_*`, F-18/eQSL/F-06 rules) | 211 / 211 |
+| `security_guard` (incl. `chrono_replacement_*`, `f20r4_*`, `p1_f21_*`, F-18/eQSL/F-06 rules) | 212 / 212 |
 | `p1_f20_upload_selection` | 29 / 29 |
 | `p1_f20r_recovery` / `p1_f20r_sent_dates` / `p1_f20r_credential_safety` | 31 / 31, 21 / 21, 13 / 13 |
-| library unit tests (`--lib`) | 2295 / 2295 |
+| library unit tests (`--lib`) | 2284 / 2284 |
 | `p1_f21_cabrillo_export` | 4 / 4 |
 | `p1_f19_award_references` | 51 / 51 |
 | `p1_f16_logbook_pagination` | 55 / 55 |
@@ -505,7 +505,7 @@ gate), `cargo tree -d` = **47** duplicate dependency versions (unchanged), `git 
 | Consequence | `STAGE-P1-F20R-SOFTWARE` cannot claim a green CI |
 
 The advisory was added to the RustSec database between the F-20 baseline CI run
-(`44050036049`, 2026-11-17T08:49Z, `success`) and this gate's CI run (`44102699075`,
+(`44050035949`, 2026-11-17T08:49Z, `success`) and this gate's CI run (`44102699075`,
 2026-11-17T14:36Z). It is an external database change, not a code change: `Cargo.lock` is unchanged,
 and `chrono` is used across the existing code base (not introduced by F-20R).
 

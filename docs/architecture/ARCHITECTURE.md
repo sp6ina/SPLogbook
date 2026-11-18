@@ -39,7 +39,7 @@
 
 - **SQLite** jest jedynym źródłem prawdy (`src/core/database/`), WAL, backup online, migracje schematu.
 - **Dane referencyjne** (`cty.dat`, `MASTER.SCP`, `lotw-user-activity.csv`) są pobierane przez updater (F-06: brak podpisu/hash).
-- **Ścieżki danych:** Windows `%APPDATA%\SPLogbook`; Linux XDG (`$XDG_DATA_HOME/splogbook`) z fallbackiem `$HOME` (F-07: precedence portable vs XDG).
+- **Ścieżki danych:** Windows `%APPDATA%\SPLogbook`; Linux XDG (`$XDG_DATA_HOME/splogbook`) z fallbackiem `$HOME` (F-07 = CLOSED w `R1D`: katalog `databases/` w `exe_dir`/CWD nie przysłania kanonicznej ścieżki użytkownika).
 - **Eksport:** ADIF, Cabrillo (F-21: limit 10 000 QSO), CSV, SOTA.
 - **Referencje dyplomowe (F-19):** jedno centralne mapowanie `core::award_refs` tłumaczy model `AwardReferences { sota, pota }` (każda strona osobno) na pola ADIF: `MY_SOTA_REF`/`SOTA_REF` oraz kontrakt POTA `MY_SIG`+`MY_SIG_INFO` / `SIG`+`SIG_INFO`, z polami `MY_POTA_REF`/`POTA_REF` wyłącznie dla listy wielu parków. Silnik ADIF nie mapuje tych pól samodzielnie; kontrakt opisuje `docs/ADIF_AWARD_REFERENCES.md`.
 - **Synchronizacja:** frame TCP (limit 8 MiB), chunking (1 MiB), pojedynczy rekord ≤ 6 MiB, szyfrowanie ChaCha20-Poly1305.
@@ -72,7 +72,7 @@ manifest (Ed25519, raw bytes) → select_manifest_asset (SHA-256 + size)
 3. Ochrona przed downgrade i kanałami wydania.
 4. Brak `sudo`/`doas`/`pkexec`/`runas` w kodzie aplikacji (`OWNER-M2-07`).
 5. Brak shell injection w fallbacku PowerShell (bez wildcardów i `iex`).
-6. Instalatory nigdy nie usuwają danych użytkownika (seed `NeverOverwrite`, uninstall `dirifempty`, brak wildcardów).
+6. Instalatory nigdy nie usuwają danych użytkownika (brak preinstalowanych baz `FirstInstallSeed` po `R1C`, uninstall `dirifempty`, brak wildcardów).
 7. HIL: 10 testów `#[ignore]`; PTT wymaga niezależnego dowodu, bramek środowiskowych i zgody;
    manifest testu nie jest dowodem gotowości; RF = 0.
 8. GUI (F-17): intencja TX wyłącznie przez jawną bramkę — żaden pojedynczy klawisz nie uruchamia

@@ -491,10 +491,16 @@ temp-file-plus-rename (`write_file_atomic_sync` in `src/cloud/updater.rs` and `i
 `src/gui/app_services.rs` reloads `MASTER.SCP` only when the update succeeded and the file is
 non-empty.
 
-### F-07 (P2) — XDG precedence can be shadowed by a portable database
+### F-07 (P2) — XDG precedence can be shadowed by a portable database — F-07 = CLOSED
 
-A `databases/` directory next to the binary takes precedence over the XDG data directory,
-which can silently shadow user data after an unpack-anywhere install.
+Original defect: a `databases/` directory next to the binary or in CWD could silently take
+precedence over the canonical XDG (`$XDG_DATA_HOME/splogbook`) / `%APPDATA%\SPLogbook` data
+directory.
+
+Remediation (2026-11-18, `STAGE-R1C-R1D-LEGACY-DATA-REMOVAL-AND-CLEAN-FIRST-RUN`): `src/main.rs`
+and `src/gui/app_services.rs` resolve the canonical user data/config directories first and no
+longer shadow them via `exe_dir.join("databases")`, `../databases/`, `../../databases/`, or
+`Path::new("databases").is_dir()`.
 
 ### F-22 (P2) — system-managed updates lack a lock, journal and health proof
 
@@ -514,10 +520,14 @@ Remediation (2026-11-18): `redact_sensitive_info` matches ASCII secret prefixes 
 with `ceil_char_boundary` / `floor_char_boundary`. Files: `src/cat/tx_arbiter.rs`,
 `tests/security_guard.rs`.
 
-### F-11 (P3) — hard-coded seed callsigns in the SCP seed
+### F-11 (P3) — hard-coded seed callsigns in the SCP seed — F-11 = CLOSED
 
-A small number of literal callsigns are injected into the SCP seed at startup. Functional,
-but not what a reference database should contain. Files: `src/main.rs`.
+Original defect: literal callsigns were injected via `scp.insert(...)` at startup in
+`src/main.rs`.
+
+Remediation (2026-11-18, `STAGE-R1C-R1D-LEGACY-DATA-REMOVAL-AND-CLEAN-FIRST-RUN`): removed all
+hardcoded `scp.insert(` calls from `src/main.rs`; SCP loads `MASTER.SCP` from the canonical data
+directory (`log_db_path.parent()`) and active logbook QSOs.
 
 ### F-12 (P3) — Inno Setup version comparison is lexicographic
 
@@ -529,18 +539,23 @@ but not what a reference database should contain. Files: `src/main.rs`.
 The `AppMutex` value combines `{{` escaping with a literal GUID, producing a mutex name that
 does not match a naive expectation. Harmless today; fragile if the GUID is ever templated.
 
-### F-09 (P3) — reference databases are committed as binaries
+### F-09 (P3) — reference databases are committed as binaries — F-09 = CLOSED
 
-`databases/callbook.db` and `databases/serviceLOG.db` are tracked binaries grown through
-commits. They work as first-install seeds, but they bloat the repository and cannot be
-reviewed as text.
+Original defect: `databases/callbook.db`, `databases/serviceLOG.db`, and `databases/clubs.csv`
+were tracked in Git, bloated the repository, and were bundled as installer/updater first-install
+seeds.
+
+Remediation (2026-11-18, `STAGE-R1C-R1D-LEGACY-DATA-REMOVAL-AND-CLEAN-FIRST-RUN`): removed
+`databases/serviceLOG.db`, `databases/callbook.db`, `databases/clubs.csv`, `src/core/service_db.rs`,
+and `UpdateFileClass::FirstInstallSeed`; removed seed bundling from Windows installers
+(`SPLogbook.iss`, `Components.wxs`), build scripts, and CI packaging.
 
 ## 2. Open decisions
 
 | Decision | State | Effect |
 |---|---|---|
 | `OWNER-M2-08`, `OWNER-M2-09` | **OPEN** (non-blocking) | `.rollback` retention stays on the temporary conservative policy: never auto-deleted, never contains user data |
-| `OWNER-M2-10` | **OPEN** (documentation dispute) | the design text and the implementation disagree about the classification of `serviceLOG.db`; the code treats it as a first-install seed |
+| `OWNER-M2-10` | **CLOSED** (moot / superseded by `R1C`) | `databases/serviceLOG.db` and `FirstInstallSeed` were removed; every `.db`/`.sqlite` in `databases/` is unconditionally `UpdateFileClass::UserData` |
 | `OWNER-M2-12` | **OPEN** | audit-log retention policy undefined |
 | `OWNER-M3-E-MSI-VERSIONING-01` | **OPEN** | blocks MSI for `1.3.0-alpha.2` and later (Windows Installer error 1638) |
 
