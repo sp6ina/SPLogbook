@@ -1,7 +1,7 @@
 # SPLogbook — Reference data inventory and functional parity
 
-Status: **R1B — replacement sources implemented, bundled files still present.**
-Measured on 2026-11-17. Earlier inventory (R1A) against `c326572`.
+Status: **R1B2 — owner decisions D-R1 … D-IMP applied (§9), bundled files still present.**
+R1B measured on 2026-11-17, R1B2 on 2026-11-18. Earlier inventory (R1A) against `c326572`.
 
 A bundled data file may only be removed once every feature it serves is
 `FUNCTIONAL_PARITY_VERIFIED`. A feature without a complete replacement stays
@@ -222,6 +222,9 @@ coordinates.
 
 ## 8. Open decisions
 
+Decided in R1B2 (2026-11-18): C3/C4 acceptance, regional data, legacy-only exact calls and
+entity attributes — see §9.2. The items below are kept as recorded by R1B.
+
 * **C3 / C4 acceptance** — confirm the country files as the deciding source for the 37 entity
   groups, and the proposed handling of the 43 legacy-only groups.
 * **Regional data source** — the province, state and oblast rules (`Province`) have no identified
@@ -236,3 +239,100 @@ coordinates.
 
 R1C may start only when no feature that depends on a bundled file is
 `BLOCKED_MISSING_REPLACEMENT`.
+
+## 9. R1B2 — C3/C4, regional data and legacy-only calls (2026-11-18)
+
+### 9.1 Source register
+
+All sources were opened and read between 2026-11-18T05:14Z and 05:23Z. SHA-256 values were
+computed locally; none of the publishers below publishes a checksum or signature.
+
+| Source | Owner | URL | Version / date | SHA-256 | Licence / redistribution | Use |
+|---|---|---|---|---|---|---|
+| Big CTY | Country Files project (AD1C) | <https://www.country-files.com/bigcty/download/2026/bigcty-20261114.zip> (release post <https://www.country-files.com/big-cty-14-november-2026/>) | released 2026-11-14; 331 142 B; undated `bigcty.zip` byte-identical on 2026-11-18 | archive `c899ffc4461998b4688945b8413dc2da530f525269d8a408f8011539d5e47bc3`; `cty.dat` `edeb0c8e81e0671d7c48e87e512705781ff2e9a7965d1202508d587d5820fac1`; `cty.csv` `5a5f13a673a2d42ffcd1d9eb298e6aa773463a3a224a6e67ad1f924bc7cf32bc` | MIT-style (<https://www.country-files.com/copyright/>); not shipped (D1) | replacement source: entities, zones, exact calls |
+| `cty.dat` format | same | <https://www.country-files.com/cty-dat-format/> | read 2026-11-18 | — | — | "Alias DXCC prefixes (including the primary one) follow" |
+| ARRL DXCC List | ARRL | <https://www.arrl.org/country-lists-prefixes>, <https://www.arrl.org/files/file/DXCC/Current_Deleted.txt> | "January 2026"; 340 current, 62 deleted | `892c719f2fbb66f27a2c7ca023518718c4f0599c7aa66f60364b916e3d5dc26d` | personal use only; ARRL permission needed otherwise → **not shipped**, used as a cross-check | official entity status and attributes |
+| ADIF 3.1.8 | ADIF Development Group | <https://adif.org/318/ADIF_318.htm>; exports <https://adif.org.uk/318/resources> (`ADIF_318_resources_2026_10_12.zip`) | 3.1.8, updated 2026-10-12 | spec `9d130f558125fbbf4d1da93c4fb8d63dda859914ffeb54416627f093afcf7fe6`; exports `d211e1d41adaf7fc341c73a8a3a56c343534aac57043b7474f7df2d528e56d8c` | no licence statement → names not embedded (E3); the test suite holds the entity **codes** only | entity codes, deleted flags, region lists (no callsign mapping) |
+| ITU Appendix 42 RR | ITU-R | <https://www.itu.int/en/ITU-R/terrestrial/fmd/Pages/call_sign_series.aspx> (table <https://www.itu.int/gladapp/Allocation/CallSigns>) | read 2026-11-18 | `1633ea603597a3e477fa38df51b3427c93089da592bf1852ca5cae735805cd00` | all rights reserved → reference only | whether a prefix is allocated |
+| Poland | Minister Cyfryzacji | Dz.U. 2026 poz. 406, <https://eli.gov.pl/api/acts/DU/2026/406/text/I/D20260406.pdf> | 19 March 2026 | `cff94713a772447aa08337e3ad8e320d410a49d2bdde409a16e42b4ae89fcf1c` | public law | §21–22: the digit has no regional meaning |
+| Canada | ISED | RIC-9, <https://ised-isde.canada.ca/site/spectrum-management-telecommunications/en/node/314> | Issue 2 (Provisional), October 2005; page modified 2016-04-25 | `e0961d6c6099a482acd2f245d1bc3ac3f8cf10fc842a883313aa25866c226c3a` | public | prefix = province of the address at issuance; calls are for life; VE9 = New Brunswick |
+| USA | FCC | 47 CFR 97.17(d), <https://www.ecfr.gov/current/title-47/chapter-I/subchapter-D/part-97/subpart-A> | current eCFR | — | public | "selected by the sequential call sign system"; the FCC page on that system returned HTTP 403 |
+
+### 9.2 Owner decisions
+
+| ID | Decision |
+|---|---|
+| D-R1 | Legacy regional rules are `CALL_AREA_HEURISTIC_DEFAULT`: a traditional call-area heuristic and fallback, **not** an authoritative address register (Dz.U. 2026 poz. 406 §21–22, RIC-9). They stay in R1B2, with the region name read correctly (I3). Known differences: legacy `VE1` = "N. Brunswick, Nova Scotia", while RIC-9 gives VE1 = Nova Scotia and VE9 = New Brunswick; 225 rules in 33 entities have no region list in ADIF 3.1.8. |
+| D-C3 | Big CTY 2026-11-14 decides over the legacy database for all prefix-versus-prefix entity conflicts, except for the entity attributes of D-ENT. |
+| D-C4 | `1S`, `BS7`, `TN/`, `TU/`: resolved by I6. `VQ3…ZQ3` → England, `/ZC6` → UK SBA Cyprus, `VP2`/`VP2K` → St. Kitts & Nevis, `3D6` → Fiji / Conway Reef, `VP2` → Anguilla: `INVALID_LEGACY_RULE`. `/1`, `/CHE`, `JD/`, `/2CS`, `/C`, `/JD`, `/T`, `/D`, `/Z`: `INVALID_UNSCOPED_LEGACY_RULE` (Big CTY supplies the context-specific forms). `1P0`, `T0`, `D1`, `0T6`, `1C0`, `O1`: `REJECTED_UNALLOCATED_ITU_PREFIX` (not in ITU Appendix 42, not an ARRL DXCC prefix). `Y8`/`Y9` → Germany, `ZQ2`/`ZQ3` → Gibraltar, `PJ/` → St. Maarten (deleted): `HISTORICAL_INACTIVE_PREFIX`. |
+| D-ENT | For the entity continent and ITU zone, the ARRL DXCC List / ADIF 3.1.8 standard decides over Big CTY: Peter 1 I. (199) continent AN; Antarctica (13) continent AN; South Cook Is. (234) ITU 62; Cocos I. (37, TI9) ITU 12. Code 37 is the entity whose ITU zone conflicts (ARRL 12, Big CTY 11); Cocos (Keeling) Is. (38, VK9C) agrees in both sources (ITU 54) and is not changed. |
+| D-LO | Legacy-only exact calls, after I1/I2: `MALFORMED_REJECT` 1 (`R155??P`); `HISTORICAL_DELETED_ENTITY` 36; `HISTORICAL_DATED_OPERATION` 260; `HISTORICAL_SPECIAL_EVENT` 418 (numeral of two or more digits); `HISTORICAL_UNVERIFIED_LEGACY_EXCEPTION` 373 — 1 087 calls in total. The bundled files stay in `databases/` (removal belongs to R1C). |
+| D-IMP | I1–I6 approved and implemented (§9.3). |
+
+The C4 classes are recorded classifications. They do not remove rules from the legacy
+compatibility layer, which still answers when the country files give nothing, until R1C.
+
+### 9.3 Code changes
+
+| Item | Change | Code |
+|---|---|---|
+| I1 | `UniqueCalls` keys are trimmed and upper-cased; empty keys and keys with characters other than `A–Z`, `0–9`, `/` are rejected and reported (`LegacyRuleIssueKind::InvalidCallsign`). Nine calls with a trailing space can now be found. | `core::prefix::PrefixMatcher::load_from_db_with_report` |
+| I2 | A repeated call keeps the row with the latest known activity date (the later of `StartDate` / `EndDate`, as `YYYY-MM-DD`; a row without a valid date counts as undated); ties go to the higher `rowid` (`_id`). Previously the last row in scan order won regardless of dates. Tables without date columns (older layouts) are still read. | same |
+| I3 | The region name is read from `Province.Country` (trimmed; `None` when empty) instead of the always-empty `Comment`, so `PrefixInfo.province` no longer carries `Some("")`. | same |
+| I6 | After the whole `cty.dat` is read, the primary prefix of each entity becomes an implicit prefix alias with the entity defaults, unless any entity already lists it explicitly. Not for WAE-only entities (`*`); not for primaries containing `/` (such as `3Y/p`), which a normalised call can never match. Big CTY 2026-11-14: 16 primaries are missing from their alias lists, 15 are added (`CE9` is an explicit alias of South Shetland Is.). | `core::reference::cty::CtyData` |
+| D-ENT | `OFFICIAL_ENTITY_ATTRIBUTES` replaces the entity defaults after `cty.csv` codes are joined; explicit per-alias overrides stay as published. Reported in `CountryFileReport::official_attribute_changes`. | `core::reference::cty`, `PrefixMatcher::load_from_country_files` |
+| I4 | Deterministic tests for I1, I2, I3, I6, D-ENT, `cty.dat`/`cty.csv` consistency and entity codes checked against the ADIF 3.1.8 code list (`CtyData::entities_with_unknown_code`); synthetic data only. | `core::prefix` tests, `core::reference::cty` tests |
+
+### 9.4 Parity matrix
+
+Method: the production resolver in three configurations (legacy database only; Big CTY
+2026-11-14 with `cty.csv`; production layering of country files plus the legacy compatibility
+layer) over a fixed corpus of 60 876 calls. The corpus holds every legacy exact call (4 201), every
+Big CTY exact call (23 155), and one synthetic call under every Big CTY prefix and every legacy
+seed prefix (`ARRLPrefix`, `Province.Prefix`), with `/P`, `/9` and the guest form `PFX/SP1AA`, plus
+`/P` and `/MM` for every legacy call. The corpus is sorted and has no random part. Two runs on the
+same code gave byte-identical output. Before = `68fdd92`; after = I1–I3, I6 and D-ENT. The
+comparison runs locally; nothing of it is stored in the repository.
+
+| Class | Before | After |
+|---|---|---|
+| identical entity, zones, continent | 27 326 | 27 505 |
+| same entity, zones differ | 9 877 | 9 812 |
+| same entity, continent differs | 151 | 67 |
+| different entity | 14 617 | 14 600 |
+| — C3, prefix against prefix (groups / inputs) | 36 / 493 | 33 / 477 |
+| — explained by an exact-call entry | 14 124 | 14 123 |
+| legacy only, C4 (groups / inputs) | 26 / 219 | 22 / 210 |
+| replacement only | 8 573 | 8 570 |
+| neither | 113 | 112 |
+| layered result differs from legacy only | 30 313 | 30 228 |
+
+Load counts after: legacy 2 278 exact calls (one rejected as malformed, one row unreadable because
+its ITU zone is stored as text), 347 entity rules, 594 regional rules, 203 `\Z` anchors normalised;
+Big CTY 346 entities, 6 346 prefixes (6 331 listed + 15 implicit primaries), 23 155 exact calls,
+0 issues, every entity matched to a `cty.csv` code.
+
+Effects of the changes:
+
+* **I6.** C4 groups `1S`, `BS7`, `TN/`, `TU/` now resolve. Previous C3 conflicts disappear for
+  Heard I., Macquarie I., Lord Howe I., Franz Josef Land, ITU HQ and UN HQ, whose primaries are
+  now matched. `IS…` calls outside the listed `IS0` block now resolve to Sardinia instead of Italy.
+* **D-ENT.** The "continent differs" class falls from 151 to 67: Antarctica and Peter 1 I. are AN.
+  59 South Cook inputs now carry ITU 62 and 8 Cocos I. inputs ITU 12.
+* **I1 / I2.** Trimmed keys bring back nine calls; three new single-input C3 groups follow from
+  them: `E51AND` North Cook → South Cook, `VK9KS` Territory of New Guinea (deleted) → Norfolk I.,
+  `FO8AJ` Clipperton → French Polynesia. I2 changes the result of conflicting dated duplicates:
+  for example the entity of `FO/KH0PR`, `FO0MAC`, `FO0PAP`, `JF1LGD/JD1` and `VP8AEN`, and the
+  zones of `R66IOTA`.
+* **I3.** Every regional result now carries its region name (25 550 legacy and 18 209 layered
+  inputs changed only in `province`).
+* The remaining C3 groups (33) and C4 groups (22) follow the classes in §9.2.
+
+### 9.5 Residual risks
+
+* Big CTY has no published checksum or signature; integrity rests on TLS, local validation and
+  the recorded SHA-256.
+* The regional heuristic is not a location: it can be wrong for any station that moved or chose
+  its call freely (Poland), and the USA rules could not be checked against the FCC text.
+* "Special event" is a format rule (multi-digit numeral); no official register was found.
+* The corpus measures rule behaviour, not real log contents.
