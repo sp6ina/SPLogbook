@@ -10965,7 +10965,18 @@ fn p1_f20r_prior_gates_and_dependency_policy_guard() {
         roadmap.contains("NATIVE-7B"),
         "NATIVE-7B must stay recorded as NOT_STARTED"
     );
-    assert!(roadmap.contains("F-21"), "F-21 must stay recorded as OPEN");
+    assert!(
+        roadmap.contains("F-21 = CLOSED"),
+        "F-21 must stay recorded as CLOSED"
+    );
+    assert!(
+        roadmap.contains("F20R = CLOSED"),
+        "F20R must stay recorded as CLOSED"
+    );
+    assert!(
+        roadmap.contains("F-18 = CLOSED"),
+        "F-18 must stay recorded as CLOSED"
+    );
     // Zależności: bez zmian, `rusqlite` nadal bundled, brak dev-dependency w
     // produkcyjnych zależnościach.
     let manifest = p1_f20_read("Cargo.toml");
@@ -11216,5 +11227,236 @@ fn p1_f21_cabrillo_export_is_untruncated_and_journal_scoped_guard() {
     assert!(
         gui_contest.contains("get_all_qsos_for_journal(&app.active_journal.id)"),
         "F-21: render_contest_window must refresh ContestCache from get_all_qsos_for_journal(&app.active_journal.id)"
+    );
+}
+
+#[test]
+fn f18_redact_sensitive_info_is_utf8_safe_and_never_lowercases_guard() {
+    let arbiter = p1_f20r_code(&p1_f20_read("src/cat/tx_arbiter.rs"));
+    let start = arbiter
+        .find("pub fn redact_sensitive_info(")
+        .expect("redact_sensitive_info exists");
+    let rest = &arbiter[start..];
+    let end = rest
+        .find("pub fn ")
+        .and_then(|_| rest[30..].find("pub ").map(|i| i + 30))
+        .unwrap_or(rest.len());
+    let body = &rest[..end];
+
+    assert!(
+        !body.contains(".to_lowercase()"),
+        "F-18: redact_sensitive_info must never call .to_lowercase()"
+    );
+    for required in [
+        "out.as_bytes()",
+        "windows(pat.len())",
+        "eq_ignore_ascii_case(pat)",
+        "ceil_char_boundary(",
+        "floor_char_boundary(",
+    ] {
+        assert!(
+            body.contains(required),
+            "F-18: redact_sensitive_info must use `{required}`"
+        );
+    }
+
+    // Functional verification of UTF-8 safety with length-expanding scalars (İ U+0130, Ⱥ U+023A),
+    // Polish diacritics, Cyrillic, and emojis before, inside, and after secrets.
+    let sample = "İİİ ȺȺȺ Błąd połączenia (Ошибка 🛰️): PaSsWoRd=TajneHasłoİȺ123, ToKeN:żółć_токен_🔒; BeArEr секрет123\napi_key=KluczİȺ🚀 koniec";
+    let redacted = splogbook::cat::tx_arbiter::redact_sensitive_info(sample);
+    assert!(
+        redacted.contains("PaSsWoRd=[REDACTED]"),
+        "password was not redacted: {redacted}"
+    );
+    assert!(
+        redacted.contains("ToKeN:[REDACTED]"),
+        "token was not redacted: {redacted}"
+    );
+    assert!(
+        redacted.contains("BeArEr [REDACTED]"),
+        "bearer was not redacted: {redacted}"
+    );
+    assert!(
+        redacted.contains("api_key=[REDACTED]"),
+        "api_key was not redacted: {redacted}"
+    );
+    for secret in ["TajneHasłoİȺ123", "żółć_токен_🔒", "секрет123", "KluczİȺ🚀"]
+    {
+        assert!(
+            !redacted.contains(secret),
+            "secret `{secret}` leaked in `{redacted}`"
+        );
+    }
+    assert!(redacted.starts_with("İİİ ȺȺȺ Błąd połączenia (Ошибка 🛰️): "));
+    assert!(redacted.ends_with(" koniec"));
+}
+
+#[test]
+fn eqsl_received_date_is_never_fabricated_from_qso_date_guard() {
+    let qsl = p1_f20r_code(&p1_f20_read("src/core/database/qsl.rs"));
+    let start = qsl
+        .find("pub fn mark_eqsl_confirmed_batch_for_journal(")
+        .expect("mark_eqsl_confirmed_batch_for_journal exists");
+    let body = &qsl[start..];
+
+    assert!(
+        !body.contains("unwrap_or(&q.qso_date)"),
+        "eQSL confirmation must never fall back to q.qso_date"
+    );
+    assert!(
+        body.contains("crate::core::adif::adif_date_part"),
+        "eQSL confirmation must validate received dates through adif_date_part"
+    );
+    assert!(
+        body.contains("rdate: rdate.as_deref()"),
+        "eQSL confirmation must pass Option<&str> to mark_qsl_confirmed_batch_internal"
+    );
+
+    let adif_squeezed = p1_f20r_code(&p1_f20_read("src/core/adif.rs"))
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        adif_squeezed.contains(
+            "qso.eqsl_qslrdate = fields .remove(\"EQSL_QSLRDATE\") .as_deref() .and_then(adif_date_part)"
+        ),
+        "ADIF parser must validate EQSL_QSLRDATE via adif_date_part"
+    );
+
+    // Functional verification of the 4 eQSL confirmation date cases:
+    use splogbook::core::adif::parse_adif;
+    use splogbook::core::database::LogDatabase;
+    use splogbook::core::qso::QsoRecord;
+
+    // 1. Explicit EQSL_QSLRDATE wins over QSLRDATE
+    let parsed_1 = parse_adif(
+        "<CALL:4>W1AW<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261001<TIME_ON:6>120000<QSL_RCVD:1>Y<QSLRDATE:8>20261018<EQSL_QSL_RCVD:1>Y<EQSL_QSLRDATE:8>20261019<EOR>",
+    );
+    assert_eq!(parsed_1[0].eqsl_qslrdate.as_deref(), Some("20261019"));
+
+    // 2. Fallback to QSLRDATE when QSL_RCVD=Y
+    let parsed_2 = parse_adif(
+        "<CALL:4>W1AW<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261001<TIME_ON:6>120000<QSL_RCVD:1>Y<QSLRDATE:8>20261018<EOR>",
+    );
+    assert_eq!(parsed_2[0].eqsl_qslrdate.as_deref(), Some("20261018"));
+
+    // 3. No received date -> None (never fabricates QSO_DATE)
+    let parsed_3 = parse_adif(
+        "<CALL:4>W1AW<BAND:3>20m<MODE:2>CW<QSO_DATE:8>20261001<TIME_ON:6>120000<EQSL_QSL_RCVD:1>Y<EOR>",
+    );
+    assert_eq!(parsed_3[0].eqsl_qslrdate, None);
+
+    // 4. SQLite COALESCE protection in mark_eqsl_confirmed_batch_for_journal
+    let db = LogDatabase::open_in_memory().unwrap();
+    let mut base_qso = QsoRecord::new("W1AW", "20m", "CW");
+    base_qso.qso_date = "20261001".to_string();
+    db.insert_qso(&base_qso).unwrap();
+
+    // Confirm without date -> eqsl_qsl_rcvd = "Y", eqsl_qslrdate = None
+    assert_eq!(
+        db.mark_eqsl_confirmed_batch_for_journal("DEFAULT", &parsed_3)
+            .unwrap(),
+        1
+    );
+    let stored = db.find_previous_qsos("W1AW").unwrap();
+    assert_eq!(stored[0].eqsl_qsl_rcvd, "Y");
+    assert_eq!(stored[0].eqsl_qslrdate, None);
+
+    // Confirm with QSLRDATE -> eqsl_qslrdate = Some("20261018")
+    assert_eq!(
+        db.mark_eqsl_confirmed_batch_for_journal("DEFAULT", &parsed_2)
+            .unwrap(),
+        1
+    );
+    let stored = db.find_previous_qsos("W1AW").unwrap();
+    assert_eq!(stored[0].eqsl_qslrdate.as_deref(), Some("20261018"));
+
+    // Subsequent confirmation without date preserves "20261018" via COALESCE
+    assert_eq!(
+        db.mark_eqsl_confirmed_batch_for_journal("DEFAULT", &parsed_3)
+            .unwrap(),
+        1
+    );
+    let stored = db.find_previous_qsos("W1AW").unwrap();
+    assert_eq!(stored[0].eqsl_qslrdate.as_deref(), Some("20261018"));
+}
+
+#[test]
+fn f06_reference_downloads_are_bounded_validated_and_atomic_guard() {
+    let updater = p1_f20r_code(&p1_f20_read("src/cloud/updater.rs"));
+    assert!(
+        updater.contains("pub const MAX_REFERENCE_FILE_SIZE: u64 = 32 * 1024 * 1024;"),
+        "F-06: MAX_REFERENCE_FILE_SIZE must be 32 MiB"
+    );
+    assert!(
+        updater.contains("pub fn write_file_atomic_sync("),
+        "F-06: write_file_atomic_sync must exist"
+    );
+
+    let dl_start = updater
+        .find("async fn download_file(")
+        .expect("DatabaseUpdater::download_file exists");
+    let dl_rest = &updater[dl_start..];
+    let dl_end = dl_rest
+        .find("pub struct BoundedBuffer")
+        .unwrap_or(dl_rest.len());
+    let dl_body = &dl_rest[..dl_end];
+
+    for required in [
+        "BoundedBuffer::new(MAX_REFERENCE_FILE_SIZE)",
+        "write_file_atomic_sync(dest_path, &bytes)?",
+    ] {
+        assert!(
+            dl_body.contains(required),
+            "F-06: DatabaseUpdater::download_file must use `{required}`"
+        );
+    }
+    assert!(
+        !dl_body.contains("tokio::fs::write("),
+        "F-06: DatabaseUpdater::download_file must not write directly to dest_path with tokio::fs::write"
+    );
+
+    let app_services = p1_f20r_code(&p1_f20_read("src/gui/app_services.rs"));
+    assert!(
+        app_services.contains("if outcome.is_ok()")
+            && app_services.contains("file.metadata().is_ok_and(|m| m.len() > 0)"),
+        "F-06: trigger_database_update must only reload MASTER.SCP when outcome.is_ok() and file size > 0"
+    );
+
+    // Functional verification of write_file_atomic_sync:
+    let tmp_dir = tempfile::tempdir().unwrap();
+    let dest = tmp_dir.path().join("MASTER.SCP");
+
+    // 1. Reject empty or whitespace-only buffer
+    assert!(splogbook::cloud::updater::write_file_atomic_sync(&dest, b"").is_err());
+    assert!(splogbook::cloud::updater::write_file_atomic_sync(&dest, b"  \t\r\n ").is_err());
+    assert!(!dest.exists());
+
+    // 2. Write initial valid file
+    splogbook::cloud::updater::write_file_atomic_sync(&dest, b"SP6INA\nW1AW\n").unwrap();
+    assert_eq!(std::fs::read_to_string(&dest).unwrap(), "SP6INA\nW1AW\n");
+
+    // 3. Preserve existing file when an HTML error page or empty buffer is rejected
+    assert!(
+        splogbook::cloud::updater::write_file_atomic_sync(
+            &dest,
+            b"<!DOCTYPE html><html><body>Error</body></html>"
+        )
+        .is_err()
+    );
+    assert!(splogbook::cloud::updater::write_file_atomic_sync(&dest, b"<html>503</html>").is_err());
+    assert_eq!(std::fs::read_to_string(&dest).unwrap(), "SP6INA\nW1AW\n");
+
+    // 4. Atomically overwrite existing file and leave zero .tmp files
+    splogbook::cloud::updater::write_file_atomic_sync(&dest, b"SP6INA\nK1JT\n").unwrap();
+    assert_eq!(std::fs::read_to_string(&dest).unwrap(), "SP6INA\nK1JT\n");
+    let leftovers: Vec<_> = std::fs::read_dir(tmp_dir.path())
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
+        .collect();
+    assert!(
+        leftovers.is_empty(),
+        "F-06: leftover .tmp files found: {leftovers:?}"
     );
 }
