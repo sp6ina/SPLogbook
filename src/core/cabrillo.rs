@@ -5,6 +5,7 @@
 
 use crate::core::contest_rules::ContestError;
 use crate::core::qso::QsoRecord;
+use jiff::civil::Date;
 use std::fmt::Write;
 
 /// Kategoria operatora w specyfikacji WWROF Cabrillo 3.0: `SINGLE-OP`, `MULTI-OP`, `CHECKLOG`.
@@ -277,7 +278,141 @@ pub fn band_to_cabrillo_freq(band: &str) -> u64 {
     }
 }
 
-/// Czysta funkcja generująca tekst raportu Cabrillo 3.0 z pełną walidacją kategorii i raportów RST.
+/// Waliduje i formatuje datę łączności dla Cabrillo v3.0 (`YYYY-MM-DD`).
+/// Akceptuje formaty `YYYYMMDD` oraz `YYYY-MM-DD`, weryfikując poprawność daty kalendarzowej.
+/// Nigdy nie podstawia bieżącego czasu zegara systemowego (Fail-Closed).
+pub fn format_and_validate_cabrillo_date(raw: &str) -> Result<String, ContestError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(ContestError::InvalidQsoTimestamp {
+            callsign: String::new(),
+            detail: "missing QSO date (expected YYYYMMDD or YYYY-MM-DD)".to_string(),
+        });
+    }
+
+    let parsed = if trimmed.len() == 8 && trimmed.bytes().all(|b| b.is_ascii_digit()) {
+        Date::strptime("%Y%m%d", trimmed).ok()
+    } else if trimmed.len() == 10 {
+        let bytes = trimmed.as_bytes();
+        if bytes[4] == b'-'
+            && bytes[7] == b'-'
+            && bytes[0..4].iter().all(u8::is_ascii_digit)
+            && bytes[5..7].iter().all(u8::is_ascii_digit)
+            && bytes[8..10].iter().all(u8::is_ascii_digit)
+        {
+            Date::strptime("%Y-%m-%d", trimmed).ok()
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    match parsed {
+        Some(date) => Ok(date.strftime("%Y-%m-%d").to_string()),
+        None => Err(ContestError::InvalidQsoTimestamp {
+            callsign: String::new(),
+            detail: format!("invalid QSO date '{trimmed}' (expected valid YYYYMMDD or YYYY-MM-DD)"),
+        }),
+    }
+}
+
+/// Waliduje i formatuje czas łączności (UTC) dla Cabrillo v3.0 (`HHMM`).
+/// Akceptuje formaty `HHMM`, `HHMMSS`, `HH:MM` oraz `HH:MM:SS` z walidacją zakresów
+/// (`HH < 24`, `MM < 60`, `SS < 60`). Nigdy nie podstawia bieżącego czasu zegara (Fail-Closed).
+pub fn format_and_validate_cabrillo_time(raw: &str) -> Result<String, ContestError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(ContestError::InvalidQsoTimestamp {
+            callsign: String::new(),
+            detail: "missing QSO time (expected HHMM, HHMMSS, HH:MM or HH:MM:SS)".to_string(),
+        });
+    }
+
+    let digits = match trimmed.len() {
+        4 if trimmed.bytes().all(|b| b.is_ascii_digit()) => trimmed.to_string(),
+        6 if trimmed.bytes().all(|b| b.is_ascii_digit()) => trimmed.to_string(),
+        5 => {
+            let b = trimmed.as_bytes();
+            if b[2] == b':'
+                && b[0..2].iter().all(u8::is_ascii_digit)
+                && b[3..5].iter().all(u8::is_ascii_digit)
+            {
+                format!("{}{}", &trimmed[0..2], &trimmed[3..5])
+            } else {
+                return Err(ContestError::InvalidQsoTimestamp {
+                    callsign: String::new(),
+                    detail: format!(
+                        "invalid QSO time '{trimmed}' (expected HHMM, HHMMSS, HH:MM or HH:MM:SS)"
+                    ),
+                });
+            }
+        }
+        8 => {
+            let b = trimmed.as_bytes();
+            if b[2] == b':'
+                && b[5] == b':'
+                && b[0..2].iter().all(u8::is_ascii_digit)
+                && b[3..5].iter().all(u8::is_ascii_digit)
+                && b[6..8].iter().all(u8::is_ascii_digit)
+            {
+                format!("{}{}{}", &trimmed[0..2], &trimmed[3..5], &trimmed[6..8])
+            } else {
+                return Err(ContestError::InvalidQsoTimestamp {
+                    callsign: String::new(),
+                    detail: format!(
+                        "invalid QSO time '{trimmed}' (expected HHMM, HHMMSS, HH:MM or HH:MM:SS)"
+                    ),
+                });
+            }
+        }
+        _ => {
+            return Err(ContestError::InvalidQsoTimestamp {
+                callsign: String::new(),
+                detail: format!(
+                    "invalid QSO time '{trimmed}' (expected HHMM, HHMMSS, HH:MM or HH:MM:SS)"
+                ),
+            });
+        }
+    };
+
+    let hh: u32 = digits[0..2].parse().unwrap_or(99);
+    let mm: u32 = digits[2..4].parse().unwrap_or(99);
+    let ss: u32 = if digits.len() == 6 {
+        digits[4..6].parse().unwrap_or(99)
+    } else {
+        0
+    };
+
+    if hh >= 24 || mm >= 60 || ss >= 60 {
+        return Err(ContestError::InvalidQsoTimestamp {
+            callsign: String::new(),
+            detail: format!(
+                "out-of-range QSO time '{trimmed}' (expected HH in 00..=23, MM in 00..=59, SS in 00..=59)"
+            ),
+        });
+    }
+
+    Ok(digits[0..4].to_string())
+}
+
+/// Wyznacza kanoniczny klucz porządkujący rekord QSO w kolejności chronologicznej rosnącej,
+/// w 100% zgodny z klauzulą SQL `ORDER_CHRONO_ASC`:
+/// `(REPLACE(qso_date, '-', ''), SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6), id)`.
+pub fn canonical_qso_sort_key(qso: &QsoRecord) -> (String, String, Option<i64>) {
+    let norm_date = qso.qso_date.trim().replace('-', "");
+    let raw_time = qso.time_on.trim().replace(':', "");
+    let mut padded_time = String::with_capacity(6);
+    for ch in raw_time.chars().take(6) {
+        padded_time.push(ch);
+    }
+    while padded_time.len() < 6 {
+        padded_time.push('0');
+    }
+    (norm_date, padded_time, qso.id)
+}
+
+/// Czysta funkcja generująca tekst raportu Cabrillo 3.0 z pełną walidacją kategorii, znaczników czasu i raportów RST.
 pub fn build(input: &CabrilloInput) -> Result<String, ContestError> {
     let tx_category = input
         .transmitter_category
@@ -305,39 +440,37 @@ pub fn build(input: &CabrilloInput) -> Result<String, ContestError> {
     out.push_str("CREATED-BY: SPLogbook by SP6INA (GPLv3)\n");
     out.push_str("SOAPBOX: Created with SPLogbook by SP6INA (GPLv3)\n");
 
-    // Kopiujemy i sortujemy łączności chronologicznie rosnąco (DATA-001 / FUNC-001)
+    // Kopiujemy i sortujemy łączności w kanonicznym porządku chronologicznym rosnącym (DATA-001 / FUNC-001 / F-21)
     let mut sorted_qsos = input.qsos.to_vec();
-    sorted_qsos.sort_by(|a, b| {
-        a.qso_date
-            .cmp(&b.qso_date)
-            .then_with(|| a.time_on.cmp(&b.time_on))
-            .then_with(|| a.id.cmp(&b.id))
-    });
+    sorted_qsos.sort_by_key(canonical_qso_sort_key);
 
-    // One clock read per export: a QSO without date or time gets the same fallback instant.
-    let export_time = jiff::Timestamp::now();
     for (idx, qso) in sorted_qsos.iter().enumerate() {
         let freq_khz = qso.freq.map_or_else(
             || band_to_cabrillo_freq(&qso.band),
             |f| (f * 1000.0).round() as u64,
         );
 
-        let date_str = if qso.qso_date.len() == 8 && qso.qso_date.is_ascii() {
-            format!(
-                "{}-{}-{}",
-                &qso.qso_date[0..4],
-                &qso.qso_date[4..6],
-                &qso.qso_date[6..8]
-            )
-        } else {
-            export_time.strftime("%Y-%m-%d").to_string()
-        };
+        let date_str =
+            format_and_validate_cabrillo_date(&qso.qso_date).map_err(|err| match err {
+                ContestError::InvalidQsoTimestamp { detail, .. } => {
+                    ContestError::InvalidQsoTimestamp {
+                        callsign: qso.callsign.clone(),
+                        detail,
+                    }
+                }
+                other => other,
+            })?;
 
-        let time_str = if qso.time_on.len() >= 4 && qso.time_on.is_ascii() {
-            qso.time_on[0..4].to_string()
-        } else {
-            export_time.strftime("%H%M").to_string()
-        };
+        let time_str =
+            format_and_validate_cabrillo_time(&qso.time_on).map_err(|err| match err {
+                ContestError::InvalidQsoTimestamp { detail, .. } => {
+                    ContestError::InvalidQsoTimestamp {
+                        callsign: qso.callsign.clone(),
+                        detail,
+                    }
+                }
+                other => other,
+            })?;
 
         let mode_cab = cabrillo_mode(&qso.mode);
         let my_rst = format_and_validate_rst(&qso.rst_sent, mode_cab)?;
@@ -1063,6 +1196,171 @@ mod tests {
             lines.len(),
             2,
             "SP DX duplicate must remain in Cabrillo log"
+        );
+    }
+
+    #[test]
+    fn cabrillo_date_and_time_validation_is_fail_closed_and_never_uses_wall_clock() {
+        // Akceptowane formaty daty: YYYYMMDD oraz YYYY-MM-DD
+        assert_eq!(
+            format_and_validate_cabrillo_date("20260404").unwrap(),
+            "2026-04-04"
+        );
+        assert_eq!(
+            format_and_validate_cabrillo_date(" 2026-04-04 ").unwrap(),
+            "2026-04-04"
+        );
+
+        // Odrzucane puste i niepoprawne daty kalendarzowe
+        for invalid_date in [
+            "",
+            "   ",
+            "20261301",
+            "2026-02-30",
+            "2026/04/04",
+            "ABCDEFGH",
+        ] {
+            assert!(
+                matches!(
+                    format_and_validate_cabrillo_date(invalid_date),
+                    Err(ContestError::InvalidQsoTimestamp { .. })
+                ),
+                "invalid date '{invalid_date}' must be rejected fail-closed"
+            );
+        }
+
+        // Akceptowane formaty czasu: HHMM, HHMMSS, HH:MM, HH:MM:SS -> emitowane 4 cyfry HHMM
+        assert_eq!(format_and_validate_cabrillo_time("1234").unwrap(), "1234");
+        assert_eq!(format_and_validate_cabrillo_time("123456").unwrap(), "1234");
+        assert_eq!(format_and_validate_cabrillo_time("12:34").unwrap(), "1234");
+        assert_eq!(
+            format_and_validate_cabrillo_time("12:34:56").unwrap(),
+            "1234"
+        );
+        assert_eq!(format_and_validate_cabrillo_time("000000").unwrap(), "0000");
+        assert_eq!(
+            format_and_validate_cabrillo_time("23:59:59").unwrap(),
+            "2359"
+        );
+
+        // Odrzucane puste i niepoprawne godziny
+        for invalid_time in [
+            "", "   ", "123", "12345", "2400", "2360", "235960", "24:00", "12:60:00", "12:34:60",
+            "ABCD",
+        ] {
+            assert!(
+                matches!(
+                    format_and_validate_cabrillo_time(invalid_time),
+                    Err(ContestError::InvalidQsoTimestamp { .. })
+                ),
+                "invalid time '{invalid_time}' must be rejected fail-closed"
+            );
+        }
+
+        // build() odrzuca rekord bez daty lub z błędnym czasem zamiast podstawiać Timestamp::now()
+        let mut bad_date_qso = sample_qso("W1AW", "20m", "CW", "599", "599");
+        bad_date_qso.qso_date.clear();
+        let input_bad_date = CabrilloInput {
+            contest_name: "CQ WW CW",
+            callsign: "SP6INA",
+            operator: "Mariusz",
+            city: "Wroclaw",
+            country: "Poland",
+            claimed_score: 3,
+            qsos: &[bad_date_qso],
+            transmitter_category: None,
+            operator_category: None,
+        };
+        assert!(matches!(
+            build(&input_bad_date),
+            Err(ContestError::InvalidQsoTimestamp { ref callsign, .. }) if callsign == "W1AW"
+        ));
+
+        let mut bad_time_qso = sample_qso("DL1XYZ", "20m", "CW", "599", "599");
+        bad_time_qso.time_on = "9999".to_string();
+        let input_bad_time = CabrilloInput {
+            contest_name: "CQ WW CW",
+            callsign: "SP6INA",
+            operator: "Mariusz",
+            city: "Wroclaw",
+            country: "Poland",
+            claimed_score: 1,
+            qsos: &[bad_time_qso],
+            transmitter_category: None,
+            operator_category: None,
+        };
+        assert!(matches!(
+            build(&input_bad_time),
+            Err(ContestError::InvalidQsoTimestamp { ref callsign, .. }) if callsign == "DL1XYZ"
+        ));
+    }
+
+    #[test]
+    fn cabrillo_same_minute_mixed_time_formats_sort_deterministically_like_sql_order_chrono_asc() {
+        // W tej samej minucie 12:00 różne reprezentacje czasu i identyfikatory
+        // muszą sortować się identycznie jak SQL ORDER_CHRONO_ASC:
+        // (REPLACE(qso_date, '-', ''), SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6), id)
+        let mut q_sec30 = sample_qso("DL3SEC", "20m", "CW", "599", "599");
+        q_sec30.id = Some(10);
+        q_sec30.qso_date = "2026-04-04".to_string();
+        q_sec30.time_on = "120030".to_string();
+
+        let mut q_sec05_colon = sample_qso("DL2COL", "20m", "CW", "599", "599");
+        q_sec05_colon.id = Some(20);
+        q_sec05_colon.qso_date = "20260404".to_string();
+        q_sec05_colon.time_on = "12:00:05".to_string();
+
+        let mut q_min_id2 = sample_qso("DL1ID2", "20m", "CW", "599", "599");
+        q_min_id2.id = Some(2);
+        q_min_id2.qso_date = "20260404".to_string();
+        q_min_id2.time_on = "120000".to_string();
+
+        let mut q_min_id1 = sample_qso("DL0ID1", "20m", "CW", "599", "599");
+        q_min_id1.id = Some(1);
+        q_min_id1.qso_date = "2026-04-04".to_string();
+        q_min_id1.time_on = "1200".to_string(); // dopełniane do 120000, id=1 < id=2
+
+        let qsos = vec![q_sec30, q_sec05_colon, q_min_id2, q_min_id1];
+        let input = CabrilloInput {
+            contest_name: "SP DX Contest",
+            callsign: "SP6INA",
+            operator: "Mariusz",
+            city: "Wroclaw",
+            country: "Poland",
+            claimed_score: 4,
+            qsos: &qsos,
+            transmitter_category: None,
+            operator_category: None,
+        };
+
+        let text = build(&input).expect("valid cabrillo");
+        let lines: Vec<&str> = text.lines().filter(|l| l.starts_with("QSO:")).collect();
+        assert_eq!(lines.len(), 4);
+
+        // Oczekiwana kanoniczna kolejność:
+        // 1. DL0ID1 (120000, id=1) -> serial 001
+        // 2. DL1ID2 (120000, id=2) -> serial 002
+        // 3. DL2COL (120005, id=20) -> serial 003
+        // 4. DL3SEC (120030, id=10) -> serial 004
+        assert!(
+            lines[0].contains("2026-04-04 1200")
+                && lines[0].contains("001")
+                && lines[0].contains("DL0ID1")
+        );
+        assert!(
+            lines[1].contains("2026-04-04 1200")
+                && lines[1].contains("002")
+                && lines[1].contains("DL1ID2")
+        );
+        assert!(
+            lines[2].contains("2026-04-04 1200")
+                && lines[2].contains("003")
+                && lines[2].contains("DL2COL")
+        );
+        assert!(
+            lines[3].contains("2026-04-04 1200")
+                && lines[3].contains("004")
+                && lines[3].contains("DL3SEC")
         );
     }
 }

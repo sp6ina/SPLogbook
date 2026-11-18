@@ -3,12 +3,13 @@
 
 use crate::core::station::CustomContest;
 
-/// Klucz bufora obliczeń zawodów (PERF-002).
+/// Klucz bufora obliczeń zawodów (PERF-002 / F-21).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContestCacheKey {
     pub profile_id: String,
     pub log_identity: String,
     pub log_revision: u64,
+    pub journal_qso_count: usize,
     pub contest_name: String,
     pub custom_contests_len: usize,
     pub my_dxcc: u32,

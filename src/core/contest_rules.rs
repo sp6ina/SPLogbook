@@ -44,6 +44,10 @@ pub enum ContestError {
     InvalidSerialNumber(String),
     MissingTransmitterId(String),
     ContestScoreRuleUnavailable(String),
+    InvalidQsoTimestamp {
+        callsign: String,
+        detail: String,
+    },
 }
 
 impl std::fmt::Display for ContestError {
@@ -77,6 +81,9 @@ impl std::fmt::Display for ContestError {
             }
             ContestError::ContestScoreRuleUnavailable(s) => {
                 write!(f, "Contest scoring rule unavailable for: {s}")
+            }
+            ContestError::InvalidQsoTimestamp { callsign, detail } => {
+                write!(f, "Invalid QSO timestamp for '{callsign}': {detail}")
             }
         }
     }

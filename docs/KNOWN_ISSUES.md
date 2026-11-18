@@ -426,10 +426,54 @@ Files: `src/cloud/upload_plan.rs`, `src/cloud/eqsl.rs`, `src/cloud/lotw.rs`,
 
 This defect must not be reopened without a reproducible regression.
 
-### F-21 (P1) — Cabrillo export caps at 10 000 QSOs
+### F-21 (P1) — Cabrillo export caps at 10 000 QSOs — F-21 = CLOSED
 
-The exporter truncates at 10 000 QSOs and derives `CLAIMED-SCORE` from the truncated set,
-which misrepresents large contest entries. Files: `src/gui/app_export.rs`.
+Original defect: `SpLogApp::export_cabrillo` fetched QSOs through
+`db.get_recent_qsos_for_journal(&self.active_journal.id, 10000)` (`ORDER BY ... DESC LIMIT 10000`),
+silently dropping the oldest contacts of any contest log above 10 000 QSOs, and passed that
+descending, truncated slice to `compute_scoreboard` to compute `CLAIMED-SCORE`. In addition,
+`cabrillo::build` sorted raw date/time strings without separator normalization or 6-digit time
+padding and fell back to the wall clock (`jiff::Timestamp::now()`) when a record had a missing or
+hyphenated date or a malformed time.
+
+Software remediation (2026-11-18, `STAGE-P1-F21-SOFTWARE`, software-only verification):
+
+- `export_cabrillo`, `export_pdf_log` and `export_gpx_log` in `src/gui/app_export.rs` now query the
+  full journal via `db.get_all_qsos_for_journal(&self.active_journal.id)` (`WHERE journal_id = ?1
+  ORDER BY ORDER_CHRONO_ASC`, no `LIMIT`);
+- `render_contest_window` in `src/gui/contest.rs` refreshes `ContestCache` from
+  `db.get_all_qsos_for_journal(&app.active_journal.id)` keyed by `ContestCacheKey` (including
+  `journal_qso_count`), so the live Contest window scoreboard and multiplier matrix use the same
+  complete journal set as Cabrillo export rather than the paginated/filtered table view buffer;
+- `canonical_qso_sort_key` in `src/core/cabrillo.rs` normalizes date (`YYYYMMDD`), 6-digit padded
+  time (`HHMMSS`) and `id`, matching SQLite `ORDER_CHRONO_ASC`, and is used by both
+  `cabrillo::build` and `compute_scoreboard` (`src/core/contest_stats.rs`) so duplicate detection
+  always credits the earliest chronological contact regardless of input slice order;
+- `jiff::Timestamp::now()` is removed from `src/core/cabrillo.rs`:
+  `format_and_validate_cabrillo_date` (`YYYYMMDD` / `YYYY-MM-DD` validated via `jiff::civil::Date`
+  → `"YYYY-MM-DD"`) and `format_and_validate_cabrillo_time` (`HHMM` / `HHMMSS` / `HH:MM` /
+  `HH:MM:SS` with range checks → `"HHMM"`) fail closed with `ContestError::InvalidQsoTimestamp`.
+
+Verification boundaries recorded by this gate:
+
+```
+F-21 = CLOSED
+COMPLETED_CABRILLO_UNTRUNCATED_EXPORT_AND_SCORE_REMEDIATION_VERIFIED
+Cabrillo selection = JOURNAL_SCOPED_UNTRUNCATED
+Claimed score = FULL_CANONICAL_SET_VERIFIED
+Timestamp fallback to wall clock = REMOVED_FAIL_CLOSED
+Same-minute ordering = CANONICAL_DETERMINISTIC_VERIFIED
+Real user data = NOT_USED
+SOFTWARE_ONLY_VERIFICATION=true
+F-14 / CAT-018 / CAT-019 / F-15 / F-16 / F-17 / F-19 / F-20 = remain CLOSED
+NATIVE-7B = NOT_STARTED
+```
+
+Files: `src/core/cabrillo.rs`, `src/core/contest_rules.rs`, `src/core/contest_stats.rs`,
+`src/gui/app_export.rs`, `src/gui/contest.rs`, `src/gui/state/contest.rs`,
+`tests/p1_f21_cabrillo_export.rs`, `tests/security_guard.rs`, `docs/KNOWN_ISSUES.md`.
+
+This defect must not be reopened without a reproducible regression.
 
 ### F-05 (P2) — MSI and Inno Setup installers are not published by CI
 

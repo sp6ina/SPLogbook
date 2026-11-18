@@ -205,6 +205,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
         profile_id: app.config.active_profile_id.clone(),
         log_identity: app.active_journal.id.clone(),
         log_revision: app.log_view.log_revision,
+        journal_qso_count: app.log_view.qso_numbers.len(),
         contest_name: app.contest.name.clone(),
         custom_contests_len: app.config.custom_contests.len(),
         my_dxcc,
@@ -213,23 +214,33 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
     let cache_hit = app.contest.cache.key.as_ref() == Some(&current_key);
     if !cache_hit {
+        let full_journal_qsos = app
+            .services
+            .log_db
+            .lock()
+            .ok()
+            .and_then(|db| db.get_all_qsos_for_journal(&app.active_journal.id).ok());
+        let contest_qsos: &[QsoRecord] = full_journal_qsos
+            .as_deref()
+            .unwrap_or(&app.log_view.recent_qsos);
+
         let scoreboard = crate::core::contest_stats::compute_scoreboard(
             &app.contest.name,
             &app.config.custom_contests,
-            &app.log_view.recent_qsos,
+            contest_qsos,
             my_dxcc,
             my_cqzone,
         );
 
         let mult_matrix = if mult_kind != MultKind::None && !rule_bands.is_empty() {
             let band_refs: Vec<&str> = rule_bands.iter().map(std::string::String::as_str).collect();
-            compute_mult_matrix(mult_kind, &band_refs, &app.log_view.recent_qsos)
+            compute_mult_matrix(mult_kind, &band_refs, contest_qsos)
         } else {
             MultMatrix::default()
         };
 
         let mut bands = std::collections::HashMap::new();
-        for qso in &app.log_view.recent_qsos {
+        for qso in contest_qsos {
             *bands.entry(qso.band.clone()).or_insert(0) += 1;
         }
         let mut band_vec: Vec<_> = bands.into_iter().collect();

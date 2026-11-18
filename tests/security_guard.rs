@@ -10383,12 +10383,12 @@ fn p1_f20_prior_gates_remain_closed_guard() {
         );
     }
     assert!(
-        !known.contains("F-21 = CLOSED"),
-        "F-20: F-21 must remain OPEN"
+        known.contains("F-21 = CLOSED"),
+        "F-21: F-21 must be recorded as CLOSED after STAGE-P1-F21-SOFTWARE"
     );
     assert!(
         known.contains("F-21 (P1)"),
-        "F-20: F-21 must remain recorded as open"
+        "F-20: F-21 must remain recorded in KNOWN_ISSUES.md"
     );
 
     let roadmap = p1_f20_read("docs/ROADMAP.md");
@@ -11085,4 +11085,73 @@ fn f20r4_lotw_received_date_is_never_invented_guard() {
             "F20-R4: regression test `{name}` must stay"
         );
     }
+}
+
+#[test]
+fn p1_f21_cabrillo_export_is_untruncated_and_journal_scoped_guard() {
+    let app_export = p1_f20_read("src/gui/app_export.rs");
+    let cabrillo = p1_f20_read("src/core/cabrillo.rs");
+    let contest_stats = p1_f20_read("src/core/contest_stats.rs");
+    let gui_contest = p1_f20_read("src/gui/contest.rs");
+
+    // 1. Brak obcinających selektorów `get_recent_qsos*` i limitu 10 000 w `src/gui/app_export.rs`.
+    for forbidden in [
+        "get_recent_qsos(",
+        "get_recent_qsos_for_journal(",
+        "10000",
+        "10_000",
+    ] {
+        assert!(
+            !app_export.contains(forbidden),
+            "F-21: src/gui/app_export.rs must not contain `{forbidden}`"
+        );
+    }
+    assert_eq!(
+        p1_f20_count(
+            &app_export,
+            "get_all_qsos_for_journal(&self.active_journal.id)"
+        ),
+        3,
+        "F-21: export_cabrillo, export_pdf_log and export_gpx_log must all use get_all_qsos_for_journal(&self.active_journal.id)"
+    );
+
+    // 2. W `src/core/cabrillo.rs` brak podstawiania bieżącego zegara `now()` (fail-closed)
+    //    oraz użycie kanonicznego klucza sortowania `canonical_qso_sort_key`.
+    let cabrillo_prod = cabrillo.split("#[cfg(test)]").next().unwrap_or(&cabrillo);
+    for forbidden_clock in [
+        "Timestamp::now()",
+        "ZonedDateTime::now()",
+        "SystemTime::now()",
+    ] {
+        assert!(
+            !cabrillo_prod.contains(forbidden_clock),
+            "F-21: src/core/cabrillo.rs production code must never fabricate timestamps with `{forbidden_clock}`"
+        );
+    }
+    for required in [
+        "pub fn format_and_validate_cabrillo_date(",
+        "pub fn format_and_validate_cabrillo_time(",
+        "pub fn canonical_qso_sort_key(",
+        "sorted_qsos.sort_by_key(canonical_qso_sort_key)",
+    ] {
+        assert!(
+            cabrillo_prod.contains(required),
+            "F-21: src/core/cabrillo.rs must contain `{required}`"
+        );
+    }
+
+    // 3. `compute_scoreboard` porządkuje rekordy tym samym kanonicznym kluczem rosnącym,
+    //    a okno kontestowe odświeża cache z pełnego dziennika `get_all_qsos_for_journal`.
+    let contest_stats_prod = contest_stats
+        .split("#[cfg(test)]")
+        .next()
+        .unwrap_or(&contest_stats);
+    assert!(
+        contest_stats_prod.contains("canonical_qso_sort_key"),
+        "F-21: compute_scoreboard must sort records with canonical_qso_sort_key before deduplication and scoring"
+    );
+    assert!(
+        gui_contest.contains("get_all_qsos_for_journal(&app.active_journal.id)"),
+        "F-21: render_contest_window must refresh ContestCache from get_all_qsos_for_journal(&app.active_journal.id)"
+    );
 }

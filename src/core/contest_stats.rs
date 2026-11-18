@@ -253,6 +253,10 @@ pub struct Scoreboard {
 
 /// Oblicza czyste podsumowanie punktacji kontestu (Scoreboard) na podstawie nazwy zawodów,
 /// listy reguł niestandardowych, rekordów QSO oraz własnego DXCC i CQ Zone.
+///
+/// Przed wyliczeniem punktów i mnożników rekordy są porządkowane w kanonicznym porządku
+/// chronologicznym rosnącym (`canonical_qso_sort_key`, zgodnym z `ORDER_CHRONO_ASC` i `cabrillo::build`),
+/// dzięki czemu deduplikacja zawsze zalicza pierwsze chronologicznie QSO od początku zawodów.
 pub fn compute_scoreboard(
     contest_name: &str,
     custom_contests: &[crate::core::station::CustomContest],
@@ -260,6 +264,10 @@ pub fn compute_scoreboard(
     my_dxcc: u32,
     my_cqzone: u8,
 ) -> Scoreboard {
+    let mut ordered_qsos = qsos.to_vec();
+    ordered_qsos.sort_by_key(crate::core::cabrillo::canonical_qso_sort_key);
+    let qsos = ordered_qsos.as_slice();
+
     if let Some(contest) = custom_contests.iter().find(|c| c.name == contest_name) {
         let mut points = 0;
         let mut multipliers = std::collections::HashSet::new();
@@ -481,6 +489,41 @@ mod tests {
                 mults: 0,
                 total: 0
             }
+        );
+    }
+
+    #[test]
+    fn scoreboard_is_invariant_to_asc_or_desc_input_order_when_duplicates_exist() {
+        // Pierwsza łączność (12:00:00, id=1) ma kompletne metadane (województwo R dla stacji SP1AA).
+        // Późniejszy duplikat tej samej stacji (13:00:00, id=2) nie ma wpisanego województwa.
+        // Niezależnie od tego, czy wektor wejściowy pochodzi z ORDER_CHRONO_ASC czy ORDER_CHRONO_DESC,
+        // compute_scoreboard musi najpierw uporządkować QSO chronologicznie rosnąco i zaliczyć pierwsze QSO.
+        let mut first = qso("SP1AA", "20m", "20260404", "120000", Some(269), Some(15));
+        first.id = Some(1);
+        first.srx_string = Some("R".to_string());
+
+        let mut dup_later = qso("SP1AA", "20m", "20260404", "130000", Some(269), Some(15));
+        dup_later.id = Some(2);
+        dup_later.srx_string = None;
+
+        let mut other = qso("SP2BB", "40m", "20260404", "123000", Some(269), Some(15));
+        other.id = Some(3);
+        other.srx_string = Some("D".to_string());
+
+        let asc = vec![first.clone(), other.clone(), dup_later.clone()];
+        let desc = vec![dup_later, other, first];
+
+        // Stacja zagraniczna (DL, my_dxcc=230) w SP DX Contest:
+        // 2 unikalne QSO z SP (3+3=6 pkt) i 2 województwa (R@20m, D@40m -> 2 mults) => total 12
+        let sb_asc = compute_scoreboard("SP DX Contest", &[], &asc, 230, 14);
+        let sb_desc = compute_scoreboard("SP DX Contest", &[], &desc, 230, 14);
+
+        assert_eq!(sb_asc.points, 6);
+        assert_eq!(sb_asc.mults, 2);
+        assert_eq!(sb_asc.total, 12);
+        assert_eq!(
+            sb_asc, sb_desc,
+            "compute_scoreboard must yield identical Scoreboard for ASC and DESC input slices"
         );
     }
 }

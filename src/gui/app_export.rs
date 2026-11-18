@@ -21,7 +21,7 @@ impl SpLogApp {
             .save_file()
         {
             let qsos = match self.services.log_db.lock() {
-                Ok(db) => match db.get_recent_qsos_for_journal(&self.active_journal.id, 10000) {
+                Ok(db) => match db.get_all_qsos_for_journal(&self.active_journal.id) {
                     Ok(list) => list,
                     Err(e) => {
                         self.gui.chrome.status_message = Some(
@@ -152,7 +152,7 @@ impl SpLogApp {
             }
 
             let qsos = match self.services.log_db.lock() {
-                Ok(db) => match db.get_recent_qsos_for_journal(&self.active_journal.id, 10000) {
+                Ok(db) => match db.get_all_qsos_for_journal(&self.active_journal.id) {
                     Ok(list) => list,
                     Err(e) => {
                         self.gui.chrome.status_message = Some(
@@ -339,7 +339,7 @@ impl SpLogApp {
             }
 
             let qsos = match self.services.log_db.lock() {
-                Ok(db) => match db.get_recent_qsos_for_journal(&self.active_journal.id, 10000) {
+                Ok(db) => match db.get_all_qsos_for_journal(&self.active_journal.id) {
                     Ok(list) => list,
                     Err(e) => {
                         self.gui.chrome.status_message = Some(
