@@ -7,7 +7,7 @@
 //! 4. Automatyczny i bezpieczny rollback w przypadku awarii kandydata (crash);
 //! 5. Automatyczny rollback w przypadku przekroczenia limitu czasu na dowód zdrowia (`.health_ok`);
 //! 6. Odrzucenie niepoprawnego `HealthProof` (stale proof, wrong attempt ID);
-//! 7. Bezwzględną ochronę baz SQLite (`serviceLOG.db`, WAL, SHM) i plików konfiguracyjnych;
+//! 7. Bezwzględną ochronę baz SQLite (`default_log.db`, WAL, SHM) i plików konfiguracyjnych;
 //! 8. Zachowanie katalogu `.rollback` po udanej aktualizacji (retencja OWNER-M2-08/09);
 //! 9. Pełną parzystość polityki bezpieczeństwa między helperem Rust a fallbackiem PowerShell.
 
@@ -622,9 +622,9 @@ fn windows_helper_rollback_preserves_sqlite_and_wal() {
     let staging = root.join(".staging");
     fs::create_dir_all(&staging).expect("staging dir");
 
-    let db_path = root.join("serviceLOG.db");
-    let wal_path = root.join("serviceLOG.db-wal");
-    let shm_path = root.join("serviceLOG.db-shm");
+    let db_path = root.join("default_log.db");
+    let wal_path = root.join("default_log.db-wal");
+    let shm_path = root.join("default_log.db-shm");
     let cfg_path = root.join("station_config.json");
 
     let db_bytes = b"SQLITE_DATABASE_DATA_BYTES_PROTECTED";
@@ -672,17 +672,17 @@ fn windows_helper_rollback_preserves_sqlite_and_wal() {
     assert_eq!(
         fs::read(&db_path).expect("read db"),
         db_bytes,
-        "serviceLOG.db musi być w 100% nienaruszona"
+        "default_log.db musi być w 100% nienaruszona"
     );
     assert_eq!(
         fs::read(&wal_path).expect("read wal"),
         wal_bytes,
-        "serviceLOG.db-wal musi być w 100% nienaruszony"
+        "default_log.db-wal musi być w 100% nienaruszony"
     );
     assert_eq!(
         fs::read(&shm_path).expect("read shm"),
         shm_bytes,
-        "serviceLOG.db-shm musi być w 100% nienaruszony"
+        "default_log.db-shm musi być w 100% nienaruszony"
     );
     assert_eq!(
         fs::read(&cfg_path).expect("read cfg"),
@@ -703,7 +703,7 @@ fn powershell_fallback_parity_with_windows_helper() {
             PathBuf::from("C:\\SPLogbook\\data\\cty.dat"),
         )],
         preserve_files: vec![(
-            PathBuf::from("C:\\SPLogbook\\serviceLOG.db"),
+            PathBuf::from("C:\\SPLogbook\\default_log.db"),
             "Preserved SQLite".into(),
         )],
         rejected_files: Vec::new(),
@@ -715,7 +715,7 @@ fn powershell_fallback_parity_with_windows_helper() {
     // Weryfikacja parzystości polityki
     assert!(script.contains("Set-StrictMode -Version Latest"));
     assert!(script.contains("$ErrorActionPreference = 'Stop'"));
-    assert!(!script.contains("serviceLOG.db"));
+    assert!(!script.contains("default_log.db"));
     assert!(!script.contains("$staging\\*"));
     assert!(!script.contains("$rollback\\*"));
     assert!(!script.contains("Invoke-Expression"));

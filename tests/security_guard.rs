@@ -1931,13 +1931,18 @@ fn portable_database_files_are_protected_guard() {
 
     assert_eq!(
         classify_update_path(Path::new("databases/serviceLOG.db")),
-        UpdateFileClass::FirstInstallSeed,
-        "serviceLOG.db musi być sklasyfikowany jako FirstInstallSeed"
+        UpdateFileClass::UserData,
+        "każdy plik .db w databases/ musi być sklasyfikowany jako UserData"
     );
     assert_eq!(
         classify_update_path(Path::new("databases/callbook.db")),
-        UpdateFileClass::FirstInstallSeed,
-        "callbook.db musi być sklasyfikowany jako FirstInstallSeed"
+        UpdateFileClass::UserData,
+        "każdy plik .db w databases/ musi być sklasyfikowany jako UserData"
+    );
+    assert_eq!(
+        classify_update_path(Path::new("databases/custom.sqlite")),
+        UpdateFileClass::UserData,
+        "każdy plik .sqlite w databases/ musi być sklasyfikowany jako UserData"
     );
     assert_eq!(
         classify_update_path(Path::new("station_config.json")),
@@ -1958,13 +1963,13 @@ fn portable_database_files_are_protected_guard() {
     fs::create_dir_all(active.join("databases")).unwrap();
 
     fs::write(staging.join("SPLogbook.exe"), b"NEW EXE").unwrap();
-    fs::write(staging.join("databases/serviceLOG.db"), b"NEW SERVICE DB").unwrap();
-    fs::write(staging.join("databases/callbook.db"), b"NEW CALLBOOK DB").unwrap();
+    fs::write(staging.join("databases/default_log.db"), b"NEW LOG DB").unwrap();
+    fs::write(staging.join("databases/custom.sqlite"), b"NEW CUSTOM DB").unwrap();
 
-    let active_service_db = active.join("databases/serviceLOG.db");
-    let active_callbook_db = active.join("databases/callbook.db");
-    fs::write(&active_service_db, b"USER SERVICE LOG DATA").unwrap();
-    fs::write(&active_callbook_db, b"USER CALLBOOK DATA").unwrap();
+    let active_log_db = active.join("databases/default_log.db");
+    let active_custom_db = active.join("databases/custom.sqlite");
+    fs::write(&active_log_db, b"USER PRODUCTION LOG DB").unwrap();
+    fs::write(&active_custom_db, b"USER CUSTOM SQLITE DB").unwrap();
 
     let plan = UpdatePlan::generate(&staging, &active).unwrap();
     let preserved_targets: Vec<_> = plan
@@ -1974,12 +1979,12 @@ fn portable_database_files_are_protected_guard() {
         .collect();
 
     assert!(
-        preserved_targets.contains(&active_service_db.as_path()),
-        "Plan aktualizacji musi zachować istniejącą bazę serviceLOG.db"
+        preserved_targets.contains(&active_log_db.as_path()),
+        "Plan aktualizacji musi zachować istniejącą bazę default_log.db"
     );
     assert!(
-        preserved_targets.contains(&active_callbook_db.as_path()),
-        "Plan aktualizacji musi zachować istniejącą bazę callbook.db"
+        preserved_targets.contains(&active_custom_db.as_path()),
+        "Plan aktualizacji musi zachować istniejącą bazę custom.sqlite"
     );
 
     let replaced_targets: Vec<_> = plan
@@ -1988,12 +1993,12 @@ fn portable_database_files_are_protected_guard() {
         .map(|(_, t)| t.as_path())
         .collect();
     assert!(
-        !replaced_targets.contains(&active_service_db.as_path()),
-        "Plan aktualizacji nie może podmieniać istniejącej bazy serviceLOG.db"
+        !replaced_targets.contains(&active_log_db.as_path()),
+        "Plan aktualizacji nie może podmieniać istniejącej bazy default_log.db"
     );
     assert!(
-        !replaced_targets.contains(&active_callbook_db.as_path()),
-        "Plan aktualizacji nie może podmieniać istniejącej bazy callbook.db"
+        !replaced_targets.contains(&active_custom_db.as_path()),
+        "Plan aktualizacji nie może podmieniać istniejącej bazy custom.sqlite"
     );
 
     let _ = fs::remove_dir_all(&temp_dir);
@@ -2022,7 +2027,7 @@ fn windows_updater_does_not_force_copy_entire_staging_guard() {
             std::path::PathBuf::from("C:\\SPLogbook\\new_resource.dll"),
         )],
         preserve_files: vec![(
-            std::path::PathBuf::from("C:\\SPLogbook\\databases\\serviceLOG.db"),
+            std::path::PathBuf::from("C:\\SPLogbook\\databases\\default_log.db"),
             "Preserved".into(),
         )],
         rejected_files: Vec::new(),
@@ -2078,15 +2083,15 @@ fn rollback_excludes_protected_user_data_guard() {
 
     fs::write(staging.join("SPLogbook.exe"), b"CORRUPTED NEW BINARY").unwrap();
     fs::write(
-        staging.join("databases/serviceLOG.db"),
-        b"OVERWRITING SERVICE DB",
+        staging.join("databases/custom_user.db"),
+        b"OVERWRITING CUSTOM DB",
     )
     .unwrap();
     fs::write(staging.join("station_config.json"), b"OVERWRITING CONFIG").unwrap();
     fs::write(staging.join("default_log.db"), b"OVERWRITING LOG").unwrap();
 
     let active_exe = active.join("SPLogbook.exe");
-    let active_db = active.join("databases/serviceLOG.db");
+    let active_db = active.join("databases/custom_user.db");
     let active_cfg = active.join("station_config.json");
     let active_log = active.join("default_log.db");
 
@@ -2109,7 +2114,7 @@ fn rollback_excludes_protected_user_data_guard() {
     assert_eq!(
         fs::read(&active_db).unwrap(),
         b"CANONICAL USER DATABASE",
-        "Baza serviceLOG.db nie może zostać zmodyfikowana przez rollback"
+        "Baza custom_user.db nie może zostać zmodyfikowana przez rollback"
     );
     assert_eq!(
         fs::read(&active_cfg).unwrap(),
@@ -3578,9 +3583,9 @@ fn m3_c_data_safety_database_and_config_preservation_guard() {
     // Utworzenie chronionych plików użytkownika
     let db_dir = root.join("databases");
     fs::create_dir_all(&db_dir).expect("create databases dir");
-    fs::write(db_dir.join("serviceLOG.db"), b"CRITICAL_USER_LOGBOOK").expect("write db");
-    fs::write(db_dir.join("serviceLOG.db-wal"), b"WAL_FRAMES").expect("write wal");
-    fs::write(db_dir.join("serviceLOG.db-shm"), b"SHM_INDEX").expect("write shm");
+    fs::write(db_dir.join("default_log.db"), b"CRITICAL_USER_LOGBOOK").expect("write db");
+    fs::write(db_dir.join("default_log.db-wal"), b"WAL_FRAMES").expect("write wal");
+    fs::write(db_dir.join("default_log.db-shm"), b"SHM_INDEX").expect("write shm");
     fs::write(root.join("station_config.json"), b"USER_CONFIG").expect("write config");
     fs::write(root.join("contacts.adi"), b"<CALL:6>SP6INA").expect("write adif");
     fs::write(root.join("contest.cbr"), b"START-OF-LOG: 3.0").expect("write cabrillo");
@@ -3590,7 +3595,7 @@ fn m3_c_data_safety_database_and_config_preservation_guard() {
     let staging = root.join(".staging");
     fs::create_dir_all(staging.join("databases")).expect("create staging databases");
     fs::write(
-        staging.join("databases/serviceLOG.db"),
+        staging.join("databases/default_log.db"),
         b"OVERWRITE_ATTEMPT",
     )
     .expect("write staging db");
@@ -3607,7 +3612,7 @@ fn m3_c_data_safety_database_and_config_preservation_guard() {
             !is_protected_user_path(rel),
             "Plik replace_files '{rel:?}' narusza ochronę danych użytkownika"
         );
-        assert_ne!(rel, Path::new("databases/serviceLOG.db"));
+        assert_ne!(rel, Path::new("databases/default_log.db"));
         assert_ne!(rel, Path::new("station_config.json"));
     }
     for (rel, _) in &plan.create_files {
@@ -3621,7 +3626,7 @@ fn m3_c_data_safety_database_and_config_preservation_guard() {
     assert!(
         plan.preserve_files
             .iter()
-            .any(|(p, _)| p.ends_with("serviceLOG.db")),
+            .any(|(p, _)| p.ends_with("default_log.db")),
         "Baza danych musi trafić do preserve_files"
     );
     assert!(
@@ -3637,18 +3642,18 @@ fn m3_c_data_safety_database_and_config_preservation_guard() {
     // Próba ręcznego wstrzyknięcia pliku bazy do replace_files musi zostać bezwzględnie odrzucona przez validate_safety
     let mut malicious_plan = plan.clone();
     malicious_plan.replace_files.push((
-        PathBuf::from("databases/serviceLOG.db"),
-        root.join("databases/serviceLOG.db"),
+        PathBuf::from("databases/default_log.db"),
+        root.join("databases/default_log.db"),
     ));
     assert!(malicious_plan.validate_safety("SPLogbook.exe").is_err());
 
     // Zawartość plików użytkownika musi pozostać nienaruszona
     assert_eq!(
-        fs::read(db_dir.join("serviceLOG.db")).expect("read db"),
+        fs::read(db_dir.join("default_log.db")).expect("read db"),
         b"CRITICAL_USER_LOGBOOK"
     );
     assert_eq!(
-        fs::read(db_dir.join("serviceLOG.db-wal")).expect("read wal"),
+        fs::read(db_dir.join("default_log.db-wal")).expect("read wal"),
         b"WAL_FRAMES"
     );
     assert_eq!(
@@ -4784,15 +4789,24 @@ fn m3_e_msi_uninstall_and_repair_safety_guard() {
     assert!(!comp.contains("RemoveFolderEx"));
     assert!(!pkg.contains("RemoveFolderEx"));
 
-    // Seedy z NeverOverwrite="yes"
-    for seed in ["callbook.db", "serviceLOG.db", "clubs.csv"] {
-        let seed_pos = comp.find(seed).expect("seed found");
-        let comp_start = comp[..seed_pos].rfind("<Component").expect("Component tag");
-        let comp_end = comp[comp_start..].find('>').expect("close tag");
-        let tag = &comp[comp_start..comp_start + comp_end];
+    let iss =
+        fs::read_to_string("installer/windows/inno/SPLogbook.iss").expect("read SPLogbook.iss");
+    let workflow =
+        fs::read_to_string(".github/workflows/build-and-release.yml").expect("read workflow");
+
+    // Brak bundlowanych baz referencyjnych w MSI, Inno Setup i paczce Windows
+    for legacy in ["callbook.db", "serviceLOG.db", "clubs.csv"] {
         assert!(
-            tag.contains("NeverOverwrite=\"yes\""),
-            "Seed {seed} musi mieć NeverOverwrite=\"yes\""
+            !comp.contains(legacy),
+            "Components.wxs nie może bundlować usuniętej bazy {legacy}"
+        );
+        assert!(
+            !iss.contains(legacy),
+            "SPLogbook.iss nie może bundlować usuniętej bazy {legacy}"
+        );
+        assert!(
+            !workflow.contains(legacy),
+            "build-and-release.yml nie może kopiować usuniętej bazy {legacy}"
         );
     }
 
@@ -11418,9 +11432,9 @@ fn f06_reference_downloads_are_bounded_validated_and_atomic_guard() {
 
     let app_services = p1_f20r_code(&p1_f20_read("src/gui/app_services.rs"));
     assert!(
-        app_services.contains("if outcome.is_ok()")
+        app_services.contains("if scp_updated")
             && app_services.contains("file.metadata().is_ok_and(|m| m.len() > 0)"),
-        "F-06: trigger_database_update must only reload MASTER.SCP when outcome.is_ok() and file size > 0"
+        "F-06: trigger_database_update must only reload MASTER.SCP when scp_updated and file size > 0"
     );
 
     // Functional verification of write_file_atomic_sync:
@@ -11458,5 +11472,64 @@ fn f06_reference_downloads_are_bounded_validated_and_atomic_guard() {
     assert!(
         leftovers.is_empty(),
         "F-06: leftover .tmp files found: {leftovers:?}"
+    );
+}
+
+#[test]
+fn r1c_r1d_legacy_databases_removed_and_xdg_precedence_guard() {
+    use std::path::Path;
+
+    // 1. Fizyczny brak usuniętych baz referencyjnych oraz modułu service_db.rs
+    for removed in [
+        "databases/serviceLOG.db",
+        "databases/callbook.db",
+        "databases/clubs.csv",
+        "src/core/service_db.rs",
+    ] {
+        assert!(
+            !Path::new(removed).exists(),
+            "R1C/F-09: plik {removed} musi zostać trwale usunięty z repozytorium"
+        );
+    }
+
+    // 2. Brak zahardkodowanych wywołań scp.insert("...") w src/main.rs (F-11);
+    // jedynym dopuszczalnym użyciem jest dynamiczne zasilanie z log_db.get_distinct_callsigns.
+    let main_src = p1_f20r_code(&p1_f20_read("src/main.rs"));
+    assert!(
+        !main_src.contains("scp.insert(\""),
+        "F-11: src/main.rs nie może zawierać zahardkodowanych wywołań scp.insert(\"...\")"
+    );
+    for line in main_src.lines().filter(|l| l.contains("scp.insert(")) {
+        assert!(
+            line.trim() == "scp.insert(&call);" && main_src.contains("get_distinct_callsigns"),
+            "F-11: nieoczekiwane wywołanie scp.insert( w src/main.rs: {line}"
+        );
+    }
+
+    // 3. Brak przysłaniania app_data_dir / app_config_dir przez exe_dir/CWD databases (F-07)
+    assert!(
+        !main_src.contains("exe_dir.join(\"databases"),
+        "F-07: src/main.rs nie może przysłaniać app_data_dir/app_config_dir przez exe_dir.join(\"databases...\")"
+    );
+    assert!(
+        !main_src.contains("exe_dir.join(\"../databases"),
+        "F-07: src/main.rs nie może używać ../databases/"
+    );
+    assert!(
+        !main_src.contains("exe_dir.join(\"../../databases"),
+        "F-07: src/main.rs nie może używać ../../databases/"
+    );
+
+    let app_services_src = p1_f20r_code(&p1_f20_read("src/gui/app_services.rs"));
+    assert!(
+        !app_services_src.contains("Path::new(\"databases\").is_dir()"),
+        "F-07: src/gui/app_services.rs nie może sprawdzać Path::new(\"databases\").is_dir() w CWD"
+    );
+
+    // 4. Brak FirstInstallSeed w updaterze
+    let updater_src = p1_f20r_code(&p1_f20_read("src/cloud/updater.rs"));
+    assert!(
+        !updater_src.contains("FirstInstallSeed"),
+        "R1C: src/cloud/updater.rs nie może zawierać wariantu FirstInstallSeed"
     );
 }

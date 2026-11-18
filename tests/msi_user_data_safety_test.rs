@@ -13,31 +13,29 @@ mod native_artifact;
 use native_artifact::ArtifactDecision;
 
 #[test]
-fn msi_seed_databases_installed_with_never_overwrite() {
+fn msi_does_not_bundle_legacy_databases() {
     let comp_content =
         fs::read_to_string("installer/windows/msi/Components.wxs").expect("read Components.wxs");
+    let dir_content =
+        fs::read_to_string("installer/windows/msi/Directories.wxs").expect("read Directories.wxs");
 
-    for seed in ["callbook.db", "serviceLOG.db", "clubs.csv"] {
-        // Znajdź blok komponentu zawierający dany seed
-        let seed_pos = comp_content
-            .find(seed)
-            .unwrap_or_else(|| panic!("Nie znaleziono pliku seeda {seed}"));
-        // Wyszukaj najbliższy poprzedzający znacznik <Component
-        let before_seed = &comp_content[..seed_pos];
-        let component_tag_start = before_seed
-            .rfind("<Component")
-            .unwrap_or_else(|| panic!("Brak znacznika Component przed {seed}"));
-        let component_tag_end = comp_content[component_tag_start..]
-            .find('>')
-            .unwrap_or_else(|| panic!("Brak domknięcia znacznika Component"));
-        let component_tag =
-            &comp_content[component_tag_start..component_tag_start + component_tag_end];
-
+    for legacy in [
+        "callbook.db",
+        "serviceLOG.db",
+        "clubs.csv",
+        "C_DbCallbook",
+        "C_DbServiceLog",
+        "C_DbClubs",
+    ] {
         assert!(
-            component_tag.contains("NeverOverwrite=\"yes\""),
-            "Komponent seeda {seed} musi posiadać atrybut NeverOverwrite=\"yes\", otrzymano: {component_tag}"
+            !comp_content.contains(legacy),
+            "Components.wxs nie może bundlować usuniętej bazy/komponentu {legacy}"
         );
     }
+    assert!(
+        !dir_content.contains("DatabasesFolder"),
+        "Directories.wxs nie może zawierać nieużywanego katalogu DatabasesFolder"
+    );
 }
 
 #[test]

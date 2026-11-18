@@ -12,36 +12,16 @@ use crate::gui::{RepeatPolicy, ShortcutRegistry};
 use std::sync::{Arc, Mutex};
 
 fn test_prefix_matcher() -> PrefixMatcher {
-    let uri = format!(
-        "file:prefix_test_{}?mode=memory&cache=shared",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    );
-    let flags = rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE
-        | rusqlite::OpenFlags::SQLITE_OPEN_CREATE
-        | rusqlite::OpenFlags::SQLITE_OPEN_URI;
-    if let Ok(conn) = rusqlite::Connection::open_with_flags(&uri, flags) {
-        let _ = conn.execute_batch(
-            "CREATE TABLE UniqueCalls (
-                    Callsign TEXT, Country TEXT, ARRLPrefix TEXT, DXCC TEXT, Continent TEXT,
-                    CQZone INTEGER, ITUZone INTEGER, Latitude TEXT, Longitude TEXT, Enable TEXT
-                );
-                CREATE TABLE CountryDataEx (
-                    Country TEXT, ARRLPrefix TEXT, DXCC INTEGER, Continent TEXT,
-                    CQZone INTEGER, ITUZone INTEGER, Latitude TEXT, Longitude TEXT,
-                    PrefixList TEXT, EndDate TEXT
-                );
-                CREATE TABLE Province (
-                    Country TEXT, ARRLPrefix TEXT, DXCC TEXT, Continent TEXT,
-                    CQZone INTEGER, ITUZone INTEGER, Latitude TEXT, Longitude TEXT,
-                    PrefixList TEXT, Comment TEXT, EndDate TEXT
-                );
-                INSERT INTO UniqueCalls VALUES
-                    ('SP6INA', 'Poland', 'SP', '269', 'EU', 15, 28, '51.1N', '17.0E', '1');",
-        );
-        if let Ok(m) = PrefixMatcher::load_from_db(&uri) {
+    if let Ok(dir) = tempfile::tempdir() {
+        let dat = "Poland:                   15:  28:  EU:   51.10:   -17.00:    -1.0:  SP:\n    SP,=SP6INA;\n";
+        let csv = "SP,Poland,269,EU,15,28,51.10,-17.00,-1.0,SP =SP6INA;\n";
+        if std::fs::write(dir.path().join("cty.dat"), dat).is_ok()
+            && std::fs::write(dir.path().join("cty.csv"), csv).is_ok()
+            && let Ok((m, _)) = PrefixMatcher::load_from_country_files(
+                &dir.path().join("cty.dat"),
+                Some(&dir.path().join("cty.csv")),
+            )
+        {
             return m;
         }
     }

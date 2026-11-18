@@ -38,23 +38,16 @@ where
 }
 
 #[test]
-fn inno_seed_databases_installed_with_uninsneveruninstall_and_onlyifdoesntexist() {
+fn inno_does_not_bundle_legacy_databases() {
     let iss_content =
         fs::read_to_string("installer/windows/inno/SPLogbook.iss").expect("read SPLogbook.iss");
 
-    for seed in ["callbook.db", "serviceLOG.db", "clubs.csv"] {
-        let line = iss_content
-            .lines()
-            .find(|l| l.contains(seed) && l.trim().starts_with("Source:"))
-            .unwrap_or_else(|| panic!("Nie znaleziono definicji seeda {seed}"));
-
+    for legacy in ["callbook.db", "serviceLOG.db", "clubs.csv"] {
         assert!(
-            line.contains("onlyifdoesntexist"),
-            "Seed {seed} musi mieć flagę onlyifdoesntexist"
-        );
-        assert!(
-            line.contains("uninsneveruninstall"),
-            "Seed {seed} musi mieć flagę uninsneveruninstall"
+            !iss_content
+                .lines()
+                .any(|l| l.contains(legacy) && l.trim().starts_with("Source:")),
+            "SPLogbook.iss nie może pakować usuniętej bazy {legacy}"
         );
     }
 }
@@ -353,19 +346,26 @@ fn inno_native_install_and_uninstall_lifecycle_e2e() {
         native_artifact::log_tail(&setup_log, 40)
     );
 
-    // 1. Dowód instalacji plików allowlisty.
+    // 1. Dowód instalacji plików allowlisty (bez preinstalowanych baz w databases/).
     for relative in [
         "SPLogbook.exe",
         "splogbook-updater.exe",
         ".splogbook-inno-marker",
         "unins000.exe",
+    ] {
+        assert!(
+            install_dir.join(relative).exists(),
+            "brak zainstalowanego pliku: {relative}"
+        );
+    }
+    for legacy in [
         "databases/callbook.db",
         "databases/serviceLOG.db",
         "databases/clubs.csv",
     ] {
         assert!(
-            install_dir.join(relative).exists(),
-            "brak zainstalowanego pliku: {relative}"
+            !install_dir.join(legacy).exists(),
+            "instalator nie powinien tworzyć legacy pliku: {legacy}"
         );
     }
 
@@ -465,15 +465,15 @@ fn inno_native_install_and_uninstall_lifecycle_e2e() {
     );
     assert_eq!(fs::read(&user_adif).expect("read user adif"), adif_bytes);
 
-    // 7. Seedy FirstInstallSeed pozostają nietknięte.
-    for relative in [
+    // 7. Brak preinstalowanych baz w katalogu instalacji.
+    for legacy in [
         "databases/callbook.db",
         "databases/serviceLOG.db",
         "databases/clubs.csv",
     ] {
         assert!(
-            install_dir.join(relative).exists(),
-            "deinstalator usunął seed: {relative}"
+            !install_dir.join(legacy).exists(),
+            "nieoczekiwany plik legacy po deinstalacji: {legacy}"
         );
     }
 }
