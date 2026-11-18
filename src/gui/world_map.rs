@@ -396,10 +396,9 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let map = palette.map;
     ui.vertical(|ui| {
         // Obliczenie aktualnej pozycji słońca (UTC)
-        let now = chrono::Utc::now();
-        let day_of_year = now.format("%j").to_string().parse::<u32>().unwrap_or(263);
-        let utc_hour_f64 = now.format("%H").to_string().parse::<f64>().unwrap_or(12.0)
-            + now.format("%M").to_string().parse::<f64>().unwrap_or(0.0) / 60.0;
+        let now = jiff::tz::TimeZone::UTC.to_datetime(jiff::Timestamp::now());
+        let day_of_year = now.day_of_year() as u32;
+        let utc_hour_f64 = now.hour() as f64 + now.minute() as f64 / 60.0;
 
         // Współrzędne mojej stacji
         let my_coords = locator_to_coordinates(&app.config.station.gridsquare)

@@ -445,7 +445,7 @@ impl SpLogApp {
             }
         }
 
-        let now_ts = chrono::Utc::now().timestamp();
+        let now_ts = jiff::Timestamp::now().as_second();
         let spot_max_age_secs: i64 = 60 * 60;
         if self
             .cluster

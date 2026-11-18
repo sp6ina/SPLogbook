@@ -49,7 +49,9 @@ fn n1mm_timestamp(qso_date: &str, time_on: &str) -> String {
         (false, false) => format!("{date} {time}"),
         (false, true) => format!("{date} 00:00:00"),
         (true, false) => time,
-        (true, true) => chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        (true, true) => jiff::Timestamp::now()
+            .strftime("%Y-%m-%d %H:%M:%S")
+            .to_string(),
     }
 }
 

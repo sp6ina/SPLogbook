@@ -491,7 +491,7 @@ pub fn parse_dx_spot(line: &str) -> Option<DxSpot> {
         band,
         is_ft8,
         is_skimmer,
-        received_at: chrono::Utc::now().timestamp(),
+        received_at: jiff::Timestamp::now().as_second(),
     })
 }
 

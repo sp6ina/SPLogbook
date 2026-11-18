@@ -144,7 +144,7 @@ impl SpLogApp {
             } else {
                 Some(self.ledger.new_sn.trim().to_string())
             },
-            purchase_date: Some(chrono::Utc::now().format("%Y-%m-%d").to_string()),
+            purchase_date: Some(jiff::Timestamp::now().strftime("%Y-%m-%d").to_string()),
             notes: if self.ledger.new_notes.trim().is_empty() {
                 None
             } else {

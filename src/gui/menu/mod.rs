@@ -43,7 +43,7 @@ fn render_right_side(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.gui.appearance.language;
 
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-        let utc_now = chrono::Utc::now().format("%H:%M:%S UTC").to_string();
+        let utc_now = jiff::Timestamp::now().strftime("%H:%M:%S UTC").to_string();
         ui.label(
             egui::RichText::new(icons::TIMER.label(utc_now))
                 .color(palette.text_muted)

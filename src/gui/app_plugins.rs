@@ -212,11 +212,11 @@ impl SpLogApp {
             dx_call: dx_call.to_string(),
             spotter: self.config.station.callsign.clone(),
             comment: comment.to_string(),
-            time_utc: chrono::Utc::now().format("%H%M").to_string(),
+            time_utc: jiff::Timestamp::now().strftime("%H%M").to_string(),
             band: band_str,
             is_ft8,
             is_skimmer: false,
-            received_at: chrono::Utc::now().timestamp(),
+            received_at: jiff::Timestamp::now().as_second(),
         };
         self.cluster.spots.insert(0, spot);
         self.gui.chrome.status_toast = Some((

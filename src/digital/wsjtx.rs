@@ -152,9 +152,9 @@ impl WsjtxReceiver {
             .checked_mul(86400)?
             .checked_add(i64::from(ms_since_midnight / 1000))?
             .checked_sub(utc_offset_secs)?;
-        let dt = chrono::DateTime::from_timestamp(secs, 0)?;
-        let date_str = dt.format("%Y%m%d").to_string();
-        let time_str = dt.format("%H%M%S").to_string();
+        let dt = jiff::Timestamp::from_second(secs).ok()?;
+        let date_str = dt.strftime("%Y%m%d").to_string();
+        let time_str = dt.strftime("%H%M%S").to_string();
         Some((date_str, time_str))
     }
 

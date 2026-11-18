@@ -115,7 +115,7 @@ impl SpLogApp {
                     let utc_str = format!(
                         "⏱ {}: {}",
                         tr(key::STATUSBAR_UTC, lang),
-                        chrono::Utc::now().format("%H:%M:%S")
+                        jiff::Timestamp::now().strftime("%H:%M:%S")
                     );
                     ui.label(
                         egui::RichText::new(utc_str)

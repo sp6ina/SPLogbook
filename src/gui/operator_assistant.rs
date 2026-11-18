@@ -10,7 +10,6 @@ use crate::core::i18n::{Language, Msg, key, tr};
 use crate::core::propagation::{BandOpeningStatus, PropagationEngine, PropagationForecast};
 use crate::gui::app::SpLogApp;
 use crate::gui::theme::{Palette, ThemeExt};
-use chrono::{Datelike, Timelike};
 use eframe::egui;
 
 /// Rekomendacja wygenerowana przez asystenta operatora.
@@ -164,9 +163,9 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
         } else {
             140
         };
-        let now = chrono::Utc::now();
+        let now = jiff::tz::TimeZone::UTC.to_datetime(jiff::Timestamp::now());
         let utc_h = now.hour() as f64 + (now.minute() as f64) / 60.0;
-        let doy = now.ordinal();
+        let doy = now.day_of_year() as u32;
         if app.entry.grid.is_empty() {
             let sp = crate::core::geo::Coordinates::new(51.1, 17.0);
             let dx = crate::core::geo::Coordinates::new(40.7, -74.0);

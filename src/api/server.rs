@@ -1155,7 +1155,7 @@ async fn get_qsos_by_callsign(
     })
     .await?;
 
-    let today = chrono::Utc::now().format("%Y%m%d").to_string();
+    let today = jiff::Timestamp::now().strftime("%Y%m%d").to_string();
     let is_dupe = previous_qsos.iter().any(|q| {
         let band_match = query
             .band

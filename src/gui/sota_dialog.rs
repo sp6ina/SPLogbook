@@ -104,8 +104,10 @@ impl SotaDialog {
                         .clicked()
                     {
                         let filtered: Vec<_> = if self.filter_today_only {
-                            let today = chrono::Utc::now().format("%Y%m%d").to_string();
-                            let today_dash = chrono::Utc::now().format("%Y-%m-%d").to_string();
+                            // One clock read, so both spellings name the same UTC day.
+                            let now = jiff::Timestamp::now();
+                            let today = now.strftime("%Y%m%d").to_string();
+                            let today_dash = now.strftime("%Y-%m-%d").to_string();
                             qsos.iter()
                                 .filter(|q| q.qso_date == today || q.qso_date == today_dash)
                                 .cloned()

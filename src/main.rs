@@ -43,7 +43,7 @@ fn main() -> Result<(), eframe::Error> {
         if let Ok(exe) = std::env::current_exe()
             && let Some(dir) = exe.parent()
         {
-            let ts = chrono::Local::now().format("%Y%m%d_%H%M%S");
+            let ts = jiff::ZonedDateTime::now().strftime("%Y%m%d_%H%M%S");
             let path = dir.join(format!("crash_{ts}.log"));
             let _ = std::fs::write(&path, &msg);
         }

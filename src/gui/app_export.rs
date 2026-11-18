@@ -191,7 +191,7 @@ impl SpLogApp {
                 false,
             ));
             ops.extend(text_ops(
-                format!("Date: {}", chrono::Local::now().format("%Y-%m-%d")),
+                format!("Date: {}", jiff::ZonedDateTime::now().strftime("%Y-%m-%d")),
                 12.0,
                 10.0,
                 265.0,

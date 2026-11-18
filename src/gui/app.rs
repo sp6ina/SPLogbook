@@ -620,7 +620,7 @@ impl SpLogApp {
         } else {
             let subsec_millis = self
                 .mock_subsec_millis
-                .unwrap_or_else(|| chrono::Utc::now().timestamp_subsec_millis());
+                .unwrap_or_else(|| jiff::Timestamp::now().subsec_millisecond() as u32);
             let until_next_second = duration_until_next_second(subsec_millis);
             ctx.request_repaint_after(until_next_second);
         }

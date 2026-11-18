@@ -154,7 +154,7 @@ pub fn render_station_profiles_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     }
 
                     if let Some(mut to_clone) = clone_profile {
-                        let new_id = format!("prof-{}", chrono::Utc::now().timestamp_millis());
+                        let new_id = format!("prof-{}", jiff::Timestamp::now().as_millisecond());
                         to_clone.id = new_id;
                         to_clone.name = format!("{} (2)", to_clone.name);
                         app.config.station_profiles.push(to_clone);
@@ -170,7 +170,7 @@ pub fn render_station_profiles_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         )
                         .clicked()
                     {
-                        let new_id = format!("prof-{}", chrono::Utc::now().timestamp_millis());
+                        let new_id = format!("prof-{}", jiff::Timestamp::now().as_millisecond());
                         let new_prof = StationProfile {
                             id: new_id,
                             name: tr(key::PROFILES_NEW_DEFAULT_NAME, lang).to_string(),

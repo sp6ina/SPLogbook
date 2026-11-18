@@ -10,18 +10,16 @@ impl SpLogApp {
     pub fn solar_band_forecasts(
         &mut self,
     ) -> Vec<(&'static str, crate::core::propagation::PropagationForecast)> {
-        use chrono::{Datelike, Timelike};
-
         let sfi = if self.solar.space_weather.sfi > 0 {
             self.solar.space_weather.sfi
         } else {
             140
         };
         let k_index = self.solar.space_weather.k_index;
-        let now = chrono::Utc::now();
-        let hour = now.hour();
-        let minute = now.minute();
-        let doy = now.ordinal();
+        let now = jiff::tz::TimeZone::UTC.to_datetime(jiff::Timestamp::now());
+        let hour = now.hour() as u32;
+        let minute = now.minute() as u32;
+        let doy = now.day_of_year() as u32;
         let key = (sfi, k_index, hour, minute, doy);
 
         if let Some((cached_key, cached)) = &self.solar.propagation_cache

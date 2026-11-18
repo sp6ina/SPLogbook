@@ -752,7 +752,7 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
                             // Czas spotu + wiek (minuty/godziny od odebrania)
                             let age_secs =
-                                (chrono::Utc::now().timestamp() - spot.received_at).max(0);
+                                (jiff::Timestamp::now().as_second() - spot.received_at).max(0);
                             let age_text = if age_secs < 60 {
                                 format!("{age_secs}s")
                             } else if age_secs < 3600 {

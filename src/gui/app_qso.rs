@@ -96,9 +96,9 @@ impl SpLogApp {
             return;
         }
 
-        let now = chrono::Utc::now();
-        let date_str = now.format("%Y%m%d").to_string();
-        let time_str = now.format("%H%M").to_string();
+        let now = jiff::Timestamp::now();
+        let date_str = now.strftime("%Y%m%d").to_string();
+        let time_str = now.strftime("%H%M").to_string();
 
         let mut qso = self.draft_qso_from_entry();
         qso.qso_date.clone_from(&date_str);
@@ -301,12 +301,12 @@ impl SpLogApp {
 
     /// Przetwarza i loguje QSO odebrane z WSJT-X (PIPE-4B.3).
     pub fn handle_wsjtx_qso(&mut self, mut qso: QsoRecord) {
-        let now = chrono::Utc::now();
+        let now = jiff::Timestamp::now();
         if qso.qso_date.is_empty() {
-            qso.qso_date = now.format("%Y%m%d").to_string();
+            qso.qso_date = now.strftime("%Y%m%d").to_string();
         }
         if qso.time_on.is_empty() {
-            qso.time_on = now.format("%H%M").to_string();
+            qso.time_on = now.strftime("%H%M").to_string();
         }
         qso.journal_id = Some(self.active_journal.id.clone());
 

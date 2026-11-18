@@ -8,7 +8,6 @@ use crate::core::geo::{calculate_bearing_deg, calculate_distance_km, locator_to_
 impl SpLogApp {
     /// Aktualizuje podpowiedzi SCP, rozpoznanie DXCC, azymut i dystans po wpisaniu znaku
     pub fn on_callsign_changed(&mut self) {
-        use chrono::{Datelike, Timelike};
         let clean = self.entry.callsign.trim().to_uppercase();
         if clean.is_empty() {
             self.entry.scp_suggestions.clear();
@@ -56,9 +55,9 @@ impl SpLogApp {
                 self.entry.active_distance_km = calculate_distance_km(my_coords, dx_coords);
                 self.entry.active_bearing_deg = calculate_bearing_deg(my_coords, dx_coords);
 
-                let now = chrono::Utc::now();
+                let now = jiff::tz::TimeZone::UTC.to_datetime(jiff::Timestamp::now());
                 let utc_hour = now.hour() as f64 + (now.minute() as f64) / 60.0;
-                let day_of_year = now.ordinal();
+                let day_of_year = now.day_of_year() as u32;
                 let sfi = if self.solar.space_weather.sfi > 0 {
                     self.solar.space_weather.sfi
                 } else {
@@ -219,7 +218,6 @@ impl SpLogApp {
     }
 
     pub fn recalculate_distance_from_grid(&mut self) {
-        use chrono::{Datelike, Timelike};
         if self.entry.grid.len() >= 4
             && let (Ok(p1), Ok(p2)) = (
                 locator_to_coordinates(&self.config.station.gridsquare),
@@ -229,9 +227,9 @@ impl SpLogApp {
             self.entry.active_distance_km = calculate_distance_km(p1, p2);
             self.entry.active_bearing_deg = calculate_bearing_deg(p1, p2);
 
-            let now = chrono::Utc::now();
+            let now = jiff::tz::TimeZone::UTC.to_datetime(jiff::Timestamp::now());
             let utc_hour = now.hour() as f64 + (now.minute() as f64) / 60.0;
-            let day_of_year = now.ordinal();
+            let day_of_year = now.day_of_year() as u32;
             let sfi = if self.solar.space_weather.sfi > 0 {
                 self.solar.space_weather.sfi
             } else {

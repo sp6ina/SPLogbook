@@ -360,9 +360,12 @@ fn format_countdown(secs: f64) -> String {
 }
 
 fn format_local_time(unix: f64) -> String {
-    use chrono::TimeZone;
-    chrono::Local
-        .timestamp_opt(unix as i64, 0)
-        .single()
-        .map_or_else(|| "--:--".to_string(), |dt| dt.format("%H:%M").to_string())
+    jiff::Timestamp::from_second(unix as i64).map_or_else(
+        |_| "--:--".to_string(),
+        |ts| {
+            ts.to_zoned_datetime(jiff::tz::TimeZone::system())
+                .strftime("%H:%M")
+                .to_string()
+        },
+    )
 }

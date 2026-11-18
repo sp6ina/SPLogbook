@@ -6,7 +6,6 @@
 //! API: https://github.com/jsherer/js8call/blob/master/TCPAPI.md
 
 use crate::core::qso::QsoRecord;
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Read};
 use std::net::{TcpStream, ToSocketAddrs};
@@ -290,7 +289,7 @@ fn process_message(
                             })
                             .unwrap_or(0) as i32,
                         freq_hz: params.get("FREQ").and_then(value_as_u64_hz).unwrap_or(0) as i64,
-                        utc: Utc::now().format("%H:%M:%S").to_string(),
+                        utc: jiff::Timestamp::now().strftime("%H:%M:%S").to_string(),
                     };
                     // Limit listy do 50 ostatnio słyszanych stacji
                     state.last_heard.insert(0, heard);
@@ -309,7 +308,7 @@ fn process_message(
 
 /// Buduje rekord QSO z parametrów wiadomości LOG.QSO z JS8Call
 fn build_qso_from_js8(params: &serde_json::Value, state: &Js8CallState) -> QsoRecord {
-    let now = Utc::now();
+    let now = jiff::Timestamp::now();
     let freq_hz = params
         .get("FREQ")
         .or_else(|| params.get("DIAL"))
@@ -333,7 +332,7 @@ fn build_qso_from_js8(params: &serde_json::Value, state: &Js8CallState) -> QsoRe
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map_or_else(
-            || now.format("%Y%m%d").to_string(),
+            || now.strftime("%Y%m%d").to_string(),
             std::string::ToString::to_string,
         );
 
@@ -343,7 +342,7 @@ fn build_qso_from_js8(params: &serde_json::Value, state: &Js8CallState) -> QsoRe
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map_or_else(
-            || now.format("%H%M").to_string(),
+            || now.strftime("%H%M").to_string(),
             std::string::ToString::to_string,
         );
 
