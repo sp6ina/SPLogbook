@@ -189,6 +189,8 @@ pub struct CtyData {
     exact: HashMap<String, AliasTarget>,
     /// Longest prefix length present, bounds the longest-match scan.
     max_prefix_len: usize,
+    /// Primary prefixes added by [`CtyData::register_primary_prefixes`].
+    implicit_primaries: usize,
     pub issues: Vec<CtyIssue>,
 }
 
@@ -441,7 +443,44 @@ impl CtyData {
         if data.entities.is_empty() {
             return Err(CtyError::NoEntities);
         }
+        data.register_primary_prefixes();
         Ok(data)
+    }
+
+    /// Registers the primary DXCC prefix of every entity as an implicit
+    /// prefix alias with the entity's default attributes (owner decision
+    /// D-IMP I6). The format says the alias list includes the primary prefix,
+    /// but some releases list only longer blocks (e.g. `TN0`…`TN9` under
+    /// primary `TN`), so a bare guest prefix such as `TN/SP1AA` would find
+    /// nothing. Rules:
+    ///
+    /// * runs after the whole file is read, so an explicit alias of **any**
+    ///   entity always wins over an implicit primary prefix;
+    /// * WAE-only entities (`*` marker) are skipped;
+    /// * primaries containing `/` (entity identifiers such as `3Y/p`) are
+    ///   skipped: a normalised call never contains `/`, so they could not match.
+    fn register_primary_prefixes(&mut self) {
+        for (idx, e) in self.entities.iter().enumerate() {
+            if e.wae_only || !e.primary_prefix.chars().all(|c| c.is_ascii_alphanumeric()) {
+                continue;
+            }
+            if let std::collections::hash_map::Entry::Vacant(slot) =
+                self.prefixes.entry(e.primary_prefix.clone())
+            {
+                slot.insert(AliasTarget {
+                    entity: idx,
+                    overrides: CtyOverrides::default(),
+                });
+                self.max_prefix_len = self.max_prefix_len.max(e.primary_prefix.len());
+                self.implicit_primaries += 1;
+            }
+        }
+    }
+
+    /// Number of primary prefixes registered implicitly (see
+    /// [`Self::register_primary_prefixes`]).
+    pub fn implicit_primary_count(&self) -> usize {
+        self.implicit_primaries
     }
 
     /// Reads and parses a `cty.dat` file.

@@ -470,3 +470,78 @@ fn parser_never_panics_on_generated_input() {
         let _ = parse_cty_csv(&text);
     }
 }
+
+// ------------------------------------------------------- R1B2 (I4, I6, D-ENT) ---
+
+/// Entities whose alias lists omit the bare primary prefix, as some releases do
+/// (`TN0`…`TN9` under primary `TN`).
+const PRIMARY_DAT: &str = "\
+Gamma Reef:               36:  52:  AF:   -1.00:   -15.00:    -1.0:  QG:
+    QG0,QG1,=QG1X;
+Holder Land:              14:  27:  EU:   50.00:   -20.00:    -1.0:  QH:
+    QH1;
+Explicit Isle:            33:  37:  AF:  -10.00:   -15.00:    -2.0:  QE:
+    QE,QH;
+Wae Rock:                 15:  28:  EU:   45.00:   -10.00:    -1.0:  *QW:
+    QW1;
+Slash Island:             12:  72:  SA:  -68.00:    90.00:     4.0:  QS/p:
+    =QS0X;
+";
+
+#[test]
+fn primary_prefix_is_an_implicit_alias_when_the_list_omits_it() {
+    let d = CtyData::parse(PRIMARY_DAT).unwrap();
+    assert!(d.issues.is_empty(), "{:?}", d.issues);
+    // Bare guest prefix and a block the list does not name both resolve.
+    let m = d.resolve_prefix("QG").unwrap();
+    assert_eq!(
+        (m.entity_name.as_str(), m.matched.as_str()),
+        ("Gamma Reef", "QG")
+    );
+    assert_eq!(
+        (m.cq_zone, m.itu_zone, m.continent.as_str()),
+        (36, 52, "AF")
+    );
+    assert!(!m.exact);
+    assert_eq!(d.resolve_prefix("QG5AB").unwrap().matched, "QG");
+    // Listed aliases keep precedence by length.
+    assert_eq!(d.resolve_prefix("QG1AB").unwrap().matched, "QG1");
+    // Exact calls are untouched.
+    assert!(d.resolve_exact("QG").is_none());
+    assert_eq!(d.implicit_primary_count(), 1);
+}
+
+#[test]
+fn explicit_alias_of_any_entity_wins_over_an_implicit_primary() {
+    // `QH` is the primary of Holder Land but an explicit alias of the later
+    // Explicit Isle: the explicit alias wins regardless of file order.
+    let d = CtyData::parse(PRIMARY_DAT).unwrap();
+    assert_eq!(
+        d.resolve_prefix("QH5AB").unwrap().entity_name,
+        "Explicit Isle"
+    );
+    assert_eq!(
+        d.resolve_prefix("QH1AB").unwrap().entity_name,
+        "Holder Land"
+    );
+}
+
+#[test]
+fn wae_only_and_slash_primaries_are_not_registered() {
+    let d = CtyData::parse(PRIMARY_DAT).unwrap();
+    assert!(d.resolve_prefix("QW5AB").is_none());
+    assert_eq!(d.resolve_prefix("QW1AB").unwrap().entity_name, "Wae Rock");
+    assert!(d.resolve_prefix("QS/P").is_none());
+    assert!(d.resolve_prefix("QS5AB").is_none());
+}
+
+#[test]
+fn files_listing_every_primary_are_unchanged_by_implicit_primaries() {
+    for text in [SYNTH_DAT, CORPUS_DAT] {
+        let d = CtyData::parse(text).unwrap();
+        assert_eq!(d.implicit_primary_count(), 0);
+    }
+    let d = CtyData::parse(SYNTH_DAT).unwrap();
+    // QA, QA2, QA25, QB, QB9, QBA, QA9 — the same as before implicit primaries.
+    assert_eq!(d.prefix_count(), 7);
+}
