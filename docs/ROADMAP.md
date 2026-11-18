@@ -171,7 +171,7 @@ Open defects and limitations are tracked in [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md)
 | F20-R1 persistent upload checkpoints | **CLOSED** — `IMPLEMENTED_AND_SOFTWARE_VERIFIED` |
 | F20-R2 `LOTW_QSLSDATE` / `EQSL_QSLSDATE` | **CLOSED** — `IMPLEMENTED` |
 | F20-R3 download credential transport | **CONFINED** — `OFFICIAL_ENDPOINT_REQUIRES_QUERY_CREDENTIALS=true`; the official contract offers no safer mechanism, so the limitation is documented instead of being falsely closed |
-| F20-R4 invented received date on the LoTW download path | **OPEN** — recorded, not started, needs an owner decision |
+| F20-R4 invented received date on the LoTW download path | **CLOSED** 2026-11-18 — the received date comes only from `LOTW_QSLRDATE`, `APP_LoTW_RXQSL` or `QSLRDATE` (`QSL_RCVD=Y`), otherwise none; see `KNOWN_ISSUES.md` §6 |
 | F-21 | remains **OPEN**, not started |
 | NATIVE-7B | remains **NOT_STARTED** |
 

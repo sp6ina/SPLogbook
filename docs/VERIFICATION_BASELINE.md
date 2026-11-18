@@ -4,7 +4,7 @@ Single source of truth for verified test counters and dependency-audit state. Co
 only here; every other document links to this file. Never update a counter without a real
 measurement, and always record the measurement date.
 
-**Data pomiaru:** 2026-11-17 (ostatni pomiar: po `STAGE-P1-F20-SOFTWARE`)
+**Data pomiaru:** 2026-11-18 (ostatni pomiar: po `STAGE-RUSTSEC-2026-0543-CHRONO-REPLACEMENT`, commit `0ce0da0`)
 **Środowisko:** Windows 10/11 x86_64, `rustc 1.99.0`, `cargo 1.99.0`, `-j 1`
 **HEAD pomiaru:** commit zawierający ten plik (`git log -1 --format=%H`)
 
@@ -26,15 +26,15 @@ cargo test --workspace --all-targets -j 1 -- --skip powershell_real_execution_fu
 
 | Metric | Value |
 |---|---|
-| TOTAL REGISTERED TESTS: | 3362 |
-| TOTAL EXECUTED TESTS: | 3351 |
-| TOTAL PASSED TESTS: | 3351 |
+| TOTAL REGISTERED TESTS: | 3599 |
+| TOTAL EXECUTED TESTS: | 3588 |
+| TOTAL PASSED TESTS: | 3588 |
 | TOTAL FAILED TESTS: | 0 |
 | TOTAL IGNORED TESTS: | 10 |
 | HIL IGNORED TESTS: | 10 |
 | TOTAL FILTERED TESTS: | 1 |
 | Doc-tests | 0 |
-| Test binaries | 33 |
+| Test binaries | 36 |
 
 The single filtered test is `windows_helper_test::powershell_real_execution_full_cycle_success`.
 It can block on a Windows security prompt in an interactive sandbox, so it is filtered in the
@@ -45,9 +45,10 @@ a product defect.
 
 | Suite | Value |
 |---|---|
-| `security_guard` (incl. 12 `p1_f19_*` and 12 `p1_f20_*` rules) | 191 / 191 |
+| `security_guard` (incl. 4 `chrono_replacement_*` / `f20r4_*` rules) | 207 / 207 |
 | `p1_f20_upload_selection` | 29 / 29 |
-| library unit tests (`--lib`) | 2131 / 2131 |
+| `p1_f20r_recovery` / `p1_f20r_sent_dates` / `p1_f20r_credential_safety` | 31 / 31, 21 / 21, 13 / 13 |
+| library unit tests (`--lib`) | 2287 / 2287 |
 | `p1_f19_award_references` | 51 / 51 |
 | `p1_f16_logbook_pagination` | 55 / 55 |
 | pagination model (`gui::pagination`, lib) | 23 / 23 |
@@ -83,8 +84,8 @@ a product defect.
 |---|---|
 | `cargo fmt --all -- --check` | EXIT 0 |
 | `cargo clippy --workspace --all-targets --all-features -- -D warnings` | EXIT 0 |
-| `cargo doc --no-deps` | EXIT 0 (pre-existing rustdoc warnings only) |
-| `cargo tree -d` | 47 duplicate dependency versions |
+| `cargo doc --workspace --no-deps` | EXIT 0 (22 pre-existing rustdoc warnings, none new) |
+| `cargo tree -d` | 47 duplicate dependency versions (no `jiff` entry; `chrono` absent) |
 | `git diff --check` | EXIT 0 |
 
 ## 5. Dependency audit
@@ -92,8 +93,8 @@ a product defect.
 | Metric | Value |
 |---|---|
 | `cargo audit` | **EXIT 0 — 0 vulnerabilities** |
-| Advisory database size at measurement | 1509 advisories |
-| Packages scanned | 663 |
+| Advisory database size at measurement | 1533 advisories (fetched 2026-11-18) |
+| Packages scanned | 663 crate dependencies |
 | Command | `cargo audit --deny warnings --no-yanked --ignore …` (the explicit baseline in `.github/workflows/ci.yml`); the local re-measurement used `--no-fetch` against the cached database because this host cannot write the advisory-db lock file, CI always fetches |
 | Approved ignores | 7 (`unmaintained` / `yanked` transitive entries only) |
 | New `--ignore` entries in this measurement | none |
@@ -107,6 +108,7 @@ Resolved advisories (do not reintroduce):
 | `RUSTSEC-2026-0486` | `rustix` | `rustix 1.1.6` |
 | `RUSTSEC-2026-0523`, `RUSTSEC-2026-0524` | `quinn-proto` | `quinn-proto 0.11.19` |
 | `RUSTSEC-2026-0538` | `quinn-udp` | `quinn-udp 0.5.16` |
+| `RUSTSEC-2026-0543` | `chrono` | `chrono` removed; time handling on `jiff 1.0.1` (see §16) |
 
 If a new advisory appears, the procedure in
 [`SECURITY_PROCESS.md`](SECURITY_PROCESS.md) §2 applies: stop, record the ID, and fix it only
@@ -514,3 +516,33 @@ The verification is software-only. Durable checkpointing, crash recovery, UNKNOW
 atomicity, migration/rollback and credential confinement are verified programmatically against
 official documentation and synthetic data. Nothing here verifies a real service response, a real
 account, a real certificate, real idempotency or hardware behaviour.
+
+## 16. RUSTSEC-2026-0543 chrono replacement and F20-R4 (2026-11-18)
+
+`STAGE-RUSTSEC-2026-0543-CHRONO-REPLACEMENT`, batches T2–T6, owner GO of 2026-11-18.
+
+| Item | Status |
+|---|---|
+| `RUSTSEC-2026-0543` (`chrono` unmaintained) | **RESOLVED** — `chrono` removed from `Cargo.toml`, `Cargo.lock` and all sources; never added to the ignore list |
+| Time crate | `jiff 1.0.1` (feature `serde`), the only jiff in the graph |
+| `env_logger` | `default-features = false`, features `auto-color`, `regex`; `humantime` (jiff 0.2) off; log header timestamp formatted by jiff |
+| F20-R4 invented LoTW received date | **CLOSED** — `LOTW_QSLRDATE` → `APP_LoTW_RXQSL` date → `QSLRDATE` (`QSL_RCVD=Y`) → `None`; `COALESCE` keeps a stored date |
+| Updater JSON timestamps | RFC 3339 with `Z` (`jiff::Timestamp` serde), pinned by `updater_timestamps_serialize_as_rfc3339_zulu_and_round_trip` |
+| HIL timestamps | RFC 3339 with `Z`; inputs parsed by `cat::hil::parse_rfc3339`, which keeps the RFC 3339 shape strict |
+| Hardware | no HIL, PTT or RF; the 10 `#[ignore = "hardware-in-the-loop"]` tests stay ignored |
+
+Measurements (Windows, `rustc 1.99.0`, `-j 1`, `TEMP`/`TMP` inside `target\test-tmp`):
+
+| Check | Result |
+|---|---|
+| `cargo test --workspace --all-targets -j 1 --no-fail-fast -- --skip powershell_real_execution_full_cycle_success` | EXIT 0 — 36 binaries, 3599 registered, 3588 passed, 0 failed, 10 ignored (HIL), 1 filtered |
+| `cargo fmt --all -- --check` | EXIT 0 |
+| `cargo clippy --workspace --all-targets --all-features -j 1 -- -D warnings` | EXIT 0 |
+| `cargo doc --workspace --no-deps` | EXIT 0, 22 pre-existing warnings |
+| `cargo audit --deny warnings --no-yanked` + the seven CI ignores | EXIT 0 (1533 advisories, 663 crate dependencies) |
+| `cargo tree -i chrono` | no package matches (`chrono` is not in the graph) |
+| `cargo tree -i jiff --all-targets --all-features` | `jiff v1.0.1` ← `splogbook` only |
+| `cargo tree -d` | 47, as on the pre-gate `ed8234b`. The transient jiff 0.2 / 1.x pair of the intermediate commits (51) is gone. With `--target all`, `jiff-core v1.0.1` is listed twice: the same version built for the host proc-macro and for the target, not a second version |
+| `scripts/generate_flatpak_cargo_sources.sh --check` | PASS, 662 crates |
+
+The verification is software-only: no real LoTW report was downloaded and no hardware was used.

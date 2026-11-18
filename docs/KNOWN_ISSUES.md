@@ -637,17 +637,49 @@ disabled, all transport errors sanitised, the only credential-bearing `String` h
 `#[cfg(test)]`, and no URL persisted in the checkpoint tables
 (`f20r_checkpoint_tables_contain_no_secret_or_url`).
 
-### F20-R4 — invented received date on the LoTW download path (OPEN, out of scope)
+### F20-R4 — invented received date on the LoTW download path (CLOSED 2026-11-18, software verified)
 
-`parse_lotw_confirmations` falls back to `chrono::Utc::now()` when a confirmation has no
-`APP_LOTW_RXQSL`/`LOTW_QSLRDATE`, so a fabricated *received* date can be written to
-`lotw_qslrdate`. This is the same class of defect as F20-R2 but lives on the confirmation
-(download) path, which this gate only touches for credential transport. It is recorded here as an
-open residual risk, not fixed here, and not claimed as closed. The fix requires deciding which
-records may be written when the service supplies no date, which is a separate owner decision.
+`parse_lotw_confirmations` used to fall back to the wall clock when a confirmation had no
+`LOTW_QSLRDATE`. The official LoTW report (`lotwreport.adi`, developer page re-read 2026-11-18)
+sends `QSL_RCVD`, `QSLRDATE` and `APP_LoTW_RXQSL` (`YYYY-MM-DD HH:MM:SS`) but never
+`LOTW_QSLRDATE`. The ADIF import also mapped `QSLRDATE` only to the paper-QSL field. So a
+fabricated *received* date was written for practically every confirmation.
+
+Fixed in `STAGE-RUSTSEC-2026-0543-CHRONO-REPLACEMENT` (batch T3) under the owner decision for
+this gate. The received date is, in order:
+
+1. `LOTW_QSLRDATE`,
+2. the date part of `APP_LoTW_RXQSL`,
+3. `QSLRDATE`, only when the LoTW report says `QSL_RCVD=Y`.
+
+Each candidate must be a valid ADIF 3.1.8 `Date` (`adif::adif_date_part`). Without one the date
+stays `None` (`LotwConfirmation::qsl_rdate: Option<String>`). The confirmation `UPDATE` uses
+`COALESCE`, so a report without a date never erases a stored date.
+
+Evidence:
+* `cloud::lotw` tests `f20r4_received_date_*` (4 cases);
+* `core::database` test `f20r4_lotw_confirmation_without_date_keeps_the_stored_date`;
+* guard `f20r4_lotw_received_date_is_never_invented_guard`.
+
+Software-only: no real LoTW report was downloaded. Residual: the eQSL confirmation path still
+falls back to `QSO_DATE` when `EQSL_QSLRDATE` is absent. That is a separate, unchanged behaviour,
+not a wall-clock invention.
 ---
 
-## 7. `RUSTSEC-2026-0543` — new advisory blocking CI (2026-11-17)
+## 7. `RUSTSEC-2026-0543` — new advisory blocking CI (2026-11-17) — RESOLVED 2026-11-18
+
+**Resolution (2026-11-18, `STAGE-RUSTSEC-2026-0543-CHRONO-REPLACEMENT`):**
+* `chrono` is removed from `Cargo.toml`, `Cargo.lock` and every source file. Time handling uses
+  `jiff 1.0.1` (feature `serde`), the only jiff in the graph.
+* `env_logger` runs with `default-features = false` (`auto-color`, `regex`): its `humantime`
+  feature would pull a second jiff line (0.2). Log timestamps are formatted by jiff in
+  `src/main.rs`.
+* `cargo audit --deny warnings --no-yanked` with the unchanged seven-entry ignore list exits 0.
+  `RUSTSEC-2026-0543` was never added to the ignore list.
+* Guards `chrono_replacement_*` block a return of `chrono`, any ignore of `RUSTSEC-2026-0543`,
+  and a second or 0.x jiff line.
+
+The record below is kept as history.
 
 `cargo audit --deny warnings` in CI now fails on **`RUSTSEC-2026-0543`**: "chrono is unmaintained",
 type INFO / Unmaintained, with **no patched versions**. Source read 2026-11-17T15:4xZ at
