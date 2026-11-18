@@ -194,6 +194,57 @@ pub struct CtyData {
     pub issues: Vec<CtyIssue>,
 }
 
+/// Entity attribute fixed by the official DXCC list where a country-file
+/// release disagrees (owner decision D-ENT, 2026-11-18).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OfficialEntityAttribute {
+    /// ADIF DXCC entity code.
+    pub dxcc: u32,
+    pub continent: Option<&'static str>,
+    pub itu_zone: Option<u32>,
+}
+
+/// Official entity attributes that take precedence over the country files.
+/// Source: ARRL DXCC List, current entities, January 2026
+/// (<https://www.arrl.org/files/file/DXCC/Current_Deleted.txt>); entity codes
+/// as in the ADIF 3.1.8 `DXCC_Entity_Code` enumeration.
+pub const OFFICIAL_ENTITY_ATTRIBUTES: &[OfficialEntityAttribute] = &[
+    // Peter 1 I. (3Y): continent AN.
+    OfficialEntityAttribute {
+        dxcc: 199,
+        continent: Some("AN"),
+        itu_zone: None,
+    },
+    // Antarctica (CE9/KC4): continent AN.
+    OfficialEntityAttribute {
+        dxcc: 13,
+        continent: Some("AN"),
+        itu_zone: None,
+    },
+    // South Cook Is. (E5): ITU zone 62.
+    OfficialEntityAttribute {
+        dxcc: 234,
+        continent: None,
+        itu_zone: Some(62),
+    },
+    // Cocos I. (TI9, Costa Rica): ITU zone 12.
+    OfficialEntityAttribute {
+        dxcc: 37,
+        continent: None,
+        itu_zone: Some(12),
+    },
+];
+
+/// One entity default replaced by [`CtyData::apply_official_entity_attributes`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OfficialAttributeChange {
+    pub dxcc: u32,
+    pub entity: String,
+    pub attribute: &'static str,
+    pub from: String,
+    pub to: String,
+}
+
 /// Outcome of joining `cty.csv` entity codes onto `cty.dat` entities.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EntityCodeReport {
@@ -477,10 +528,59 @@ impl CtyData {
         }
     }
 
+    /// Entities whose ADIF entity code is missing or rejected by `is_known`
+    /// (e.g. a check against the ADIF `DXCC_Entity_Code` enumeration), as
+    /// primary prefixes in file order. Used by reference-data verification.
+    pub fn entities_with_unknown_code(&self, is_known: impl Fn(u32) -> bool) -> Vec<String> {
+        self.entities
+            .iter()
+            .filter(|e| !e.dxcc.is_some_and(&is_known))
+            .map(|e| e.primary_prefix.clone())
+            .collect()
+    }
+
     /// Number of primary prefixes registered implicitly (see
     /// [`Self::register_primary_prefixes`]).
     pub fn implicit_primary_count(&self) -> usize {
         self.implicit_primaries
+    }
+
+    /// Applies [`OFFICIAL_ENTITY_ATTRIBUTES`] to entities carrying the listed
+    /// ADIF entity codes (owner decision D-ENT). Only the entity defaults
+    /// change; explicit per-alias overrides in the file stay as published.
+    /// Call after [`Self::apply_entity_codes`]. Returns what was changed.
+    pub fn apply_official_entity_attributes(&mut self) -> Vec<OfficialAttributeChange> {
+        let mut changes = Vec::new();
+        for e in &mut self.entities {
+            let Some(code) = e.dxcc else { continue };
+            for a in OFFICIAL_ENTITY_ATTRIBUTES.iter().filter(|a| a.dxcc == code) {
+                if let Some(cont) = a.continent
+                    && e.continent != cont
+                {
+                    changes.push(OfficialAttributeChange {
+                        dxcc: code,
+                        entity: e.name.clone(),
+                        attribute: "continent",
+                        from: e.continent.clone(),
+                        to: cont.to_string(),
+                    });
+                    e.continent = cont.to_string();
+                }
+                if let Some(itu) = a.itu_zone
+                    && e.itu_zone != itu
+                {
+                    changes.push(OfficialAttributeChange {
+                        dxcc: code,
+                        entity: e.name.clone(),
+                        attribute: "itu_zone",
+                        from: e.itu_zone.to_string(),
+                        to: itu.to_string(),
+                    });
+                    e.itu_zone = itu;
+                }
+            }
+        }
+        changes
     }
 
     /// Reads and parses a `cty.dat` file.

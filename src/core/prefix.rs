@@ -108,6 +108,10 @@ pub struct CountryFileReport {
     pub issues: Vec<crate::core::reference::cty::CtyIssue>,
     pub csv_issues: Vec<crate::core::reference::cty::CtyIssue>,
     pub entity_codes: Option<crate::core::reference::cty::EntityCodeReport>,
+    /// Prefiksy główne encji dodane jako niejawne aliasy (I6).
+    pub implicit_primary_prefixes: usize,
+    /// Domyślne atrybuty encji zastąpione wartościami z oficjalnej listy DXCC (D-ENT).
+    pub official_attribute_changes: Vec<crate::core::reference::cty::OfficialAttributeChange>,
 }
 
 #[derive(Default)]
@@ -702,7 +706,10 @@ impl PrefixMatcher {
             let (rows, csv_issues) = cty::load_cty_csv(csv)?;
             report.entity_codes = Some(data.apply_entity_codes(&rows));
             report.csv_issues = csv_issues;
+            // D-ENT: oficjalne atrybuty encji (lista ARRL DXCC) mają pierwszeństwo.
+            report.official_attribute_changes = data.apply_official_entity_attributes();
         }
+        report.implicit_primary_prefixes = data.implicit_primary_count();
         report.entities = data.entities().len();
         report.prefixes = data.prefix_count();
         report.exact_calls = data.exact_count();
@@ -2013,6 +2020,28 @@ QB,Beta Isles,902,NA,3,6,20.00,100.00,8.0,QB;
         assert_eq!((blank.cqz, blank.province), (16, None));
         // Reguła encji nie ma nazwy regionu.
         assert_eq!(m.lookup("QA1AB").unwrap().province, None);
+    }
+
+    #[test]
+    fn country_file_load_applies_implicit_primaries_and_official_attributes() {
+        let dir = tempfile::tempdir().unwrap();
+        let dat = "\
+Ant Synth:                13:  74:  SA:  -90.00:     0.00:     0.0:  QY:
+    QY0,QY1;
+";
+        let csv = "QY,Ant Synth,13,SA,13,74,-90.00,0.00,0.0,QY0 QY1;\n";
+        write_country_files(dir.path(), dat, Some(csv));
+        let (m, report) = PrefixMatcher::load_from_country_files(
+            &dir.path().join("cty.dat"),
+            Some(&dir.path().join("cty.csv")),
+        )
+        .unwrap();
+        assert_eq!(report.implicit_primary_prefixes, 1);
+        assert_eq!(report.official_attribute_changes.len(), 1);
+        // Prefiks gościnny równy prefiksowi głównemu (`QY/SP1AA` → `QY`).
+        let g = m.lookup("QY/QA1AA").unwrap();
+        assert_eq!((g.dxcc, g.continent.as_str()), (13, "AN"));
+        assert_eq!(m.lookup("QY5AB").unwrap().arrl_prefix, "QY");
     }
 
     #[test]

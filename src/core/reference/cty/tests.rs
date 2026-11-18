@@ -545,3 +545,156 @@ fn files_listing_every_primary_are_unchanged_by_implicit_primaries() {
     // QA, QA2, QA25, QB, QB9, QBA, QA9 — the same as before implicit primaries.
     assert_eq!(d.prefix_count(), 7);
 }
+
+/// ADIF 3.1.8 `DXCC_Entity_Code` enumeration (codes only, no names), from
+/// `enumerations_dxcc_entity_code.csv` in `ADIF_318_resources_2026_10_12.zip`.
+const ADIF_318_CURRENT_CODES: &[u32] = &[
+    1, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 21, 22, 24, 27, 29, 31, 32, 33,
+    34, 35, 36, 37, 38, 40, 41, 43, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 56, 60, 61, 62, 63, 64,
+    65, 66, 69, 70, 71, 72, 74, 75, 76, 77, 78, 79, 80, 82, 84, 86, 88, 89, 90, 91, 94, 95, 96, 97,
+    98, 99, 100, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 114, 116, 117, 118, 120, 122,
+    123, 124, 125, 126, 129, 130, 131, 132, 133, 135, 136, 137, 138, 140, 141, 142, 143, 144, 145,
+    146, 147, 148, 149, 150, 152, 153, 157, 158, 159, 160, 161, 162, 163, 165, 166, 167, 168, 169,
+    170, 171, 172, 173, 174, 175, 176, 177, 179, 180, 181, 182, 185, 187, 188, 189, 190, 191, 192,
+    195, 197, 199, 201, 202, 203, 204, 205, 206, 207, 209, 211, 212, 213, 214, 215, 216, 217, 219,
+    221, 222, 223, 224, 225, 227, 230, 232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 245,
+    246, 247, 248, 249, 250, 251, 252, 253, 254, 256, 257, 259, 260, 262, 263, 265, 266, 269, 270,
+    272, 273, 274, 275, 276, 277, 278, 279, 280, 281, 282, 283, 284, 285, 286, 287, 288, 289, 291,
+    292, 293, 294, 295, 296, 297, 298, 299, 301, 302, 303, 304, 305, 306, 308, 309, 312, 315, 318,
+    321, 324, 327, 330, 333, 336, 339, 342, 344, 345, 348, 354, 363, 369, 370, 372, 375, 376, 378,
+    379, 381, 382, 384, 386, 387, 390, 391, 400, 401, 402, 404, 406, 408, 409, 410, 411, 412, 414,
+    416, 420, 422, 424, 428, 430, 432, 434, 436, 438, 440, 442, 444, 446, 450, 452, 453, 454, 456,
+    458, 460, 462, 464, 466, 468, 470, 474, 478, 480, 482, 483, 489, 490, 492, 497, 499, 501, 502,
+    503, 504, 505, 506, 507, 508, 509, 510, 511, 512, 513, 514, 515, 516, 517, 518, 519, 520, 521,
+    522,
+];
+
+/// Deleted codes of the same enumeration.
+const ADIF_318_DELETED_CODES: &[u32] = &[
+    2, 8, 19, 23, 25, 26, 28, 30, 39, 42, 44, 55, 57, 58, 59, 67, 68, 81, 85, 93, 101, 102, 113,
+    115, 119, 127, 128, 134, 139, 151, 154, 155, 164, 178, 183, 184, 186, 193, 194, 196, 198, 200,
+    208, 210, 218, 220, 226, 228, 229, 231, 243, 244, 255, 258, 261, 264, 267, 268, 271, 307, 488,
+    493,
+];
+
+fn adif_known(code: u32) -> bool {
+    ADIF_318_CURRENT_CODES.binary_search(&code).is_ok()
+        || ADIF_318_DELETED_CODES.binary_search(&code).is_ok()
+}
+
+#[test]
+fn adif_code_tables_are_sorted_disjoint_and_match_the_dxcc_list_counts() {
+    // 340 current and 62 deleted entities, as in the ARRL DXCC List (January 2026).
+    assert_eq!(ADIF_318_CURRENT_CODES.len(), 340);
+    assert_eq!(ADIF_318_DELETED_CODES.len(), 62);
+    for t in [ADIF_318_CURRENT_CODES, ADIF_318_DELETED_CODES] {
+        assert!(t.windows(2).all(|w| w[0] < w[1]));
+    }
+    assert!(
+        ADIF_318_DELETED_CODES
+            .iter()
+            .all(|c| ADIF_318_CURRENT_CODES.binary_search(c).is_err())
+    );
+}
+
+#[test]
+fn entity_codes_are_checked_against_the_adif_enumeration() {
+    let mut d = CtyData::parse(SYNTH_DAT).unwrap();
+    let csv = "\
+QA,Alpha Land,1,EU,14,27,50.00,-20.00,-1.0,QA;
+QB,Beta Isles,999,NA,3,6,20.00,100.00,8.0,QB;
+";
+    let (rows, issues) = parse_cty_csv(csv);
+    assert!(issues.is_empty(), "{issues:?}");
+    let r = d.apply_entity_codes(&rows);
+    // `*QA9` has no row: unknown as well, so nothing can pass unchecked.
+    assert_eq!(r.missing_in_csv, vec!["*QA9".to_string()]);
+    assert_eq!(
+        d.entities_with_unknown_code(adif_known),
+        vec!["QB".to_string(), "QA9".to_string()]
+    );
+}
+
+#[test]
+fn dat_and_csv_must_describe_the_same_entities() {
+    // Consistent pair: every entity matched, nothing missing or unknown.
+    let mut d = CtyData::parse(SYNTH_DAT).unwrap();
+    let (rows, issues) = parse_cty_csv(SYNTH_CSV);
+    assert!(issues.is_empty(), "{issues:?}");
+    let r = d.apply_entity_codes(&rows);
+    assert_eq!(r.matched, d.entities().len());
+    assert!(r.missing_in_csv.is_empty() && r.unknown_in_csv.is_empty());
+    assert!(r.name_mismatches.is_empty(), "{:?}", r.name_mismatches);
+}
+
+/// Synthetic entities carrying the ADIF codes covered by decision D-ENT, with
+/// the attribute values a country-file release published differently.
+const OFFICIAL_DAT: &str = "\
+Peter Synth:              12:  72:  SA:  -68.00:    90.00:     4.0:  QP:
+    QP;
+Ant Synth:                13:  74:  SA:  -90.00:     0.00:     0.0:  QY:
+    QY,QY1[73],QY2{SA};
+Cook Synth:               32:  63:  OC:  -21.00:   157.00:    10.0:  QC:
+    QC,=QC1X;
+Cocos Synth:              07:  11:  NA:    5.50:    87.00:     6.0:  QT:
+    QT;
+Keeling Synth:            29:  54:  OC:  -12.00:   -96.00:    -6.5:  QK:
+    QK;
+";
+const OFFICIAL_CSV: &str = "\
+QP,Peter Synth,199,SA,12,72,-68.00,90.00,4.0,QP;
+QY,Ant Synth,13,SA,13,74,-90.00,0.00,0.0,QY QY1[73] QY2{SA};
+QC,Cook Synth,234,OC,32,63,-21.00,157.00,10.0,QC =QC1X;
+QT,Cocos Synth,37,NA,7,11,5.50,87.00,6.0,QT;
+QK,Keeling Synth,38,OC,29,54,-12.00,-96.00,-6.5,QK;
+";
+
+#[test]
+fn official_entity_attributes_replace_country_file_defaults() {
+    let mut d = CtyData::parse(OFFICIAL_DAT).unwrap();
+    let (rows, _) = parse_cty_csv(OFFICIAL_CSV);
+    assert_eq!(d.apply_entity_codes(&rows).matched, 5);
+    let changes: Vec<(u32, &str, String, String)> = d
+        .apply_official_entity_attributes()
+        .into_iter()
+        .map(|c| (c.dxcc, c.attribute, c.from, c.to))
+        .collect();
+    assert_eq!(
+        changes,
+        vec![
+            (199, "continent", "SA".into(), "AN".into()),
+            (13, "continent", "SA".into(), "AN".into()),
+            (234, "itu_zone", "63".into(), "62".into()),
+            (37, "itu_zone", "11".into(), "12".into()),
+        ]
+    );
+    assert_eq!(d.resolve_prefix("QP1").unwrap().continent, "AN");
+    assert_eq!(d.resolve_prefix("QY5").unwrap().continent, "AN");
+    assert_eq!(d.resolve_prefix("QC1").unwrap().itu_zone, 62);
+    assert_eq!(d.resolve_exact("QC1X").unwrap().itu_zone, 62);
+    assert_eq!(d.resolve_prefix("QT1").unwrap().itu_zone, 12);
+    // Explicit per-alias overrides stay as published.
+    assert_eq!(d.resolve_prefix("QY1A").unwrap().itu_zone, 73);
+    assert_eq!(d.resolve_prefix("QY2A").unwrap().continent, "SA");
+    // Code 38 (Cocos-Keeling) is not covered and keeps its values.
+    let k = d.resolve_prefix("QK1").unwrap();
+    assert_eq!((k.itu_zone, k.continent.as_str()), (54, "OC"));
+    // Idempotent.
+    assert_eq!(d.apply_official_entity_attributes(), Vec::new());
+}
+
+#[test]
+fn official_attributes_need_entity_codes_and_name_current_adif_entities() {
+    // Without cty.csv there are no codes, so nothing is changed.
+    let mut d = CtyData::parse(OFFICIAL_DAT).unwrap();
+    assert_eq!(d.apply_official_entity_attributes(), Vec::new());
+    assert_eq!(d.resolve_prefix("QP1").unwrap().continent, "SA");
+    for a in OFFICIAL_ENTITY_ATTRIBUTES {
+        assert!(
+            ADIF_318_CURRENT_CODES.binary_search(&a.dxcc).is_ok(),
+            "{}",
+            a.dxcc
+        );
+        assert!(a.continent.is_some() || a.itu_zone.is_some());
+    }
+}
