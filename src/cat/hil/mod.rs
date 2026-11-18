@@ -59,12 +59,34 @@ pub use validator::{HilProfileValidationError, HilReadinessValidator};
 /// The RFC 3339 shape is checked before jiff parses the value: jiff alone also accepts
 /// ISO 8601 / RFC 9557 forms that RFC 3339 does not allow (basic format, missing seconds,
 /// bracketed annotations). HIL authorization must not widen what it accepts.
-pub fn parse_rfc3339(value: &str) -> Result<jiff::Timestamp, String> {
+pub fn parse_rfc3339(value: &str) -> Result<jiff::Timestamp, Rfc3339Error> {
     if !is_rfc3339_shape(value.as_bytes()) {
-        return Err(format!("`{value}` is not an RFC 3339 date-time"));
+        return Err(Rfc3339Error::NotRfc3339(value.to_string()));
     }
-    value.parse::<jiff::Timestamp>().map_err(|e| e.to_string())
+    value
+        .parse::<jiff::Timestamp>()
+        .map_err(|e| Rfc3339Error::OutOfRange(e.to_string()))
 }
+
+/// Why a value is not an RFC 3339 instant.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Rfc3339Error {
+    /// The value does not have the RFC 3339 `date-time` shape.
+    NotRfc3339(String),
+    /// The shape is right, but a field is out of range (for example `2026-02-30`).
+    OutOfRange(String),
+}
+
+impl std::fmt::Display for Rfc3339Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotRfc3339(value) => write!(f, "`{value}` is not an RFC 3339 date-time"),
+            Self::OutOfRange(reason) => write!(f, "invalid RFC 3339 date-time: {reason}"),
+        }
+    }
+}
+
+impl std::error::Error for Rfc3339Error {}
 
 fn is_rfc3339_shape(b: &[u8]) -> bool {
     let digits = |from: usize, to: usize| {
@@ -152,5 +174,13 @@ mod rfc3339_tests {
         ] {
             assert!(parse_rfc3339(bad).is_err(), "{bad:?} must be rejected");
         }
+        assert!(matches!(
+            parse_rfc3339("2026-02-30T12:00:00Z"),
+            Err(super::Rfc3339Error::OutOfRange(_))
+        ));
+        assert!(matches!(
+            parse_rfc3339("20261018T120000Z"),
+            Err(super::Rfc3339Error::NotRfc3339(_))
+        ));
     }
 }
