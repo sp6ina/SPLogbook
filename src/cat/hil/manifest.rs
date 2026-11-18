@@ -686,8 +686,8 @@ impl HilTestBenchManifest {
         }
 
         if let Some(exp_str) = &self.expires_at
-            && let Ok(exp_time) = chrono::DateTime::parse_from_rfc3339(exp_str)
-            && let Ok(created_time) = chrono::DateTime::parse_from_rfc3339(&self.created_at)
+            && let Ok(exp_time) = crate::cat::hil::parse_rfc3339(exp_str)
+            && let Ok(created_time) = crate::cat::hil::parse_rfc3339(&self.created_at)
             && exp_time < created_time
         {
             return Err(HilError::InvalidManifest(format!(

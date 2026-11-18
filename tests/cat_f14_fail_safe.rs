@@ -41,10 +41,8 @@ use protocol_double::{DocumentedPttProtocol, DoubleFaults, ProtocolDouble};
 
 const REFERENCE_TIME: &str = "2026-10-18T12:00:00Z";
 
-fn reference_time() -> chrono::DateTime<chrono::Utc> {
-    chrono::DateTime::parse_from_rfc3339(REFERENCE_TIME)
-        .expect("valid RFC3339 reference time")
-        .with_timezone(&chrono::Utc)
+fn reference_time() -> jiff::Timestamp {
+    splogbook::cat::hil::parse_rfc3339(REFERENCE_TIME).expect("valid RFC3339 reference time")
 }
 
 fn manifest_with_duration(max_test_duration_ms: u64) -> HilTestBenchManifest {

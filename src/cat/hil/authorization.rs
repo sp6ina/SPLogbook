@@ -35,7 +35,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 use super::manifest::HilTestBenchManifest;
@@ -330,7 +330,7 @@ impl HilIndependentEvidence {
             && !self.attempt_id.trim().is_empty()
             && is_sha256_hex(&self.plan_sha256)
             && is_sha256_hex(&self.attestation_sha256)
-            && chrono::DateTime::parse_from_rfc3339(&self.issued_at).is_ok()
+            && crate::cat::hil::parse_rfc3339(&self.issued_at).is_ok()
             && !self.measured_facts.is_empty()
             && self.integrity_ok
     }
@@ -555,10 +555,10 @@ pub struct HilAuthorizationAudit {
 }
 
 impl HilAuthorizationAudit {
-    fn new(outcome: HilAuthorizationOutcome, evaluated_at: DateTime<Utc>) -> Self {
+    fn new(outcome: HilAuthorizationOutcome, evaluated_at: Timestamp) -> Self {
         Self {
             schema_version: HIL_AUTHORIZATION_SCHEMA_VERSION,
-            evaluated_at: evaluated_at.to_rfc3339(),
+            evaluated_at: evaluated_at.to_string(),
             outcome,
             reason: String::new(),
             missing: None,
@@ -573,7 +573,7 @@ impl HilAuthorizationAudit {
         outcome: HilAuthorizationOutcome,
         reason: impl Into<String>,
         missing: Option<&str>,
-        evaluated_at: DateTime<Utc>,
+        evaluated_at: Timestamp,
     ) -> Self {
         let mut audit = Self::new(outcome, evaluated_at);
         audit.reason = reason.into();
@@ -601,7 +601,10 @@ impl HilAuthorizationDecision {
     pub fn not_evaluated() -> Self {
         Self {
             outcome: HilAuthorizationOutcome::NotEvaluated,
-            audit: HilAuthorizationAudit::new(HilAuthorizationOutcome::NotEvaluated, Utc::now()),
+            audit: HilAuthorizationAudit::new(
+                HilAuthorizationOutcome::NotEvaluated,
+                Timestamp::now(),
+            ),
         }
     }
 
@@ -666,7 +669,7 @@ impl HilHardwareExecutionAuthorizer {
     /// Brak oświadczenia ⇒ [`HilAuthorizationOutcome::OperatorAttestationMissing`].
     pub fn authorize_at(
         inputs: HilAuthorizationInputs<'_>,
-        evaluated_at: DateTime<Utc>,
+        evaluated_at: Timestamp,
     ) -> HilAuthorizationDecision {
         // 1. Konfiguracja / struktura planu.
         if let Err(err) = inputs.plan.validate_plan() {
@@ -790,7 +793,7 @@ impl HilHardwareExecutionAuthorizer {
     pub fn dry_run_at(
         plan: &HilTestBenchManifest,
         attestation: Option<&HilAttestationDocument>,
-        evaluated_at: DateTime<Utc>,
+        evaluated_at: Timestamp,
     ) -> HilAuthorizationDecision {
         if let Err(err) = plan.validate_plan() {
             return HilAuthorizationDecision::from_audit(
@@ -991,7 +994,7 @@ fn validate_evidence(
     evidence: &HilIndependentEvidence,
     plan_digest: &str,
     attestation_digest: &str,
-    evaluated_at: DateTime<Utc>,
+    evaluated_at: Timestamp,
 ) -> Result<(), HilEvidenceError> {
     if evidence.schema_version != HIL_AUTHORIZATION_SCHEMA_VERSION {
         return Err(HilEvidenceError::UnsupportedSchema(evidence.schema_version));
@@ -1006,23 +1009,21 @@ fn validate_evidence(
         return Err(HilEvidenceError::UnsupportedIssuer(evidence.issuer.clone()));
     }
 
-    let issued_at = chrono::DateTime::parse_from_rfc3339(&evidence.issued_at)
-        .map_err(|e| HilEvidenceError::Malformed(format!("issued_at is not RFC 3339: {e}")))?
-        .with_timezone(&Utc);
+    let issued_at = crate::cat::hil::parse_rfc3339(&evidence.issued_at)
+        .map_err(|e| HilEvidenceError::Malformed(format!("issued_at is not RFC 3339: {e}")))?;
     if issued_at > evaluated_at {
         return Err(HilEvidenceError::NotYetValid(evidence.issued_at.clone()));
     }
     if let Some(expires_at) = &evidence.expires_at {
-        let expires_at = chrono::DateTime::parse_from_rfc3339(expires_at)
-            .map_err(|e| HilEvidenceError::Malformed(format!("expires_at is not RFC 3339: {e}")))?
-            .with_timezone(&Utc);
+        let expires_at = crate::cat::hil::parse_rfc3339(expires_at)
+            .map_err(|e| HilEvidenceError::Malformed(format!("expires_at is not RFC 3339: {e}")))?;
         if expires_at <= issued_at {
             return Err(HilEvidenceError::Malformed(
                 "expires_at must be later than issued_at".to_string(),
             ));
         }
         if evaluated_at >= expires_at {
-            return Err(HilEvidenceError::Expired(expires_at.to_rfc3339()));
+            return Err(HilEvidenceError::Expired(expires_at.to_string()));
         }
     }
 
@@ -1348,7 +1349,7 @@ pub(crate) mod test_evidence_support {
         plan: &HilTestBenchManifest,
         attestation: &HilAttestationDocument,
         evidence: &HilIndependentEvidence,
-        evaluated_at: DateTime<Utc>,
+        evaluated_at: Timestamp,
     ) -> HilAuthorizationDecision {
         HilHardwareExecutionAuthorizer::authorize_at(
             HilAuthorizationInputs {
@@ -1366,10 +1367,8 @@ mod tests {
     use super::test_evidence_support::*;
     use super::*;
 
-    fn reference_time() -> DateTime<Utc> {
-        chrono::DateTime::parse_from_rfc3339("2026-10-18T12:00:00Z")
-            .expect("reference time")
-            .with_timezone(&Utc)
+    fn reference_time() -> Timestamp {
+        crate::cat::hil::parse_rfc3339("2026-10-18T12:00:00Z").expect("reference time")
     }
 
     #[test]

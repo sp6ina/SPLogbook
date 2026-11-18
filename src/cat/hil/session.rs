@@ -54,7 +54,7 @@ impl HilPttConsentToken {
                 "Operator callsign cannot be empty".to_string(),
             ));
         }
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = jiff::Timestamp::now().to_string();
         Ok(Self {
             operator_callsign: trimmed.to_ascii_uppercase(),
             timestamp_iso: now,
@@ -320,7 +320,7 @@ impl<'a> HilTxGuard<'a> {
         Ok(HilPttExecutionResult {
             ptt_pulse_duration_ms: 0,
             rx_restored_cleanly: true,
-            timestamp_iso: chrono::Utc::now().to_rfc3339(),
+            timestamp_iso: jiff::Timestamp::now().to_string(),
         })
     }
 
@@ -368,14 +368,14 @@ impl Drop for HilTxGuard<'_> {
 
 /// Zwraca bieżący czas ewaluacji HIL:
 /// - wartość ze zmiennej środowiskowej `SPLOG_HIL_REFERENCE_TIME` (jeśli ustawiona na poprawny RFC3339),
-/// - lub rzeczywisty czas systemowy [`chrono::Utc::now()`] w produkcji.
-pub fn default_hil_evaluation_time() -> chrono::DateTime<chrono::Utc> {
+/// - lub rzeczywisty czas systemowy [`jiff::Timestamp::now()`] w produkcji.
+pub fn default_hil_evaluation_time() -> jiff::Timestamp {
     if let Ok(var) = std::env::var("SPLOG_HIL_REFERENCE_TIME")
-        && let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&var)
+        && let Ok(dt) = crate::cat::hil::parse_rfc3339(&var)
     {
-        return dt.with_timezone(&chrono::Utc);
+        return dt;
     }
-    chrono::Utc::now()
+    jiff::Timestamp::now()
 }
 
 /// Źródło bramek środowiskowych HIL.
@@ -448,7 +448,7 @@ pub struct HilHardwareSession {
     stage: HilExecutionStage,
     readiness_report: HilReadinessReport,
     session_state: Arc<AtomicU8>,
-    reference_time: Option<chrono::DateTime<chrono::Utc>>,
+    reference_time: Option<jiff::Timestamp>,
     attempt_registry: Arc<HilAttemptRegistry>,
     authorization_consumed: AtomicBool,
     environment: Option<HilEnvironmentGates>,
@@ -466,7 +466,7 @@ impl HilHardwareSession {
     pub fn new_with_reference_time(
         manifest: HilTestBenchManifest,
         stage: HilExecutionStage,
-        reference_time: Option<chrono::DateTime<chrono::Utc>>,
+        reference_time: Option<jiff::Timestamp>,
     ) -> Self {
         let readiness_report = HilReadinessValidator::validate(&manifest, stage);
         Self {
@@ -484,7 +484,7 @@ impl HilHardwareSession {
     }
 
     /// Przypisuje jawny czas odniesienia (builder).
-    pub fn with_reference_time(mut self, reference_time: chrono::DateTime<chrono::Utc>) -> Self {
+    pub fn with_reference_time(mut self, reference_time: jiff::Timestamp) -> Self {
         self.reference_time = Some(reference_time);
         self
     }
@@ -521,7 +521,7 @@ impl HilHardwareSession {
     }
 
     /// Zwraca efektywny czas ewaluacji sesji.
-    pub fn evaluated_at(&self) -> chrono::DateTime<chrono::Utc> {
+    pub fn evaluated_at(&self) -> jiff::Timestamp {
         self.reference_time
             .unwrap_or_else(default_hil_evaluation_time)
     }
@@ -573,7 +573,7 @@ impl HilHardwareSession {
     /// Decyzja jest liczona z trzech rozłącznych wejść: planu, oświadczenia i dowodu.
     pub fn authorization_decision_at(
         &self,
-        evaluated_at: chrono::DateTime<chrono::Utc>,
+        evaluated_at: jiff::Timestamp,
     ) -> HilAuthorizationDecision {
         HilHardwareExecutionAuthorizer::authorize_at(
             super::authorization::HilAuthorizationInputs {
@@ -638,7 +638,7 @@ impl HilHardwareSession {
     /// wstępne dla dalszej walidacji.
     fn verify_hardware_access_gates_at(
         &self,
-        evaluated_at: chrono::DateTime<chrono::Utc>,
+        evaluated_at: jiff::Timestamp,
     ) -> Result<(), HilError> {
         self.manifest.validate_structure()?;
 
@@ -667,7 +667,7 @@ impl HilHardwareSession {
         }
 
         if let Some(exp_str) = &self.manifest.expires_at
-            && let Ok(exp_time) = chrono::DateTime::parse_from_rfc3339(exp_str)
+            && let Ok(exp_time) = crate::cat::hil::parse_rfc3339(exp_str)
             && evaluated_at >= exp_time
         {
             return Err(HilError::SessionExpired(format!(
@@ -695,7 +695,7 @@ impl HilHardwareSession {
     /// względem jawnego czasu.
     pub fn verify_hardware_access_authorization_at(
         &self,
-        evaluated_at: chrono::DateTime<chrono::Utc>,
+        evaluated_at: jiff::Timestamp,
     ) -> Result<(), HilError> {
         self.verify_hardware_access_gates_at(evaluated_at)?;
 
@@ -731,7 +731,7 @@ impl HilHardwareSession {
         &self,
         consent_token: &HilPttConsentToken,
         arbiter: &crate::cat::tx_arbiter::TxArbiter,
-        evaluated_at: chrono::DateTime<chrono::Utc>,
+        evaluated_at: jiff::Timestamp,
     ) -> Result<(), HilError> {
         // Bramki wstępne (plan, środowisko, sesja) oraz warunki TX (allow_tx, moc, czas,
         // arbiter, token) są sprawdzane przed decyzją dowodową, aby zachować jednoznaczną
@@ -816,7 +816,7 @@ impl HilHardwareSession {
             model_name: self.manifest.matrix.model_name.clone(),
             capabilities: probe_res.capabilities,
             safe_diagnostic: probe_res.safe_diagnostic,
-            executed_at: chrono::Utc::now().to_rfc3339(),
+            executed_at: jiff::Timestamp::now().to_string(),
         })
     }
 
@@ -839,7 +839,7 @@ impl HilHardwareSession {
             model_name: self.manifest.matrix.model_name.clone(),
             capabilities: probe_res.capabilities,
             safe_diagnostic: probe_res.safe_diagnostic,
-            executed_at: chrono::Utc::now().to_rfc3339(),
+            executed_at: jiff::Timestamp::now().to_string(),
         })
     }
 
@@ -868,7 +868,7 @@ impl HilHardwareSession {
         consent_token: &HilPttConsentToken,
         arbiter: &mut crate::cat::tx_arbiter::TxArbiter,
         duration: Duration,
-        evaluated_at: chrono::DateTime<chrono::Utc>,
+        evaluated_at: jiff::Timestamp,
     ) -> Result<HilTxGuard<'a>, HilError> {
         if self.stage == HilExecutionStage::Stage7AOffline {
             return Err(HilError::PttForbiddenInStage7A);
@@ -955,7 +955,7 @@ impl HilHardwareSession {
         backend: &mut dyn RigBackend,
         consent_token: &HilPttConsentToken,
         pulse_duration: Duration,
-        evaluated_at: chrono::DateTime<chrono::Utc>,
+        evaluated_at: jiff::Timestamp,
     ) -> Result<HilPttExecutionResult, HilError> {
         let mut arbiter = crate::cat::tx_arbiter::TxArbiter::new();
         self.execute_controlled_ptt_with_arbiter_at(
@@ -993,7 +993,7 @@ impl HilHardwareSession {
         consent_token: &HilPttConsentToken,
         arbiter: &mut crate::cat::tx_arbiter::TxArbiter,
         pulse_duration: Duration,
-        evaluated_at: chrono::DateTime<chrono::Utc>,
+        evaluated_at: jiff::Timestamp,
     ) -> Result<HilPttExecutionResult, HilError> {
         // Rygor 1: Faza NATIVE-7A
         if self.stage == HilExecutionStage::Stage7AOffline {
@@ -1141,7 +1141,7 @@ pub fn run_isolated_hardware_dispatcher(
 pub fn run_isolated_hardware_dispatcher_at(
     manifest: &HilTestBenchManifest,
     _stage: HilExecutionStage,
-    evaluated_at: chrono::DateTime<chrono::Utc>,
+    evaluated_at: jiff::Timestamp,
 ) -> HilDispatcherReport {
     let case_names = [
         "hil_hardware_live_test_bench",
@@ -1196,7 +1196,7 @@ pub fn run_isolated_hardware_dispatcher_at(
 
     // Sprawdzenie wygaśnięcia sesji względem jawnego czasu odniesienia.
     if let Some(exp_str) = &manifest.expires_at
-        && let Ok(exp_time) = chrono::DateTime::parse_from_rfc3339(exp_str)
+        && let Ok(exp_time) = crate::cat::hil::parse_rfc3339(exp_str)
         && evaluated_at >= exp_time
     {
         let cases = case_names
@@ -1403,10 +1403,8 @@ mod test_scope_tests {
         }
     }
 
-    fn reference_time() -> chrono::DateTime<chrono::Utc> {
-        chrono::DateTime::parse_from_rfc3339("2026-10-18T12:00:00Z")
-            .expect("reference time")
-            .with_timezone(&chrono::Utc)
+    fn reference_time() -> jiff::Timestamp {
+        crate::cat::hil::parse_rfc3339("2026-10-18T12:00:00Z").expect("reference time")
     }
 
     fn authorized_session() -> HilHardwareSession {

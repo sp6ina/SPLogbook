@@ -43,10 +43,8 @@ use process_env::EnvGuard;
 
 const REFERENCE_TIME: &str = "2026-10-18T12:00:00Z";
 
-fn reference_time() -> chrono::DateTime<chrono::Utc> {
-    chrono::DateTime::parse_from_rfc3339(REFERENCE_TIME)
-        .expect("valid RFC3339 reference time")
-        .with_timezone(&chrono::Utc)
+fn reference_time() -> jiff::Timestamp {
+    splogbook::cat::hil::parse_rfc3339(REFERENCE_TIME).expect("valid RFC3339 reference time")
 }
 
 /// A complete, valid v2 plan. It carries **no** self-declared safety booleans; those live in the

@@ -44,10 +44,9 @@ static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// issued_at ("2026-10-18T09:30:00Z") < reference_time ("2026-10-18T12:00:00Z") < expires_at ("2026-10-18T23:59:59Z")
 pub const HIL_DETERMINISTIC_REFERENCE_TIME: &str = "2026-10-18T12:00:00Z";
 
-pub fn deterministic_reference_time() -> chrono::DateTime<chrono::Utc> {
-    chrono::DateTime::parse_from_rfc3339(HIL_DETERMINISTIC_REFERENCE_TIME)
+pub fn deterministic_reference_time() -> jiff::Timestamp {
+    splogbook::cat::hil::parse_rfc3339(HIL_DETERMINISTIC_REFERENCE_TIME)
         .expect("Valid RFC3339 reference time")
-        .with_timezone(&chrono::Utc)
 }
 
 struct EnvGuard {
@@ -1186,12 +1185,8 @@ fn hil_offline_tests_do_not_depend_on_wall_clock() {
     let manifest = valid_test_manifest();
     // Weryfikujemy, że jawnie przekazany czas odniesienia jest w 100% niezależny
     // od rzeczywistego zegara systemowego (wall-clock).
-    let past_valid_time = chrono::DateTime::parse_from_rfc3339("2026-10-18T10:00:00Z")
-        .unwrap()
-        .with_timezone(&chrono::Utc);
-    let expired_ref_time = chrono::DateTime::parse_from_rfc3339("2026-10-19T00:00:01Z")
-        .unwrap()
-        .with_timezone(&chrono::Utc);
+    let past_valid_time = splogbook::cat::hil::parse_rfc3339("2026-10-18T10:00:00Z").unwrap();
+    let expired_ref_time = splogbook::cat::hil::parse_rfc3339("2026-10-19T00:00:01Z").unwrap();
 
     let session = HilHardwareSession::new(manifest, HilExecutionStage::Stage7BHardware);
     let _env = EnvGuard::new(&[
@@ -1215,9 +1210,9 @@ fn hil_stage_7a_fixture_uses_deterministic_reference_time() {
     let manifest = valid_test_manifest();
     assert_eq!(manifest.created_at, "2026-10-18T09:30:00Z");
     assert_eq!(manifest.expires_at.as_deref(), Some("2026-10-18T23:59:59Z"));
-    let created = chrono::DateTime::parse_from_rfc3339(&manifest.created_at).unwrap();
+    let created = splogbook::cat::hil::parse_rfc3339(&manifest.created_at).unwrap();
     let expires =
-        chrono::DateTime::parse_from_rfc3339(manifest.expires_at.as_deref().unwrap()).unwrap();
+        splogbook::cat::hil::parse_rfc3339(manifest.expires_at.as_deref().unwrap()).unwrap();
     let ref_time = deterministic_reference_time();
     assert!(created < ref_time, "issued_at < reference_time");
     assert!(ref_time < expires, "reference_time < expires_at");
@@ -5594,9 +5589,7 @@ fn hil_session_arming_expires() {
         ("SPLOG_HIL_ENABLE", Some("1")),
         ("SPLOG_HIL_SESSION", Some("SESSION-TEST-01")),
     ]);
-    let evaluated_at = chrono::DateTime::parse_from_rfc3339("2026-10-18T10:05:00Z")
-        .unwrap()
-        .with_timezone(&chrono::Utc);
+    let evaluated_at = splogbook::cat::hil::parse_rfc3339("2026-10-18T10:05:00Z").unwrap();
     let res = session.verify_hardware_access_authorization_at(evaluated_at);
     assert!(matches!(res, Err(HilError::SessionExpired(_))));
 }

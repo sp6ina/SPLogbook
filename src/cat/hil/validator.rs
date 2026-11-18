@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 use super::authorization::{
     HIL_REQUIRED_MEASURED_FACTS, HilAttemptRegistry, HilAttestationDocument,
@@ -252,7 +252,7 @@ impl HilReadinessValidator {
         manifest: &HilTestBenchManifest,
         attestation: Option<&HilAttestationDocument>,
         evidence: Option<&HilIndependentEvidence>,
-        evaluated_at: DateTime<Utc>,
+        evaluated_at: Timestamp,
     ) -> HilAuthorizationDecision {
         HilHardwareExecutionAuthorizer::authorize_at(
             HilAuthorizationInputs {
@@ -268,7 +268,7 @@ impl HilReadinessValidator {
     pub fn authorize_dry_run_at(
         manifest: &HilTestBenchManifest,
         attestation: Option<&HilAttestationDocument>,
-        evaluated_at: DateTime<Utc>,
+        evaluated_at: Timestamp,
     ) -> HilAuthorizationDecision {
         HilHardwareExecutionAuthorizer::dry_run_at(manifest, attestation, evaluated_at)
     }
@@ -286,7 +286,7 @@ impl HilReadinessValidator {
     pub fn dry_run_decision(
         manifest: &HilTestBenchManifest,
         attestation: Option<&HilAttestationDocument>,
-        evaluated_at: DateTime<Utc>,
+        evaluated_at: Timestamp,
     ) -> HilAuthorizationDecision {
         let decision = HilHardwareExecutionAuthorizer::authorize_at(
             HilAuthorizationInputs {
@@ -2396,9 +2396,7 @@ mod tests {
             &manifest,
             None,
             None,
-            chrono::DateTime::parse_from_rfc3339("2026-10-18T12:00:00Z")
-                .expect("reference time")
-                .with_timezone(&chrono::Utc),
+            crate::cat::hil::parse_rfc3339("2026-10-18T12:00:00Z").expect("reference time"),
         );
         assert!(!decision.authorizes_hardware_ptt());
     }
