@@ -1171,10 +1171,7 @@ pub enum UpdateFileClass {
     /// Dane referencyjne. Zgodnie z zasadą UNKNOWN DATA CLASSIFICATION → DO NOT OVERWRITE,
     /// jeśli plik istnieje lokalnie, NIE MOŻE zostać nadpisany bez migracji.
     ReferenceData,
-    /// Ziarna pierwszej instalacji (np. początkowe bazy callbook / serviceLOG).
-    /// Kopiowane tylko wtedy, gdy plik docelowy NIE istnieje. Jeśli istnieje — zachowywane.
-    FirstInstallSeed,
-    /// Dane użytkownika (dzienniki łączności, pliki QSO, bazy robocze). Bezwzględny zakaz nadpisywania.
+    /// Dane użytkownika (dzienniki łączności, pliki QSO, bazy danych). Bezwzględny zakaz nadpisywania.
     UserData,
     /// Konfiguracja użytkownika (station_config.json, ustawienia). Bezwzględny zakaz nadpisywania.
     UserConfiguration,
@@ -1213,11 +1210,16 @@ pub fn classify_update_path(rel_path: &Path) -> UpdateFileClass {
         return UpdateFileClass::UserConfiguration;
     }
 
-    // 2. Dane użytkownika - bezwzględny zakaz nadpisywania
+    // 2. Dane użytkownika i lokalne bazy danych - bezwzględny zakaz nadpisywania
     if file_name == "default_log.db"
         || file_name.starts_with("default_log.db")
+        || path_str.starts_with("databases/")
+        || path_str.starts_with("database/")
         || path_str.starts_with("logs/")
         || path_str.starts_with("log/")
+        || ext_str == Some("db")
+        || ext_str == Some("sqlite")
+        || ext_str == Some("sqlite3")
         || ext_str == Some("adi")
         || ext_str == Some("adif")
         || ext_str == Some("cabrillo")
@@ -1225,20 +1227,6 @@ pub fn classify_update_path(rel_path: &Path) -> UpdateFileClass {
         || file_name.ends_with(".db-shm")
         || file_name.ends_with(".db-journal")
     {
-        return UpdateFileClass::UserData;
-    }
-
-    // 3. Ziarna baz danych w katalogu portable (serviceLOG.db, callbook.db itp.)
-    if path_str.starts_with("databases/")
-        || path_str.starts_with("database/")
-        || file_name == "servicelog.db"
-        || file_name == "callbook.db"
-    {
-        return UpdateFileClass::FirstInstallSeed;
-    }
-
-    // Inne bazy danych (.db, .sqlite) poza katalogiem databases/ to dane użytkownika
-    if ext_str == Some("db") || ext_str == Some("sqlite") || ext_str == Some("sqlite3") {
         return UpdateFileClass::UserData;
     }
 
@@ -1343,12 +1331,6 @@ impl UpdatePlan {
                         // Wyłącznie pliki programu mogą zastąpić istniejące pliki
                         replace_files.push((rel_path, active_path));
                     }
-                    UpdateFileClass::FirstInstallSeed => {
-                        preserve_files.push((
-                            active_path,
-                            "Zachowano istniejącą bazę danych (ziarno instalacji nie nadpisuje danych)".to_string(),
-                        ));
-                    }
                     UpdateFileClass::ReferenceData => {
                         preserve_files.push((
                             active_path,
@@ -1392,13 +1374,16 @@ impl UpdatePlan {
                 // Plik nie istnieje w katalogu docelowym
                 match class {
                     UpdateFileClass::ProgramFile
-                    | UpdateFileClass::FirstInstallSeed
                     | UpdateFileClass::ReferenceData
                     | UpdateFileClass::ReleaseMetadata
-                    | UpdateFileClass::UserData
-                    | UpdateFileClass::UserConfiguration
                     | UpdateFileClass::Cache => {
                         create_files.push((rel_path, active_path));
+                    }
+                    UpdateFileClass::UserData | UpdateFileClass::UserConfiguration => {
+                        rejected_files.push((
+                            rel_path,
+                            "Paczka aktualizacyjna nie może zawierać plików danych ani konfiguracji użytkownika (fail-closed)".to_string(),
+                        ));
                     }
                     UpdateFileClass::Unknown => {
                         rejected_files.push((
@@ -3097,16 +3082,10 @@ pub fn inspect_windows_zip_archive(
         }
 
         if is_protected_user_path(&logical_path) {
-            let path_norm = logical_path.to_string_lossy().replace('\\', "/");
-            let is_seed = path_norm == "databases/serviceLOG.db"
-                || path_norm == "databases/servicelog.db"
-                || path_norm == "databases/callbook.db";
-            if !is_seed {
-                return Err(UpdaterError::SafetyGate(format!(
-                    "Archiwum zawiera chronione dane użytkownika: {}",
-                    logical_path.display()
-                )));
-            }
+            return Err(UpdaterError::SafetyGate(format!(
+                "Archiwum zawiera chronione dane użytkownika: {}",
+                logical_path.display()
+            )));
         }
 
         // Sprawdzenie plików .exe
@@ -3743,7 +3722,6 @@ pub fn apply_atomic_installation_with_options(
                     class,
                     UpdateFileClass::UserData
                         | UpdateFileClass::UserConfiguration
-                        | UpdateFileClass::FirstInstallSeed
                         | UpdateFileClass::ReferenceData
                 )
             {
@@ -6600,7 +6578,7 @@ mod tests {
                 0o755,
             ),
             (
-                "SPLogbook-Linux-x86_64/databases/serviceLOG.db",
+                "SPLogbook-Linux-x86_64/databases/default_log.db",
                 b"SQLite",
                 tar::EntryType::Regular,
                 0o644,
@@ -6618,7 +6596,7 @@ mod tests {
         assert!(flattened.unwrap());
 
         assert!(staging.join("splogbook").is_file());
-        assert!(staging.join("databases/serviceLOG.db").is_file());
+        assert!(staging.join("databases/default_log.db").is_file());
         assert!(!staging.join("SPLogbook-Linux-x86_64").exists());
 
         let _ = std::fs::remove_dir_all(&temp_dir);
@@ -6973,7 +6951,7 @@ mod tests {
         let tar_bytes = create_test_tar_gz(&[
             ("bin/splogbook", b"ELF", tar::EntryType::Regular, 0o755),
             (
-                "databases/serviceLOG.db",
+                "databases/default_log.db",
                 b"DB",
                 tar::EntryType::Regular,
                 0o666,
@@ -6994,7 +6972,7 @@ mod tests {
             "Setuid/setgid/sticky must be stripped"
         );
 
-        let db_meta = std::fs::metadata(staging.join("databases/serviceLOG.db")).unwrap();
+        let db_meta = std::fs::metadata(staging.join("databases/default_log.db")).unwrap();
         let db_mode = db_meta.permissions().mode();
         assert_eq!(db_mode & 0o777, 0o644);
 
@@ -8816,12 +8794,20 @@ mod tests {
             UpdateFileClass::UserData
         );
         assert_eq!(
+            classify_update_path(Path::new("databases/default_log.db")),
+            UpdateFileClass::UserData
+        );
+        assert_eq!(
+            classify_update_path(Path::new("databases/custom.sqlite")),
+            UpdateFileClass::UserData
+        );
+        assert_eq!(
             classify_update_path(Path::new("databases/serviceLOG.db")),
-            UpdateFileClass::FirstInstallSeed
+            UpdateFileClass::UserData
         );
         assert_eq!(
             classify_update_path(Path::new("databases/callbook.db")),
-            UpdateFileClass::FirstInstallSeed
+            UpdateFileClass::UserData
         );
         assert_eq!(
             classify_update_path(Path::new("SPLogbook.exe")),
@@ -8860,32 +8846,32 @@ mod tests {
 
         std::fs::write(staging_dir.join("SPLogbook.exe"), b"NEW BINARY").unwrap();
         std::fs::write(active_dir.join("SPLogbook.exe"), b"OLD BINARY").unwrap();
-        std::fs::write(staging_dir.join("databases/serviceLOG.db"), b"NEW SEED").unwrap();
-        std::fs::write(staging_dir.join("databases/callbook.db"), b"NEW SEED").unwrap();
+        std::fs::write(staging_dir.join("databases/default_log.db"), b"NEW DB").unwrap();
+        std::fs::write(staging_dir.join("databases/custom.sqlite"), b"NEW DB").unwrap();
 
-        let active_service_db = active_dir.join("databases/serviceLOG.db");
-        let active_callbook_db = active_dir.join("databases/callbook.db");
-        std::fs::write(&active_service_db, b"USER PRODUCTION SERVICE DB").unwrap();
-        std::fs::write(&active_callbook_db, b"USER PRODUCTION CALLBOOK DB").unwrap();
+        let active_log_db = active_dir.join("databases/default_log.db");
+        let active_custom_db = active_dir.join("databases/custom.sqlite");
+        std::fs::write(&active_log_db, b"USER PRODUCTION LOG DB").unwrap();
+        std::fs::write(&active_custom_db, b"USER CUSTOM SQLITE DB").unwrap();
 
         let plan = UpdatePlan::generate(&staging_dir, &active_dir).unwrap();
 
-        // serviceLOG.db i callbook.db muszą być w preserve_files i NIE w replace_files
+        // default_log.db i custom.sqlite muszą być w preserve_files i NIE w replace_files
         let preserved_paths: Vec<_> = plan
             .preserve_files
             .iter()
             .map(|(p, _)| p.as_path())
             .collect();
-        assert!(preserved_paths.contains(&active_service_db.as_path()));
-        assert!(preserved_paths.contains(&active_callbook_db.as_path()));
+        assert!(preserved_paths.contains(&active_log_db.as_path()));
+        assert!(preserved_paths.contains(&active_custom_db.as_path()));
 
         let replaced_targets: Vec<_> = plan
             .replace_files
             .iter()
             .map(|(_, t)| t.as_path())
             .collect();
-        assert!(!replaced_targets.contains(&active_service_db.as_path()));
-        assert!(!replaced_targets.contains(&active_callbook_db.as_path()));
+        assert!(!replaced_targets.contains(&active_log_db.as_path()));
+        assert!(!replaced_targets.contains(&active_custom_db.as_path()));
 
         // Tylko binarka ma być w replace_files
         assert_eq!(plan.replace_files.len(), 1);
@@ -8938,7 +8924,7 @@ mod tests {
     }
 
     #[test]
-    fn update_plan_seeds_database_on_first_install() {
+    fn update_plan_rejects_databases_in_package_on_clean_install() {
         let temp_dir =
             std::env::temp_dir().join(format!("test_plan_seed_{}", rand::random::<u64>()));
         let staging_dir = temp_dir.join("staging");
@@ -8948,12 +8934,21 @@ mod tests {
         std::fs::create_dir_all(&active_dir).unwrap();
 
         std::fs::write(staging_dir.join("SPLogbook.exe"), b"NEW BINARY").unwrap();
-        std::fs::write(staging_dir.join("databases/serviceLOG.db"), b"INITIAL SEED").unwrap();
+        std::fs::write(
+            staging_dir.join("databases/default_log.db"),
+            b"UNEXPECTED DB",
+        )
+        .unwrap();
 
         let plan = UpdatePlan::generate(&staging_dir, &active_dir).unwrap();
 
-        let created_rel: Vec<_> = plan.create_files.iter().map(|(r, _)| r.as_path()).collect();
-        assert!(created_rel.contains(&std::path::Path::new("databases/serviceLOG.db")));
+        let rejected_rel: Vec<_> = plan
+            .rejected_files
+            .iter()
+            .map(|(r, _)| r.as_path())
+            .collect();
+        assert!(rejected_rel.contains(&std::path::Path::new("databases/default_log.db")));
+        assert!(plan.validate_safety("SPLogbook.exe").is_err());
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
@@ -8969,8 +8964,8 @@ mod tests {
         std::fs::create_dir_all(active_dir.join("databases")).unwrap();
 
         std::fs::write(staging_dir.join("SPLogbook.exe"), b"EXE").unwrap();
-        std::fs::write(staging_dir.join("databases/callbook.db"), b"SEED").unwrap();
-        std::fs::write(active_dir.join("databases/callbook.db"), b"EXISTING").unwrap();
+        std::fs::write(staging_dir.join("databases/default_log.db"), b"NEW DB").unwrap();
+        std::fs::write(active_dir.join("databases/default_log.db"), b"EXISTING").unwrap();
 
         let plan1 = UpdatePlan::generate(&staging_dir, &active_dir).unwrap();
         let plan2 = UpdatePlan::generate(&staging_dir, &active_dir).unwrap();
@@ -8981,7 +8976,7 @@ mod tests {
         );
 
         // Weryfikacja braku modyfikacji plików w aktywnym katalogu
-        let active_data = std::fs::read(active_dir.join("databases/callbook.db")).unwrap();
+        let active_data = std::fs::read(active_dir.join("databases/default_log.db")).unwrap();
         assert_eq!(active_data, b"EXISTING");
 
         let _ = std::fs::remove_dir_all(&temp_dir);
@@ -9046,7 +9041,7 @@ mod tests {
                 std::path::PathBuf::from("C:\\SPLogbook\\resources\\icon.png"),
             )],
             preserve_files: vec![(
-                std::path::PathBuf::from("C:\\SPLogbook\\databases\\serviceLOG.db"),
+                std::path::PathBuf::from("C:\\SPLogbook\\databases\\default_log.db"),
                 "Preserved".into(),
             )],
             rejected_files: Vec::new(),
@@ -9088,7 +9083,7 @@ mod tests {
             create_files: Vec::new(),
             preserve_files: vec![
                 (
-                    std::path::PathBuf::from("C:\\SPLogbook\\databases\\serviceLOG.db"),
+                    std::path::PathBuf::from("C:\\SPLogbook\\databases\\default_log.db"),
                     "Preserved DB".into(),
                 ),
                 (
@@ -9106,7 +9101,7 @@ mod tests {
         );
 
         assert!(
-            !script.contains("serviceLOG.db"),
+            !script.contains("default_log.db"),
             "Zachowane bazy danych nie mogą znaleźć się w skrypcie podmiany"
         );
         assert!(
@@ -9153,18 +9148,18 @@ mod tests {
         std::fs::create_dir_all(active_dir.join("databases")).unwrap();
 
         std::fs::write(staging_dir.join("SPLogbook.exe"), b"NEW BINARY").unwrap();
-        std::fs::write(staging_dir.join("databases/serviceLOG.db"), b"NEW SEED").unwrap();
-        std::fs::write(staging_dir.join("databases/callbook.db"), b"NEW SEED").unwrap();
+        std::fs::write(staging_dir.join("databases/default_log.db"), b"NEW DB").unwrap();
+        std::fs::write(staging_dir.join("databases/custom.sqlite"), b"NEW DB").unwrap();
         std::fs::write(staging_dir.join("station_config.json"), b"NEW TEMPLATE").unwrap();
 
         let active_exe = active_dir.join("SPLogbook.exe");
-        let active_db = active_dir.join("databases/serviceLOG.db");
-        let active_callbook = active_dir.join("databases/callbook.db");
+        let active_db = active_dir.join("databases/default_log.db");
+        let active_custom = active_dir.join("databases/custom.sqlite");
         let active_cfg = active_dir.join("station_config.json");
 
         std::fs::write(&active_exe, b"OLD BINARY").unwrap();
         std::fs::write(&active_db, b"ORIGINAL PRODUCTION DATABASE").unwrap();
-        std::fs::write(&active_callbook, b"ORIGINAL CALLBOOK DATABASE").unwrap();
+        std::fs::write(&active_custom, b"ORIGINAL CUSTOM DATABASE").unwrap();
         std::fs::write(&active_cfg, b"ORIGINAL USER CONFIG").unwrap();
 
         let opts = AtomicInstallationOptions::new("SPLogbook.exe");
@@ -9183,8 +9178,8 @@ mod tests {
             b"ORIGINAL PRODUCTION DATABASE"
         );
         assert_eq!(
-            std::fs::read(&active_callbook).unwrap(),
-            b"ORIGINAL CALLBOOK DATABASE"
+            std::fs::read(&active_custom).unwrap(),
+            b"ORIGINAL CUSTOM DATABASE"
         );
         assert_eq!(std::fs::read(&active_cfg).unwrap(), b"ORIGINAL USER CONFIG");
 
@@ -9202,11 +9197,11 @@ mod tests {
         std::fs::create_dir_all(active_dir.join("databases")).unwrap();
 
         std::fs::write(staging_dir.join("SPLogbook.exe"), b"NEW BINARY").unwrap();
-        std::fs::write(staging_dir.join("databases/serviceLOG.db"), b"NEW SEED").unwrap();
+        std::fs::write(staging_dir.join("databases/default_log.db"), b"NEW DB").unwrap();
         std::fs::write(staging_dir.join("station_config.json"), b"NEW TEMPLATE").unwrap();
 
         let active_exe = active_dir.join("SPLogbook.exe");
-        let active_db = active_dir.join("databases/serviceLOG.db");
+        let active_db = active_dir.join("databases/default_log.db");
         let active_cfg = active_dir.join("station_config.json");
 
         std::fs::write(&active_exe, b"OLD BINARY").unwrap();

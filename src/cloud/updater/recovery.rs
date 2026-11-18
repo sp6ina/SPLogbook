@@ -5,7 +5,7 @@
 //! - Bezwzględny zakaz automatycznego ponawiania `apply` lub `download` (Zero Automatic Re-apply).
 //! - Przed `Applying` następuje wyłącznie bezpieczne sprzątanie własnych artefaktów (`CleanupPreApplyArtifacts`).
 //! - Od `Applying` wymagany jest rollback lub delegacja do zarządcy pakietów (`RequireRollback`, `DelegateToManagedInstallerRecovery`).
-//! - Bazy danych użytkownika (`default_log.db`, `station_config.json`, `serviceLOG.db`, `callbook.db`) są bezwzględnie chronione.
+//! - Bazy danych użytkownika (`default_log.db`, `station_config.json`, `*.db`, `*.sqlite`) są bezwzględnie chronione.
 //! - Obce próby aktualizacji (foreign attempt) nie są przejmowane.
 //! - Całość ewaluacji jest w pełni idempotentna i deterministyczna.
 
@@ -612,11 +612,9 @@ mod tests {
         let root = dir.path();
 
         let log_db = root.join("default_log.db");
-        let service_db = root.join("serviceLOG.db");
-        let callbook_db = root.join("callbook.db");
+        let custom_db = root.join("custom_user.sqlite");
         fs::write(&log_db, b"IMPORTANT LOG").expect("write log");
-        fs::write(&service_db, b"IMPORTANT SERVICE").expect("write service");
-        fs::write(&callbook_db, b"IMPORTANT CALLBOOK").expect("write callbook");
+        fs::write(&custom_db, b"IMPORTANT CUSTOM DB").expect("write custom");
 
         let attempt = UpdateAttemptId::generate();
         let mut tx = sample_tx(root, attempt, InstallationType::WindowsPortableZip);
@@ -628,8 +626,7 @@ mod tests {
         assert!(matches!(err, UpdaterError::SafetyGate(_)));
 
         assert!(log_db.exists());
-        assert!(service_db.exists());
-        assert!(callbook_db.exists());
+        assert!(custom_db.exists());
     }
 
     #[test]

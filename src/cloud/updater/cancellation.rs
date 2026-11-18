@@ -73,10 +73,8 @@ pub fn is_protected_user_path(path: &Path) -> bool {
     // 2. Bazy danych użytkownika i logi łączności
     if file_name == "default_log.db"
         || file_name.starts_with("default_log.db")
-        || file_name == "servicelog.db"
-        || file_name.starts_with("servicelog.db")
-        || file_name == "callbook.db"
-        || file_name.starts_with("callbook.db")
+        || path_str.contains("/databases/")
+        || path_str.starts_with("databases/")
         || path_str.contains("/logs/")
         || path_str.starts_with("logs/")
         || path_str.contains("/log/")
@@ -101,12 +99,7 @@ pub fn is_protected_user_path(path: &Path) -> bool {
 
 /// Sprawdza integralność baz danych użytkownika i konfiguracji w katalogu instalacji.
 pub fn verify_user_data_intact(installation_root: &Path) -> Result<(), UpdaterError> {
-    let protected = [
-        "default_log.db",
-        "station_config.json",
-        "serviceLOG.db",
-        "callbook.db",
-    ];
+    let protected = ["default_log.db", "station_config.json"];
 
     for name in &protected {
         let p = installation_root.join(name);
@@ -335,13 +328,11 @@ mod tests {
 
         let log_db = root.join("default_log.db");
         let config_json = root.join("station_config.json");
-        let service_db = root.join("serviceLOG.db");
-        let callbook_db = root.join("callbook.db");
+        let custom_db = root.join("custom_user.sqlite");
 
         fs::write(&log_db, b"CRITICAL QSO DATABASE").expect("write log");
         fs::write(&config_json, b"{\"callsign\":\"SP6IN\"}").expect("write config");
-        fs::write(&service_db, b"SERVICELOG DATA").expect("write service");
-        fs::write(&callbook_db, b"CALLBOOK CACHE").expect("write callbook");
+        fs::write(&custom_db, b"CUSTOM SQLITE DATA").expect("write custom db");
 
         let mut tx = sample_tx(root, UpdateAttemptId::generate());
         tx.current_state = UpdateStateId::AwaitingApply;
@@ -358,12 +349,8 @@ mod tests {
             b"{\"callsign\":\"SP6IN\"}"
         );
         assert_eq!(
-            fs::read(&service_db).expect("read service"),
-            b"SERVICELOG DATA"
-        );
-        assert_eq!(
-            fs::read(&callbook_db).expect("read callbook"),
-            b"CALLBOOK CACHE"
+            fs::read(&custom_db).expect("read custom db"),
+            b"CUSTOM SQLITE DATA"
         );
     }
 

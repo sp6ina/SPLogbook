@@ -81,10 +81,7 @@ Source: "{#StagingDir}\assets\icon.rgba"; DestDir: "{app}\assets"; Flags: ignore
 Source: "{#StagingDir}\locales\*"; DestDir: "{app}\locales"; Flags: ignoreversion
 Source: "{#StagingDir}\locales\manual\*"; DestDir: "{app}\locales\manual"; Flags: ignoreversion skipifsourcedoesntexist
 
-; Seed databases (FirstInstallSeed policy: never overwrite, never uninstall)
-Source: "{#StagingDir}\databases\callbook.db"; DestDir: "{app}\databases"; Flags: onlyifdoesntexist uninsneveruninstall
-Source: "{#StagingDir}\databases\serviceLOG.db"; DestDir: "{app}\databases"; Flags: onlyifdoesntexist uninsneveruninstall
-Source: "{#StagingDir}\databases\clubs.csv"; DestDir: "{app}\databases"; Flags: onlyifdoesntexist uninsneveruninstall
+; Brak preinstalowanych baz referencyjnych (R1C/F-09): dane użytkownika i referencje w %APPDATA%\SPLogbook.
 
 [Icons]
 Name: "{userprograms}\SPLogbook"; Filename: "{app}\SPLogbook.exe"; IconFilename: "{app}\assets\icon.ico"

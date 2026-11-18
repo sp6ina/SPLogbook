@@ -396,11 +396,9 @@ jobs:
         shell: pwsh
         run: |
           $pkgDir = "SPLogbook-Windows-x64"
-          New-Item -ItemType Directory -Force -Path "$pkgDir\databases" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$pkgDir" | Out-Null
           Copy-Item target\release\SPLogbook.exe "$pkgDir\"
           Copy-Item assets\icon.ico "$pkgDir\"
-          Copy-Item databases\serviceLOG.db "$pkgDir\databases\"
-          if (Test-Path databases\callbook.db) { Copy-Item databases\callbook.db "$pkgDir\databases\" }
           Copy-Item README.md "$pkgDir\"
           Copy-Item LICENSE "$pkgDir\"
 

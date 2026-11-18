@@ -491,7 +491,7 @@ mod tests {
                 PathBuf::from("C:\\SPLogbook\\resources\\icon.png"),
             )],
             preserve_files: vec![(
-                PathBuf::from("C:\\SPLogbook\\databases\\serviceLOG.db"),
+                PathBuf::from("C:\\SPLogbook\\databases\\default_log.db"),
                 "Preserved DB".into(),
             )],
             rejected_files: Vec::new(),
@@ -512,7 +512,7 @@ mod tests {
         assert!(!script.contains("Invoke-Expression"));
         assert!(!script.contains("iex"));
         assert!(!script.contains("runas"));
-        assert!(!script.contains("serviceLOG.db"));
+        assert!(!script.contains("default_log.db"));
         assert!(script.contains("$replaceFiles = @('SPLogbook.exe')"));
     }
 
@@ -542,7 +542,7 @@ mod tests {
             )],
             preserve_files: vec![
                 (
-                    PathBuf::from("C:\\SPLogbook\\databases\\serviceLOG.db"),
+                    PathBuf::from("C:\\SPLogbook\\databases\\default_log.db"),
                     "Preserved SQLite DB".into(),
                 ),
                 (
@@ -560,7 +560,7 @@ mod tests {
         );
 
         // Ochrona baz danych i konfiguracji użytkownika
-        assert!(!script.contains("serviceLOG.db"));
+        assert!(!script.contains("default_log.db"));
         assert!(!script.contains("station_config.json"));
         // Zakaz dynamicznego wykonywania i eskalacji
         assert!(!script.contains("Invoke-Expression"));

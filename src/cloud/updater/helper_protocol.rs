@@ -1084,7 +1084,10 @@ mod tests {
                 PathBuf::from("resources/new.dat"),
                 root.join("resources/new.dat"),
             )],
-            preserve_files: vec![(root.join("databases/serviceLOG.db"), "seed".to_string())],
+            preserve_files: vec![(
+                root.join("databases/default_log.db"),
+                "user_data".to_string(),
+            )],
             rejected_files: Vec::new(),
         }
     }

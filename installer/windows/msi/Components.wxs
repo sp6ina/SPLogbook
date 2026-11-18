@@ -48,17 +48,6 @@
       <Component Id="C_LocaleRu" Directory="LocalesFolder" Bitness="always64" Guid="D2A92E8C-4B9F-4554-9783-E4C2C0B81016">
         <File Id="F_LocaleRu" Source="$(var.StagingDir)\locales\ru.json" KeyPath="yes" />
       </Component>
-
-      <!-- Referencyjne bazy danych / seed (FirstInstallSeed policy: never overwrite) -->
-      <Component Id="C_DbCallbook" Directory="DatabasesFolder" Bitness="always64" NeverOverwrite="yes" Guid="D2A92E8C-4B9F-4554-9783-E4C2C0B81020">
-        <File Id="F_DbCallbook" Source="$(var.StagingDir)\databases\callbook.db" KeyPath="yes" />
-      </Component>
-      <Component Id="C_DbServiceLog" Directory="DatabasesFolder" Bitness="always64" NeverOverwrite="yes" Guid="D2A92E8C-4B9F-4554-9783-E4C2C0B81021">
-        <File Id="F_DbServiceLog" Source="$(var.StagingDir)\databases\serviceLOG.db" KeyPath="yes" />
-      </Component>
-      <Component Id="C_DbClubs" Directory="DatabasesFolder" Bitness="always64" NeverOverwrite="yes" Guid="D2A92E8C-4B9F-4554-9783-E4C2C0B81022">
-        <File Id="F_DbClubs" Source="$(var.StagingDir)\databases\clubs.csv" KeyPath="yes" />
-      </Component>
     </ComponentGroup>
 
     <!-- Skróty menu Start (ICE38/ICE43/ICE57 compliant) -->

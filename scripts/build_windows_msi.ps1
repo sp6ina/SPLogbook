@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Skrypt budowy instalatora SPLogbook Windows System Setup (MSI / WiX Toolset 7.0.1).
     Bramka: STAGE-M3-E-WINDOWS-MSI-WIX-INTEGRATION-GATE
@@ -158,17 +158,7 @@ try {
         }
     }
 
-    # 6.5 Kopiowanie baz referencyjnych (FirstInstallSeed)
-    $destDatabases = Join-Path $stagingDir "databases"
-    New-Item -ItemType Directory -Path $destDatabases -Force | Out-Null
-    foreach ($dbName in @("callbook.db", "serviceLOG.db", "clubs.csv")) {
-        $srcDb = Join-Path $repoRoot "databases\$dbName"
-        if (Test-Path $srcDb) {
-            Copy-Item -Path $srcDb -Destination (Join-Path $destDatabases $dbName) -Force
-        } else {
-            throw "BLOKER: Brak wymaganej bazy referencyjnej: $srcDb"
-        }
-    }
+    # 6.5 Brak bundlowanych baz referencyjnych (R1C/F-09 — dane użytkownika w %APPDATA%\SPLogbook)
 
     # 7. Weryfikacja braku zakazanych plikow w stagingu
     $forbiddenFiles = Get-ChildItem -Path $stagingDir -Recurse -File | Where-Object {

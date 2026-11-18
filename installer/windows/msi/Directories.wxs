@@ -6,7 +6,6 @@
         <Directory Id="LocalesFolder" Name="locales">
           <Directory Id="ManualFolder" Name="manual" />
         </Directory>
-        <Directory Id="DatabasesFolder" Name="databases" />
       </Directory>
     </StandardDirectory>
 

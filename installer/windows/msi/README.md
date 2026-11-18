@@ -53,10 +53,8 @@ Pakiet instalatora MSI zawiera wyłącznie ściśle zatwierdzone pliki:
 4. **Pliki lokalizacyjne:**
    - `locales/*.json` (pl, en, de, fr, es, it, ru)
    - `locales/manual/*.json` (jeśli obecne)
-5. **Bazy referencyjne (polityka FirstInstallSeed):**
-   - `databases/callbook.db` (`NeverOverwrite="yes"`)
-   - `databases/serviceLOG.db` (`NeverOverwrite="yes"`)
-   - `databases/clubs.csv` (`NeverOverwrite="yes"`)
+
+> **Brak preinstalowanych baz referencyjnych (`R1C`/`F-09`):** pakiet MSI nie zawiera już `databases/callbook.db`, `databases/serviceLOG.db` ani `databases/clubs.csv`. Dane użytkownika i referencje żyją wyłącznie w `%APPDATA%\SPLogbook`.
 
 ### Bezwzględny zakaz pakowania (Forbidden Artifacts):
 - Repozytorium `.git`, `.github`
@@ -79,7 +77,7 @@ Pakiet instalatora MSI zawiera wyłącznie ściśle zatwierdzone pliki:
    - Brak wildcard deletion (`*.*`).
 3. **Funkcja naprawy (Repair - `msiexec /fa`):**
    - Naprawia wyłącznie brakujące lub uszkodzone pliki programu należące do komponentów MSI.
-   - Nie przywraca i nie nadpisuje baz referencyjnych (`NeverOverwrite="yes"`).
+   - Nie dotyka danych użytkownika ani plików w `%APPDATA%\SPLogbook`.
 
 ---
 

@@ -51,10 +51,8 @@ Pakiet instalatora zawiera wyłącznie ściśle zatwierdzone pliki:
 3. **Pliki lokalizacyjne:**
    - `locales/*.json`
    - `locales/manual/*.json` (jeśli obecne)
-4. **Bazy referencyjne (polityka FirstInstallSeed):**
-   - `databases/callbook.db` (`onlyifdoesntexist uninsneveruninstall`)
-   - `databases/serviceLOG.db` (`onlyifdoesntexist uninsneveruninstall`)
-   - `databases/clubs.csv` (`onlyifdoesntexist uninsneveruninstall`)
+
+> **Brak preinstalowanych baz referencyjnych (`R1C`/`F-09`):** instalator nie pakuje już plików `databases/callbook.db`, `databases/serviceLOG.db` ani `databases/clubs.csv`. Dane użytkownika i opcjonalne tabele referencyjne żyją w kanonicznym katalogu `%APPDATA%\SPLogbook`.
 
 ### Bezwzględny zakaz pakowania (Forbidden Artifacts):
 - Repozytorium `.git`, `.github`
@@ -68,8 +66,8 @@ Pakiet instalatora zawiera wyłącznie ściśle zatwierdzone pliki:
 
 ## 4. Ochrona Danych Użytkownika i Bezpieczeństwo Deinstalacji
 
-1. **Polityka Seed Files (`FirstInstallSeed`):**
-   Bazy `callbook.db`, `serviceLOG.db` oraz `clubs.csv` instalowane są wyłącznie, jeśli nie istnieją w katalogu docelowym. W przypadku reinstalacji, aktualizacji lub deinstalacji istniejące pliki użytkownika **nigdy nie są nadpisywane ani usuwane**.
+1. **Czysta pierwsza instalacja (`R1C`/`R1D`):**
+   Instalator nie pakuje żadnych baz danych ani plików konfiguracyjnych. Istniejące pliki użytkownika (dzienniki QSO, konfiguracja, dane referencyjne) w `%APPDATA%\SPLogbook` oraz w katalogu instalacji **nigdy nie są nadpisywane ani usuwane**.
 2. **Deinstalacja programu:**
    - Usuwane są wyłącznie pliki zarejestrowane w sekcji `[Files]` oraz skróty z sekcji `[Icons]`.
    - Usunięcie markera instalacji: `Type: files; Name: "{app}\.splogbook-inno-marker"`.

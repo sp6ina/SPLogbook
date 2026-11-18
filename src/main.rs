@@ -169,36 +169,23 @@ fn main() -> Result<(), eframe::Error> {
     }
 
     #[cfg(windows)]
-    let (app_data_dir, app_config_dir) = {
-        let base = std::env::var("APPDATA").map_or_else(
-            |_| exe_dir.clone(),
-            |p| std::path::PathBuf::from(p).join("SPLogbook"),
-        );
+    let (app_data_dir, app_config_dir): (
+        Option<std::path::PathBuf>,
+        Option<std::path::PathBuf>,
+    ) = {
+        let base = std::env::var("APPDATA")
+            .ok()
+            .map(|p| p.trim().to_string())
+            .filter(|p| !p.is_empty())
+            .map(|p| std::path::PathBuf::from(p).join("SPLogbook"));
         (base.clone(), base)
     };
 
     #[cfg(not(windows))]
-    let (app_data_dir, app_config_dir) = {
-        let xdg = splogbook::core::xdg::XdgPaths::resolve().unwrap_or_else(|_| {
-            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-            splogbook::core::xdg::XdgPaths {
-                config_home: std::path::PathBuf::from(&home)
-                    .join(".config")
-                    .join("splogbook"),
-                data_home: std::path::PathBuf::from(&home)
-                    .join(".local")
-                    .join("share")
-                    .join("splogbook"),
-                state_home: std::path::PathBuf::from(&home)
-                    .join(".local")
-                    .join("state")
-                    .join("splogbook"),
-                cache_home: std::path::PathBuf::from(&home)
-                    .join(".cache")
-                    .join("splogbook"),
-            }
-        });
-
+    let (app_data_dir, app_config_dir): (
+        Option<std::path::PathBuf>,
+        Option<std::path::PathBuf>,
+    ) = {
         // Wykrywanie danych legacy w katalogu portable (informacja dla użytkownika, bez cichej migracji)
         let legacy = splogbook::core::xdg::detect_legacy_portable_user_data(&exe_dir);
         if !legacy.is_empty() {
@@ -209,77 +196,33 @@ fn main() -> Result<(), eframe::Error> {
             );
         }
 
-        (xdg.data_home, xdg.config_home)
+        match splogbook::core::xdg::XdgPaths::resolve() {
+            Ok(xdg) => (Some(xdg.data_home), Some(xdg.config_home)),
+            Err(e) => {
+                log::warn!("Nie można rozwiązać ścieżek XDG ({e}); używam katalogu roboczego.");
+                (None, None)
+            }
+        }
     };
 
-    // Kolejność ma znaczenie: najpierw ścieżki absolutne (obok pliku wykonywalnego
-    // i w katalogu danych aplikacji), a względna ścieżka w bieżącym katalogu
-    // roboczym dopiero na końcu — zapobiega to wczytaniu obcej/nieaktualnej bazy,
-    // gdyby program uruchomiono z katalogu zawierającego własny podkatalog `databases`.
-    let service_db_candidates = [
-        exe_dir.join("databases/serviceLOG.db"),
-        app_data_dir.join("databases/serviceLOG.db"),
-        std::path::PathBuf::from("/usr/share/splogbook/databases/serviceLOG.db"),
-        std::path::PathBuf::from("/usr/local/share/splogbook/databases/serviceLOG.db"),
-        exe_dir.join("../databases/serviceLOG.db"),
-        exe_dir.join("../../databases/serviceLOG.db"),
-        std::path::PathBuf::from("databases/serviceLOG.db"),
-    ];
-    let service_db_path = service_db_candidates
-        .into_iter()
-        .find(|p| p.exists())
-        .unwrap_or_else(|| exe_dir.join("databases/serviceLOG.db"));
-
-    // Baza wzorców Super Check Partial (SCP)
-    let mut scp = ScpEngine::new();
-    scp.insert("SP6INA");
-    scp.insert("SP6ZDA");
-    scp.insert("SQ6ABC");
-    scp.insert("SP6PAZ");
-    scp.insert("3Z100POL");
-    scp.insert("W1AW");
-    scp.insert("DL1ABC");
-    scp.insert("K1TTT");
-    scp.insert("JA1ZLO");
-    scp.insert("VP8G");
-    scp.insert("3D2V");
-    scp.insert("KH6J");
-
-    // Dziennik główny (SQLite WAL)
-    let log_db_candidates = [
-        exe_dir.join("databases/default_log.db"),
-        app_data_dir.join("databases/default_log.db"),
-        exe_dir.join("../databases/default_log.db"),
-        exe_dir.join("../../databases/default_log.db"),
-        std::path::PathBuf::from("databases/default_log.db"),
-    ];
-    let log_db_path = log_db_candidates
-        .into_iter()
-        .find(|p| p.exists())
-        .unwrap_or_else(|| {
-            if app_data_dir.exists() || !exe_dir.join("databases").exists() {
-                app_data_dir.join("databases/default_log.db")
-            } else {
-                exe_dir.join("databases/default_log.db")
-            }
-        });
+    // Dziennik główny (SQLite WAL) — kanoniczny katalog danych użytkownika (z fallbackiem
+    // do katalogu roboczego wyłącznie gdy nie można rozwiązać app_data_dir).
+    let log_db_path = app_data_dir.as_ref().map_or_else(
+        || std::path::PathBuf::from("databases/default_log.db"),
+        |dir| dir.join("databases/default_log.db"),
+    );
 
     if let Some(parent) = log_db_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
 
     // Dane referencyjne: pliki krajów, reguły regionalne i nadpisania użytkownika
-    // z katalogu danych; starsza baza (jeśli istnieje) jako warstwa zgodności.
-    // Brak danych daje pusty, poprawny stan — bez pobierania i bez paniki.
+    // z katalogu danych. Brak danych daje pusty, poprawny stan — bez pobierania i bez paniki.
     let reference_context = splogbook::core::reference::loader::ReferenceContext {
         root: splogbook::core::reference::loader::reference_root_for(&log_db_path),
-        legacy_db: service_db_path.exists().then(|| service_db_path.clone()),
     };
     let (prefix_matcher, reference_status) =
-        splogbook::core::reference::loader::build_prefix_matcher(
-            &reference_context.root,
-            reference_context.legacy_db.as_deref(),
-        );
+        splogbook::core::reference::loader::build_prefix_matcher(&reference_context.root);
     log::info!("reference data: {reference_status:?}");
     let table_status =
         splogbook::core::reference::loader::reload_user_tables(&reference_context.root);
@@ -309,6 +252,16 @@ fn main() -> Result<(), eframe::Error> {
         }
     };
 
+    // Baza wzorców Super Check Partial (SCP) — najpierw MASTER.SCP z katalogu danych
+    // (jeśli pobrany), następnie znaki z lokalnego dziennika.
+    let mut scp = ScpEngine::new();
+    if let Some(scp_path) = log_db_path.parent().map(|dir| dir.join("MASTER.SCP"))
+        && let Ok(file) = std::fs::File::open(&scp_path)
+        && file.metadata().is_ok_and(|m| m.len() > 0)
+    {
+        scp.load_from_reader(std::io::BufReader::new(file));
+    }
+
     // Wzbogać bazę podpowiedzi SCP o znaki znane z lokalnego dziennika
     // (umożliwia lokalne podpowiadanie oraz korektę rozmytych znaków).
     if let Ok(distinct_calls) = log_db.get_distinct_callsigns(50_000) {
@@ -317,23 +270,18 @@ fn main() -> Result<(), eframe::Error> {
         }
     }
 
-    let config_candidates = [
-        exe_dir.join("databases/station_config.json"),
-        app_config_dir.join("databases/station_config.json"),
-        app_config_dir.join("station_config.json"),
-        exe_dir.join("../databases/station_config.json"),
-        std::path::PathBuf::from("databases/station_config.json"),
-    ];
-    let config_file_path = config_candidates
-        .into_iter()
-        .find(|p| p.exists())
-        .unwrap_or_else(|| {
-            if app_config_dir.exists() || !exe_dir.join("databases").exists() {
-                app_config_dir.join("databases/station_config.json")
+    let config_file_path = match app_config_dir.as_ref() {
+        Some(dir) => {
+            let nested = dir.join("databases/station_config.json");
+            let flat = dir.join("station_config.json");
+            if !nested.exists() && flat.exists() {
+                flat
             } else {
-                exe_dir.join("databases/station_config.json")
+                nested
             }
-        });
+        }
+        None => std::path::PathBuf::from("databases/station_config.json"),
+    };
 
     if let Some(parent) = config_file_path.parent() {
         let _ = std::fs::create_dir_all(parent);
