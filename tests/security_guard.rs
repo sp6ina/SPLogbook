@@ -10579,10 +10579,17 @@ fn p1_f20r_status_and_sent_date_are_atomic_guard() {
         !db.contains("qso_date"),
         "F-20R: the sent date must never be derived from QSO_DATE"
     );
-    assert!(
-        !db.contains("Utc::now"),
-        "F-20R: the sent date must never be read from the wall clock inside the repository"
-    );
+    for wall_clock in [
+        "Utc::now",
+        "Timestamp::now",
+        "Zoned::now",
+        "ZonedDateTime::now",
+    ] {
+        assert!(
+            !db.contains(wall_clock),
+            "F-20R: the sent date must never be read from the wall clock inside the repository"
+        );
+    }
 }
 
 #[test]
@@ -10850,6 +10857,170 @@ fn p1_f20r_prior_gates_and_dependency_policy_guard() {
         assert!(
             !dependencies.contains(forbidden),
             "F-20R: `{forbidden}` must not become a production dependency"
+        );
+    }
+}
+
+// ============================================================================
+// STAGE-RUSTSEC-2026-0543-CHRONO-REPLACEMENT: chrono (RUSTSEC-2026-0543, unmaintained) is
+// gone and jiff 1.x is the only time crate. F20-R4: the LoTW received date is never invented.
+// ============================================================================
+
+/// Versions of every `Cargo.lock` package called exactly `name`.
+fn chrono_replacement_lock_versions(lock: &str, name: &str) -> Vec<String> {
+    lock.split("[[package]]")
+        .filter_map(|block| {
+            let field = |key: &str| {
+                block.lines().find_map(|line| {
+                    line.trim()
+                        .strip_prefix(key)
+                        .and_then(|rest| rest.strip_prefix(" = \""))
+                        .and_then(|rest| rest.strip_suffix('"'))
+                })
+            };
+            (field("name")? == name).then(|| field("version").map(str::to_string))?
+        })
+        .collect()
+}
+
+fn chrono_replacement_rust_sources() -> Vec<(String, String)> {
+    let mut sources = vec![("build.rs".to_string(), p1_f20_read("build.rs"))];
+    for root in ["src", "tests"] {
+        for entry in walkdir::WalkDir::new(root) {
+            let entry = entry.expect("walk source tree");
+            let path = entry.path();
+            if path.extension().is_some_and(|ext| ext == "rs") {
+                let name = path.to_string_lossy().replace('\\', "/");
+                sources.push((name.clone(), p1_f20_read(&name)));
+            }
+        }
+    }
+    sources
+}
+
+#[test]
+fn chrono_replacement_chrono_cannot_return() {
+    // Built at run time so this guard does not match itself.
+    let chrono = concat!("chr", "ono");
+    let manifest = p1_f20_read("Cargo.toml");
+    for line in manifest.lines() {
+        let key = line.split('=').next().unwrap_or_default().trim();
+        assert_ne!(key, chrono, "chrono must not return to Cargo.toml");
+        assert!(
+            !line.contains(&format!("\"{chrono}\"")),
+            "chrono must not return as a feature or a renamed package: {line}"
+        );
+    }
+    let lock = p1_f20_read("Cargo.lock");
+    assert_eq!(
+        chrono_replacement_lock_versions(&lock, chrono),
+        Vec::<String>::new(),
+        "chrono must not return to Cargo.lock, not even transitively"
+    );
+    for (path, source) in chrono_replacement_rust_sources() {
+        for needle in [format!("{chrono}::"), format!("use {chrono}")] {
+            assert!(
+                !source.contains(&needle),
+                "{path}: chrono must not return (`{needle}`)"
+            );
+        }
+    }
+}
+
+#[test]
+fn chrono_replacement_rustsec_2026_0543_is_never_ignored() {
+    for path in [
+        ".github/workflows/ci.yml",
+        ".github/workflows/build-and-release.yml",
+    ] {
+        assert!(
+            !p1_f20_read(path).contains("RUSTSEC-2026-0543"),
+            "{path}: RUSTSEC-2026-0543 is fixed by removing chrono and must never be ignored"
+        );
+    }
+    for path in ["audit.toml", ".cargo/audit.toml"] {
+        assert!(
+            !std::path::Path::new(path).exists(),
+            "{path}: advisory ignores belong only in ci.yml"
+        );
+    }
+}
+
+#[test]
+fn chrono_replacement_jiff_has_a_single_1x_line() {
+    let manifest = p1_f20_read("Cargo.toml");
+    assert!(
+        manifest.contains("jiff = { version = \"1.0.1\", features = [\"serde\"] }"),
+        "jiff 1.x with serde is the time crate"
+    );
+    let env_logger = manifest
+        .lines()
+        .find(|line| line.trim_start().starts_with("env_logger"))
+        .expect("env_logger dependency");
+    assert!(
+        env_logger.contains("default-features = false") && !env_logger.contains("humantime"),
+        "env_logger `humantime` pulls jiff 0.2 and must stay off: {env_logger}"
+    );
+    let lock = p1_f20_read("Cargo.lock");
+    let jiff = chrono_replacement_lock_versions(&lock, "jiff");
+    assert_eq!(
+        jiff.len(),
+        1,
+        "exactly one jiff in Cargo.lock, found {jiff:?}"
+    );
+    assert!(
+        jiff[0].starts_with("1."),
+        "jiff must be 1.x, found {jiff:?}"
+    );
+    for name in [
+        "jiff-core",
+        "jiff-static",
+        "jiff-tzdb",
+        "jiff-tzdb-platform",
+    ] {
+        let versions = chrono_replacement_lock_versions(&lock, name);
+        assert!(
+            versions.len() <= 1 && versions.iter().all(|v| !v.starts_with("0.")),
+            "{name}: no second or 0.x line may appear, found {versions:?}"
+        );
+    }
+}
+
+#[test]
+fn f20r4_lotw_received_date_is_never_invented_guard() {
+    let lotw = p1_f20_read("src/cloud/lotw.rs");
+    let parser = lotw
+        .split("pub fn parse_lotw_confirmations")
+        .nth(1)
+        .and_then(|rest| rest.split("#[cfg(test)]").next())
+        .expect("parse_lotw_confirmations");
+    assert!(
+        !parser.contains("now()"),
+        "F20-R4: the LoTW received date must never come from the wall clock"
+    );
+    assert!(
+        lotw.contains("pub qsl_rdate: Option<String>"),
+        "F20-R4: a confirmation without a date must carry None"
+    );
+    let adif = p1_f20_read("src/core/adif.rs");
+    assert!(
+        adif.contains("fields.remove(\"APP_LOTW_RXQSL\")"),
+        "F20-R4: APP_LoTW_RXQSL must feed lotw_qslrdate"
+    );
+    let qsl = p1_f20_read("src/core/database/qsl.rs");
+    assert!(
+        qsl.contains("{rdate_col} = COALESCE(?1, {rdate_col})"),
+        "F20-R4: a confirmation without a date must not erase a stored date"
+    );
+    for name in [
+        "f20r4_received_date_uses_explicit_lotw_qslrdate_first",
+        "f20r4_received_date_falls_back_to_app_lotw_rxqsl",
+        "f20r4_received_date_falls_back_to_qslrdate_only_when_qsl_rcvd_is_y",
+        "f20r4_received_date_is_none_without_a_valid_date",
+    ] {
+        assert!(
+            lotw.contains(&format!("fn {name}(")),
+            "F20-R4: regression test `{name}` must stay"
         );
     }
 }

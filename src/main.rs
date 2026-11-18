@@ -31,7 +31,22 @@ fn main() -> Result<(), eframe::Error> {
         }
     }
     // Inicjalizacja loggera diagnostycznego (RUST_LOG lub domyślnie info)
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    // Nagłówek jak domyślny w env_logger: `[czas-UTC POZIOM cel] treść`, czas z jiff
+    // (funkcja `humantime` w env_logger jest wyłączona, by nie dublować jiff w grafie).
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .format(|buf, record| {
+            use std::io::Write as _;
+            let level_style = buf.default_level_style(record.level());
+            writeln!(
+                buf,
+                "[{} {level_style}{:<5}{level_style:#} {}] {}",
+                jiff::Timestamp::now().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                record.level(),
+                record.target(),
+                record.args()
+            )
+        })
+        .init();
     log::info!("SPLogbook v{} inicjalizacja...", env!("CARGO_PKG_VERSION"));
 
     // Panic hook - log awarii do pliku z sygnaturą czasową, aby kolejne awarie

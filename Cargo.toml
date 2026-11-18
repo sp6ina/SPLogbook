@@ -33,12 +33,12 @@ tokio-serial = { version = "5.5.0", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 regex = "1.13"
-chrono = { version = "0.4", features = ["serde"] }
 jiff = { version = "1.0.1", features = ["serde"] }
 quick-xml = "0.42"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "multipart", "query", "form"] }
 log = "0.4"
-env_logger = "0.11"
+# `humantime` is off: it pulls a second jiff line (0.2); log timestamps come from jiff 1.x.
+env_logger = { version = "0.11", default-features = false, features = ["auto-color", "regex"] }
 futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
 eframe = { version = "0.36", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
 egui_extras = "0.36"
