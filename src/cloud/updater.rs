@@ -249,6 +249,104 @@ impl std::fmt::Display for UpdaterError {
 
 impl std::error::Error for UpdaterError {}
 
+/// Maksymalny dopuszczalny rozmiar pojedynczego pliku referencyjnego (cty.dat, MASTER.SCP, LoTW CSV).
+pub const MAX_REFERENCE_FILE_SIZE: u64 = 32 * 1024 * 1024;
+
+/// Atomowo zapisuje zwalidowany bufor bajtów pod ścieżką `dest_path`:
+/// - odrzuca puste / złożone wyłącznie z białych znaków ładunki oraz strony błędów HTML,
+/// - tworzy plik tymczasowy z `create_new(true)` w tym samym katalogu co `dest_path`,
+/// - wykonuje `write_all`, `flush`, `sync_all`, a następnie `std::fs::rename`,
+/// - gwarantuje sprzątnięcie pliku `.tmp` w razie jakiegokolwiek błędu.
+pub fn write_file_atomic_sync(dest_path: &Path, bytes: &[u8]) -> Result<(), UpdaterError> {
+    use std::io::Write;
+
+    if bytes.is_empty() || bytes.iter().all(u8::is_ascii_whitespace) {
+        return Err(UpdaterError::UpdateFailed(format!(
+            "Odrzucono pusty plik referencyjny dla {}",
+            dest_path.display()
+        )));
+    }
+
+    let trimmed = bytes.trim_ascii_start();
+    if (trimmed.len() >= 14 && trimmed[..14].eq_ignore_ascii_case(b"<!doctype html"))
+        || (trimmed.len() >= 5 && trimmed[..5].eq_ignore_ascii_case(b"<html"))
+    {
+        return Err(UpdaterError::UpdateFailed(format!(
+            "Odrzucono odpowiedź HTML zamiast danych referencyjnych dla {}",
+            dest_path.display()
+        )));
+    }
+
+    let parent = match dest_path.parent() {
+        Some(p) if !p.as_os_str().is_empty() => {
+            std::fs::create_dir_all(p).map_err(|e| {
+                UpdaterError::Io(format!("Błąd tworzenia katalogu {}: {e}", p.display()))
+            })?;
+            p
+        }
+        _ => Path::new("."),
+    };
+
+    let file_name = dest_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| {
+            UpdaterError::Io(format!(
+                "Nieprawidłowa ścieżka docelowa: {}",
+                dest_path.display()
+            ))
+        })?;
+
+    let pid = std::process::id();
+    let (mut tmp_file, tmp_path) = (0..16)
+        .find_map(|attempt| {
+            let nonce: u64 = rand::random();
+            let candidate = parent.join(format!(".{file_name}.{pid}.{nonce:016x}.{attempt}.tmp"));
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&candidate)
+            {
+                Ok(f) => Some((f, candidate)),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => None,
+                Err(_) => None,
+            }
+        })
+        .ok_or_else(|| {
+            UpdaterError::Io(format!(
+                "Nie udało się utworzyć pliku tymczasowego w {}",
+                parent.display()
+            ))
+        })?;
+
+    let write_res = (|| -> std::io::Result<()> {
+        tmp_file.write_all(bytes)?;
+        tmp_file.flush()?;
+        tmp_file.sync_all()?;
+        Ok(())
+    })();
+
+    drop(tmp_file);
+
+    if let Err(e) = write_res {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(UpdaterError::Io(format!(
+            "Błąd zapisu pliku tymczasowego {}: {e}",
+            tmp_path.display()
+        )));
+    }
+
+    if let Err(e) = std::fs::rename(&tmp_path, dest_path) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(UpdaterError::Io(format!(
+            "Błąd atomowej podmiany pliku {}: {e}",
+            dest_path.display()
+        )));
+    }
+
+    Ok(())
+}
+
 pub struct DatabaseUpdater;
 
 impl DatabaseUpdater {
@@ -355,7 +453,7 @@ impl DatabaseUpdater {
     async fn download_file(url: &str, dest_path: &Path) -> Result<usize, UpdaterError> {
         let client = crate::core::http::http_client_with_timeout(30);
 
-        let resp = client
+        let mut resp = client
             .get(url)
             .send()
             .await
@@ -369,22 +467,24 @@ impl DatabaseUpdater {
             )));
         }
 
-        let bytes = resp
-            .bytes()
-            .await
-            .map_err(|e| UpdaterError::Network(format!("Błąd odczytu danych z {url}: {e}")))?;
-
-        if let Some(parent) = dest_path.parent()
-            && !parent.as_os_str().is_empty()
+        if resp
+            .content_length()
+            .is_some_and(|len| len > MAX_REFERENCE_FILE_SIZE)
         {
-            tokio::fs::create_dir_all(parent).await.map_err(|e| {
-                UpdaterError::Io(format!("Błąd tworzenia katalogu {}: {e}", parent.display()))
-            })?;
+            return Err(UpdaterError::FileTooLarge);
         }
 
-        tokio::fs::write(dest_path, &bytes).await.map_err(|e| {
-            UpdaterError::Io(format!("Błąd zapisu do pliku {}: {e}", dest_path.display()))
-        })?;
+        let mut buffer = BoundedBuffer::new(MAX_REFERENCE_FILE_SIZE);
+        while let Some(chunk) = resp
+            .chunk()
+            .await
+            .map_err(|e| UpdaterError::Network(format!("Błąd odczytu danych z {url}: {e}")))?
+        {
+            buffer.push(&chunk)?;
+        }
+        let bytes = buffer.into_inner();
+
+        write_file_atomic_sync(dest_path, &bytes)?;
 
         Ok(bytes.len())
     }
@@ -5249,6 +5349,51 @@ mod tests {
         let mut empty = super::BoundedBuffer::new(0);
         assert!(empty.push(b"").is_ok());
         assert!(empty.push(b"a").is_err());
+    }
+
+    #[test]
+    fn f06_write_file_atomic_sync_validates_payload_and_replaces_atomically() {
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let dest = tmp_dir.path().join("MASTER.SCP");
+
+        // 1. Reject empty or whitespace-only payload without creating file
+        assert!(super::write_file_atomic_sync(&dest, b"").is_err());
+        assert!(super::write_file_atomic_sync(&dest, b"   \r\n\t ").is_err());
+        assert!(!dest.exists());
+
+        // 2. Write valid initial content
+        super::write_file_atomic_sync(&dest, b"# SCP v1\nSP6INA\nW1AW\n").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&dest).unwrap(),
+            "# SCP v1\nSP6INA\nW1AW\n"
+        );
+
+        // 3. Reject HTML error page and preserve existing file untouched
+        assert!(
+            super::write_file_atomic_sync(&dest, b"  <!DOCTYPE html><html><body>502</body></html>")
+                .is_err()
+        );
+        assert!(super::write_file_atomic_sync(&dest, b"<html>error</html>").is_err());
+        assert_eq!(
+            std::fs::read_to_string(&dest).unwrap(),
+            "# SCP v1\nSP6INA\nW1AW\n"
+        );
+
+        // 4. Atomically replace existing file and leave no .tmp files behind
+        super::write_file_atomic_sync(&dest, b"# SCP v2\nSP6INA\nK1JT\n").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&dest).unwrap(),
+            "# SCP v2\nSP6INA\nK1JT\n"
+        );
+        let leftovers: Vec<_> = std::fs::read_dir(tmp_dir.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "unexpected leftover .tmp files: {leftovers:?}"
+        );
     }
     use super::*;
     use base64::Engine;

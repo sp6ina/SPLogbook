@@ -122,7 +122,10 @@ impl SpLogApp {
 
             // Przeładuj świeżo pobrany plik MASTER.SCP do pamięci silnika SCP
             let scp_path = db_dir.join("MASTER.SCP");
-            if let Ok(file) = std::fs::File::open(&scp_path) {
+            if outcome.is_ok()
+                && let Ok(file) = std::fs::File::open(&scp_path)
+                && file.metadata().is_ok_and(|m| m.len() > 0)
+            {
                 let reader = std::io::BufReader::new(file);
                 if let Ok(mut guard) = scp.lock() {
                     guard.load_from_reader(reader);
