@@ -18,47 +18,53 @@ use crate::cat::routing::{RigCommandId, RigId};
 
 /// Zastępuje wrażliwe dane w komunikatach diagnostycznych (hasła, tokeny, tajemnice).
 pub fn redact_sensitive_info(msg: &str) -> String {
+    const PATTERNS: &[&[u8]] = &[
+        b"password=",
+        b"password:",
+        b"token=",
+        b"token:",
+        b"secret=",
+        b"secret:",
+        b"client_id=",
+        b"pass=",
+        b"bearer ",
+        b"x-api-key=",
+        b"x-api-key:",
+        b"api_key=",
+        b"api_key:",
+        b"apikey=",
+        b"apikey:",
+    ];
+    const REPLACEMENT: &str = "[REDACTED]";
+
     let mut out = msg.to_string();
-    for pattern in &[
-        "password=",
-        "password:",
-        "token=",
-        "token:",
-        "secret=",
-        "secret:",
-        "client_id=",
-        "pass=",
-        "bearer ",
-        "x-api-key=",
-        "x-api-key:",
-        "api_key=",
-        "api_key:",
-        "apikey=",
-        "apikey:",
-    ] {
+    for &pat in PATTERNS {
         let mut search_from = 0;
-        while search_from < out.len() {
-            let lower = out[search_from..].to_lowercase();
-            if let Some(pos) = lower.find(pattern) {
-                let abs_pos = search_from + pos;
-                let start = abs_pos + pattern.len();
-                let end = out[start..]
-                    .find(|c: char| {
-                        c == '&'
-                            || c == ' '
-                            || c == ';'
-                            || c == ','
-                            || c == '"'
-                            || c == '\''
-                            || c == '\n'
-                    })
-                    .map_or(out.len(), |p| start + p);
-                let replacement = "[REDACTED]";
-                out.replace_range(start..end, replacement);
-                search_from = start + replacement.len();
-            } else {
+        while search_from + pat.len() <= out.len() {
+            let haystack = &out.as_bytes()[search_from..];
+            let found = haystack
+                .windows(pat.len())
+                .position(|window| window.eq_ignore_ascii_case(pat));
+
+            let Some(rel_pos) = found else {
                 break;
-            }
+            };
+
+            let start = search_from + rel_pos + pat.len();
+            let rest_bytes = &out.as_bytes()[start..];
+            let rel_end = rest_bytes
+                .iter()
+                .position(|&b| {
+                    matches!(b, b'&' | b' ' | b';' | b',' | b'"' | b'\'' | b'\n' | b'\r')
+                })
+                .unwrap_or(rest_bytes.len());
+            let end = start + rel_end;
+
+            let safe_start = out.ceil_char_boundary(start);
+            let safe_end = out.floor_char_boundary(end).max(safe_start);
+
+            out.replace_range(safe_start..safe_end, REPLACEMENT);
+            search_from = safe_start + REPLACEMENT.len();
         }
     }
     out
@@ -735,6 +741,54 @@ impl TxArbiter {
         match &self.state {
             TxArbiterState::Owned { rig_id, .. } => Some(rig_id.clone()),
             _ => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::redact_sensitive_info;
+
+    #[test]
+    fn f18_redact_sensitive_info_never_panics_on_length_expanding_utf8() {
+        // U+0130 ('İ', 2 bytes) lowercases to "i\u{307}" (3 bytes);
+        // U+023A ('Ⱥ', 2 bytes) lowercases to 'ⱥ' (3 bytes).
+        let msg = "İİİȺȺȺ Zażółć gęślą jaźń Привет 🛰️ PASSWORD=TajneHaslo123&TOKEN:sekret_İ_Ⱥ_🚀 api_key=klucz999 Bearer SuperToken_żółć";
+        let redacted = redact_sensitive_info(msg);
+        assert!(
+            !redacted.contains("TajneHaslo123"),
+            "password must be redacted: {redacted}"
+        );
+        assert!(
+            !redacted.contains("sekret_İ_Ⱥ_🚀"),
+            "token with multibyte UTF-8 must be redacted: {redacted}"
+        );
+        assert!(
+            !redacted.contains("klucz999"),
+            "api_key must be redacted: {redacted}"
+        );
+        assert!(
+            !redacted.contains("SuperToken_żółć"),
+            "bearer token must be redacted: {redacted}"
+        );
+        assert_eq!(
+            redacted,
+            "İİİȺȺȺ Zażółć gęślą jaźń Привет 🛰️ PASSWORD=[REDACTED]&TOKEN:[REDACTED] api_key=[REDACTED] Bearer [REDACTED]"
+        );
+    }
+
+    #[test]
+    fn f18_redact_sensitive_info_handles_multibyte_secrets_at_boundaries() {
+        for input in [
+            "İpassword=ąćęłńóśźż",
+            "ȺTOKEN:приветмир;dalej=İ",
+            "🚀Bearer 🛰️📡📻\nkoniec",
+            "İȺİapi_key=żółć\"po",
+            "password=",
+            "İİİpassword=",
+        ] {
+            let out = redact_sensitive_info(input);
+            assert!(out.contains("[REDACTED]"), "missing redaction for {input}");
         }
     }
 }
