@@ -4,7 +4,7 @@ Single source of truth for verified test counters and dependency-audit state. Co
 only here; every other document links to this file. Never update a counter without a real
 measurement, and always record the measurement date.
 
-**Data pomiaru:** 2026-11-18 (ostatni pomiar: po `STAGE-P1-F21-SOFTWARE` i `OWNER-CI-PUBLISH-01`)
+**Data pomiaru:** 2026-11-18 (ostatni pomiar: po Fali 2 (F-18, eQSL, F-06))
 **Środowisko:** Windows 10/11 x86_64, `rustc 1.99.0`, `cargo 1.99.0`, `-j 1`
 **HEAD pomiaru:** commit zawierający ten plik (`git log -1 --format=%H`)
 
@@ -26,9 +26,9 @@ cargo test --workspace --all-targets -j 1 -- --skip powershell_real_execution_fu
 
 | Metric | Value |
 |---|---|
-| TOTAL REGISTERED TESTS: | 3607 |
-| TOTAL EXECUTED TESTS: | 3596 |
-| TOTAL PASSED TESTS: | 3596 |
+| TOTAL REGISTERED TESTS: | 3615 |
+| TOTAL EXECUTED TESTS: | 3604 |
+| TOTAL PASSED TESTS: | 3604 |
 | TOTAL FAILED TESTS: | 0 |
 | TOTAL IGNORED TESTS: | 10 |
 | HIL IGNORED TESTS: | 10 |
@@ -45,10 +45,10 @@ a product defect.
 
 | Suite | Value |
 |---|---|
-| `security_guard` (incl. `chrono_replacement_*`, `f20r4_*`, `p1_f21_*` rules) | 208 / 208 |
+| `security_guard` (incl. `chrono_replacement_*`, `f20r4_*`, `p1_f21_*`, F-18/eQSL/F-06 rules) | 211 / 211 |
 | `p1_f20_upload_selection` | 29 / 29 |
 | `p1_f20r_recovery` / `p1_f20r_sent_dates` / `p1_f20r_credential_safety` | 31 / 31, 21 / 21, 13 / 13 |
-| library unit tests (`--lib`) | 2290 / 2290 |
+| library unit tests (`--lib`) | 2295 / 2295 |
 | `p1_f21_cabrillo_export` | 4 / 4 |
 | `p1_f19_award_references` | 51 / 51 |
 | `p1_f16_logbook_pagination` | 55 / 55 |
@@ -410,7 +410,7 @@ or any historical record written before this gate. The contract is documented in
 | `CARGO_TOML_UNCHANGED` / `CARGO_LOCK_UNCHANGED` | true / true |
 | `DB_SCHEMA_MIGRATION_REQUIRED` | false |
 | `F-14` / `CAT-018` / `CAT-019` / `F-15` / `F-16` / `F-17` / `F-19` | remain CLOSED |
-| `F-21` | remains OPEN |
+| `F-21` | **CLOSED** (closed subsequently in `STAGE-P1-F21-SOFTWARE`) |
 | `NATIVE-7B` | NOT_STARTED |
 
 Measured counters for this gate (canonical command of §1, measurement 2026-11-17):
@@ -483,7 +483,8 @@ upload, download or login was used.
 | `CREDENTIALS_NOT_IN_QUERY` | **false** — never claimed |
 | `F-20` | remains **CLOSED** (`COMPLETED_JOURNAL_SCOPED_UPLOAD_SELECTION_REMEDIATION_VERIFIED`) |
 | `F-14` / `CAT-018` / `CAT-019` / `F-15` / `F-16` / `F-17` / `F-19` | remain CLOSED |
-| `F-21` | remains **OPEN**, not started |
+| `F-21` | **F-21 = CLOSED** (`STAGE-P1-F21-SOFTWARE`, 2026-11-18) |
+| `F20R` | **F20R = CLOSED** (unblocked by `jiff 1.0.1` migration in §16; verified on `8169c97`: `CI` `44348963039` = `success`, `Build and Release` `44348972587` = `success`) |
 | `NATIVE-7B` | remains **NOT_STARTED** |
 
 Static checks on this tree: `cargo fmt --all -- --check` = EXIT 0, `cargo clippy --workspace
@@ -527,7 +528,9 @@ account, a real certificate, real idempotency or hardware behaviour.
 | `RUSTSEC-2026-0543` (`chrono` unmaintained) | **RESOLVED** — `chrono` removed from `Cargo.toml`, `Cargo.lock` and all sources; never added to the ignore list |
 | Time crate | `jiff 1.0.1` (feature `serde`), the only jiff in the graph |
 | `env_logger` | `default-features = false`, features `auto-color`, `regex`; `humantime` (jiff 0.2) off; log header timestamp formatted by jiff |
-| F20-R4 invented LoTW received date | **CLOSED** — `LOTW_QSLRDATE` → `APP_LoTW_RXQSL` date → `QSLRDATE` (`QSL_RCVD=Y`) → `None`; `COALESCE` keeps a stored date |
+| F20-R4 invented LoTW / eQSL received date | **F20-R4 = CLOSED** — LoTW: `LOTW_QSLRDATE` → `APP_LoTW_RXQSL` date → `QSLRDATE` (`QSL_RCVD=Y`) → `None`; eQSL: `EQSL_QSLRDATE` → `QSLRDATE` (`EQSL_QSL_RCVD=Y` / `QSL_RCVD=Y`) → `None`; `COALESCE` keeps a stored date |
+| `F20R` / `F-21` / `F-18` | **F20R = CLOSED**, **F-21 = CLOSED** (`STAGE-P1-F21-SOFTWARE`), **F-18 = CLOSED** (UTF-8 safe `redact_sensitive_info`), `F-06` atomic reference downloads (`BoundedBuffer` + `write_file_atomic_sync`) |
+| Cloud CI verification (`8169c97`) | `CI` run `44348963039` (attempt 1) = `success`, `Build and Release` run `44348972587` (attempt 1) = `success` (23/23 jobs green, `Publish Release Assets` = `skipped`) |
 | Updater JSON timestamps | RFC 3339 with `Z` (`jiff::Timestamp` serde), pinned by `updater_timestamps_serialize_as_rfc3339_zulu_and_round_trip` |
 | HIL timestamps | RFC 3339 with `Z`; inputs parsed by `cat::hil::parse_rfc3339`, which keeps the RFC 3339 shape strict |
 | Hardware | no HIL, PTT or RF; the 10 `#[ignore = "hardware-in-the-loop"]` tests stay ignored |

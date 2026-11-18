@@ -404,7 +404,7 @@ Real eQSL upload = NOT_EXECUTED
 Real credentials = NOT_USED
 SOFTWARE_ONLY_VERIFICATION=true
 F-14 / CAT-018 / CAT-019 / F-15 / F-16 / F-17 / F-19 = remain CLOSED
-F-21 = remains OPEN
+F-21 = CLOSED (closed by STAGE-P1-F21-SOFTWARE, see §1 F-21)
 NATIVE-7B = NOT_STARTED
 ```
 
@@ -480,11 +480,16 @@ This defect must not be reopened without a reproducible regression.
 Both installers are implemented and locally verified, but CI builds and publishes only the
 portable Windows ZIP. Users cannot obtain an installer from a release.
 
-### F-06 (P2) — reference-data downloads are unsigned and non-atomic
+### F-06 (P2) — reference-data downloads are unsigned (atomic write and payload validation implemented)
 
-Reference database refreshes (callbook, prefixes, satellite elements) are fetched without a
-signature and written without a temp-file-plus-rename step, so an interrupted refresh can
-leave a partially written file.
+Third-party reference feeds (`cty.dat`, `MASTER.SCP`, `lotw-user-activity.csv`, country-file
+archives) do not publish cryptographic signatures upstream. All reference download paths now enforce
+a streaming `BoundedBuffer` size limit (`MAX_REFERENCE_FILE_SIZE = 32 MiB`), reject empty/whitespace
+and HTML error payloads (`<!DOCTYPE html` / `<html`), and install via same-directory atomic
+temp-file-plus-rename (`write_file_atomic_sync` in `src/cloud/updater.rs` and `install_set` in
+`src/core/reference/country_files.rs`), while `trigger_database_update` in
+`src/gui/app_services.rs` reloads `MASTER.SCP` only when the update succeeded and the file is
+non-empty.
 
 ### F-07 (P2) — XDG precedence can be shadowed by a portable database
 
@@ -496,10 +501,18 @@ which can silently shadow user data after an unpack-anywhere install.
 The Inno/MSI delegation path relies on the package manager for transactionality and does not
 create `.update.lock`, an update journal or a health proof of its own.
 
-### F-18 (P2) — redaction can panic on non-ASCII input
+### F-18 (P2) — redaction can panic on non-ASCII input — F-18 = CLOSED
 
-`redact_sensitive_info` slices at offsets computed from a lowercased copy, which can land on
-a non-char boundary and panic for non-ASCII input. Files: `src/cat/tx_arbiter.rs`.
+Original defect: `redact_sensitive_info` in `src/cat/tx_arbiter.rs` searched a lowercased copy
+(`out.to_lowercase()`) and sliced `out` at byte offsets computed from that copy, which could land
+inside a multibyte UTF-8 scalar or panic when a character changed byte length on lowercase
+conversion (e.g. `İ` U+0130 or `Ⱥ` U+023A).
+
+Remediation (2026-11-18): `redact_sensitive_info` matches ASCII secret prefixes (`password=`,
+`token:`, `bearer `, `api_key=`) directly on `out.as_bytes()` windows with `eq_ignore_ascii_case`
+(without calling `.to_lowercase()`), scans the token extent on bytes, and clamps replacement offsets
+with `ceil_char_boundary` / `floor_char_boundary`. Files: `src/cat/tx_arbiter.rs`,
+`tests/security_guard.rs`.
 
 ### F-11 (P3) — hard-coded seed callsigns in the SCP seed
 
@@ -705,9 +718,12 @@ Evidence:
 * `core::database` test `f20r4_lotw_confirmation_without_date_keeps_the_stored_date`;
 * guard `f20r4_lotw_received_date_is_never_invented_guard`.
 
-Software-only: no real LoTW report was downloaded. Residual: the eQSL confirmation path still
-falls back to `QSO_DATE` when `EQSL_QSLRDATE` is absent. That is a separate, unchanged behaviour,
-not a wall-clock invention.
+Software-only: no real LoTW or eQSL report was downloaded. The eQSL confirmation path
+(`src/core/adif.rs`, `src/core/database/qsl.rs` `mark_eqsl_confirmed_batch_for_journal`) applies the
+same discipline: `eqsl_qslrdate` is resolved from `EQSL_QSLRDATE` (validated by `adif_date_part`) or
+`QSLRDATE` (validated by `adif_date_part` only when `EQSL_QSL_RCVD=Y` or `QSL_RCVD=Y`), otherwise
+`None` with SQLite `COALESCE(?1, eqsl_qslrdate)` preserving any previously stored date and never
+falling back to `QSO_DATE`.
 ---
 
 ## 7. `RUSTSEC-2026-0543` — new advisory blocking CI (2026-11-17) — RESOLVED 2026-11-18

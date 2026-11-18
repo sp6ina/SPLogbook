@@ -138,6 +138,18 @@ Rawhide, backports, release candidates) never set the minimum.
   success; status is written only after batch-level service evidence. Software-only verification:
   no real LoTW or eQSL upload, no real credentials and no real user data were used, so real
   submission remains NOT_EXECUTED and production credentials remain unverified.
+- `F-21` (P1, Cabrillo export and contest scoring capped at 10 000 QSOs): **F-21 = CLOSED**
+  (2026-11-18, `STAGE-P1-F21-SOFTWARE`,
+  `COMPLETED_CABRILLO_UNTRUNCATED_EXPORT_AND_SCORE_REMEDIATION_VERIFIED`). `export_cabrillo`,
+  `export_pdf_log`, `export_gpx_log` and `ContestCache` query the full active journal via
+  `get_all_qsos_for_journal`, `cabrillo::build` and `compute_scoreboard` share the canonical
+  ascending key `canonical_qso_sort_key`, and wall-clock timestamp fabrication is removed
+  (fail-closed `ContestError::InvalidQsoTimestamp`). Software-only verification; NATIVE-7B remains
+  NOT_STARTED.
+- `F-18` (P2, redaction panic on non-ASCII UTF-8 input): **F-18 = CLOSED** (2026-11-18).
+  `redact_sensitive_info` in `src/cat/tx_arbiter.rs` matches ASCII secret markers directly on byte
+  windows with `eq_ignore_ascii_case` (without `.to_lowercase()`) and aligns slice bounds with
+  `ceil_char_boundary` / `floor_char_boundary`.
 
 ## 5. Not started / not delivered
 
@@ -163,16 +175,19 @@ Open defects and limitations are tracked in [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md)
 5. Dependency updates and security remediations happen only in dedicated changes with a green
    `cargo audit` before and after.
 
-## 8. F-20 residual hardening — `STAGE-P1-F20R-SOFTWARE` (2026-11-17)
+## 8. F-20 residual hardening — `STAGE-P1-F20R-SOFTWARE` (2026-11-17 / CLOSED 2026-11-18)
 
 | Item | Status |
 |---|---|
+| F20R gate (`STAGE-P1-F20R-SOFTWARE`) | **F20R = CLOSED** — unblocked by `STAGE-RUSTSEC-2026-0543-CHRONO-REPLACEMENT` (`jiff 1.0.1`); verified on `8169c97`: `CI` run `44348963039` = `success`, `Build and Release` run `44348972587` = `success` (23/23 jobs green, `Publish Release Assets` = `skipped`) |
 | F-20 | remains **CLOSED** — nothing F-20 closed was reopened; all 29 F-20 tests and all 12 F-20 guards pass unmodified |
 | F20-R1 persistent upload checkpoints | **CLOSED** — `IMPLEMENTED_AND_SOFTWARE_VERIFIED` |
 | F20-R2 `LOTW_QSLSDATE` / `EQSL_QSLSDATE` | **CLOSED** — `IMPLEMENTED` |
 | F20-R3 download credential transport | **CONFINED** — `OFFICIAL_ENDPOINT_REQUIRES_QUERY_CREDENTIALS=true`; the official contract offers no safer mechanism, so the limitation is documented instead of being falsely closed |
-| F20-R4 invented received date on the LoTW download path | **CLOSED** 2026-11-18 — the received date comes only from `LOTW_QSLRDATE`, `APP_LoTW_RXQSL` or `QSLRDATE` (`QSL_RCVD=Y`), otherwise none; see `KNOWN_ISSUES.md` §6 |
-| F-21 | remains **OPEN**, not started |
+| F20-R4 invented received date on the LoTW / eQSL download path | **F20-R4 = CLOSED** (2026-11-18) — LoTW received date comes only from `LOTW_QSLRDATE`, `APP_LoTW_RXQSL` or `QSLRDATE` (`QSL_RCVD=Y`), and eQSL received date comes only from `EQSL_QSLRDATE` or `QSLRDATE` (`EQSL_QSL_RCVD=Y` / `QSL_RCVD=Y`), otherwise `None` with `COALESCE` protection; see `KNOWN_ISSUES.md` §6 |
+| `RUSTSEC-2026-0543` (`chrono` unmaintained) | **CLOSED** (2026-11-18) — resolved by full migration to `jiff 1.0.1` without adding an advisory ignore |
+| F-21 | **F-21 = CLOSED** (2026-11-18, `STAGE-P1-F21-SOFTWARE`) |
+| F-18 | **F-18 = CLOSED** (2026-11-18, UTF-8 byte-window redaction without `.to_lowercase()`) |
 | NATIVE-7B | remains **NOT_STARTED** |
 
 Storage: schema version **9** (`upload_plans`, `upload_batches`, `upload_batch_members`,
