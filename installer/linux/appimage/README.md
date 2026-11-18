@@ -107,12 +107,18 @@ Dane użytkownika pozostają poza obrazem, w ścieżkach XDG:
 
 ## 6. Narzędzia budowy
 
-- `appimagetool`: najnowszy **oficjalny** Continuous build z
-  `https://github.com/AppImage/appimagetool`, rozwiązany raz, zweryfikowany przez
-  SHA-256 i przypięty na czas bramki (`scripts/install_appimage_toolchain.sh`).
-- type-2 runtime: najnowszy zweryfikowany oficjalny release z
-  `https://github.com/AppImage/type2-runtime`, przekazany jawnie przez `--runtime-file`
-  (appimagetool nie pobiera runtime w tle).
+- `appimagetool` i type-2 runtime są przypięte **statycznie** w
+  `installer/linux/appimage/toolchain-pins` (decyzja `OWNER-M3-G-10`). Plik podaje repozytorium,
+  kanał `continuous`, commit, asset, dokładny rozmiar, SHA-256 i oficjalny URL wydania.
+- `scripts/install_appimage_toolchain.sh` nie odpytuje GitHub REST API i nie używa cache. Pobiera
+  oba pliki bezpośrednio z `https://github.com/AppImage/.../releases/download/continuous/...`
+  i sprawdza rozmiar oraz SHA-256 fail-closed, zanim przeniesie plik na miejsce i nada mu
+  uprawnienia.
+- Upstream podmienia assety `continuous` przy każdym nowym buildzie. Wtedy instalator kończy się
+  błędem `PIN_STALE` (`*_SIZE_MISMATCH`, `*_CHECKSUM_MISMATCH` albo HTTP 404). Nowy pin wymaga
+  nowej decyzji właściciela i osobnej bramki.
+- Runtime jest przekazywany jawnie przez `--runtime-file`, więc appimagetool nie pobiera go w tle.
+- `bash scripts/install_appimage_toolchain.sh --pins-only` sprawdza sam plik pinów, bez sieci.
 
 Narzędzia **nie są** commitowane do repozytorium.
 
@@ -122,7 +128,7 @@ Narzędzia **nie są** commitowane do repozytorium.
 
 | Skrypt | Rola |
 |---|---|
-| `scripts/install_appimage_toolchain.sh` | rozwiązanie + weryfikacja + pin `appimagetool` i runtime |
+| `scripts/install_appimage_toolchain.sh` | pobranie i weryfikacja przypiętego `appimagetool` i runtime (`toolchain-pins`) |
 | `scripts/build_linux_appimage.sh` | budowa AppDir i AppImage z zweryfikowanego portable tar.gz |
 | `scripts/verify_appimage.sh` | fail-closed weryfikator obrazu i AppDir |
 | `scripts/verify_appimage_negative_fixture.sh` | dowód odrzucenia 12 mutacji |

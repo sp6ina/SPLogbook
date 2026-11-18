@@ -708,3 +708,26 @@ Consequences:
 | Unblocking decision needed | owner decision: either approve `RUSTSEC-2026-0543` as an accepted `unmaintained` entry (with the same justification style as the existing seven), or authorise a dedicated dependency gate that removes `chrono` |
 
 Do **not** add the `--ignore` entry without that decision, and do **not** treat this gate as closed.
+
+---
+
+## 8. CI: AppImage toolchain blocked by HTTP 403 (2026-11-17) — RESOLVED 2026-11-18
+
+**Symptom:** Build and Release runs `44102699069` and `44108875925` failed at the AppImage
+toolchain step. The very first request, `api.github.com/repos/AppImage/appimagetool/releases/tags/continuous`,
+returned `curl: (22) … 403`.
+
+**Cause:** the resolver made four unauthenticated GitHub REST API calls per run. The official
+limit for unauthenticated requests is 60 per hour per originating IP, and exceeding it returns
+403 or 429. Rate limiting is the most likely cause; the response body was not logged.
+
+**Fix (`STAGE-CI-APPIMAGE-TOOLCHAIN-PINNING`, decision `OWNER-M3-G-10`):**
+* The toolchain is pinned statically in `installer/linux/appimage/toolchain-pins`, with the same
+  builds as `OWNER-M3-G-03-R1` / `-04-R1`.
+* `scripts/install_appimage_toolchain.sh` makes no REST API call and uses no cache. It downloads
+  both assets straight from their official release URLs, logs the HTTP status, and fails closed
+  on size or SHA-256 mismatch before the file is moved into place or made executable.
+
+**Residual risk:** the `continuous` assets are replaced upstream on every new build. The job then
+stops with `PIN_STALE` (size or SHA-256 mismatch, or HTTP 404), and the pinned file can no longer
+be downloaded. A new pin needs a new owner decision.
