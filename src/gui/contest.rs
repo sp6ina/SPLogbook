@@ -220,27 +220,27 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
             .lock()
             .ok()
             .and_then(|db| db.get_all_qsos_for_journal(&app.active_journal.id).ok());
-        let contest_qsos: &[QsoRecord] = full_journal_qsos
+        let journal_qsos: &[QsoRecord] = full_journal_qsos
             .as_deref()
             .unwrap_or(&app.log_view.recent_qsos);
 
         let scoreboard = crate::core::contest_stats::compute_scoreboard(
             &app.contest.name,
             &app.config.custom_contests,
-            contest_qsos,
+            journal_qsos,
             my_dxcc,
             my_cqzone,
         );
 
         let mult_matrix = if mult_kind != MultKind::None && !rule_bands.is_empty() {
             let band_refs: Vec<&str> = rule_bands.iter().map(std::string::String::as_str).collect();
-            compute_mult_matrix(mult_kind, &band_refs, contest_qsos)
+            compute_mult_matrix(mult_kind, &band_refs, journal_qsos)
         } else {
             MultMatrix::default()
         };
 
         let mut bands = std::collections::HashMap::new();
-        for qso in contest_qsos {
+        for qso in journal_qsos {
             *bands.entry(qso.band.clone()).or_insert(0) += 1;
         }
         let mut band_vec: Vec<_> = bands.into_iter().collect();
