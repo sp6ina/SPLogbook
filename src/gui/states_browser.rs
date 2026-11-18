@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
-// Przeglądarka stanów USA (WAS - Worked All States) i prowincji z bazy serviceLOG.db
+// Przeglądarka stanów USA (WAS - Worked All States) i prowincji
 
 use crate::core::awards::AwardsEngine;
 use crate::core::i18n::{Language, Msg, key, tr};
-use crate::core::reference::tables::TableKind;
-use crate::core::service_db::{ServiceDatabase, StateRecord};
+use crate::core::reference::loader::user_tables;
+use crate::core::reference::tables::{StateRecord, TableKind};
 use crate::gui::theme::{Palette, ThemeExt};
 use eframe::egui;
 
@@ -59,15 +59,18 @@ impl StatesBrowserDialog {
         self.is_open = true;
     }
 
-    pub fn reload(&mut self, sdb: &ServiceDatabase) {
-        self.results = sdb.search_states(&self.search_query);
+    pub fn reload(&mut self) {
+        let tables = user_tables();
+        let guard = tables
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.results = guard.get_states(&self.search_query);
         self.loaded_initial = true;
     }
 
     pub fn show(
         &mut self,
         ctx: &egui::Context,
-        sdb: &ServiceDatabase,
         awards: &AwardsEngine,
         lang: Language,
     ) -> Option<String> {
@@ -86,7 +89,11 @@ impl StatesBrowserDialog {
             .default_width(520.0)
             .show(ctx, |ui| {
                 let palette = ui.palette();
-                if !sdb.has_data(TableKind::States) {
+                let is_installed = user_tables()
+                    .read()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .is_installed(TableKind::States);
+                if !is_installed {
                     ui.label(tr(key::REF_DATA_NOT_INSTALLED_HINT, lang));
                 }
                 ui.horizontal(|ui| {
@@ -95,11 +102,11 @@ impl StatesBrowserDialog {
                         egui::TextEdit::singleline(&mut self.search_query).desired_width(180.0),
                     );
                     if resp.changed() || !self.loaded_initial {
-                        self.reload(sdb);
+                        self.reload();
                     }
                     if ui.button(tr(key::BTN_CLEAR, lang)).clicked() {
                         self.search_query.clear();
-                        self.reload(sdb);
+                        self.reload();
                     }
                 });
 

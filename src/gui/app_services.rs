@@ -105,24 +105,44 @@ impl SpLogApp {
 
     pub fn trigger_database_update(&mut self) {
         let lang = self.gui.appearance.language;
-        let db_dir = if std::path::Path::new("databases").is_dir() {
-            std::path::PathBuf::from("databases")
-        } else {
-            self.paths.active_db_path.parent().map_or_else(
+        let db_dir = self
+            .paths
+            .active_db_path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .map_or_else(
                 || std::path::PathBuf::from("databases"),
-                |p| p.join("databases"),
-            )
-        };
+                std::path::Path::to_path_buf,
+            );
         let tx = self.online.sync_log_tx.clone();
         let scp = self.services.scp_engine.clone();
 
         tokio::spawn(async move {
-            let outcome =
-                crate::cloud::updater::DatabaseUpdater::update_all_with_report(&db_dir, lang).await;
+            let _ = std::fs::create_dir_all(&db_dir);
+            let mut ok_parts = Vec::new();
+            let mut err_parts = Vec::new();
+
+            let scp_path = db_dir.join("MASTER.SCP");
+            let scp_updated =
+                match crate::cloud::updater::DatabaseUpdater::update_scp_file(&scp_path).await {
+                    Ok(bytes) => {
+                        ok_parts.push(format!("MASTER.SCP ({} KB)", bytes / 1024));
+                        true
+                    }
+                    Err(e) => {
+                        err_parts.push(format!("MASTER.SCP: {e}"));
+                        false
+                    }
+                };
+
+            let lotw_path = db_dir.join("lotw-user-activity.csv");
+            match crate::cloud::updater::DatabaseUpdater::update_lotw_users(&lotw_path).await {
+                Ok(bytes) => ok_parts.push(format!("LoTW ({} KB)", bytes / 1024)),
+                Err(e) => err_parts.push(format!("LoTW: {e}")),
+            }
 
             // Przeładuj świeżo pobrany plik MASTER.SCP do pamięci silnika SCP
-            let scp_path = db_dir.join("MASTER.SCP");
-            if outcome.is_ok()
+            if scp_updated
                 && let Ok(file) = std::fs::File::open(&scp_path)
                 && file.metadata().is_ok_and(|m| m.len() > 0)
             {
@@ -132,13 +152,22 @@ impl SpLogApp {
                 }
             }
 
-            match outcome {
-                Ok(msg) => {
-                    let _ = tx.send((msg.to_string(), true));
-                }
-                Err(err_msg) => {
-                    let _ = tx.send((err_msg.to_string(), false));
-                }
+            if ok_parts.is_empty() {
+                let prefix = tr(key::UPDATER_DB_UPDATE_FAILED, lang);
+                let _ = tx.send((format!("{prefix}: {}", err_parts.join(" | ")), false));
+            } else if err_parts.is_empty() {
+                let prefix = tr(key::UPDATER_DB_UPDATE_SUCCESS, lang);
+                let _ = tx.send((format!("{prefix}: {}", ok_parts.join(", ")), true));
+            } else {
+                let prefix = tr(key::UPDATER_DB_UPDATE_PARTIAL, lang);
+                let _ = tx.send((
+                    format!(
+                        "{prefix}: OK [{}], Err [{}]",
+                        ok_parts.join(", "),
+                        err_parts.join("; ")
+                    ),
+                    true,
+                ));
             }
         });
 

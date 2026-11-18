@@ -7,7 +7,7 @@ use crate::core::i18n::{Msg, key};
 use rusqlite::{Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug)]
@@ -43,7 +43,7 @@ impl CallbookError {
 /// Źródło danych callbook używane w agregacji z priorytetami.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CallbookSource {
-    /// Lokalna baza offline (callbook.db + serviceLOG.db).
+    /// Lokalna baza offline (tabele użytkownika).
     Local,
     /// Cache offline wyników wcześniejszych zapytań online.
     Cache,
@@ -84,29 +84,21 @@ pub fn default_callbook_priority() -> Vec<CallbookSource> {
 pub struct LocalCallbook {
     cache_path: Option<PathBuf>,
     cache_ttl_days: u32,
-    callbook_conn: Option<Arc<Mutex<Connection>>>,
-    servicelog_conn: Option<Arc<Mutex<Connection>>>,
     /// Callbook i managerowie QSL zaimportowani przez użytkownika.
     user: Arc<std::sync::RwLock<crate::core::reference::tables::UserTables>>,
 }
 
+impl Default for LocalCallbook {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LocalCallbook {
-    pub fn new(callbook_path: Option<PathBuf>, servicelog_path: Option<PathBuf>) -> Self {
-        let callbook_conn = callbook_path.and_then(|p| {
-            Connection::open_with_flags(&p, OpenFlags::SQLITE_OPEN_READ_ONLY)
-                .ok()
-                .map(|c| Arc::new(Mutex::new(c)))
-        });
-        let servicelog_conn = servicelog_path.and_then(|p| {
-            Connection::open_with_flags(&p, OpenFlags::SQLITE_OPEN_READ_ONLY)
-                .ok()
-                .map(|c| Arc::new(Mutex::new(c)))
-        });
+    pub fn new() -> Self {
         Self {
             cache_path: None,
             cache_ttl_days: 30,
-            callbook_conn,
-            servicelog_conn,
             user: crate::core::reference::loader::user_tables(),
         }
     }
@@ -214,7 +206,7 @@ impl LocalCallbook {
         );
     }
 
-    /// Wyszukuje stację w lokalnej bazie SQLite (callbook.db i serviceLOG.db)
+    /// Wyszukuje stację w lokalnych tabelach użytkownika (callbook i managerowie QSL)
     pub fn lookup(&self, callsign: &str) -> Option<CallbookData> {
         let clean = callsign.trim().to_uppercase();
         if clean.is_empty() {
@@ -224,153 +216,51 @@ impl LocalCallbook {
         // Pobieramy bazowy znak, np. z DL/SP1ADT bierzemy SP1ADT, z SP1ADT/P bierzemy SP1ADT
         let base_call = extract_base_call(&clean);
 
-        let mut data: Option<CallbookData> = None;
+        let user = self
+            .user
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
 
         // Callbook zaimportowany przez użytkownika (pełny znak, potem bazowy).
-        if data.is_none() {
-            let user = self
-                .user
-                .read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            data = [clean.as_str(), base_call]
-                .iter()
-                .find_map(|c| user.find_callbook(c))
-                .map(|e| CallbookData {
-                    callsign: clean.clone(),
-                    name: e.name.clone(),
-                    qth: e.qth.clone(),
-                    gridsquare: e.grid.clone(),
-                    state: e.state.clone(),
-                    dxcc: None,
-                    country: None,
-                    qsl_manager: e.manager.clone(),
-                    email: None,
-                    image_url: None,
-                });
-        }
-
-        if data.is_none()
-            && let Some(ref conn_mutex) = self.callbook_conn
-        {
-            let conn = conn_mutex
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            // Najpierw szukamy dokładnego znaku, a potem bazowego
-            for query_call in &[clean.as_str(), base_call] {
-                let Ok(mut stmt) = conn.prepare(
-                    "SELECT Name, QTH, Grid, State, Manager FROM Callbook WHERE Call = ? LIMIT 1",
-                ) else {
-                    continue;
-                };
-
-                let found = stmt
-                    .query_row([query_call], |row| {
-                        let name: Option<String> =
-                            row.get(0).ok().and_then(|s: String| clean_opt_str(&s));
-                        let qth: Option<String> =
-                            row.get(1).ok().and_then(|s: String| clean_opt_str(&s));
-                        let grid: Option<String> =
-                            row.get(2).ok().and_then(|s: String| clean_opt_str(&s));
-                        let state: Option<String> =
-                            row.get(3).ok().and_then(|s: String| clean_opt_str(&s));
-                        let manager: Option<String> =
-                            row.get(4).ok().and_then(|s: String| clean_opt_str(&s));
-
-                        Ok(CallbookData {
-                            callsign: clean.clone(),
-                            name,
-                            qth,
-                            gridsquare: grid,
-                            state,
-                            dxcc: None,
-                            country: None,
-                            qsl_manager: manager,
-                            email: None,
-                            image_url: None,
-                        })
-                    })
-                    .ok();
-
-                if let Some(res) = found {
-                    data = Some(res);
-                    break;
-                }
-            }
-        }
+        let mut data: Option<CallbookData> = [clean.as_str(), base_call]
+            .iter()
+            .find_map(|c| user.find_callbook(c))
+            .map(|e| CallbookData {
+                callsign: clean.clone(),
+                name: e.name.clone(),
+                qth: e.qth.clone(),
+                gridsquare: e.grid.clone(),
+                state: e.state.clone(),
+                dxcc: None,
+                country: None,
+                qsl_manager: e.manager.clone(),
+                email: None,
+                image_url: None,
+            });
 
         // Managerowie QSL zaimportowani przez użytkownika.
         if data
             .as_ref()
             .is_none_or(|d| d.qsl_manager.as_deref().is_none_or(str::is_empty))
-        {
-            let user = self
-                .user
-                .read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if let Some(m) = [clean.as_str(), base_call]
+            && let Some(m) = [clean.as_str(), base_call]
                 .iter()
                 .find_map(|c| user.find_manager(c))
-            {
-                match &mut data {
-                    Some(d) => d.qsl_manager = Some(m.manager),
-                    None => {
-                        data = Some(CallbookData {
-                            callsign: clean.clone(),
-                            name: None,
-                            qth: None,
-                            gridsquare: None,
-                            state: None,
-                            dxcc: None,
-                            country: None,
-                            qsl_manager: Some(m.manager),
-                            email: None,
-                            image_url: None,
-                        });
-                    }
-                }
-            }
-        }
-
-        // Jeśli brakuje menedżera QSL, odpytujemy bazę serviceLOG.db (tabela managers - 29k wpisów)
-        let need_manager = match &data {
-            Some(d) => d.qsl_manager.is_none() || d.qsl_manager.as_ref().unwrap().is_empty(),
-            None => true,
-        };
-
-        if need_manager && let Some(ref conn_mutex) = self.servicelog_conn {
-            let conn = conn_mutex
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            for query_call in &[clean.as_str(), base_call] {
-                let Ok(mut stmt) =
-                    conn.prepare("SELECT Manager FROM managers WHERE Call = ? LIMIT 1")
-                else {
-                    continue;
-                };
-
-                let mgr: Option<String> = stmt
-                    .query_row([query_call], |row| row.get(0))
-                    .ok()
-                    .and_then(|s: String| clean_opt_str(&s));
-
-                if let Some(m) = mgr {
-                    if let Some(ref mut d) = data {
-                        d.qsl_manager = Some(m);
-                    } else {
-                        data = Some(CallbookData {
-                            callsign: clean.clone(),
-                            name: None,
-                            qth: None,
-                            gridsquare: None,
-                            state: None,
-                            dxcc: None,
-                            country: None,
-                            qsl_manager: Some(m),
-                            email: None,
-                            image_url: None,
-                        });
-                    }
-                    break;
+        {
+            match &mut data {
+                Some(d) => d.qsl_manager = Some(m.manager),
+                None => {
+                    data = Some(CallbookData {
+                        callsign: clean.clone(),
+                        name: None,
+                        qth: None,
+                        gridsquare: None,
+                        state: None,
+                        dxcc: None,
+                        country: None,
+                        qsl_manager: Some(m.manager),
+                        email: None,
+                        image_url: None,
+                    });
                 }
             }
         }
@@ -728,22 +618,45 @@ mod tests {
 
     #[test]
     fn test_local_callbook_lookup() {
-        let cb_path = PathBuf::from("databases/callbook.db");
-        let srv_path = PathBuf::from("databases/serviceLOG.db");
-        let cb = LocalCallbook::new(Some(cb_path), Some(srv_path));
+        use crate::core::reference::tables::{TableKind, UserTables, import_table};
+        use std::sync::RwLock;
 
-        // Test stacji SP1ADT z bazy callbook.db
-        if let Some(data) = cb.lookup("SP1ADT") {
-            assert_eq!(data.callsign, "SP1ADT");
-            assert_eq!(data.name.as_deref(), Some("Andrzej"));
-            assert_eq!(data.qth.as_deref(), Some("Zlocieniec"));
-            assert_eq!(data.gridsquare.as_deref(), Some("JO83AM"));
-        }
+        let root = tempfile::tempdir().unwrap();
+        let cb_csv = root.path().join("callbook.csv");
+        std::fs::write(
+            &cb_csv,
+            "#splogbook-callbook,1\ncallsign,name,qth,grid,state,manager\n\
+             QA1ADT,Andrzej,Zlocieniec,JO83am,,\n\
+             QA2QSL,Jan,Testowo,JO81wa,,\n",
+        )
+        .unwrap();
+        import_table(root.path(), TableKind::Callbook, &cb_csv).unwrap();
 
-        // Test stacji z prefiksem DL/SP1ADT
-        if let Some(data) = cb.lookup("DL/SP1ADT") {
-            assert_eq!(data.name.as_deref(), Some("Andrzej"));
-        }
+        let mgr_csv = root.path().join("qsl-managers.csv");
+        std::fs::write(
+            &mgr_csv,
+            "#splogbook-qsl-managers,1\ncallsign,manager\nQA2QSL,QB9MGR\n",
+        )
+        .unwrap();
+        import_table(root.path(), TableKind::QslManagers, &mgr_csv).unwrap();
+
+        let tables = Arc::new(RwLock::new(UserTables::load(root.path()).0));
+        let cb = LocalCallbook::new().with_user_tables(tables);
+
+        let data = cb.lookup("QA1ADT").expect("exact callbook entry");
+        assert_eq!(data.callsign, "QA1ADT");
+        assert_eq!(data.name.as_deref(), Some("Andrzej"));
+        assert_eq!(data.qth.as_deref(), Some("Zlocieniec"));
+        assert_eq!(data.gridsquare.as_deref(), Some("JO83am"));
+
+        // Prefix fallback to base call
+        let prefixed = cb.lookup("DL/QA1ADT").expect("base call fallback");
+        assert_eq!(prefixed.name.as_deref(), Some("Andrzej"));
+
+        // Manager merged from QslManagers table when missing in callbook
+        let merged = cb.lookup("QA2QSL/P").expect("merged manager");
+        assert_eq!(merged.name.as_deref(), Some("Jan"));
+        assert_eq!(merged.qsl_manager.as_deref(), Some("QB9MGR"));
     }
 
     #[test]
@@ -752,7 +665,7 @@ mod tests {
             std::env::temp_dir().join(format!("splogbook_cache_test_{}.db", std::process::id()));
         let _ = std::fs::remove_file(&cache_path);
 
-        let cb = LocalCallbook::new(None, None).with_cache(Some(cache_path.clone()), 30);
+        let cb = LocalCallbook::new().with_cache(Some(cache_path.clone()), 30);
         let data = CallbookData {
             callsign: "SP6INA".to_string(),
             name: Some("Mariusz".to_string()),
@@ -800,7 +713,7 @@ mod user_table_tests {
 
     #[test]
     fn user_callbook_answers_offline_lookups() {
-        let cb = LocalCallbook::new(None, None).with_user_tables(shared(&[(
+        let cb = LocalCallbook::new().with_user_tables(shared(&[(
             TableKind::Callbook,
             "#splogbook-callbook,1\ncallsign,name,qth,grid,state,manager\nQA1AA,Test Operator,Testville,JO81wa,QS,QB1BB\n",
         )]));
@@ -821,7 +734,7 @@ mod user_table_tests {
 
     #[test]
     fn user_managers_complete_a_lookup_without_callbook_entry() {
-        let cb = LocalCallbook::new(None, None).with_user_tables(shared(&[(
+        let cb = LocalCallbook::new().with_user_tables(shared(&[(
             TableKind::QslManagers,
             "#splogbook-qsl-managers,1\ncallsign,manager\nQA2AA,QB2BB\n",
         )]));
@@ -832,80 +745,8 @@ mod user_table_tests {
 
     #[test]
     fn no_data_gives_no_result_and_no_panic() {
-        let cb = LocalCallbook::new(None, None).with_user_tables(Arc::default());
+        let cb = LocalCallbook::new().with_user_tables(Arc::default());
         assert!(cb.lookup("QA1AA").is_none());
         assert!(cb.lookup("").is_none());
-    }
-}
-
-#[cfg(test)]
-mod differential_tests {
-    //! Level C for the local callbook: the same synthetic entries in the
-    //! legacy SQLite layout and in the imported user table give identical
-    //! lookups, including the base-call fallback and the QSL-manager merge.
-    use super::*;
-    use crate::core::reference::tables::{TableKind, UserTables, import_table};
-    use std::fmt::Write as _;
-    use std::sync::RwLock;
-
-    const ENTRIES: &[(&str, &str, &str, &str, &str, &str)] = &[
-        ("QA1AA", "Test Operator", "Testville", "JO81wa", "", "QB1BB"),
-        ("QA2AA", "Second Op", "", "KN11", "QS", ""),
-        ("QA3AA", "", "Only Town", "", "", ""),
-    ];
-    const MANAGERS: &[(&str, &str)] = &[("QA2AA", "QB2BB"), ("QA9ZZ", "QB9ZZ")];
-    const LOOKUPS: &[&str] = &[
-        "QA1AA", "qa1aa", "QA1AA/P", "DL/QA1AA", "QA2AA", "QA3AA", "QA9ZZ", "QA9ZZ/M", "QZ0ZZ", "",
-    ];
-
-    #[test]
-    fn user_callbook_answers_exactly_like_the_legacy_files() {
-        let dir = tempfile::tempdir().unwrap();
-        let cb_path = dir.path().join("cb.db");
-        let srv_path = dir.path().join("srv.db");
-        let cb = Connection::open(&cb_path).unwrap();
-        cb.execute_batch("CREATE TABLE Callbook (_id INTEGER PRIMARY KEY, Call TEXT, Name TEXT, QTH TEXT, Grid TEXT, State TEXT, Manager TEXT, Note TEXT, Mark TEXT, Checked INTEGER);").unwrap();
-        for (c, n, q, g, s, m) in ENTRIES {
-            cb.execute(
-                "INSERT INTO Callbook (Call, Name, QTH, Grid, State, Manager) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                rusqlite::params![c, n, q, g, s, m],
-            )
-            .unwrap();
-        }
-        drop(cb);
-        let srv = Connection::open(&srv_path).unwrap();
-        srv.execute_batch("CREATE TABLE managers (_id INTEGER PRIMARY KEY, Call TEXT, Manager TEXT, Years TEXT, Notes TEXT, Author TEXT);").unwrap();
-        for (c, m) in MANAGERS {
-            srv.execute(
-                "INSERT INTO managers (Call, Manager) VALUES (?1, ?2)",
-                rusqlite::params![c, m],
-            )
-            .unwrap();
-        }
-        drop(srv);
-
-        let root = tempfile::tempdir().unwrap();
-        let mut book =
-            String::from("#splogbook-callbook,1\ncallsign,name,qth,grid,state,manager\n");
-        for (c, n, q, g, s, m) in ENTRIES {
-            let _ = writeln!(book, "{c},{n},{q},{g},{s},{m}");
-        }
-        let mut mgr = String::from("#splogbook-qsl-managers,1\ncallsign,manager\n");
-        for (c, m) in MANAGERS {
-            let _ = writeln!(mgr, "{c},{m}");
-        }
-        for (kind, text) in [(TableKind::Callbook, book), (TableKind::QslManagers, mgr)] {
-            let p = root.path().join("in.csv");
-            std::fs::write(&p, text).unwrap();
-            import_table(root.path(), kind, &p).unwrap();
-        }
-        let tables = Arc::new(RwLock::new(UserTables::load(root.path()).0));
-
-        let legacy =
-            LocalCallbook::new(Some(cb_path), Some(srv_path)).with_user_tables(Arc::default());
-        let current = LocalCallbook::new(None, None).with_user_tables(tables);
-        for call in LOOKUPS {
-            assert_eq!(current.lookup(call), legacy.lookup(call), "{call:?}");
-        }
     }
 }

@@ -701,32 +701,33 @@ impl SpLogApp {
                 .awards_engine
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if let Some(iota) = self.gui.dialogs.iota_dialog.show(
-                ctx,
-                &self.services.service_db,
-                &awards,
-                self.gui.appearance.language,
-            ) {
+            if let Some(iota) =
+                self.gui
+                    .dialogs
+                    .iota_dialog
+                    .show(ctx, &awards, self.gui.appearance.language)
+            {
                 self.entry.iota = iota;
             }
 
             // 5. Przeglądarka stanów USA (WAS)
-            if let Some(state) = self.gui.dialogs.states_dialog.show(
-                ctx,
-                &self.services.service_db,
-                &awards,
-                self.gui.appearance.language,
-            ) {
+            if let Some(state) =
+                self.gui
+                    .dialogs
+                    .states_dialog
+                    .show(ctx, &awards, self.gui.appearance.language)
+            {
                 self.entry.state = state;
             }
         }
 
         // 6. Baza menedżerów QSL
-        if let Some(qslm) = self.gui.dialogs.qsl_manager_dialog.show(
-            ctx,
-            &self.services.service_db,
-            self.gui.appearance.language,
-        ) {
+        if let Some(qslm) = self
+            .gui
+            .dialogs
+            .qsl_manager_dialog
+            .show(ctx, self.gui.appearance.language)
+        {
             self.entry.qsl_manager = qslm;
         }
 
@@ -739,7 +740,6 @@ impl SpLogApp {
         // 8. Menedżer prefiksów DXCC
         self.gui.dialogs.prefix_manager_dialog.show(
             ctx,
-            &self.services.service_db,
             &self.services.prefix_matcher,
             self.gui.appearance.language,
         );

@@ -143,8 +143,12 @@ impl SpLogApp {
             self.entry.past_qsos_for_active_call = prevs;
         }
 
-        // 4. Baza managerów QSL (serviceLOG)
-        if let Some(mgr_rec) = self.services.service_db.find_manager(&clean) {
+        // 4. Baza managerów QSL (tabele użytkownika)
+        let mgr_rec = crate::core::reference::loader::user_tables()
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .find_manager(&clean);
+        if let Some(mgr_rec) = mgr_rec {
             if self.entry.qsl_manager.is_empty() {
                 self.entry.qsl_manager.clone_from(&mgr_rec.manager);
             }
@@ -153,18 +157,7 @@ impl SpLogApp {
             self.entry.active_qsl_manager_record = None;
         }
 
-        // 5. Baza UniqueCalls
-        if let Some(uniq) = self.services.service_db.find_unique_call(&clean)
-            && let Some(ref mut pfx) = self.entry.active_prefix_info
-        {
-            pfx.country = uniq.country;
-            pfx.dxcc = uniq.dxcc;
-            pfx.continent = uniq.continent;
-            pfx.cqz = uniq.cq_zone;
-            pfx.ituz = uniq.itu_zone;
-        }
-
-        // 6. Baza Callbook (databases/callbook.db - 52k rekordów)
+        // 5. Baza Callbook (tabele użytkownika)
         if clean.len() >= 3
             && let Some(cb_data) = self.services.local_callbook.lookup(&clean)
         {
@@ -257,7 +250,7 @@ impl SpLogApp {
             return;
         }
 
-        // Natychmiastowe sprawdzenie lokalnej bazy (callbook.db + serviceLOG.db)
+        // Natychmiastowe sprawdzenie lokalnej bazy (tabele użytkownika)
         if let Some(cb_data) = self.services.local_callbook.lookup(&call) {
             if let Some(n) = cb_data.name.clone() {
                 self.entry.name = n;

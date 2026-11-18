@@ -9,7 +9,6 @@ use crate::core::database::Journal;
 use crate::core::i18n::{Msg, key, tr};
 use crate::core::ingest::{IngestError, IngestOutcome, QsoOrigin};
 use crate::core::qso::QsoRecord;
-use crate::core::service_db::ServiceDatabase;
 use crate::core::station::{AppConfig, ViewPanelConfig};
 use crate::gui::awards_matrix::render_awards_matrix_window;
 use crate::gui::bandmap::render_bandmap_window;
@@ -149,35 +148,6 @@ fn resolve_font_path(family: &str) -> Option<std::path::PathBuf> {
     candidates.into_iter().find(|p| p.exists())
 }
 
-fn resolve_callbook_paths() -> (Option<std::path::PathBuf>, Option<std::path::PathBuf>) {
-    let exe_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(std::path::Path::to_path_buf))
-        .unwrap_or_else(|| {
-            std::env::var("APPDATA").map_or_else(
-                |_| std::path::PathBuf::from("."),
-                |p| std::path::PathBuf::from(p).join("SPLogbook"),
-            )
-        });
-
-    let cb_candidates = [
-        std::path::PathBuf::from("databases/callbook.db"),
-        exe_dir.join("databases/callbook.db"),
-        exe_dir.join("../databases/callbook.db"),
-        exe_dir.join("../../databases/callbook.db"),
-    ];
-    let cb_path = cb_candidates.into_iter().find(|p| p.exists());
-
-    let srv_candidates = [
-        std::path::PathBuf::from("databases/serviceLOG.db"),
-        exe_dir.join("databases/serviceLOG.db"),
-        exe_dir.join("../databases/serviceLOG.db"),
-        exe_dir.join("../../databases/serviceLOG.db"),
-    ];
-    let srv_path = srv_candidates.into_iter().find(|p| p.exists());
-    (cb_path, srv_path)
-}
-
 fn fetch_initial_journal_data(
     log_db: &std::sync::Mutex<crate::core::database::LogDatabase>,
 ) -> (
@@ -264,8 +234,6 @@ impl SpLogApp {
             ..Default::default()
         };
 
-        let (cb_path, srv_path) = resolve_callbook_paths();
-
         // Cache offline wyników callbook — obok bazy dziennika (katalog zapisywalny).
         let callbook_cache_path = if init.config.callbook_cache_enabled {
             init.active_db_path
@@ -277,7 +245,7 @@ impl SpLogApp {
         let callbook_cache_ttl_days = init.config.callbook_cache_ttl_days;
 
         let local_callbook = std::sync::Arc::new(
-            crate::core::callbook::LocalCallbook::new(cb_path, srv_path)
+            crate::core::callbook::LocalCallbook::new()
                 .with_cache(callbook_cache_path, callbook_cache_ttl_days),
         );
 
@@ -318,7 +286,6 @@ impl SpLogApp {
             deps.prefix_matcher,
             deps.scp_engine,
             awards_engine,
-            Arc::new(ServiceDatabase::open()),
             local_callbook,
             Arc::new(Mutex::new(
                 crate::cloud::scheduler::UploadScheduler::load_from_disk(),

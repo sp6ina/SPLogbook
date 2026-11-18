@@ -55,17 +55,17 @@ fn installed_text(
 }
 
 impl SpLogApp {
-    /// Reference root and legacy compatibility database for this session.
-    pub fn reference_paths(&self) -> (PathBuf, Option<PathBuf>) {
+    /// Reference root for this session.
+    pub fn reference_paths(&self) -> PathBuf {
         loader::context().map_or_else(
-            || (loader::reference_root_for(&self.paths.active_db_path), None),
-            |ctx| (ctx.root.clone(), ctx.legacy_db.clone()),
+            || loader::reference_root_for(&self.paths.active_db_path),
+            |ctx| ctx.root.clone(),
         )
     }
 
     fn reload_reference_data(&self) {
-        let (root, legacy) = self.reference_paths();
-        let _ = loader::reload_into(&self.services.prefix_matcher, &root, legacy.as_deref());
+        let root = self.reference_paths();
+        let _ = loader::reload_into(&self.services.prefix_matcher, &root);
     }
 
     /// Downloads the current Big CTY archive after the user confirmed the source.
@@ -88,7 +88,7 @@ impl SpLogApp {
         let tx = self.online.sync_log_tx.clone();
         let _ = tx.send((tr(key::REF_CF_DOWNLOADING, lang).to_string(), false));
         let matcher = self.services.prefix_matcher.clone();
-        let (root, legacy) = self.reference_paths();
+        let root = self.reference_paths();
         tokio::spawn(async move {
             let limit = country_files::ArchiveLimits::default().max_archive_bytes;
             let msg =
@@ -107,7 +107,7 @@ impl SpLogApp {
                             };
                             let result = country_files::install_from_archive(&root, &bytes, origin);
                             if result.is_ok() {
-                                let _ = loader::reload_into(&matcher, &root, legacy.as_deref());
+                                let _ = loader::reload_into(&matcher, &root);
                             }
                             result
                         })
@@ -138,7 +138,7 @@ impl SpLogApp {
         else {
             return;
         };
-        let (root, _) = self.reference_paths();
+        let root = self.reference_paths();
         let msg = match country_files::install_from_user_file(&root, &path) {
             Ok((manifest, summary)) => {
                 self.reload_reference_data();
@@ -155,7 +155,7 @@ impl SpLogApp {
     /// Restores the previously installed country files.
     pub fn trigger_country_files_rollback(&mut self) {
         let lang = self.gui.appearance.language;
-        let (root, _) = self.reference_paths();
+        let root = self.reference_paths();
         let msg = match country_files::rollback(&root) {
             Ok(manifest) => {
                 self.reload_reference_data();
@@ -181,7 +181,7 @@ impl SpLogApp {
         else {
             return;
         };
-        let (root, _) = self.reference_paths();
+        let root = self.reference_paths();
         let msg = match user_rules::import_rules(&root, kind, &path) {
             Ok(report) => {
                 self.reload_reference_data();
@@ -213,7 +213,7 @@ impl SpLogApp {
         else {
             return;
         };
-        let (root, _) = self.reference_paths();
+        let root = self.reference_paths();
         let msg = match tables::import_table(&root, kind, &path) {
             Ok(report) => {
                 let _ = loader::reload_user_tables(&root);
@@ -245,7 +245,7 @@ impl SpLogApp {
         else {
             return;
         };
-        let (root, _) = self.reference_paths();
+        let root = self.reference_paths();
         let msg = match tables::export_table(&root, kind, &dest) {
             Ok(_) => tr(key::REF_TABLE_EXPORTED, lang).to_string(),
             Err(_) => tr(key::REF_TABLE_NOTHING_TO_EXPORT, lang).to_string(),
@@ -255,7 +255,7 @@ impl SpLogApp {
 
     /// Opens the club editor with the memberships currently in effect.
     pub fn open_clubs_editor(&mut self) {
-        let (root, _) = self.reference_paths();
+        let root = self.reference_paths();
         let rows = crate::core::clubs::current_rows(Some(&root));
         self.gui.dialogs.clubs_editor.open_with(rows);
     }
@@ -265,7 +265,7 @@ impl SpLogApp {
         use crate::core::clubs::{self, ClubRegistry, ClubsStoreError};
         use crate::gui::clubs_editor::ClubsEditorAction;
         let lang = self.gui.appearance.language;
-        let (root, _) = self.reference_paths();
+        let root = self.reference_paths();
         let rejected = |issues: &[clubs::ClubIssue]| {
             Msg::new(key::CLUBS_REJECTED)
                 .arg("count", issues.len().to_string())
@@ -352,7 +352,7 @@ impl SpLogApp {
         else {
             return;
         };
-        let (root, _) = self.reference_paths();
+        let root = self.reference_paths();
         let msg = match user_rules::export_rules(&root, kind, &dest) {
             Ok(_) => tr(key::REF_RULES_EXPORTED, lang).to_string(),
             Err(_) => tr(key::REF_RULES_NOTHING_TO_EXPORT, lang).to_string(),

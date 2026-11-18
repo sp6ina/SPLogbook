@@ -622,11 +622,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .clicked()
         {
             let call = app.entry.callsign.clone();
-            let sdb = app.services.service_db.clone();
-            app.gui
-                .dialogs
-                .qsl_manager_dialog
-                .open_for_call(&call, &sdb);
+            app.gui.dialogs.qsl_manager_dialog.open_for_call(&call);
         }
 
         if let Some(ref mgr_rec) = app.entry.active_qsl_manager_record {

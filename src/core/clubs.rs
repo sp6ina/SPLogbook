@@ -5,8 +5,8 @@
 //! SP-OTC (SP Old Timers Club), SPCWC (SP CW Club), CWOPS (CW Operators' Club),
 //! FOC (First Class CW Operators' Club), HSC (High Speed Club) oraz SKCC (Straight Key Century Club).
 //!
-//! Członkostwo i autentyczne, unikalne numery członkowskie są ładowane dynamicznie
-//! z pliku referencyjnego `databases/clubs.csv` (lub wbudowanego rejestru awaryjnego).
+//! Członkostwo i numery członkowskie są ładowane dynamicznie z pliku
+//! referencyjnego użytkownika w katalogu danych aplikacji.
 
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -47,8 +47,7 @@ type Registry = HashMap<String, Vec<ClubAffiliation>>;
 static GLOBAL_REGISTRY: RwLock<Option<Arc<Registry>>> = RwLock::new(None);
 
 impl ClubRegistry {
-    /// Bieżący rejestr. Kolejność źródeł: plik użytkownika w katalogu danych,
-    /// przejściowo `databases/clubs.csv`, na końcu rejestr wbudowany.
+    /// Bieżący rejestr: plik użytkownika w katalogu danych lub pusty rejestr.
     pub fn load_or_default() -> Arc<Registry> {
         if let Some(reg) = GLOBAL_REGISTRY
             .read()
@@ -77,13 +76,6 @@ impl ClubRegistry {
                 Ok(None) => {}
                 Err(e) => log::warn!("user clubs file not loaded: {e}"),
             }
-        }
-        let csv_path = Path::new("databases").join("clubs.csv");
-        if csv_path.exists()
-            && let Ok(reg) = Self::load_from_csv(&csv_path)
-            && !reg.is_empty()
-        {
-            return reg;
         }
         Self::default_registry()
     }
@@ -162,151 +154,9 @@ impl ClubRegistry {
         Ok(map)
     }
 
-    /// Zwraca domyślny słownik znanych członków z unikalnymi, autentycznymi numerami (bez współdzielonych duplikatów).
+    /// Zwraca pusty domyślny rejestr klubów (brak zahardkodowanych znaków).
     pub fn default_registry() -> HashMap<String, Vec<ClubAffiliation>> {
-        let mut map: HashMap<String, Vec<ClubAffiliation>> = HashMap::new();
-
-        // SP-OTC (SP Old Timers Club) - unikalne numery legitymacji
-        map.entry("SP6ZDA".to_string())
-            .or_default()
-            .push(ClubAffiliation {
-                code: Cow::Borrowed("SP-OTC"),
-                name: Cow::Borrowed("SP Old Timers Club"),
-                number: Some(Cow::Borrowed("#248")),
-                badge_color: (239, 68, 68),
-            });
-        map.entry("SP5PZK".to_string())
-            .or_default()
-            .push(ClubAffiliation {
-                code: Cow::Borrowed("SP-OTC"),
-                name: Cow::Borrowed("SP Old Timers Club"),
-                number: Some(Cow::Borrowed("#312")),
-                badge_color: (239, 68, 68),
-            });
-        map.entry("SP2FAX".to_string())
-            .or_default()
-            .push(ClubAffiliation {
-                code: Cow::Borrowed("SP-OTC"),
-                name: Cow::Borrowed("SP Old Timers Club"),
-                number: Some(Cow::Borrowed("#175")),
-                badge_color: (239, 68, 68),
-            });
-        map.entry("SP1PBW".to_string())
-            .or_default()
-            .push(ClubAffiliation {
-                code: Cow::Borrowed("SP-OTC"),
-                name: Cow::Borrowed("SP Old Timers Club"),
-                number: Some(Cow::Borrowed("#402")),
-                badge_color: (239, 68, 68),
-            });
-
-        // SPCWC (Polski Klub Telegrafistów) - unikalne numery klubowe
-        map.entry("SP6PAZ".to_string())
-            .or_default()
-            .push(ClubAffiliation {
-                code: Cow::Borrowed("SPCWC"),
-                name: Cow::Borrowed("SP CW Club"),
-                number: Some(Cow::Borrowed("#104")),
-                badge_color: (59, 130, 246),
-            });
-        map.entry("SP2FAP".to_string())
-            .or_default()
-            .push(ClubAffiliation {
-                code: Cow::Borrowed("SPCWC"),
-                name: Cow::Borrowed("SP CW Club"),
-                number: Some(Cow::Borrowed("#156")),
-                badge_color: (59, 130, 246),
-            });
-        map.entry("SP6INA".to_string())
-            .or_default()
-            .push(ClubAffiliation {
-                code: Cow::Borrowed("SPCWC"),
-                name: Cow::Borrowed("SP CW Club"),
-                number: Some(Cow::Borrowed("#480")),
-                badge_color: (59, 130, 246),
-            });
-
-        // CWOPS i FOC - unikalne numery
-        map.entry("W1AW".to_string()).or_default().extend([
-            ClubAffiliation {
-                code: Cow::Borrowed("CWOPS"),
-                name: Cow::Borrowed("CW Operators' Club"),
-                number: Some(Cow::Borrowed("#001")),
-                badge_color: (245, 158, 11),
-            },
-            ClubAffiliation {
-                code: Cow::Borrowed("FOC"),
-                name: Cow::Borrowed("First Class CW Operators' Club"),
-                number: Some(Cow::Borrowed("#1850")),
-                badge_color: (147, 51, 234),
-            },
-        ]);
-        map.entry("K1TTT".to_string()).or_default().extend([
-            ClubAffiliation {
-                code: Cow::Borrowed("CWOPS"),
-                name: Cow::Borrowed("CW Operators' Club"),
-                number: Some(Cow::Borrowed("#128")),
-                badge_color: (245, 158, 11),
-            },
-            ClubAffiliation {
-                code: Cow::Borrowed("FOC"),
-                name: Cow::Borrowed("First Class CW Operators' Club"),
-                number: Some(Cow::Borrowed("#1920")),
-                badge_color: (147, 51, 234),
-            },
-        ]);
-        map.entry("N1MM".to_string()).or_default().extend([
-            ClubAffiliation {
-                code: Cow::Borrowed("CWOPS"),
-                name: Cow::Borrowed("CW Operators' Club"),
-                number: Some(Cow::Borrowed("#256")),
-                badge_color: (245, 158, 11),
-            },
-            ClubAffiliation {
-                code: Cow::Borrowed("FOC"),
-                name: Cow::Borrowed("First Class CW Operators' Club"),
-                number: Some(Cow::Borrowed("#2014")),
-                badge_color: (147, 51, 234),
-            },
-        ]);
-
-        // HSC (High Speed Club)
-        map.entry("DL1ABC".to_string())
-            .or_default()
-            .push(ClubAffiliation {
-                code: Cow::Borrowed("HSC"),
-                name: Cow::Borrowed("High Speed Club"),
-                number: Some(Cow::Borrowed("#1940")),
-                badge_color: (234, 88, 12),
-            });
-        map.entry("DK1MAX".to_string())
-            .or_default()
-            .push(ClubAffiliation {
-                code: Cow::Borrowed("HSC"),
-                name: Cow::Borrowed("High Speed Club"),
-                number: Some(Cow::Borrowed("#1955")),
-                badge_color: (234, 88, 12),
-            });
-
-        // SKCC (Straight Key Century Club)
-        map.entry("K3LR".to_string())
-            .or_default()
-            .push(ClubAffiliation {
-                code: Cow::Borrowed("SKCC"),
-                name: Cow::Borrowed("Straight Key Century Club"),
-                number: Some(Cow::Borrowed("#12040")),
-                badge_color: (16, 185, 129),
-            });
-        map.entry("W3LPL".to_string())
-            .or_default()
-            .push(ClubAffiliation {
-                code: Cow::Borrowed("SKCC"),
-                name: Cow::Borrowed("Straight Key Century Club"),
-                number: Some(Cow::Borrowed("#15312")),
-                badge_color: (16, 185, 129),
-            });
-
-        map
+        HashMap::new()
     }
 
     /// Sprawdza przynależność znaku do klubów krótkofalarskich.
@@ -824,33 +674,63 @@ mod tests {
     use super::*;
     use std::collections::HashSet;
 
+    const SYNTH_CLUBS_CSV: &str = "\
+callsign,club_code,club_name,member_number,badge_r,badge_g,badge_b
+qa1aa,SPCWC,SP CW Club,#480,59,130,246
+QA2BB,CWOPS,CW Operators' Club,#001,245,158,11
+QA2BB,FOC,First Class CW Operators' Club,#1850,147,51,234
+";
+
     #[test]
-    fn club_registry_loads_reference_database() {
-        let path = Path::new("databases").join("clubs.csv");
-        assert!(path.exists());
-        let reg = ClubRegistry::load_from_csv(&path).expect("Załadowanie databases/clubs.csv");
+    fn club_registry_loads_synthetic_csv_in_memory() {
+        let parsed = parse_clubs_csv(SYNTH_CLUBS_CSV);
+        assert!(parsed.is_valid(), "{:?}", parsed.issues);
+        let reg = registry_from_rows(&parsed.rows);
         assert!(!reg.is_empty());
-        assert!(reg.contains_key("SP6INA"));
+        assert!(reg.contains_key("QA1AA"));
+        assert!(reg.contains_key("QA2BB"));
+    }
+
+    #[test]
+    fn club_registry_default_is_empty_without_hardcoded_callsigns() {
+        assert!(ClubRegistry::default_registry().is_empty());
+        assert!(ClubRegistry::resolve_sources(None).is_empty());
     }
 
     #[test]
     fn club_registry_normalizes_callsign() {
-        let affs_upper = ClubRegistry::check("SP6INA");
-        let affs_lower = ClubRegistry::check("  sp6ina  ");
-        assert_eq!(affs_upper, affs_lower);
+        let parsed = parse_clubs_csv(
+            "callsign,club_code,club_name,member_number,badge_r,badge_g,badge_b\n  qa1aa  ,QCLUB,Test Club,#1,10,20,30\n",
+        );
+        assert!(parsed.is_valid(), "{:?}", parsed.issues);
+        let reg = registry_from_rows(&parsed.rows);
+        assert_eq!(reg.get("QA1AA").map(Vec::len), Some(1));
+        assert_eq!(
+            ClubRegistry::check("QA1AA"),
+            ClubRegistry::check("  qa1aa  ")
+        );
     }
 
     #[test]
     fn club_registry_lookup_uses_normalized_callsign() {
-        let affs_upper = ClubRegistry::check("SP6INA");
-        let affs_mixed = ClubRegistry::check("  sP6InA  ");
+        let parsed = parse_clubs_csv(SYNTH_CLUBS_CSV);
+        let reg = registry_from_rows(&parsed.rows);
+        let lookup = |call: &str| -> Vec<ClubAffiliation> {
+            reg.get(&call.trim().to_uppercase())
+                .cloned()
+                .unwrap_or_default()
+        };
+        let affs_upper = lookup("QA1AA");
+        let affs_mixed = lookup("  qA1aA  ");
         assert_eq!(affs_upper, affs_mixed);
         assert_ne!(affs_mixed, []);
     }
 
     #[test]
     fn club_membership_primary_key_is_club_and_callsign() {
-        let affs = ClubRegistry::check("W1AW");
+        let parsed = parse_clubs_csv(SYNTH_CLUBS_CSV);
+        let reg = registry_from_rows(&parsed.rows);
+        let affs = &reg["QA2BB"];
         let codes: Vec<_> = affs.iter().map(|a| a.code.as_ref()).collect();
         assert!(codes.contains(&"CWOPS"));
         assert!(codes.contains(&"FOC"));
@@ -858,17 +738,21 @@ mod tests {
 
     #[test]
     fn club_registry_allows_one_callsign_in_multiple_clubs() {
-        let affs = ClubRegistry::check("W1AW");
+        let parsed = parse_clubs_csv(SYNTH_CLUBS_CSV);
+        let reg = registry_from_rows(&parsed.rows);
+        let affs = &reg["QA2BB"];
         assert!(affs.len() >= 2);
         let mut codes = HashSet::new();
-        for a in &affs {
+        for a in affs {
             assert!(codes.insert(a.code.as_ref()));
         }
     }
 
     #[test]
     fn club_registry_keys_membership_by_club_and_callsign() {
-        let affs = ClubRegistry::check("W1AW");
+        let parsed = parse_clubs_csv(SYNTH_CLUBS_CSV);
+        let reg = registry_from_rows(&parsed.rows);
+        let affs = &reg["QA2BB"];
         let codes: Vec<_> = affs.iter().map(|a| a.code.as_ref()).collect();
         assert!(codes.contains(&"CWOPS"));
         assert!(codes.contains(&"FOC"));
@@ -994,98 +878,6 @@ mod tests {
     }
 
     #[test]
-    fn club_registry_does_not_assign_duplicate_hardcoded_numbers() {
-        let registry = ClubRegistry::default_registry();
-
-        // 1. Sprawdzamy SP-OTC
-        let sp_otc_calls = ["SP6ZDA", "SP5PZK", "SP2FAX", "SP1PBW"];
-        let mut sp_otc_numbers = HashSet::new();
-        for call in &sp_otc_calls {
-            let affs = registry
-                .get(*call)
-                .expect("Znak powinien być w rejestrze SP-OTC");
-            let otc = affs
-                .iter()
-                .find(|a| a.code == "SP-OTC")
-                .expect("Brak odznaki SP-OTC");
-            let num = otc.number.as_ref().expect("Brak numeru członkowskiego");
-            assert!(
-                sp_otc_numbers.insert(num.to_string()),
-                "Wykryto zduplikowany numer SP-OTC {num} dla znaku {call}!"
-            );
-        }
-        assert_eq!(sp_otc_numbers.len(), sp_otc_calls.len());
-
-        // 2. Sprawdzamy SPCWC
-        let spcwc_calls = ["SP6PAZ", "SP2FAP", "SP6INA"];
-        let mut spcwc_numbers = HashSet::new();
-        for call in &spcwc_calls {
-            let affs = registry
-                .get(*call)
-                .expect("Znak powinien być w rejestrze SPCWC");
-            let cwc = affs
-                .iter()
-                .find(|a| a.code == "SPCWC")
-                .expect("Brak odznaki SPCWC");
-            let num = cwc.number.as_ref().expect("Brak numeru członkowskiego");
-            assert!(
-                spcwc_numbers.insert(num.to_string()),
-                "Wykryto zduplikowany numer SPCWC {num} dla znaku {call}!"
-            );
-        }
-        assert_eq!(spcwc_numbers.len(), spcwc_calls.len());
-
-        // 3. Sprawdzamy CWOPS i FOC dla W1AW, K1TTT, N1MM
-        let cw_calls = ["W1AW", "K1TTT", "N1MM"];
-        let mut cwops_numbers = HashSet::new();
-        let mut foc_numbers = HashSet::new();
-        for call in &cw_calls {
-            let affs = registry
-                .get(*call)
-                .expect("Znak powinien być w rejestrze CWOPS/FOC");
-            let cwops = affs
-                .iter()
-                .find(|a| a.code == "CWOPS")
-                .expect("Brak odznaki CWOPS");
-            let foc = affs
-                .iter()
-                .find(|a| a.code == "FOC")
-                .expect("Brak odznaki FOC");
-            let num_cwops = cwops.number.as_ref().expect("Brak numeru CWOPS");
-            let num_foc = foc.number.as_ref().expect("Brak numeru FOC");
-            assert!(
-                cwops_numbers.insert(num_cwops.to_string()),
-                "Wykryto zduplikowany numer CWOPS {num_cwops} dla znaku {call}!"
-            );
-            assert!(
-                foc_numbers.insert(num_foc.to_string()),
-                "Wykryto zduplikowany numer FOC {num_foc} dla znaku {call}!"
-            );
-        }
-        assert_eq!(cwops_numbers.len(), cw_calls.len());
-        assert_eq!(foc_numbers.len(), cw_calls.len());
-
-        // 4. Sprawdzamy SKCC
-        let skcc_calls = ["K3LR", "W3LPL"];
-        let mut skcc_numbers = HashSet::new();
-        for call in &skcc_calls {
-            let affs = registry
-                .get(*call)
-                .expect("Znak powinien być w rejestrze SKCC");
-            let skcc = affs
-                .iter()
-                .find(|a| a.code == "SKCC")
-                .expect("Brak odznaki SKCC");
-            let num = skcc.number.as_ref().expect("Brak numeru SKCC");
-            assert!(
-                skcc_numbers.insert(num.to_string()),
-                "Wykryto zduplikowany numer SKCC {num} dla znaku {call}!"
-            );
-        }
-        assert_eq!(skcc_numbers.len(), skcc_calls.len());
-    }
-
-    #[test]
     fn club_registry_handles_missing_reference_file_safely() {
         let res = ClubRegistry::load_from_csv(Path::new("definitely_missing_file_xyz.csv"));
         assert!(res.is_err());
@@ -1138,8 +930,9 @@ mod tests {
 
     #[test]
     fn club_registry_lookup_is_deterministic() {
-        let res1 = ClubRegistry::check("SP6INA");
-        let res2 = ClubRegistry::check("SP6INA");
-        assert_eq!(res1, res2);
+        let parsed = parse_clubs_csv(SYNTH_CLUBS_CSV);
+        let reg1 = registry_from_rows(&parsed.rows);
+        let reg2 = registry_from_rows(&parsed.rows);
+        assert_eq!(reg1.get("QA1AA"), reg2.get("QA1AA"));
     }
 }

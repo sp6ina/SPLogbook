@@ -330,7 +330,6 @@ impl QsoIngestor {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex, PoisonError};
     use std::time::{Duration, Instant};
 
@@ -344,8 +343,6 @@ mod tests {
     use crate::core::prefix::PrefixMatcher;
     use crate::core::qso::{QsoIssue, QsoRecord, QsoWarning, TimeField, TimePart};
     use crate::core::scp::ScpEngine;
-
-    static NEXT_MEMDB_ID: AtomicUsize = AtomicUsize::new(1);
 
     pub(super) struct TestFixture {
         pub(super) ingestor: QsoIngestor,
@@ -429,64 +426,32 @@ mod tests {
     }
 
     fn build_test_prefix_matcher() -> PrefixMatcher {
-        let id = NEXT_MEMDB_ID.fetch_add(1, Ordering::Relaxed);
-        let uri = format!("file:ingest_prefix_test_{id}?mode=memory&cache=shared");
-        let flags = rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE
-            | rusqlite::OpenFlags::SQLITE_OPEN_CREATE
-            | rusqlite::OpenFlags::SQLITE_OPEN_URI;
-        let conn = match rusqlite::Connection::open_with_flags(&uri, flags) {
-            Ok(c) => c,
-            Err(e) => panic!("failed to open shared in-memory prefix db: {e}"),
+        let dir = match tempfile::tempdir() {
+            Ok(d) => d,
+            Err(e) => panic!("failed to create tempdir for prefix matcher: {e}"),
         };
-        if let Err(e) = conn.execute_batch(
-            "CREATE TABLE UniqueCalls (
-                Callsign TEXT,
-                Country TEXT,
-                ARRLPrefix TEXT,
-                DXCC TEXT,
-                Continent TEXT,
-                CQZone INTEGER,
-                ITUZone INTEGER,
-                Latitude TEXT,
-                Longitude TEXT,
-                Enable TEXT
-            );
-            CREATE TABLE CountryDataEx (
-                Country TEXT,
-                ARRLPrefix TEXT,
-                DXCC INTEGER,
-                Continent TEXT,
-                CQZone INTEGER,
-                ITUZone INTEGER,
-                Latitude TEXT,
-                Longitude TEXT,
-                PrefixList TEXT,
-                EndDate TEXT
-            );
-            CREATE TABLE Province (
-                Country TEXT,
-                ARRLPrefix TEXT,
-                DXCC TEXT,
-                Continent TEXT,
-                CQZone INTEGER,
-                ITUZone INTEGER,
-                Latitude TEXT,
-                Longitude TEXT,
-                PrefixList TEXT,
-                Comment TEXT,
-                EndDate TEXT
-            );
-            INSERT INTO UniqueCalls VALUES
-                ('SP6INA', 'Poland', 'SP', '269', 'EU', 15, 28, '51.1N', '17.0E', '1'),
-                ('K1ABC', 'United States', 'K', '291', 'NA', 5, 8, '42.0N', '71.0W', '1'),
-                ('ZERO1AA', '', 'ZR', '0', '   ', 0, 0, '0.0N', '0.0E', '1');",
-        ) {
-            panic!("failed to populate test prefix tables: {e}");
+        let dat = "\
+Poland:                   15:  28:  EU:   51.10:   -17.00:    -1.0:  SP:
+    SP,=SP6INA;
+United States:             5:   8:  NA:   42.00:    71.00:    -5.0:  K:
+    K,=K1ABC;
+";
+        let csv = "\
+SP,Poland,269,EU,15,28,51.10,-17.00,-1.0,SP =SP6INA;
+K,United States,291,NA,5,8,42.00,71.00,-5.0,K =K1ABC;
+";
+        if let Err(e) = std::fs::write(dir.path().join("cty.dat"), dat) {
+            panic!("failed to write synthetic cty.dat: {e}");
         }
-
-        match PrefixMatcher::load_from_db(&uri) {
-            Ok(matcher) => matcher,
-            Err(e) => panic!("failed to load PrefixMatcher from URI: {e}"),
+        if let Err(e) = std::fs::write(dir.path().join("cty.csv"), csv) {
+            panic!("failed to write synthetic cty.csv: {e}");
+        }
+        match PrefixMatcher::load_from_country_files(
+            &dir.path().join("cty.dat"),
+            Some(&dir.path().join("cty.csv")),
+        ) {
+            Ok((matcher, _)) => matcher,
+            Err(e) => panic!("failed to load PrefixMatcher from country files: {e}"),
         }
     }
 

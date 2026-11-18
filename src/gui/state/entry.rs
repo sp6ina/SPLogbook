@@ -6,7 +6,7 @@ use crate::core::clubs::ClubAffiliation;
 use crate::core::prefix::PrefixInfo;
 use crate::core::propagation::PropagationForecast;
 use crate::core::qso::QsoRecord;
-use crate::core::service_db::QslManagerRecord;
+use crate::core::reference::tables::QslManagerRecord;
 use crate::core::station::AppConfig;
 use std::time::Instant;
 

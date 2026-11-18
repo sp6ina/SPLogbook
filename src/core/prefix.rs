@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
-use regex::Regex;
-use rusqlite::{Connection, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
@@ -41,10 +39,6 @@ pub enum LocationPrecision {
     EntityCentroid,
     /// Współrzędne z nadpisania `<lat/lon>` w pliku krajów.
     CountryFileOverride,
-    /// Współrzędne ze starszej bazy na poziomie encji.
-    LegacyEntity,
-    /// Współrzędne regionu ze starszej bazy (warstwa zgodności).
-    LegacyRegionalRule,
     /// Współrzędne z reguły regionalnej zaimportowanej przez użytkownika.
     UserRegionalRule,
     /// Współrzędne z jawnego nadpisania użytkownika.
@@ -82,19 +76,12 @@ pub struct Resolution {
     pub conflicts: Vec<LayerConflict>,
 }
 
-struct CompiledRule {
-    pub regex: Regex,
-    pub info: PrefixInfo,
-}
-
 /// Źródło reguł aktualnie załadowanych do [`PrefixMatcher`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PrefixSource {
     /// Brak danych referencyjnych (stan początkowy).
     #[default]
     None,
-    /// Starsza baza referencyjna SQLite.
-    LegacyDatabase,
     /// Pliki krajów `cty.dat` (+ opcjonalnie `cty.csv` z kodami encji ADIF).
     CountryFiles { entity_codes: bool },
 }
@@ -116,9 +103,6 @@ pub struct CountryFileReport {
 
 #[derive(Default)]
 struct RuleSet {
-    unique_calls: HashMap<String, PrefixInfo>,
-    province_rules: Vec<CompiledRule>,
-    country_rules: Vec<CompiledRule>,
     cty: Option<crate::core::reference::cty::CtyData>,
     regional: Option<crate::core::reference::rules::RuleBook>,
     overrides: Option<crate::core::reference::rules::RuleBook>,
@@ -163,206 +147,11 @@ fn cty_match_to_info(
     }
 }
 
-/// Tabela starszej bazy referencyjnej.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LegacyTable {
-    UniqueCalls,
-    CountryDataEx,
-    Province,
-}
-
-/// Rodzaj problemu z rekordem starszej bazy.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum LegacyRuleIssueKind {
-    /// Wiersz nie dał się odczytać (np. niezgodny typ kolumny).
-    UnreadableRow(String),
-    /// Wzorzec nie kompiluje się nawet po normalizacji kotwic.
-    InvalidPattern(String),
-    /// Znak w `UniqueCalls` pusty po przycięciu albo z niedozwolonymi
-    /// znakami (dozwolone: A–Z, 0–9, `/`); wartość jak w bazie.
-    InvalidCallsign(String),
-}
-
-/// Typowane ostrzeżenie: rekord pominięty podczas ładowania starszej bazy.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LegacyRuleIssue {
-    pub table: LegacyTable,
-    /// Indeks rekordu w wyniku zapytania (od 0).
-    pub index: usize,
-    /// Nazwa encji/regionu, jeśli dostępna.
-    pub label: String,
-    pub kind: LegacyRuleIssueKind,
-}
-
-impl std::fmt::Display for LegacyRuleIssue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let what = match &self.kind {
-            LegacyRuleIssueKind::UnreadableRow(e) => format!("unreadable row: {e}"),
-            LegacyRuleIssueKind::InvalidPattern(e) => format!("invalid pattern: {e}"),
-            LegacyRuleIssueKind::InvalidCallsign(c) => format!("invalid callsign: {c:?}"),
-        };
-        write!(f, "{:?}[{}] {}: {what}", self.table, self.index, self.label)
-    }
-}
-
-/// Liczniki i ostrzeżenia z ładowania starszej bazy.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct LegacyLoadReport {
-    pub exact_calls: usize,
-    pub country_rules: usize,
-    pub province_rules: usize,
-    /// Reguły, w których przetłumaczono kotwicę końca tekstu `\Z` na `\z`.
-    pub normalized_anchors: usize,
-    /// Wiersze `UniqueCalls` powtarzające już wczytany znak (rozstrzygnięte
-    /// deterministycznie, zob. [`PrefixMatcher::load_from_db_with_report`]).
-    pub duplicate_calls: usize,
-    pub issues: Vec<LegacyRuleIssue>,
-}
-
-/// Klucz rozstrzygania powtórzonych znaków w `UniqueCalls`: najpóźniejsza
-/// znana data działania (`YYYY-MM-DD`, pusta gdy brak dat), potem `rowid`.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-struct LegacyActivity {
-    last_date: String,
-    rowid: i64,
-}
-
-/// Data `YYYY-MM-DD` z początku pola daty starszej bazy (`YYYY-MM-DD HH:MM:SS`)
-/// albo `None`, gdy pole jest puste lub ma inny format.
-fn legacy_date(field: Option<&str>) -> Option<&str> {
-    let date = field?.trim().get(..10)?;
-    let b = date.as_bytes();
-    let shape = b.iter().enumerate().all(|(i, c)| match i {
-        4 | 7 => *c == b'-',
-        _ => c.is_ascii_digit(),
-    });
-    shape.then_some(date)
-}
-
-/// Najpóźniejsza z dat początku i końca (porównanie leksykalne `YYYY-MM-DD`);
-/// pusty napis, gdy wiersz nie ma żadnej poprawnej daty.
-fn legacy_activity_date(start: Option<&str>, end: Option<&str>) -> String {
-    legacy_date(start)
-        .max(legacy_date(end))
-        .unwrap_or_default()
-        .to_string()
-}
-
-fn is_valid_legacy_callsign(call: &str) -> bool {
-    !call.is_empty() && call.chars().all(|c| c.is_ascii_alphanumeric() || c == '/')
-}
-
-fn table_has_column(conn: &Connection, table: &str, column: &str) -> Result<bool> {
-    conn.query_row(
-        "SELECT COUNT(*) FROM pragma_table_info(?1) WHERE name = ?2",
-        [table, column],
-        |row| row.get::<_, i64>(0),
-    )
-    .map(|n| n > 0)
-}
-
-/// Tłumaczy historyczną kotwicę końca tekstu `\Z` (składnia PCRE/Python) na
-/// `\z` obsługiwaną przez crate `regex`. Zmienia wyłącznie niepoprzedzoną
-/// innym ukośnikiem sekwencję `\Z` poza klasą znaków; `\\Z` (literalny
-/// ukośnik i litera Z) oraz zawartość `[...]` pozostają bez zmian.
-/// Zwraca wzorzec i liczbę przetłumaczonych kotwic.
-pub fn normalize_legacy_end_anchors(pattern: &str) -> (String, usize) {
-    let mut out = String::with_capacity(pattern.len());
-    let mut chars = pattern.chars();
-    let mut in_class = false;
-    let mut class_start = false;
-    let mut count = 0;
-    while let Some(c) = chars.next() {
-        match c {
-            '\\' => match chars.next() {
-                Some('Z') if !in_class => {
-                    out.push_str("\\z");
-                    count += 1;
-                }
-                Some(next) => {
-                    out.push('\\');
-                    out.push(next);
-                }
-                None => out.push('\\'),
-            },
-            '[' if !in_class => {
-                in_class = true;
-                class_start = true;
-                out.push(c);
-                continue;
-            }
-            ']' if in_class && !class_start => {
-                in_class = false;
-                out.push(c);
-            }
-            '^' if in_class && class_start => {
-                out.push(c);
-                continue;
-            }
-            _ => {
-                out.push(c);
-            }
-        }
-        class_start = false;
-    }
-    (out, count)
-}
-
-fn compile_legacy_rule(
-    table: LegacyTable,
-    index: usize,
-    mut info: PrefixInfo,
-    raw_regex: &str,
-    rules: &mut Vec<CompiledRule>,
-    report: &mut LegacyLoadReport,
-) {
-    let (normalized, anchors) = normalize_legacy_end_anchors(raw_regex);
-    let pattern = if normalized.starts_with('^') {
-        normalized
-    } else {
-        format!("^(?:{normalized})")
-    };
-    match Regex::new(&pattern) {
-        Ok(regex) => {
-            if anchors > 0 {
-                report.normalized_anchors += 1;
-            }
-            info.wpx_prefix = extract_wpx_prefix(&info.arrl_prefix);
-            rules.push(CompiledRule { regex, info });
-            match table {
-                LegacyTable::Province => report.province_rules += 1,
-                _ => report.country_rules += 1,
-            }
-        }
-        Err(e) => report.issues.push(LegacyRuleIssue {
-            table,
-            index,
-            label: info
-                .province
-                .clone()
-                .unwrap_or_else(|| info.country.clone()),
-            kind: LegacyRuleIssueKind::InvalidPattern(e.to_string()),
-        }),
-    }
-}
-
 fn is_operational_suffix(s: &str) -> bool {
     matches!(
         s,
         "P" | "M" | "MM" | "AM" | "QRP" | "LGT" | "LH" | "B" | "R" | "A" | "J"
     )
-}
-
-fn parse_coord(s: &str) -> f64 {
-    let s = s.trim();
-    if s.is_empty() {
-        return 0.0;
-    }
-    let is_south_or_west =
-        s.ends_with('S') || s.ends_with('W') || s.ends_with('s') || s.ends_with('w');
-    let num_str = s.trim_matches(|c: char| c.is_alphabetic());
-    let val: f64 = num_str.parse().unwrap_or(0.0);
-    if is_south_or_west { -val } else { val }
 }
 
 /// Ekstrahuje prefiks WPX (np. SP6INA -> SP6, 3Z100POL -> 3Z100, W1AW -> W1, SP6INA/1 -> SP1, DL/SP6INA -> DL0)
@@ -436,250 +225,6 @@ fn extract_wpx_base(call: &str) -> String {
 }
 
 impl PrefixMatcher {
-    /// Ładuje reguły prefiksów ze starszej bazy referencyjnej SQLite.
-    /// Problemy z poszczególnymi regułami są logowane jako ostrzeżenia;
-    /// pełny raport zwraca [`Self::load_from_db_with_report`].
-    pub fn load_from_db(db_path: impl AsRef<Path>) -> Result<Self> {
-        let (matcher, report) = Self::load_from_db_with_report(db_path)?;
-        for issue in &report.issues {
-            log::warn!("legacy prefix rule skipped: {issue}");
-        }
-        Ok(matcher)
-    }
-
-    /// Jak [`Self::load_from_db`], ale zwraca też liczniki reguł i typowane
-    /// ostrzeżenia o pominiętych rekordach.
-    pub fn load_from_db_with_report(db_path: impl AsRef<Path>) -> Result<(Self, LegacyLoadReport)> {
-        let mut report = LegacyLoadReport::default();
-        let conn = Connection::open_with_flags(
-            db_path,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
-        )?;
-
-        // 1. UniqueCalls. Wiersze mogą mieć okres działania (StartDate/EndDate);
-        // starsze układy tabeli tych kolumn nie mają. `rowid` jest aliasem `_id`.
-        let date_column = |name: &'static str| -> Result<&'static str> {
-            Ok(if table_has_column(&conn, "UniqueCalls", name)? {
-                name
-            } else {
-                "NULL"
-            })
-        };
-        let sql = format!(
-            "SELECT Callsign, Country, ARRLPrefix, DXCC, Continent, CQZone, ITUZone, Latitude, Longitude,
-                    rowid, {}, {}
-             FROM UniqueCalls WHERE Enable != '0' OR Enable IS NULL ORDER BY rowid",
-            date_column("StartDate")?,
-            date_column("EndDate")?
-        );
-        let mut unique_calls: HashMap<String, (PrefixInfo, LegacyActivity)> = HashMap::new();
-        let mut stmt = conn.prepare(&sql)?;
-
-        let rows = stmt.query_map([], |row| {
-            let call: String = row.get(0)?;
-            let dxcc_str: String = row.get(3)?;
-            let dxcc: u32 = dxcc_str.parse().unwrap_or(0);
-            let lat_str: String = row.get(7)?;
-            let lon_str: String = row.get(8)?;
-            let start: Option<String> = row.get(10)?;
-            let end: Option<String> = row.get(11)?;
-
-            Ok((
-                PrefixInfo {
-                    callsign: call,
-                    country: row.get(1)?,
-                    arrl_prefix: row.get(2)?,
-                    dxcc,
-                    continent: row.get(4)?,
-                    cqz: row.get(5)?,
-                    ituz: row.get(6)?,
-                    latitude: parse_coord(&lat_str),
-                    longitude: parse_coord(&lon_str),
-                    wpx_prefix: String::new(),
-                    province: None,
-                    subdivision_code: None,
-                    location_precision: LocationPrecision::LegacyEntity,
-                },
-                LegacyActivity {
-                    last_date: legacy_activity_date(start.as_deref(), end.as_deref()),
-                    rowid: row.get(9)?,
-                },
-            ))
-        })?;
-
-        for (index, r) in rows.enumerate() {
-            match r {
-                Ok((mut info, activity)) => {
-                    // I1: klucz bez otaczających białych znaków; pusty lub z
-                    // niedozwolonymi znakami (np. `?`) jest odrzucany i zgłaszany.
-                    let key = info.callsign.trim().to_uppercase();
-                    if !is_valid_legacy_callsign(&key) {
-                        report.issues.push(LegacyRuleIssue {
-                            table: LegacyTable::UniqueCalls,
-                            index,
-                            label: info.callsign.clone(),
-                            kind: LegacyRuleIssueKind::InvalidCallsign(info.callsign),
-                        });
-                        continue;
-                    }
-                    info.wpx_prefix = extract_wpx_prefix(&key);
-                    info.callsign.clone_from(&key);
-                    // I2: przy powtórzonym znaku wygrywa wiersz o najpóźniejszej
-                    // znanej dacie działania, przy remisie — późniejszy `rowid`.
-                    match unique_calls.entry(key) {
-                        std::collections::hash_map::Entry::Vacant(slot) => {
-                            slot.insert((info, activity));
-                        }
-                        std::collections::hash_map::Entry::Occupied(mut slot) => {
-                            report.duplicate_calls += 1;
-                            if activity > slot.get().1 {
-                                slot.insert((info, activity));
-                            }
-                        }
-                    }
-                }
-                Err(e) => report.issues.push(LegacyRuleIssue {
-                    table: LegacyTable::UniqueCalls,
-                    index,
-                    label: String::new(),
-                    kind: LegacyRuleIssueKind::UnreadableRow(e.to_string()),
-                }),
-            }
-        }
-        let unique_calls: HashMap<String, PrefixInfo> = unique_calls
-            .into_iter()
-            .map(|(k, (info, _))| (k, info))
-            .collect();
-        report.exact_calls = unique_calls.len();
-
-        // 2. CountryDataEx
-        let mut country_rules = Vec::new();
-        let mut stmt = conn.prepare(
-            "SELECT Country, ARRLPrefix, DXCC, Continent, CQZone, ITUZone, Latitude, Longitude, PrefixList
-             FROM CountryDataEx WHERE EndDate = '' OR EndDate IS NULL"
-        )?;
-
-        let rows = stmt.query_map([], |row| {
-            let lat_str: String = row.get(6)?;
-            let lon_str: String = row.get(7)?;
-            let prefix_list: String = row.get(8)?;
-
-            Ok((
-                PrefixInfo {
-                    callsign: String::new(),
-                    country: row.get(0)?,
-                    arrl_prefix: row.get(1)?,
-                    dxcc: row.get(2)?,
-                    continent: row.get(3)?,
-                    cqz: row.get(4)?,
-                    ituz: row.get(5)?,
-                    latitude: parse_coord(&lat_str),
-                    longitude: parse_coord(&lon_str),
-                    wpx_prefix: String::new(),
-                    province: None,
-                    subdivision_code: None,
-                    location_precision: LocationPrecision::LegacyEntity,
-                },
-                prefix_list,
-            ))
-        })?;
-
-        for (index, row_res) in rows.enumerate() {
-            match row_res {
-                Ok((info, raw_regex)) => {
-                    compile_legacy_rule(
-                        LegacyTable::CountryDataEx,
-                        index,
-                        info,
-                        &raw_regex,
-                        &mut country_rules,
-                        &mut report,
-                    );
-                }
-                Err(e) => report.issues.push(LegacyRuleIssue {
-                    table: LegacyTable::CountryDataEx,
-                    index,
-                    label: String::new(),
-                    kind: LegacyRuleIssueKind::UnreadableRow(e.to_string()),
-                }),
-            }
-        }
-
-        // 3. Province (Oblasty, stany itp.). Nazwa regionu jest zapisana w
-        // kolumnie `Country` (np. „Russia, Chechen Rep.”); `Comment` jest pusta
-        // we wszystkich wierszach dostarczanej bazy (I3).
-        let mut province_rules = Vec::new();
-        let mut stmt = conn.prepare(
-            "SELECT Country, ARRLPrefix, DXCC, Continent, CQZone, ITUZone, Latitude, Longitude, PrefixList
-             FROM Province WHERE EndDate = '' OR EndDate IS NULL"
-        )?;
-
-        let rows = stmt.query_map([], |row| {
-            let lat_str: String = row.get(6)?;
-            let lon_str: String = row.get(7)?;
-            let prefix_list: String = row.get(8)?;
-            let country: String = row.get(0)?;
-            let region = country.trim();
-            let province = (!region.is_empty()).then(|| region.to_string());
-
-            Ok((
-                PrefixInfo {
-                    callsign: String::new(),
-                    country,
-                    arrl_prefix: row.get(1)?,
-                    dxcc: {
-                        let d: String = row.get(2)?;
-                        d.parse().unwrap_or(0)
-                    },
-                    continent: row.get(3)?,
-                    cqz: row.get(4)?,
-                    ituz: row.get(5)?,
-                    latitude: parse_coord(&lat_str),
-                    longitude: parse_coord(&lon_str),
-                    wpx_prefix: String::new(),
-                    province,
-                    subdivision_code: None,
-                    location_precision: LocationPrecision::LegacyRegionalRule,
-                },
-                prefix_list,
-            ))
-        })?;
-
-        for (index, row_res) in rows.enumerate() {
-            match row_res {
-                Ok((info, raw_regex)) => {
-                    compile_legacy_rule(
-                        LegacyTable::Province,
-                        index,
-                        info,
-                        &raw_regex,
-                        &mut province_rules,
-                        &mut report,
-                    );
-                }
-                Err(e) => report.issues.push(LegacyRuleIssue {
-                    table: LegacyTable::Province,
-                    index,
-                    label: String::new(),
-                    kind: LegacyRuleIssueKind::UnreadableRow(e.to_string()),
-                }),
-            }
-        }
-
-        Ok((
-            Self::with_rules(RuleSet {
-                unique_calls,
-                province_rules,
-                country_rules,
-                cty: None,
-                regional: None,
-                overrides: None,
-                source: PrefixSource::LegacyDatabase,
-            }),
-            report,
-        ))
-    }
-
     fn with_rules(rules: RuleSet) -> Self {
         Self {
             rules: RwLock::new(rules),
@@ -767,7 +312,7 @@ impl PrefixMatcher {
                 })
                 .collect()
         } else {
-            rules.unique_calls.values().cloned().collect()
+            Vec::new()
         };
         out.sort_by(|a, b| a.callsign.cmp(&b.callsign));
         out
@@ -898,10 +443,9 @@ impl PrefixMatcher {
     /// 2. znak dokładny z plików krajów;
     /// 3. dokładna reguła regionalna użytkownika;
     /// 4. najdłuższy prefiks z plików krajów, doprecyzowany regułą regionalną
-    ///    użytkownika albo (w okresie przejściowym) regułą regionalną starszej bazy;
-    /// 5. starsza baza jako warstwa zgodności, gdy pliki krajów nic nie dają;
-    /// 6. sama reguła użytkownika z kodem encji;
-    /// 7. brak wyniku.
+    ///    użytkownika;
+    /// 5. sama reguła użytkownika z kodem encji;
+    /// 6. brak wyniku.
     fn resolve_clean(&self, clean: &str) -> Resolution {
         let rules = self
             .rules
@@ -1000,18 +544,10 @@ impl PrefixMatcher {
                         }
                     }
                 }
-                if let Some(refined) = legacy_regional_refinement(rules, &info, lookup_call) {
-                    return Some(refined);
-                }
                 return Some(info);
             }
 
-            // 5. Warstwa zgodności: starsza baza.
-            if let Some(info) = legacy_lookup(rules, clean, lookup_call) {
-                return Some(info);
-            }
-
-            // 6. Sama reguła regionalna z kodem encji.
+            // 5. Sama reguła regionalna z kodem encji.
             if let Some(book) = regional
                 && let Some(rule) = pick_rule(
                     book.match_prefix(lookup_call),
@@ -1031,14 +567,11 @@ impl PrefixMatcher {
             return None;
         }
 
-        // Bez plików krajów: dotychczasowa ścieżka starszej bazy, potem reguły użytkownika.
-        let legacy = legacy_lookup(rules, clean, lookup_call);
-        let Some(book) = regional else {
-            return legacy;
-        };
+        // Bez plików krajów: same reguły regionalne użytkownika.
+        let book = regional?;
         if let Some(rule) = book.match_exact(clean, base) {
             return apply_rule(
-                legacy,
+                None,
                 rule,
                 None,
                 clean,
@@ -1046,32 +579,19 @@ impl PrefixMatcher {
                 LocationPrecision::UserRegionalRule,
             );
         }
-        let Some(rule) = pick_rule(
+        let rule = pick_rule(
             book.match_prefix(lookup_call),
             RuleLayer::UserRegional,
             conflicts,
-        ) else {
-            return legacy;
-        };
-        match (rule.attributes.dxcc, &legacy) {
-            (Some(d), Some(l)) if d != l.dxcc => {
-                conflicts.push(LayerConflict::EntityMismatch {
-                    layer: RuleLayer::UserRegional,
-                    line: rule.line,
-                    rule_dxcc: d,
-                    resolved_dxcc: l.dxcc,
-                });
-                legacy
-            }
-            _ => apply_rule(
-                legacy,
-                rule,
-                None,
-                clean,
-                lookup_call,
-                LocationPrecision::UserRegionalRule,
-            ),
-        }
+        )?;
+        apply_rule(
+            None,
+            rule,
+            None,
+            clean,
+            lookup_call,
+            LocationPrecision::UserRegionalRule,
+        )
     }
 
     /// Dołącza reguły regionalne użytkownika (zastępuje poprzednie).
@@ -1096,29 +616,6 @@ impl PrefixMatcher {
         self
     }
 
-    /// Dołącza reguły starszej bazy jako warstwę zgodności (okres przejściowy).
-    #[must_use]
-    pub fn with_legacy_compatibility(self, legacy: Self) -> Self {
-        let legacy = legacy
-            .rules
-            .into_inner()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        {
-            let mut rules = self
-                .rules
-                .write()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            rules.unique_calls = legacy.unique_calls;
-            rules.province_rules = legacy.province_rules;
-            rules.country_rules = legacy.country_rules;
-            if rules.source == PrefixSource::None {
-                rules.source = legacy.source;
-            }
-        }
-        self.clear_cache();
-        self
-    }
-
     /// Opis załadowanych warstw.
     pub fn layers(&self) -> LayerSummary {
         let rules = self
@@ -1128,9 +625,6 @@ impl PrefixMatcher {
         LayerSummary {
             source: rules.source,
             country_files: rules.cty.is_some(),
-            legacy_rules: rules.unique_calls.len()
-                + rules.province_rules.len()
-                + rules.country_rules.len(),
             regional_rules: rules
                 .regional
                 .as_ref()
@@ -1148,7 +642,6 @@ impl PrefixMatcher {
 pub struct LayerSummary {
     pub source: PrefixSource,
     pub country_files: bool,
-    pub legacy_rules: usize,
     pub regional_rules: usize,
     pub override_rules: usize,
 }
@@ -1256,46 +749,6 @@ fn entity_info(
     }
 }
 
-/// Dotychczasowa ścieżka starszej bazy (UniqueCalls → Province → CountryDataEx).
-fn legacy_lookup(rules: &RuleSet, clean: &str, lookup_call: &str) -> Option<PrefixInfo> {
-    if let Some(info) = rules.unique_calls.get(clean) {
-        let mut res = info.clone();
-        res.callsign = clean.to_string();
-        return Some(res);
-    }
-    for rule in rules.province_rules.iter().chain(&rules.country_rules) {
-        if rule.regex.is_match(lookup_call) {
-            let mut res = rule.info.clone();
-            res.callsign = clean.to_string();
-            res.wpx_prefix = extract_wpx_prefix(lookup_call);
-            return Some(res);
-        }
-    }
-    None
-}
-
-/// Doprecyzowanie wyniku z plików krajów regułą regionalną starszej bazy tej
-/// samej encji (strefy, współrzędne, nazwa regionu) — warstwa zgodności.
-fn legacy_regional_refinement(
-    rules: &RuleSet,
-    info: &PrefixInfo,
-    lookup_call: &str,
-) -> Option<PrefixInfo> {
-    let rule = rules
-        .province_rules
-        .iter()
-        .find(|r| r.info.dxcc == info.dxcc && info.dxcc != 0 && r.regex.is_match(lookup_call))?;
-    let mut refined = info.clone();
-    refined.cqz = rule.info.cqz;
-    refined.ituz = rule.info.ituz;
-    refined.continent.clone_from(&rule.info.continent);
-    refined.latitude = rule.info.latitude;
-    refined.longitude = rule.info.longitude;
-    refined.province.clone_from(&rule.info.province);
-    refined.location_precision = LocationPrecision::LegacyRegionalRule;
-    Some(refined)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1309,138 +762,6 @@ mod tests {
         assert_eq!(extract_wpx_prefix("SP6INA/1"), "SP1");
         assert_eq!(extract_wpx_prefix("SP6INA/W6"), "W6");
         assert_eq!(extract_wpx_prefix("DL/SP6INA/P"), "DL0");
-    }
-
-    #[test]
-    fn legacy_end_anchor_is_normalized_only_where_it_is_an_anchor() {
-        // Kotwica końca tekstu.
-        assert_eq!(
-            normalize_legacy_end_anchors(r"G\Z"),
-            (r"G\z".to_string(), 1)
-        );
-        assert_eq!(
-            normalize_legacy_end_anchors(r"Q\Z|QA[0-9].*|QB\Z"),
-            (r"Q\z|QA[0-9].*|QB\z".to_string(), 2)
-        );
-        // Literalny ukośnik, po którym następuje litera Z — bez zmian.
-        assert_eq!(
-            normalize_legacy_end_anchors(r"Q\\Z"),
-            (r"Q\\Z".to_string(), 0)
-        );
-        // Wewnątrz klasy znaków — bez zmian (także z ']' na początku i negacją).
-        assert_eq!(
-            normalize_legacy_end_anchors(r"[\Z]"),
-            (r"[\Z]".to_string(), 0)
-        );
-        assert_eq!(
-            normalize_legacy_end_anchors(r"[]\Z]"),
-            (r"[]\Z]".to_string(), 0)
-        );
-        assert_eq!(
-            normalize_legacy_end_anchors(r"[^]\Z]"),
-            (r"[^]\Z]".to_string(), 0)
-        );
-        // Escapowany ']' nie zamyka klasy; kotwica po klasie jest tłumaczona.
-        assert_eq!(
-            normalize_legacy_end_anchors(r"[^\]]\Z"),
-            (r"[^\]]\z".to_string(), 1)
-        );
-        // Inne sekwencje i wzorce bez kotwic pozostają identyczne.
-        for p in [r"\d+", r"\bQ", r"2[BEGORQV].*", r"Q\.", r"Q\z", ""] {
-            assert_eq!(normalize_legacy_end_anchors(p), (p.to_string(), 0));
-        }
-        // Samotny ukośnik na końcu nie powoduje paniki.
-        assert_eq!(normalize_legacy_end_anchors("Q\\"), ("Q\\".to_string(), 0));
-    }
-
-    fn synthetic_legacy_db(rows_sql: &str) -> String {
-        let uri = format!(
-            "file:legacy_rules_{}_{}?mode=memory&cache=shared",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        );
-        let conn = Connection::open_with_flags(
-            &uri,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE
-                | rusqlite::OpenFlags::SQLITE_OPEN_CREATE
-                | rusqlite::OpenFlags::SQLITE_OPEN_URI,
-        )
-        .unwrap();
-        conn.execute_batch(&format!(
-            "CREATE TABLE UniqueCalls (
-                Callsign TEXT, Country TEXT, ARRLPrefix TEXT, DXCC TEXT, Continent TEXT,
-                CQZone INTEGER, ITUZone INTEGER, Latitude TEXT, Longitude TEXT, Enable TEXT);
-             CREATE TABLE CountryDataEx (
-                Country TEXT, ARRLPrefix TEXT, DXCC INTEGER, Continent TEXT,
-                CQZone INTEGER, ITUZone INTEGER, Latitude TEXT, Longitude TEXT,
-                PrefixList TEXT, EndDate TEXT);
-             CREATE TABLE Province (
-                Country TEXT, ARRLPrefix TEXT, DXCC TEXT, Continent TEXT,
-                CQZone INTEGER, ITUZone INTEGER, Latitude TEXT, Longitude TEXT,
-                PrefixList TEXT, Comment TEXT, EndDate TEXT);
-             {rows_sql}"
-        ))
-        .unwrap();
-        // Połączenie musi żyć, aby baza w pamięci istniała podczas ładowania.
-        std::mem::forget(conn);
-        uri
-    }
-
-    #[test]
-    fn legacy_loader_compiles_anchored_rules_and_reports_invalid_ones() {
-        let uri = synthetic_legacy_db(
-            r"INSERT INTO CountryDataEx VALUES
-                ('Alpha Land', 'QA', 901, 'EU', 14, 27, '50.0N', '20.0E', 'QA\Z|QA[0-9].*', ''),
-                ('Beta Isles', 'QB', 902, 'NA', 3, 6, '20.0N', '100.0W', 'QB(', ''),
-                ('Gamma Rock', 'QG', 903, 'AF', 33, 37, '10.0S', '15.0E', 'QG\\Z.*', ''),
-                ('Retired',    'QR', 904, 'EU', 14, 27, '50.0N', '20.0E', 'QR.*', '2001-01-01');
-              INSERT INTO Province VALUES
-                ('Alpha Land, North', 'QA', '901', 'EU', 15, 28, '51.0N', '21.0E', 'QA9[\Z]', '', ''),
-                ('Alpha Land, South', 'QA', '901', 'EU', 16, 29, '49.0N', '19.0E', 'QA8.*', '', '');
-              INSERT INTO UniqueCalls VALUES
-                ('QA1X', 'Alpha Land', 'QA', '901', 'EU', 14, 27, '50.0N', '20.0E', '1'),
-                ('QA2X', 'Alpha Land', 'QA', '901', 'EU', 14, 'bad', '50.0N', '20.0E', '1');",
-        );
-        let (m, report) = PrefixMatcher::load_from_db_with_report(&uri).unwrap();
-        assert_eq!(report.country_rules, 2, "{report:?}");
-        assert_eq!(report.province_rules, 1, "{report:?}");
-        assert_eq!(report.exact_calls, 1, "{report:?}");
-        assert_eq!(report.normalized_anchors, 1);
-        let kinds: Vec<(LegacyTable, &str, bool)> = report
-            .issues
-            .iter()
-            .map(|i| {
-                (
-                    i.table,
-                    i.label.as_str(),
-                    matches!(i.kind, LegacyRuleIssueKind::InvalidPattern(_)),
-                )
-            })
-            .collect();
-        assert_eq!(
-            kinds,
-            vec![
-                (LegacyTable::UniqueCalls, "", false),
-                (LegacyTable::CountryDataEx, "Beta Isles", true),
-                (LegacyTable::Province, "Alpha Land, North", true),
-            ]
-        );
-
-        // Kotwica \Z działa jak koniec tekstu: sam prefiks "QA" pasuje.
-        assert_eq!(m.lookup("QA").unwrap().country, "Alpha Land");
-        assert_eq!(m.lookup("QA5ZZ").unwrap().country, "Alpha Land");
-        assert_eq!(
-            m.lookup("QA8ZZ").unwrap().province.as_deref(),
-            Some("Alpha Land, South")
-        );
-        // Literalny "\Z" w regule Gamma pozostał literalny: QG… nie pasuje.
-        assert_eq!(m.lookup("QG1AB"), None);
-        // Pominięta reguła Beta nie jest dopasowywana; wycofana reguła też nie.
-        assert_eq!(m.lookup("QB1AB"), None);
-        assert_eq!(m.lookup("QR1AB"), None);
     }
 
     #[test]
@@ -1754,272 +1075,6 @@ QB,Beta Isles,902,NA,3,6,20.00,100.00,8.0,QB;
                 lines: vec![3, 4],
             }]
         );
-    }
-
-    #[test]
-    fn legacy_regional_rules_refine_country_file_results_during_transition() {
-        let uri = synthetic_legacy_db(
-            r"INSERT INTO Province VALUES
-                ('Alpha Land, North', 'QA', '901', 'EU', 15, 28, '51.0N', '21.0E', 'QA6.*', '', ''),
-                ('Other, Wrong Entity', 'QB', '902', 'NA', 4, 7, '21.0N', '99.0W', 'QA4.*', '', '');
-              INSERT INTO CountryDataEx VALUES
-                ('Legacy Only', 'QL', 903, 'AF', 33, 37, '1.0N', '1.0E', 'QL.*', '');",
-        );
-        let legacy = PrefixMatcher::load_from_db(&uri).unwrap();
-        let m = cty_matcher().with_legacy_compatibility(legacy);
-        let r = m.lookup("QA6AB").unwrap();
-        assert_eq!(r.country, "Alpha Land");
-        assert_eq!((r.cqz, r.ituz), (15, 28));
-        assert_eq!(r.province.as_deref(), Some("Alpha Land, North"));
-        assert_eq!(r.location_precision, LocationPrecision::LegacyRegionalRule);
-        // Reguła starszej bazy innej encji nie zmienia wyniku plików krajów.
-        let w = m.lookup("QA4AB").unwrap();
-        assert_eq!((w.dxcc, w.province), (901, None));
-        // Prefiks nieznany plikom krajów: warstwa zgodności.
-        let l = m.lookup("QL1AB").unwrap();
-        assert_eq!(l.country, "Legacy Only");
-        assert_eq!(l.location_precision, LocationPrecision::LegacyEntity);
-        assert!(m.layers().country_files);
-        assert_eq!(m.layers().legacy_rules, 3);
-    }
-
-    #[test]
-    fn legacy_only_matcher_keeps_its_previous_results() {
-        let uri = synthetic_legacy_db(
-            r"INSERT INTO Province VALUES
-                ('Alpha Land, North', 'QA', '901', 'EU', 15, 28, '51.0N', '21.0E', 'QA6.*', '', '');
-              INSERT INTO CountryDataEx VALUES
-                ('Alpha Land', 'QA', 901, 'EU', 14, 27, '50.0N', '20.0E', 'QA.*', '');",
-        );
-        let m = PrefixMatcher::load_from_db(&uri).unwrap();
-        let r = m.lookup("QA6AB").unwrap();
-        assert_eq!(
-            (r.cqz, r.province.as_deref()),
-            (15, Some("Alpha Land, North"))
-        );
-        assert_eq!(r.location_precision, LocationPrecision::LegacyRegionalRule);
-        let e = m.lookup("QA1AB").unwrap();
-        assert_eq!((e.cqz, e.province), (14, None));
-        assert_eq!(e.location_precision, LocationPrecision::LegacyEntity);
-        // Reguły użytkownika działają także bez plików krajów.
-        let m = m.with_regional_rules(rule_book("prefix,QA1,,,Alpha One,18,,,,,0\n"));
-        assert_eq!(m.lookup("QA1AB").unwrap().cqz, 18);
-    }
-
-    /// Baza w pamięci w układzie dostarczanej bazy: `UniqueCalls` z `_id`,
-    /// `StartDate`, `EndDate`; `Province` z pustą kolumną `Comment`. Nazwa bez
-    /// zegara: licznik w procesie.
-    fn real_layout_legacy_db(rows_sql: &str) -> String {
-        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let uri = format!(
-            "file:legacy_real_{}_{n}?mode=memory&cache=shared",
-            std::process::id()
-        );
-        let conn = Connection::open_with_flags(
-            &uri,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE
-                | rusqlite::OpenFlags::SQLITE_OPEN_CREATE
-                | rusqlite::OpenFlags::SQLITE_OPEN_URI,
-        )
-        .unwrap();
-        conn.execute_batch(&format!(
-            "CREATE TABLE UniqueCalls (
-                _id INTEGER PRIMARY KEY AUTOINCREMENT, Callsign TEXT, Country TEXT, QSL TEXT,
-                DXCC TEXT, ARRLPrefix TEXT, Prefix TEXT, Continent TEXT, CQZone INTEGER,
-                ITUZone INTEGER, Latitude TEXT, Longitude TEXT, Enable TEXT, EndDate TEXT,
-                StartDate TEXT);
-             CREATE TABLE CountryDataEx (
-                _id INTEGER PRIMARY KEY AUTOINCREMENT, ARRLPrefix TEXT, Comment TEXT,
-                Continent TEXT, Country TEXT, CQZone INTEGER, DXCC INTEGER, ITUZone INTEGER,
-                Latitude TEXT, Longitude TEXT, PrefixList TEXT, Status TEXT, StartDate TEXT,
-                TimeDiff INTEGER, EndDate TEXT);
-             CREATE TABLE Province (
-                _id INTEGER PRIMARY KEY AUTOINCREMENT, ARRLPrefix TEXT, Prefix TEXT,
-                Comment TEXT, Continent TEXT, Country TEXT, CQZone INTEGER, DXCC TEXT,
-                ITUZone INTEGER, Latitude TEXT, Longitude TEXT, PrefixList TEXT,
-                EndDate TEXT, TimeDiff INTEGER, StartDate TEXT);
-             {rows_sql}"
-        ))
-        .unwrap();
-        std::mem::forget(conn);
-        uri
-    }
-
-    /// Wiersz `UniqueCalls`: (_id, znak, encja, kod, CQ, ITU, Enable, start, koniec).
-    #[allow(clippy::too_many_arguments)]
-    fn uc_row(
-        id: u32,
-        call: &str,
-        country: &str,
-        dxcc: &str,
-        cq: u32,
-        itu: u32,
-        enable: &str,
-        start: &str,
-        end: &str,
-    ) -> String {
-        format!(
-            "INSERT INTO UniqueCalls (_id, Callsign, Country, QSL, DXCC, ARRLPrefix, Prefix,
-               Continent, CQZone, ITUZone, Latitude, Longitude, Enable, EndDate, StartDate)
-             VALUES ({id}, '{call}', '{country}', '', '{dxcc}', 'QA', 'QA', 'EU', {cq}, {itu},
-               '50.0N', '20.0E', '{enable}', '{end}', '{start}');"
-        )
-    }
-
-    #[test]
-    fn unique_call_keys_are_trimmed_and_invalid_keys_rejected() {
-        let rows = [
-            uc_row(1, "QA1X ", "Alpha Land", "901", 14, 27, "", "", ""),
-            uc_row(2, " qa2y", "Alpha Land", "901", 15, 28, "", "", ""),
-            uc_row(3, "QA3??P", "Alpha Land", "901", 14, 27, "", "", ""),
-            uc_row(4, "   ", "Alpha Land", "901", 14, 27, "", "", ""),
-            uc_row(5, "QA4Z", "Alpha Land", "901", 14, 27, "0", "", ""),
-        ]
-        .concat();
-        let (m, report) =
-            PrefixMatcher::load_from_db_with_report(real_layout_legacy_db(&rows)).unwrap();
-        assert_eq!(report.exact_calls, 2, "{report:?}");
-        let invalid: Vec<&str> = report
-            .issues
-            .iter()
-            .filter_map(|i| match &i.kind {
-                LegacyRuleIssueKind::InvalidCallsign(c) => Some(c.as_str()),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(invalid, vec!["QA3??P", "   "]);
-        // Wcześniej klucz "QA1X " nie pasował do żadnego zapytania.
-        let a = m.lookup("QA1X").unwrap();
-        assert_eq!(
-            (a.callsign.as_str(), a.dxcc, a.wpx_prefix.as_str()),
-            ("QA1X", 901, "QA1")
-        );
-        assert_eq!(m.lookup("qa2y").unwrap().cqz, 15);
-        // Wiersz wyłączony nadal nie jest wczytywany.
-        assert_eq!(m.lookup("QA4Z"), None);
-        let listed: Vec<String> = m
-            .exception_calls()
-            .into_iter()
-            .map(|p| p.callsign)
-            .collect();
-        assert_eq!(listed, vec!["QA1X".to_string(), "QA2Y".to_string()]);
-    }
-
-    #[test]
-    fn duplicate_unique_calls_resolve_to_the_latest_activity_then_rowid() {
-        // (_id, znak, Alpha=true / Beta=false, StartDate, EndDate)
-        let table: &[(u32, &str, bool, &str, &str)] = &[
-            // Nowszy okres w wierszu o niższym _id wygrywa ze starszym w wyższym.
-            (
-                1,
-                "QA5D",
-                false,
-                "2019-08-10 00:00:00",
-                "2019-08-18 00:00:00",
-            ),
-            (
-                2,
-                "QA5D",
-                true,
-                "2004-10-23 00:00:00",
-                "2004-11-15 00:00:00",
-            ),
-            // Bez dat: decyduje _id (jak dotychczasowa kolejność wierszy).
-            (3, "QA6D", true, "", ""),
-            (4, "QA6D", false, "", ""),
-            // Wiersz z datą wygrywa z wierszem bez dat.
-            (
-                5,
-                "QA7D",
-                true,
-                "2015-09-19 00:00:00",
-                "2015-10-31 00:00:00",
-            ),
-            (6, "QA7D", false, "", ""),
-            // Otwarty koniec: liczy się data początku.
-            (7, "QA8D", true, "2013-07-14 00:00:00", ""),
-            (8, "QA8D", false, "", "2013-07-13 00:00:00"),
-            // Uszkodzona data jest traktowana jak brak daty.
-            (9, "QA9D", true, "", "2020-01-01 00:00:00"),
-            (10, "QA9D", false, "2030-13", "not a date"),
-            // Ten sam dzień: decyduje _id.
-            (11, "QB1D", true, "", "2011-03-01 00:00:00"),
-            (12, "QB1D", false, "", "2011-03-01 12:00:00"),
-        ];
-        let rows: String = table
-            .iter()
-            .map(|&(id, call, alpha, start, end)| {
-                let (country, dxcc, cq, itu) = if alpha {
-                    ("Alpha Land", "901", 14, 27)
-                } else {
-                    ("Beta Isles", "902", 3, 6)
-                };
-                uc_row(id, call, country, dxcc, cq, itu, "", start, end)
-            })
-            .collect();
-        let uri = real_layout_legacy_db(&rows);
-        let (m, report) = PrefixMatcher::load_from_db_with_report(&uri).unwrap();
-        assert_eq!(report.exact_calls, 6);
-        assert_eq!(report.duplicate_calls, 6);
-        let entity = |c: &str| m.lookup(c).unwrap().dxcc;
-        assert_eq!(entity("QA5D"), 902);
-        assert_eq!(entity("QA6D"), 902);
-        assert_eq!(entity("QA7D"), 901);
-        assert_eq!(entity("QA8D"), 901);
-        assert_eq!(entity("QA9D"), 901);
-        assert_eq!(entity("QB1D"), 902);
-        // Deterministycznie: ponowne wczytanie daje te same wyniki.
-        for _ in 0..20 {
-            let (again, _) = PrefixMatcher::load_from_db_with_report(&uri).unwrap();
-            assert_eq!(again.exception_calls(), m.exception_calls());
-        }
-    }
-
-    #[test]
-    fn legacy_activity_date_uses_the_latest_valid_date() {
-        assert_eq!(
-            legacy_activity_date(Some("2019-08-10 00:00:00"), Some("2019-08-18 00:00:00")),
-            "2019-08-18"
-        );
-        assert_eq!(
-            legacy_activity_date(Some("2013-07-14 00:00:00"), Some("")),
-            "2013-07-14"
-        );
-        assert_eq!(
-            legacy_activity_date(None, Some(" 2001-02-03")),
-            "2001-02-03"
-        );
-        assert_eq!(
-            legacy_activity_date(Some("2030-13"), Some("bad-date-x")),
-            ""
-        );
-        assert_eq!(legacy_activity_date(Some("ąęść-óż-źń"), None), "");
-        assert_eq!(legacy_activity_date(None, None), "");
-    }
-
-    #[test]
-    fn region_name_comes_from_the_country_column() {
-        let rows = r"
-            INSERT INTO Province (ARRLPrefix, Prefix, Comment, Continent, Country, CQZone, DXCC,
-                ITUZone, Latitude, Longitude, PrefixList, EndDate, TimeDiff, StartDate) VALUES
-              ('QA', 'QA6', '', 'EU', '  Alpha Land, Alpha North ', 15, '901', 28, '51.0N', '21.0E', 'QA6.*', '', 1, ''),
-              ('QA', 'QA7', '', 'EU', '   ', 16, '901', 29, '49.0N', '19.0E', 'QA7.*', '', 1, '');
-            INSERT INTO CountryDataEx (ARRLPrefix, Comment, Continent, Country, CQZone, DXCC,
-                ITUZone, Latitude, Longitude, PrefixList, Status, StartDate, TimeDiff, EndDate) VALUES
-              ('QA', '', 'EU', 'Alpha Land', 14, 901, 27, '50.0N', '20.0E', 'QA.*', 'Active', '', 1, '');";
-        let m = PrefixMatcher::load_from_db(real_layout_legacy_db(rows)).unwrap();
-        let north = m.lookup("QA6AB").unwrap();
-        assert_eq!(north.province.as_deref(), Some("Alpha Land, Alpha North"));
-        assert_eq!(
-            north.location_precision,
-            LocationPrecision::LegacyRegionalRule
-        );
-        // Pusta nazwa regionu: None zamiast Some("").
-        let blank = m.lookup("QA7AB").unwrap();
-        assert_eq!((blank.cqz, blank.province), (16, None));
-        // Reguła encji nie ma nazwy regionu.
-        assert_eq!(m.lookup("QA1AB").unwrap().province, None);
     }
 
     #[test]

@@ -2768,38 +2768,23 @@ mod tests {
 
     #[tokio::test]
     async fn rest_api_post_qso_dxcc_enrichment_from_prefix_matcher() {
-        use std::sync::atomic::AtomicU64;
-        static CNT: AtomicU64 = AtomicU64::new(1);
-        let id = CNT.fetch_add(1, Ordering::Relaxed);
-        let uri = format!("file:test_api_prefix_{id}?mode=memory&cache=shared");
-        let conn = rusqlite::Connection::open_with_flags(
-            &uri,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE
-                | rusqlite::OpenFlags::SQLITE_OPEN_CREATE
-                | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("cty.dat"),
+            "Poland:                   15:  28:  EU:   51.10:   -17.00:    -1.0:  SP:\n    SP,=SP6INA;\n",
         )
         .unwrap();
-        conn.execute_batch(
-            "CREATE TABLE UniqueCalls (
-                Callsign TEXT, Country TEXT, ARRLPrefix TEXT, DXCC TEXT,
-                Continent TEXT, CQZone INTEGER, ITUZone INTEGER,
-                Latitude TEXT, Longitude TEXT, Enable TEXT
-            );
-            CREATE TABLE CountryDataEx (
-                Country TEXT, ARRLPrefix TEXT, DXCC INTEGER, Continent TEXT,
-                CQZone INTEGER, ITUZone INTEGER, Latitude TEXT, Longitude TEXT,
-                PrefixList TEXT, EndDate TEXT
-            );
-            CREATE TABLE Province (
-                Country TEXT, ARRLPrefix TEXT, DXCC TEXT, Continent TEXT,
-                CQZone INTEGER, ITUZone INTEGER, Latitude TEXT, Longitude TEXT,
-                PrefixList TEXT, Comment TEXT, EndDate TEXT
-            );
-            INSERT INTO UniqueCalls VALUES
-                ('SP6INA', 'Poland', 'SP', '269', 'EU', 15, 28, '51.1N', '17.0E', '1');",
+        std::fs::write(
+            dir.path().join("cty.csv"),
+            "SP,Poland,269,EU,15,28,51.10,-17.00,-1.0,SP =SP6INA;\n",
         )
         .unwrap();
-        let matcher = Arc::new(PrefixMatcher::load_from_db(&uri).unwrap());
+        let (matcher, _) = PrefixMatcher::load_from_country_files(
+            &dir.path().join("cty.dat"),
+            Some(&dir.path().join("cty.csv")),
+        )
+        .unwrap();
+        let matcher = Arc::new(matcher);
 
         let base_state = test_api_state();
         let state = base_state.with_station_context(

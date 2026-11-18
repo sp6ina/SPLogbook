@@ -20,8 +20,6 @@ pub const REFERENCE_DIR: &str = "reference";
 pub struct ReferenceContext {
     /// Root of the installed sets (country files, regional rules, overrides).
     pub root: PathBuf,
-    /// Legacy reference database used as compatibility layer, if present.
-    pub legacy_db: Option<PathBuf>,
 }
 
 static CONTEXT: OnceLock<ReferenceContext> = OnceLock::new();
@@ -150,42 +148,23 @@ pub struct ReferenceStatus {
     pub country_files: SourceStatus,
     pub regional_rules: SourceStatus,
     pub user_overrides: SourceStatus,
-    /// Legacy database loaded as compatibility layer.
-    pub legacy_rules: usize,
 }
 
 /// Loads every available source. Never panics and never fails as a whole:
 /// a broken source is reported and skipped, the others are still used.
-pub fn build_prefix_matcher(
-    root: &Path,
-    legacy_db: Option<&Path>,
-) -> (PrefixMatcher, ReferenceStatus) {
+pub fn build_prefix_matcher(root: &Path) -> (PrefixMatcher, ReferenceStatus) {
     let mut status = ReferenceStatus::default();
-
-    let legacy =
-        legacy_db
-            .filter(|p| p.exists())
-            .and_then(|p| match PrefixMatcher::load_from_db(p) {
-                Ok(m) => Some(m),
-                Err(e) => {
-                    log::warn!("legacy reference database not loaded: {e}");
-                    None
-                }
-            });
 
     let mut matcher = match country_files::load_installed(root) {
         Ok(Some((m, report, manifest))) => {
             status.country_files = SourceStatus::loaded(&manifest, report.entities);
-            match legacy {
-                Some(l) => m.with_legacy_compatibility(l),
-                None => m,
-            }
+            m
         }
-        Ok(None) => legacy.unwrap_or_else(PrefixMatcher::empty),
+        Ok(None) => PrefixMatcher::empty(),
         Err(e) => {
             log::warn!("country files not loaded: {e}");
             status.country_files = SourceStatus::failed(&e);
-            legacy.unwrap_or_else(PrefixMatcher::empty)
+            PrefixMatcher::empty()
         }
     };
 
@@ -209,7 +188,6 @@ pub fn build_prefix_matcher(
         }
     }
 
-    status.legacy_rules = matcher.layers().legacy_rules;
     *LAST_STATUS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(status.clone());
@@ -217,12 +195,8 @@ pub fn build_prefix_matcher(
 }
 
 /// Rebuilds the matcher from disk and swaps its rules into `shared`.
-pub fn reload_into(
-    shared: &PrefixMatcher,
-    root: &Path,
-    legacy_db: Option<&Path>,
-) -> ReferenceStatus {
-    let (fresh, status) = build_prefix_matcher(root, legacy_db);
+pub fn reload_into(shared: &PrefixMatcher, root: &Path) -> ReferenceStatus {
+    let (fresh, status) = build_prefix_matcher(root);
     shared.replace_rules_from(fresh);
     status
 }
@@ -247,19 +221,16 @@ mod tests {
     #[test]
     fn nothing_installed_gives_an_empty_valid_matcher() {
         let root = tempfile::tempdir().unwrap();
-        let (m, status) = build_prefix_matcher(root.path(), None);
+        let (m, status) = build_prefix_matcher(root.path());
         assert!(!m.has_data());
         assert_eq!(status, ReferenceStatus::default());
         assert_eq!(m.lookup("QA1AB"), None);
-        // A missing legacy file is not an error either.
-        let (m, _) = build_prefix_matcher(root.path(), Some(&root.path().join("missing.db")));
-        assert!(!m.has_data());
     }
 
     #[test]
     fn installed_sources_are_loaded_and_reloaded_without_restart() {
         let root = tempfile::tempdir().unwrap();
-        let (shared, _) = build_prefix_matcher(root.path(), None);
+        let (shared, _) = build_prefix_matcher(root.path());
         assert_eq!(shared.lookup("QA1AB"), None);
 
         install_country_files(
@@ -282,7 +253,7 @@ mod tests {
         .unwrap();
         user_rules::import_rules(root.path(), RulesKind::Regional, &rules).unwrap();
 
-        let status = reload_into(&shared, root.path(), None);
+        let status = reload_into(&shared, root.path());
         assert_eq!(
             status.country_files,
             SourceStatus::Loaded {
@@ -327,7 +298,7 @@ mod tests {
         )
         .unwrap();
 
-        let (m, status) = build_prefix_matcher(root.path(), None);
+        let (m, status) = build_prefix_matcher(root.path());
         assert!(matches!(status.country_files, SourceStatus::Failed(_)));
         assert!(matches!(status.user_overrides, SourceStatus::Loaded { .. }));
         // The override still resolves zones but has no entity to attach to.

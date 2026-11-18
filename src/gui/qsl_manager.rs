@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
-// Okno przeglądarki managerów QSL (z bazy serviceLOG.db - 29 102 rekordów)
+// Okno przeglądarki managerów QSL
 
 use crate::core::i18n::{Language, Msg, key, tr};
-use crate::core::reference::tables::TableKind;
-use crate::core::service_db::{QslManagerRecord, ServiceDatabase};
+use crate::core::reference::loader::user_tables;
+use crate::core::reference::tables::{QslManagerRecord, TableKind};
 use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
@@ -35,28 +35,27 @@ impl QslManagerDialog {
         self.is_open = true;
     }
 
-    pub fn open_for_call(&mut self, call: &str, db: &ServiceDatabase) {
+    pub fn open_for_call(&mut self, call: &str) {
         self.search_query = call.trim().to_uppercase();
         self.is_open = true;
-        self.execute_search(db);
+        self.execute_search();
     }
 
-    pub fn execute_search(&mut self, db: &ServiceDatabase) {
+    pub fn execute_search(&mut self) {
         if self.search_query.trim().is_empty() {
             self.results.clear();
         } else {
-            self.results = db.search_managers(&self.search_query);
+            let tables = user_tables();
+            let guard = tables
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            self.results = guard.search_managers(&self.search_query);
         }
     }
 
     /// Rysuje okno wyszukiwarki managerów QSL.
     /// Zwraca Some(manager) jeśli użytkownik kliknął "Wybierz / Użyj".
-    pub fn show(
-        &mut self,
-        ctx: &egui::Context,
-        db: &ServiceDatabase,
-        lang: Language,
-    ) -> Option<String> {
+    pub fn show(&mut self, ctx: &egui::Context, lang: Language) -> Option<String> {
         if !self.is_open {
             return None;
         }
@@ -71,7 +70,11 @@ impl QslManagerDialog {
             .default_height(420.0)
             .show(ctx, |ui| {
                 let palette = ui.palette();
-                if !db.has_data(TableKind::QslManagers) {
+                let is_installed = user_tables()
+                    .read()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .is_installed(TableKind::QslManagers);
+                if !is_installed {
                     ui.label(tr(key::REF_DATA_NOT_INSTALLED_HINT, lang));
                 }
                 ui.horizontal(|ui| {
@@ -85,14 +88,14 @@ impl QslManagerDialog {
                         || (ui.input(|i| i.key_pressed(egui::Key::Enter)) && edit.has_focus())
                     {
                         self.search_query = self.search_query.to_uppercase();
-                        self.execute_search(db);
+                        self.execute_search();
                     }
 
                     if ui
                         .button(format!("🔍 {}", tr(key::BTN_SEARCH, lang)))
                         .clicked()
                     {
-                        self.execute_search(db);
+                        self.execute_search();
                     }
 
                     if ui.button(tr(key::BTN_CLEAR, lang)).clicked() {

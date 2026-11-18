@@ -13,7 +13,6 @@ use crate::core::events::EventBus;
 use crate::core::ingest::QsoIngestor;
 use crate::core::prefix::PrefixMatcher;
 use crate::core::scp::ScpEngine;
-use crate::core::service_db::ServiceDatabase;
 use crate::plugins::PluginEngine;
 
 /// Collection of service handles and domain engines used across the application.
@@ -22,7 +21,6 @@ pub struct AppServices {
     pub prefix_matcher: Arc<PrefixMatcher>,
     pub scp_engine: Arc<Mutex<ScpEngine>>,
     pub awards_engine: Arc<Mutex<AwardsEngine>>,
-    pub service_db: Arc<ServiceDatabase>,
     pub local_callbook: Arc<LocalCallbook>,
     pub upload_scheduler: Arc<Mutex<UploadScheduler>>,
     pub event_bus: EventBus,
@@ -31,12 +29,12 @@ pub struct AppServices {
 }
 
 impl AppServices {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         log_db: Arc<Mutex<LogDatabase>>,
         prefix_matcher: Arc<PrefixMatcher>,
         scp_engine: Arc<Mutex<ScpEngine>>,
         awards_engine: Arc<Mutex<AwardsEngine>>,
-        service_db: Arc<ServiceDatabase>,
         local_callbook: Arc<LocalCallbook>,
         upload_scheduler: Arc<Mutex<UploadScheduler>>,
         event_bus: EventBus,
@@ -48,7 +46,6 @@ impl AppServices {
             prefix_matcher,
             scp_engine,
             awards_engine,
-            service_db,
             local_callbook,
             upload_scheduler,
             event_bus,
@@ -68,8 +65,7 @@ mod tests {
         let prefix_matcher = Arc::new(PrefixMatcher::empty());
         let scp_engine = Arc::new(Mutex::new(ScpEngine::new()));
         let awards_engine = Arc::new(Mutex::new(AwardsEngine::new()));
-        let service_db = Arc::new(ServiceDatabase::open());
-        let local_callbook = Arc::new(LocalCallbook::new(None, None));
+        let local_callbook = Arc::new(LocalCallbook::new());
         let upload_scheduler = Arc::new(Mutex::new(UploadScheduler::new()));
         let event_bus = EventBus::default();
         let plugin_engine = PluginEngine::new();
@@ -86,7 +82,6 @@ mod tests {
             prefix_matcher,
             scp_engine,
             awards_engine,
-            service_db,
             local_callbook,
             upload_scheduler,
             event_bus,

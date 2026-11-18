@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
-// Okno bazy prefiksów i znaków specjalnych (UniqueCalls z serviceLOG.db - 4 310 rekordów)
+// Okno bazy prefiksów i znaków specjalnych (wyjątki pełnych znaków z plików krajów)
 
 use crate::core::i18n::{Language, Msg, key, tr};
 use crate::core::prefix::PrefixMatcher;
-use crate::core::service_db::{ServiceDatabase, UniqueCallRecord};
+use crate::core::reference::tables::{UniqueCallRecord, search_exception_calls};
 use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
@@ -33,21 +33,15 @@ impl PrefixManagerDialog {
         self.is_open = true;
     }
 
-    pub fn execute_search(&mut self, db: &ServiceDatabase, matcher: &PrefixMatcher) {
+    pub fn execute_search(&mut self, matcher: &PrefixMatcher) {
         if self.search_query.trim().is_empty() {
             self.results.clear();
         } else {
-            self.results = db.search_exception_calls(&self.search_query, matcher);
+            self.results = search_exception_calls(&self.search_query, matcher);
         }
     }
 
-    pub fn show(
-        &mut self,
-        ctx: &egui::Context,
-        db: &ServiceDatabase,
-        matcher: &PrefixMatcher,
-        lang: Language,
-    ) {
+    pub fn show(&mut self, ctx: &egui::Context, matcher: &PrefixMatcher, lang: Language) {
         if !self.is_open {
             return;
         }
@@ -61,7 +55,7 @@ impl PrefixManagerDialog {
             .default_height(450.0)
             .show(ctx, |ui| {
                 let palette = ui.palette();
-                if !matcher.has_data() && !db.has_legacy_database() {
+                if !matcher.has_data() {
                     ui.label(tr(key::REF_DATA_NOT_INSTALLED_HINT, lang));
                 }
                 ui.horizontal(|ui| {
@@ -75,14 +69,14 @@ impl PrefixManagerDialog {
                         || (ui.input(|i| i.key_pressed(egui::Key::Enter)) && edit.has_focus())
                     {
                         self.search_query = self.search_query.to_uppercase();
-                        self.execute_search(db, matcher);
+                        self.execute_search(matcher);
                     }
 
                     if ui
                         .button(format!("🔍 {}", tr(key::BTN_SEARCH, lang)))
                         .clicked()
                     {
-                        self.execute_search(db, matcher);
+                        self.execute_search(matcher);
                     }
 
                     if ui.button(tr(key::BTN_CLEAR, lang)).clicked() {

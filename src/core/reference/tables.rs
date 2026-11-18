@@ -24,10 +24,154 @@
 
 use super::install::{self, InstallError, SetManifest, SetOrigin};
 use super::rules::{RuleIssueKind, split_csv_line};
-use crate::core::service_db::{IotaRecord, QslManagerRecord, StateRecord};
+use crate::core::prefix::PrefixMatcher;
 use std::collections::HashMap;
 use std::fmt;
 use std::path::Path;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IotaRecord {
+    pub iota: String,
+    pub name: String,
+    pub prefix: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StateRecord {
+    pub code: String,
+    pub name: String,
+    pub country: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QslManagerRecord {
+    pub call: String,
+    pub manager: String,
+    pub years: String,
+    pub notes: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UniqueCallRecord {
+    pub call: String,
+    pub country: String,
+    pub dxcc: u32,
+    pub arrl_prefix: String,
+    pub continent: String,
+    pub cq_zone: u32,
+    pub itu_zone: u32,
+}
+
+pub static US_STATES: &[(&str, &str)] = &[
+    ("AL", "Alabama"),
+    ("AK", "Alaska"),
+    ("AZ", "Arizona"),
+    ("AR", "Arkansas"),
+    ("CA", "California"),
+    ("CO", "Colorado"),
+    ("CT", "Connecticut"),
+    ("DE", "Delaware"),
+    ("FL", "Florida"),
+    ("GA", "Georgia"),
+    ("HI", "Hawaii"),
+    ("ID", "Idaho"),
+    ("IL", "Illinois"),
+    ("IN", "Indiana"),
+    ("IA", "Iowa"),
+    ("KS", "Kansas"),
+    ("KY", "Kentucky"),
+    ("LA", "Louisiana"),
+    ("ME", "Maine"),
+    ("MD", "Maryland"),
+    ("MA", "Massachusetts"),
+    ("MI", "Michigan"),
+    ("MN", "Minnesota"),
+    ("MS", "Mississippi"),
+    ("MO", "Missouri"),
+    ("MT", "Montana"),
+    ("NE", "Nebraska"),
+    ("NV", "Nevada"),
+    ("NH", "New Hampshire"),
+    ("NJ", "New Jersey"),
+    ("NM", "New Mexico"),
+    ("NY", "New York"),
+    ("NC", "North Carolina"),
+    ("ND", "North Dakota"),
+    ("OH", "Ohio"),
+    ("OK", "Oklahoma"),
+    ("OR", "Oregon"),
+    ("PA", "Pennsylvania"),
+    ("RI", "Rhode Island"),
+    ("SC", "South Carolina"),
+    ("SD", "South Dakota"),
+    ("TN", "Tennessee"),
+    ("TX", "Texas"),
+    ("UT", "Utah"),
+    ("VT", "Vermont"),
+    ("VA", "Virginia"),
+    ("WA", "Washington"),
+    ("WV", "West Virginia"),
+    ("WI", "Wisconsin"),
+    ("WY", "Wyoming"),
+    ("DC", "District of Columbia"),
+];
+
+pub fn fallback_iota(query: &str) -> Vec<IotaRecord> {
+    let clean = query.trim().to_uppercase();
+    let sample = [
+        ("AF-001", "Agalega Islands", "3B6"),
+        ("AF-002", "Amsterdam & St. Paul Islands", "FT(Z)"),
+        ("AF-003", "Ascension Island", "ZD8"),
+        ("EU-001", "Dodecanese", "SV5"),
+        ("EU-005", "Great Britain", "G"),
+        ("EU-115", "Ireland", "EI"),
+        (
+            "EU-132",
+            "Polish Baltic Sea Coast Islands (Wolin, Usedom)",
+            "SP",
+        ),
+        ("NA-001", "Greenland", "OX"),
+        ("NA-015", "Cuba", "CO"),
+        ("OC-001", "Australia", "VK"),
+        ("OC-019", "Hawaiian Islands", "KH6"),
+    ];
+
+    sample
+        .iter()
+        .filter(|(code, name, _)| {
+            clean.is_empty() || code.contains(&clean) || name.to_uppercase().contains(&clean)
+        })
+        .map(|(code, name, pfx)| IotaRecord {
+            iota: code.to_string(),
+            name: name.to_string(),
+            prefix: pfx.to_string(),
+        })
+        .collect()
+}
+
+/// Wyjątki pełnych znaków z załadowanych plików krajów (`=ZNAK`).
+/// Dopasowanie po znaku lub nazwie kraju, sortowanie po znaku, najwyżej 100 wyników.
+pub fn search_exception_calls(query: &str, matcher: &PrefixMatcher) -> Vec<UniqueCallRecord> {
+    let clean = query.trim().to_uppercase();
+    if clean.is_empty() {
+        return Vec::new();
+    }
+    matcher
+        .exception_calls()
+        .into_iter()
+        .filter(|i| i.callsign.contains(&clean) || i.country.to_uppercase().contains(&clean))
+        .take(100)
+        .map(|i| UniqueCallRecord {
+            call: i.callsign,
+            country: i.country,
+            dxcc: i.dxcc,
+            arrl_prefix: i.arrl_prefix,
+            continent: i.continent,
+            cq_zone: i.cqz,
+            itu_zone: i.ituz,
+        })
+        .collect()
+}
 
 pub const TABLE_FILE: &str = "table.csv";
 pub const MAX_TABLE_FILE_BYTES: u64 = 64 * 1024 * 1024;
@@ -625,19 +769,31 @@ impl UserTables {
         }
     }
 
-    /// Same semantics as the legacy query: code or name contains the
-    /// (upper-cased) text, ordered by code, at most 100 rows.
-    pub fn search_iota(&self, upper_query: &str) -> Vec<IotaRecord> {
-        self.iota
-            .iter()
-            .filter(|r| r.iota.contains(upper_query) || r.name.to_uppercase().contains(upper_query))
-            .take(100)
-            .cloned()
-            .collect()
+    /// Wyszukuje grupy wysp IOTA (po kodzie np. 'EU-001' lub nazwie) z tabeli użytkownika
+    /// lub z wbudowanej listy podstawowej (`fallback_iota`).
+    pub fn search_iota(&self, query: &str) -> Vec<IotaRecord> {
+        let clean = query.trim().to_uppercase();
+        if self.is_installed(TableKind::Iota) {
+            let res: Vec<IotaRecord> = self
+                .iota
+                .iter()
+                .filter(|r| r.iota.contains(&clean) || r.name.to_uppercase().contains(&clean))
+                .take(100)
+                .cloned()
+                .collect();
+            if !res.is_empty() {
+                return res;
+            }
+        }
+        fallback_iota(&clean)
     }
 
-    pub fn find_iota(&self, upper_code: &str) -> Option<IotaRecord> {
-        self.iota.iter().find(|r| r.iota == upper_code).cloned()
+    pub fn find_iota(&self, code: &str) -> Option<IotaRecord> {
+        let clean = code.trim().to_uppercase();
+        if let Some(rec) = self.iota.iter().find(|r| r.iota == clean).cloned() {
+            return Some(rec);
+        }
+        fallback_iota(&clean).into_iter().find(|i| i.iota == clean)
     }
 
     pub fn search_states(&self, upper_query: &str) -> Vec<StateRecord> {
@@ -649,16 +805,52 @@ impl UserTables {
             .collect()
     }
 
-    pub fn find_manager(&self, upper_call: &str) -> Option<QslManagerRecord> {
+    /// Wyszukuje stany USA (50 stanów ARRL WAS + DC) oraz rejony z tabeli stanów użytkownika.
+    pub fn get_states(&self, query: &str) -> Vec<StateRecord> {
+        let clean = query.trim().to_uppercase();
+        let mut results = Vec::new();
+
+        for &(code, name) in US_STATES {
+            if clean.is_empty() || code.contains(&clean) || name.to_uppercase().contains(&clean) {
+                results.push(StateRecord {
+                    code: code.to_string(),
+                    name: name.to_string(),
+                    country: "USA".to_string(),
+                });
+            }
+        }
+
+        for r in self.search_states(&clean) {
+            if !results
+                .iter()
+                .any(|s| s.code == r.code && s.country == r.country)
+            {
+                results.push(r);
+            }
+        }
+
+        results.truncate(100);
+        results
+    }
+
+    pub fn find_manager(&self, callsign: &str) -> Option<QslManagerRecord> {
+        let clean = callsign.trim().to_uppercase();
+        if clean.is_empty() {
+            return None;
+        }
         self.manager_index
-            .get(upper_call)
+            .get(&clean)
             .map(|&i| self.managers[i].clone())
     }
 
-    pub fn search_managers(&self, upper_query: &str) -> Vec<QslManagerRecord> {
+    pub fn search_managers(&self, query: &str) -> Vec<QslManagerRecord> {
+        let clean = query.trim().to_uppercase();
+        if clean.is_empty() {
+            return Vec::new();
+        }
         self.managers
             .iter()
-            .filter(|r| r.call.contains(upper_query) || r.manager.contains(upper_query))
+            .filter(|r| r.call.contains(&clean) || r.manager.contains(&clean))
             .take(100)
             .cloned()
             .collect()
@@ -671,3 +863,78 @@ impl UserTables {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod user_table_tests {
+    use super::*;
+    use std::sync::{Arc, RwLock};
+
+    fn tables_with(files: &[(TableKind, &str)]) -> Arc<RwLock<UserTables>> {
+        let root = tempfile::tempdir().unwrap();
+        for (kind, text) in files {
+            let p = root.path().join(format!("{}.csv", kind.set_name()));
+            std::fs::write(&p, text).unwrap();
+            import_table(root.path(), *kind, &p).unwrap();
+        }
+        Arc::new(RwLock::new(UserTables::load(root.path()).0))
+    }
+
+    #[test]
+    fn empty_user_tables_give_data_not_installed_and_safe_results() {
+        let tables = UserTables::default();
+        for kind in TableKind::ALL {
+            assert!(!tables.is_installed(kind));
+        }
+        assert!(tables.find_manager("QA1AA").is_none());
+        assert_eq!(tables.search_managers("QA"), Vec::<QslManagerRecord>::new());
+        // The built-in US list stays available without any data file.
+        assert_eq!(tables.get_states("").len(), US_STATES.len());
+        // The built-in IOTA sample stays available as before.
+        assert_ne!(tables.search_iota("AF"), Vec::<IotaRecord>::new());
+        assert!(tables.find_iota("EU-001").is_some());
+    }
+
+    #[test]
+    fn test_states_search_built_in() {
+        let tables = UserTables::default();
+        let results = tables.get_states("CALIF");
+        assert_ne!(results, []);
+        assert_eq!(results[0].code, "CA");
+    }
+
+    #[test]
+    fn imported_tables_drive_every_browser_query() {
+        let shared = tables_with(&[
+            (
+                TableKind::Iota,
+                "#splogbook-iota,1\nreference,name,prefix\nEU-901,Testing Isle,QA\n",
+            ),
+            (
+                TableKind::States,
+                "#splogbook-states,1\ncode,name,country\nQN,North Test,Alpha Land\n",
+            ),
+            (
+                TableKind::QslManagers,
+                "#splogbook-qsl-managers,1\ncallsign,manager,years,notes\nQA1AA,QB1BB,2026,test\n",
+            ),
+        ]);
+        {
+            let tables = shared.read().unwrap();
+            assert!(tables.is_installed(TableKind::Iota));
+            assert_eq!(tables.search_iota("testing")[0].iota, "EU-901");
+            assert_eq!(tables.find_iota("eu-901").unwrap().name, "Testing Isle");
+            let states = tables.get_states("north");
+            assert!(
+                states
+                    .iter()
+                    .any(|s| s.code == "QN" && s.country == "Alpha Land")
+            );
+            assert_eq!(tables.find_manager("qa1aa").unwrap().manager, "QB1BB");
+            assert_eq!(tables.search_managers("QB1").len(), 1);
+        }
+
+        // Reload through the shared handle: no restart, empty tables.
+        *shared.write().unwrap() = UserTables::default();
+        assert!(shared.read().unwrap().find_manager("QA1AA").is_none());
+    }
+}
