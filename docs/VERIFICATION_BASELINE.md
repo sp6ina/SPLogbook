@@ -4,7 +4,7 @@ Single source of truth for verified test counters and dependency-audit state. Co
 only here; every other document links to this file. Never update a counter without a real
 measurement, and always record the measurement date.
 
-**Data pomiaru:** 2026-11-18 (ostatni pomiar: po `STAGE-RUSTSEC-2026-0543-CHRONO-REPLACEMENT`, commit `0ce0da0`)
+**Data pomiaru:** 2026-11-18 (ostatni pomiar: po `STAGE-P1-F21-SOFTWARE` i `OWNER-CI-PUBLISH-01`)
 **Środowisko:** Windows 10/11 x86_64, `rustc 1.99.0`, `cargo 1.99.0`, `-j 1`
 **HEAD pomiaru:** commit zawierający ten plik (`git log -1 --format=%H`)
 
@@ -26,15 +26,15 @@ cargo test --workspace --all-targets -j 1 -- --skip powershell_real_execution_fu
 
 | Metric | Value |
 |---|---|
-| TOTAL REGISTERED TESTS: | 3599 |
-| TOTAL EXECUTED TESTS: | 3588 |
-| TOTAL PASSED TESTS: | 3588 |
+| TOTAL REGISTERED TESTS: | 3607 |
+| TOTAL EXECUTED TESTS: | 3596 |
+| TOTAL PASSED TESTS: | 3596 |
 | TOTAL FAILED TESTS: | 0 |
 | TOTAL IGNORED TESTS: | 10 |
 | HIL IGNORED TESTS: | 10 |
 | TOTAL FILTERED TESTS: | 1 |
 | Doc-tests | 0 |
-| Test binaries | 36 |
+| Test binaries | 37 |
 
 The single filtered test is `windows_helper_test::powershell_real_execution_full_cycle_success`.
 It can block on a Windows security prompt in an interactive sandbox, so it is filtered in the
@@ -45,10 +45,11 @@ a product defect.
 
 | Suite | Value |
 |---|---|
-| `security_guard` (incl. 4 `chrono_replacement_*` / `f20r4_*` rules) | 207 / 207 |
+| `security_guard` (incl. `chrono_replacement_*`, `f20r4_*`, `p1_f21_*` rules) | 208 / 208 |
 | `p1_f20_upload_selection` | 29 / 29 |
 | `p1_f20r_recovery` / `p1_f20r_sent_dates` / `p1_f20r_credential_safety` | 31 / 31, 21 / 21, 13 / 13 |
-| library unit tests (`--lib`) | 2287 / 2287 |
+| library unit tests (`--lib`) | 2290 / 2290 |
+| `p1_f21_cabrillo_export` | 4 / 4 |
 | `p1_f19_award_references` | 51 / 51 |
 | `p1_f16_logbook_pagination` | 55 / 55 |
 | pagination model (`gui::pagination`, lib) | 23 / 23 |
