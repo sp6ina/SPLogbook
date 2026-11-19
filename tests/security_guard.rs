@@ -912,7 +912,15 @@ fn release_workflow_rejects_incomplete_artifact_set() {
     );
     assert!(
         workflow.contains("SPLogbook-Windows-x64.zip"),
-        "Workflow musi weryfikować obecność artefaktu Windows"
+        "Workflow musi weryfikować obecność artefaktu Windows ZIP"
+    );
+    assert!(
+        workflow.contains("SPLogbook-Windows-x64-Setup-"),
+        "Workflow musi weryfikować obecność artefaktu Windows Inno Setup"
+    );
+    assert!(
+        workflow.contains("SPLogbook-Windows-x64-MSI-"),
+        "Workflow musi weryfikować obecność artefaktu Windows MSI"
     );
     assert!(
         workflow.contains("[ -s release-staging/SPLogbook-Linux-x86_64.tar.gz ]"),
@@ -920,7 +928,19 @@ fn release_workflow_rejects_incomplete_artifact_set() {
     );
     assert!(
         workflow.contains("[ -s release-staging/SPLogbook-Windows-x64.zip ]"),
-        "Workflow musi sprawdzać, czy artefakt Windows jest niepusty"
+        "Workflow musi sprawdzać, czy artefakt Windows ZIP jest niepusty"
+    );
+    assert!(
+        workflow.contains(r#"[ -s "release-staging/${INNO_EXE}" ]"#),
+        "Workflow musi sprawdzać, czy artefakt Windows Inno Setup jest niepusty"
+    );
+    assert!(
+        workflow.contains(r#"[ -s "release-staging/${MSI_PKG}" ]"#),
+        "Workflow musi sprawdzać, czy artefakt Windows MSI jest niepusty"
+    );
+    assert!(
+        workflow.contains(r#"[ "$COUNT" -eq 4 ]"#),
+        "Workflow musi egzekwować dokładną liczbę 4 artefaktów wydania (tar.gz, zip, inno-exe, msi)"
     );
 }
 
@@ -1186,7 +1206,7 @@ fn release_manifest_lists_every_expected_artifact_once() {
         manifest_version: 1,
         key_id: "splogbook-release-2026-02".into(),
         product: "SPLogbook".into(),
-        version: "1.2.1".into(),
+        version: "1.3.0".into(),
         channel: "stable".into(),
         minimum_updater_version: "1.1.0".into(),
         commit: "0123456789abcdef0123456789abcdef01234567".into(),
@@ -1207,6 +1227,22 @@ fn release_manifest_lists_every_expected_artifact_once() {
                 size: 60_000_000,
                 sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),
             },
+            ManifestAsset {
+                platform: "windows".into(),
+                arch: "x86_64".into(),
+                package_type: "inno-exe".into(),
+                filename: "SPLogbook-Windows-x64-Setup-1.3.0.exe".into(),
+                size: 55_000_000,
+                sha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".into(),
+            },
+            ManifestAsset {
+                platform: "windows".into(),
+                arch: "x86_64".into(),
+                package_type: "msi".into(),
+                filename: "SPLogbook-Windows-x64-MSI-1.3.0.msi".into(),
+                size: 58_000_000,
+                sha256: "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd".into(),
+            },
         ],
     };
 
@@ -1224,9 +1260,18 @@ fn release_manifest_lists_every_expected_artifact_once() {
         .count();
     assert_eq!(linux_count, 1, "Artefakt Linux musi wystąpić dokładnie raz");
     assert_eq!(
-        windows_count, 1,
-        "Artefakt Windows musi wystąpić dokładnie raz"
+        windows_count, 3,
+        "Windows musi mieć dokładnie 3 pakiety (zip, inno-exe, msi)"
     );
+
+    let workflow = fs::read_to_string(".github/workflows/build-and-release.yml")
+        .expect("Nie można odczytać workflow");
+    for pkg_type in ["tar.gz", "zip", "inno-exe", "msi"] {
+        assert!(
+            workflow.contains(&format!(r#""package_type": "{pkg_type}""#)),
+            "Manifest w workflow musi zawierać package_type '{pkg_type}'"
+        );
+    }
 }
 
 #[test]
@@ -4424,6 +4469,29 @@ fn m3_d_inno_setup_update_delegation_guard() {
 }
 
 #[test]
+fn m3_d_inno_setup_ci_build_and_publish_guard() {
+    let workflow = fs::read_to_string(".github/workflows/build-and-release.yml")
+        .expect("read .github/workflows/build-and-release.yml");
+    for required in [
+        "Install and verify pinned Inno Setup 7.1.1",
+        "E0F9F1DC32032650C6629F6DEE41EB6D20BA140E4E3C07C25D8A24F9BA781644",
+        "Build Windows User Setup (Inno Setup 7.1.1)",
+        "./scripts/build_windows_user_setup.ps1 -OutputDir dist",
+        "SPLOG_RUN_INNO_E2E",
+        "inno_native_install_and_uninstall_lifecycle_e2e",
+        "dist/SPLogbook-Windows-x64-Setup-*.exe",
+        "dist/SPLogbook-Windows-x64-Setup-*.exe.sha256",
+        r#""package_type": "inno-exe""#,
+        "SPLogbook-Windows-x64-Setup-${{ env.RELEASE_VERSION }}.exe",
+    ] {
+        assert!(
+            workflow.contains(required),
+            "build-and-release.yml musi zawierać krok/kontrakt Inno Setup: {required}"
+        );
+    }
+}
+
+#[test]
 fn m3_d_inno_setup_conflict_matrix_guard() {
     use splogbook::cloud::updater::{InstallationType, ManagementMode};
 
@@ -4814,6 +4882,36 @@ fn m3_e_msi_uninstall_and_repair_safety_guard() {
     assert!(pkg.contains("<MajorUpgrade"));
     assert!(pkg.contains("DowngradeErrorMessage="));
     assert!(pkg.contains("Schedule=\"afterInstallInitialize\""));
+}
+
+#[test]
+fn m3_e_msi_ci_build_and_publish_guard() {
+    let workflow = fs::read_to_string(".github/workflows/build-and-release.yml")
+        .expect("read .github/workflows/build-and-release.yml");
+    for required in [
+        "Build Windows System Setup (MSI / WiX 7.0.1)",
+        "./scripts/build_windows_msi.ps1 -OutputDir dist -SkipCargoBuild",
+        "SPLOG_RUN_MSI_E2E",
+        "msi_built_artifact_verification_if_present",
+        "dist/SPLogbook-Windows-x64-MSI-*.msi",
+        "dist/SPLogbook-Windows-x64-MSI-*.msi.sha256",
+        r#""package_type": "msi""#,
+        "SPLogbook-Windows-x64-MSI-${{ env.RELEASE_VERSION }}.msi",
+    ] {
+        assert!(
+            workflow.contains(required),
+            "build-and-release.yml musi zawierać krok/kontrakt MSI: {required}"
+        );
+    }
+
+    let build_script =
+        fs::read_to_string("scripts/build_windows_msi.ps1").expect("read build_windows_msi.ps1");
+    assert!(
+        build_script.contains("vswhere.exe")
+            && build_script.contains("Microsoft.Component.MSBuild")
+            && build_script.contains("Enterprise"),
+        "build_windows_msi.ps1 musi dynamicznie wykrywać MSBuild.exe przez vswhere.exe z fallbackiem VS 2022"
+    );
 }
 
 #[test]

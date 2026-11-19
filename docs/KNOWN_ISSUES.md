@@ -475,10 +475,29 @@ Files: `src/core/cabrillo.rs`, `src/core/contest_rules.rs`, `src/core/contest_st
 
 This defect must not be reopened without a reproducible regression.
 
-### F-05 (P2) — MSI and Inno Setup installers are not published by CI
+### F-05 (P2) — MSI and Inno Setup installers are not published by CI — F-05 = CLOSED
 
-Both installers are implemented and locally verified, but CI builds and publishes only the
-portable Windows ZIP. Users cannot obtain an installer from a release.
+Original defect: both installers were implemented and locally verified, while CI built and published
+only the portable Windows ZIP (`SPLogbook-Windows-x64.zip`).
+
+Remediation (2026-11-19):
+- `scripts/build_windows_msi.ps1` discovers `MSBuild.exe` dynamically via `vswhere.exe` (with
+  Visual Studio 2022 `Enterprise`/`Professional`/`Community`/`BuildTools` fallbacks) and handles
+  WiX 7 EULA acceptance via `-p:AcceptEula=true` on fresh CI runners;
+- `.github/workflows/build-and-release.yml` (`build-windows`) installs and verifies the pinned
+  Inno Setup 7.1.1 toolchain (`ISCC.exe` SHA-256
+  `E0F9F1DC32032650C6629F6DEE41EB6D20BA140E4E3C07C25D8A24F9BA781644`), builds
+  `SPLogbook-Windows-x64-Setup-<version>.exe` and `SPLogbook-Windows-x64-MSI-<version>.msi` with
+  `.sha256` sidecars, runs the opt-in E2E verification tests (`SPLOG_RUN_INNO_E2E=1`,
+  `SPLOG_RUN_MSI_E2E=1`), and uploads them in the `SPLogbook-Windows-x64` artifact;
+- `publish-release` stages all 4 release artifacts (`SPLogbook-Linux-x86_64.tar.gz`,
+  `SPLogbook-Windows-x64.zip`, `SPLogbook-Windows-x64-Setup-<version>.exe`,
+  `SPLogbook-Windows-x64-MSI-<version>.msi`), records all 4 in `SHA256SUMS.txt` and the signed
+  `release-manifest.json` (`tar.gz`, `zip`, `inno-exe`, `msi`), and attaches them to the GitHub
+  Release;
+- `VerifiedReleaseManifest` (`src/cloud/updater.rs`) selects the Windows asset matching the
+  detected `InstallationType` (`zip`, `inno-exe`, `msi`) without returning `AmbiguousArtifact`
+  when distinct `package_type`s coexist.
 
 ### F-06 (P2) — reference-data downloads are unsigned (atomic write and payload validation implemented)
 
@@ -502,10 +521,23 @@ and `src/gui/app_services.rs` resolve the canonical user data/config directories
 longer shadow them via `exe_dir.join("databases")`, `../databases/`, `../../databases/`, or
 `Path::new("databases").is_dir()`.
 
-### F-22 (P2) — system-managed updates lack a lock, journal and health proof
+### F-22 (P2) — system-managed updates lack a lock, journal and health proof — F-22 = CLOSED
 
-The Inno/MSI delegation path relies on the package manager for transactionality and does not
-create `.update.lock`, an update journal or a health proof of its own.
+Original defect: the Inno/MSI delegation path relied on the installer for transactionality and did
+not create `.update.lock`, `.update_transaction.json`, or a `HealthProof`.
+
+Remediation (2026-11-19):
+- `src/cloud/updater.rs` covers delegated `InstallationType::WindowsInnoSetup` and
+  `InstallationType::WindowsMsi` updates with `resolve_delegated_state_dir` (writable installation
+  root, or `%LOCALAPPDATA%\SPLogbook\updater_state` / `%APPDATA%\SPLogbook\updater_state` fallback on
+  `PermissionDenied`), `UpdateLockGuard::acquire`, persistent `UpdateTransaction` journal
+  transitions (`CheckingRelease -> ... -> Applying` and `FailedPreApply` / `FailedPostApply`), and
+  post-install `HealthProof` validation via `--check-health-startup` -> `Committed`;
+- `consume_update_result_on_startup` reconciles delegated `WindowsInnoSetup` and `WindowsMsi`
+  transactions left in `Applying` / `LaunchingCandidate` / `AwaitingHealth` after an installer-driven
+  restart, verifying `BuildIdentity::current()` and the installation marker, validating `HealthProof`,
+  transitioning to `Committed` (or `FailedPostApply` on mismatch), and removing the orphaned
+  `.update.lock` belonging to that attempt.
 
 ### F-18 (P2) — redaction can panic on non-ASCII input — F-18 = CLOSED
 
@@ -529,15 +561,32 @@ Remediation (2026-11-18, `STAGE-R1C-R1D-LEGACY-DATA-REMOVAL-AND-CLEAN-FIRST-RUN`
 hardcoded `scp.insert(` calls from `src/main.rs`; SCP loads `MASTER.SCP` from the canonical data
 directory (`log_db_path.parent()`) and active logbook QSOs.
 
-### F-12 (P3) — Inno Setup version comparison is lexicographic
+### F-12 (P3) — Inno Setup version comparison is lexicographic — F-12 = CLOSED
 
-`CompareSemVer` in `installer/windows/inno/SPLogbook.iss` compares versions as strings, so
-`1.10.0` sorts below `1.3.0`. Affects the downgrade guard for future minor versions ≥ 10.
+Original defect: `CompareSemVer` in `installer/windows/inno/SPLogbook.iss` compared versions as
+strings, causing `1.10.0` to sort below `1.3.0`.
 
-### F-13 (P3) — AppMutex mixes Inno escaping with a literal GUID
+Remediation (2026-11-19): replaced `CompareSemVer` in `installer/windows/inno/SPLogbook.iss` with
+a numeric SemVer 2.0.0 §11 parser (`ExtractNextToken`, `IsAllDigits`, `CompareNumericStrings`,
+`ComparePreRelease`, `CompareSemVer`) that strips optional `v`/`V` and `+...` build metadata,
+compares `Major.Minor.Patch` numerically, ranks stable above pre-release, and compares pre-release
+identifiers numerically or in ASCII order (`CompareStr`).
 
-The `AppMutex` value combines `{{` escaping with a literal GUID, producing a mutex name that
-does not match a naive expectation. Harmless today; fragile if the GUID is ever templated.
+### F-13 (P3) — AppMutex mixes Inno escaping with a literal GUID — F-13 = CLOSED
+
+Original defect: `AppMutex` in `installer/windows/inno/SPLogbook.iss` mixed inline `{{` escaping
+with a literal GUID, and the running application did not create the corresponding Win32 named
+mutexes.
+
+Remediation (2026-11-19):
+- `installer/windows/inno/SPLogbook.iss` defines
+  `#define AppMutexName "SPLogbook_Instance_Mutex_{{C8E28541-7B21-4A9B-8F5C-4EF298F613C1}"` and sets
+  `AppMutex={#AppMutexName},SPLogbook`;
+- `src/main.rs` adds `#[cfg(windows)] mod win32_instance_mutex` using direct `kernel32` FFI
+  (`CreateMutexW`, `CloseHandle`, `GetLastError`) to hold handles to both
+  `"SPLogbook_Instance_Mutex_{C8E28541-7B21-4A9B-8F5C-4EF298F613C1}"` and `"SPLogbook"` after
+  early-exit CLI flags (`--version`, `--build-info`, `--check-health-startup`) and before opening
+  databases or starting `eframe`.
 
 ### F-09 (P3) — reference databases are committed as binaries — F-09 = CLOSED
 

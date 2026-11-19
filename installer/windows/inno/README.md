@@ -82,10 +82,10 @@ Pakiet instalatora zawiera wyłącznie ściśle zatwierdzone pliki:
    Instalator weryfikuje obecność pliku `.splogbook-portable`. W razie wykrycia próby instalacji w katalogu Portable ZIP, instalator odmawia kontynuacji i wymaga wskazania innego katalogu.
 2. **Konflikt z MSI (WiX):**
    Weryfikacja kluczy rejestru `UpgradeCode` MSI oraz wpisów deinstalatora MSI. Wykrycie instalacji MSI skutkuje natychmiastowym przerwaniem instalacji (`fail-closed`).
-3. **Konflikt z uruchomionym procesem:**
-   Zarządzany przez `AppMutex` oraz `CloseApplications=yes`. W trybie cichym (`/SILENT`) instalator kończy działanie błędem (`fail-closed`), nie modyfikując plików. Zakaz agresywnego zabijania procesu (`taskkill`/`TerminateProcess po nazwie`).
-4. **Próba downgrade:**
-   Porównanie wersji w rejestrze HKCU. Próba zainstalowania starszej wersji na nowszą jest blokowana.
+3. **Konflikt z uruchomionym procesem (`F-13 = CLOSED`):**
+   Zarządzany przez `AppMutex={#AppMutexName},SPLogbook` (`#define AppMutexName "SPLogbook_Instance_Mutex_{{C8E28541-7B21-4A9B-8F5C-4EF298F613C1}"`) oraz `CloseApplications=yes`. Główny proces `SPLogbook.exe` utrzymuje oba nazwane muteksy Win32 przez `win32_instance_mutex::InstanceMutexGuard` (po wczesnych flagach CLI `--version`, `--build-info`, `--check-health-startup`). W trybie cichym (`/SILENT`) instalator kończy działanie błędem (`fail-closed`), nie modyfikując plików. Zakaz agresywnego zabijania procesu (`taskkill`/`TerminateProcess po nazwie`).
+4. **Próba downgrade (`F-12 = CLOSED`):**
+   Porównanie wersji w rejestrze HKCU za pomocą pełnego numerycznego parsera SemVer 2.0.0 (`ExtractNextToken`, `IsAllDigits`, `CompareNumericStrings`, `ComparePreRelease`, `CompareSemVer`). Próba zainstalowania starszej wersji na nowszą jest blokowana.
 
 ---
 
@@ -116,7 +116,8 @@ Skrypt automatycznie:
 
 ---
 
-## 7. Status Podpisu i Publikacji
+## 7. Status Podpisu i Publikacji (`F-05 = CLOSED`, `F-22 = CLOSED`)
 
-- **STATUS PODPISU:** `UNSIGNED TEST ARTIFACT`
-- **STATUS PUBLIKACJI:** `NOT PUBLISHED` (artefakt lokalny, niepublikowany w GitHub Releases, nieśledzony przez Git)
+- **STATUS PODPISU:** `UNSIGNED TEST ARTIFACT` (brak certyfikatu Authenticode)
+- **STATUS PUBLIKACJI CI:** `PUBLISHED_IN_RELEASE_PIPELINE` — potok `.github/workflows/build-and-release.yml` pobiera i weryfikuje SHA-256 przypiętego Inno Setup 7.1.1, buduje `SPLogbook-Windows-x64-Setup-<version>.exe` (+ `.sha256`), wykonuje test E2E (`SPLOG_RUN_INNO_E2E=1`) i dołącza pakiet `inno-exe` do `SHA256SUMS.txt`, podpisanego `release-manifest.json` oraz GitHub Release.
+- **TRANSAKCYJNOŚĆ UPDATERA:** `F-22 = CLOSED` — delegowana aktualizacja przez `WindowsInnoSetup` używa blokady `.update.lock`, trwałego journala `.update_transaction.json` oraz walidacji `HealthProof` (w tym po restarcie procesu w `consume_update_result_on_startup`).

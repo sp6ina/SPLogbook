@@ -10,8 +10,8 @@ Dokumentacja techniczna i architektoniczna instalatora **Windows System Setup (M
 - **DECYZJA WŁAŚCICIELA:** `OWNER-M3-E-TOOLCHAIN-01`
 - **STATUS DECYZJI:** `APPROVED` (2026-11-08)
 - **ZATWIERDZONY KOMPILATOR / SDK:** `WiX Toolset SDK 7.0.1` (`WixToolset.Sdk/7.0.1`)
-- **SILNIK KOMPILACJI:** MSBuild 2022 (`C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe`) z wbudowanym `NuGetSdkResolver` oraz silnikiem `wix.exe` (7.0.1)
-- **AKCEPTACJA EULA:** Jawna akceptacja EULA WiX 7 (`wix eula accept wix7`, tworząca plik `%USERPROFILE%\.wix\wix7-osmf-eula.txt`)
+- **SILNIK KOMPILACJI:** MSBuild 2022 wyszukiwany dynamicznie przez `vswhere.exe` (`-latest -products * -requires Microsoft.Component.MSBuild`) z fallbackiem do standardowych ścieżek Visual Studio 2022 (`Enterprise`, `Professional`, `Community`, `BuildTools`) oraz wbudowanym `NuGetSdkResolver` i silnikiem `wix.exe` (7.0.1)
+- **AKCEPTACJA EULA:** Jawna akceptacja EULA WiX 7 (`wix eula accept wix7`, tworząca plik `%USERPROFILE%\.wix\wix7-osmf-eula.txt`, oraz `-p:AcceptEula=true` / `<AcceptEula>true</AcceptEula>` dla świeżych runnerów CI)
 - **WYMÓG OSTRZEŻEŃ:** 0 błędów i 0 nieprzejrzanych ostrzeżeń (ICE Errors = 0, ICE Warnings = 0).
 
 ---
@@ -99,6 +99,14 @@ Do budowy służy skrypt:
 
 Wymagania:
 - System operacyjny: Windows 10/11 x86_64
-- MSBuild 2022 w Visual Studio BuildTools
+- MSBuild 2022 (Visual Studio 2022 Enterprise / Professional / Community / BuildTools)
 - WiX Toolset SDK 7.0.1 (automatycznie rozwiązywany przez wbudowany resolver NuGet MSBuild)
-- Akceptacja EULA WiX 7 (`wix eula accept wix7`)
+- Akceptacja EULA WiX 7 (`wix eula accept wix7` lub `-p:AcceptEula=true` w CI)
+
+---
+
+## 7. Status Podpisu i Publikacji (`F-05 = CLOSED`, `F-22 = CLOSED`)
+
+- **STATUS PODPISU:** `UNSIGNED TEST ARTIFACT` (brak certyfikatu Authenticode)
+- **STATUS PUBLIKACJI CI:** `PUBLISHED_IN_RELEASE_PIPELINE` — potok `.github/workflows/build-and-release.yml` buduje `SPLogbook-Windows-x64-MSI-<version>.msi` (+ `.sha256`) przez `scripts/build_windows_msi.ps1 -OutputDir dist -SkipCargoBuild`, uruchamia weryfikację E2E (`SPLOG_RUN_MSI_E2E=1`) i publikuje pakiet `msi` w `SHA256SUMS.txt`, podpisanym `release-manifest.json` oraz GitHub Release.
+- **TRANSAKCYJNOŚĆ UPDATERA:** `F-22 = CLOSED` — delegowana aktualizacja `WindowsMsi` utrzymuje `.update.lock`, trwały journal `.update_transaction.json` (z fallbackiem do `%LOCALAPPDATA%\SPLogbook\updater_state` / `%APPDATA%\SPLogbook\updater_state` przy braku uprawnień zapisu w `Program Files`) oraz walidację `HealthProof` (również po restarcie procesu w `consume_update_result_on_startup`).

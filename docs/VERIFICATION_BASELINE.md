@@ -26,9 +26,9 @@ cargo test --workspace --all-targets -j 1 -- --skip powershell_real_execution_fu
 
 | Metric | Value |
 |---|---|
-| TOTAL REGISTERED TESTS: | 3605 |
-| TOTAL EXECUTED TESTS: | 3594 |
-| TOTAL PASSED TESTS: | 3594 |
+| TOTAL REGISTERED TESTS: | 3621 |
+| TOTAL EXECUTED TESTS: | 3610 |
+| TOTAL PASSED TESTS: | 3610 |
 | TOTAL FAILED TESTS: | 0 |
 | TOTAL IGNORED TESTS: | 10 |
 | HIL IGNORED TESTS: | 10 |
@@ -45,10 +45,10 @@ a product defect.
 
 | Suite | Value |
 |---|---|
-| `security_guard` (incl. `chrono_replacement_*`, `f20r4_*`, `p1_f21_*`, F-18/eQSL/F-06 rules) | 212 / 212 |
+| `security_guard` (incl. `chrono_replacement_*`, `f20r4_*`, `p1_f21_*`, F-18/eQSL/F-06 rules) | 214 / 214 |
 | `p1_f20_upload_selection` | 29 / 29 |
 | `p1_f20r_recovery` / `p1_f20r_sent_dates` / `p1_f20r_credential_safety` | 31 / 31, 21 / 21, 13 / 13 |
-| library unit tests (`--lib`) | 2284 / 2284 |
+| library unit tests (`--lib`) | 2291 / 2291 |
 | `p1_f21_cabrillo_export` | 4 / 4 |
 | `p1_f19_award_references` | 51 / 51 |
 | `p1_f16_logbook_pagination` | 55 / 55 |
@@ -71,8 +71,8 @@ a product defect.
 | `linux_multi_distribution_compatibility_test` | 5 / 5 |
 | `splogbook-updater` unit tests | 5 / 5 |
 | `windows_helper_test` | 33 / 33 executed (+1 host-filtered; 34 registered) |
-| `windows_inno_setup_test` | 14 / 14 |
-| `windows_msi_test` | 18 / 18 |
+| `windows_inno_setup_test` | 18 / 18 |
+| `windows_msi_test` | 21 / 21 |
 | `inno_user_data_safety_test` | 8 / 8 |
 | `msi_user_data_safety_test` | 6 / 6 |
 | `cat_native_6a` / `cat_native_6b` / `cat_native_7` | 165 / 99 / 307 registered (297 executed + 10 `#[ignore]`) |

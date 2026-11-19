@@ -233,3 +233,301 @@ fn msi_artifact_is_not_committed() {
     assert!(gitignore.contains("installer/windows/msi/bin/"));
     assert!(gitignore.contains("installer/windows/msi/obj/"));
 }
+
+#[test]
+fn msi_f22_transaction_lock_health_proof_and_startup_reconciliation() {
+    use splogbook::cloud::updater::{
+        HEALTH_PROOF_FILENAME, UPDATE_LOCK_FILENAME, UpdateAttemptId, UpdateLockGuard,
+        UpdateStateId, UpdateTransaction, consume_update_result_on_startup,
+    };
+    use splogbook::core::build_info::BuildIdentity;
+
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let identity = BuildIdentity::current();
+
+    let marker = WindowsMsiMarker::new(identity.package_version, root, identity.git_commit_hash);
+    fs::write(
+        root.join(WINDOWS_MSI_MARKER_FILENAME),
+        serde_json::to_vec_pretty(&marker).unwrap(),
+    )
+    .unwrap();
+
+    let attempt_id = UpdateAttemptId::generate();
+    let lock = UpdateLockGuard::acquire(root, attempt_id).unwrap();
+    std::mem::forget(lock);
+
+    let mut tx = UpdateTransaction::new(
+        attempt_id,
+        identity.package_version.to_string(),
+        format!("v{}", identity.package_version),
+        "windows".to_string(),
+        "x86_64".to_string(),
+        "windows-msi".to_string(),
+        InstallationType::WindowsMsi,
+        identity.git_commit_hash.to_string(),
+        "SPLogbook-Windows-x64.msi".to_string(),
+        4096,
+        "3333333333333333333333333333333333333333333333333333333333333333".to_string(),
+        root.join(".staging"),
+        root,
+    )
+    .unwrap()
+    .with_commit_identity(identity.git_commit_hash);
+
+    for state in [
+        UpdateStateId::CheckingRelease,
+        UpdateStateId::FetchingManifest,
+        UpdateStateId::VerifyingManifest,
+        UpdateStateId::SelectingAsset,
+        UpdateStateId::Downloading,
+        UpdateStateId::VerifyingDownload,
+        UpdateStateId::InspectingPackage,
+        UpdateStateId::Staging,
+        UpdateStateId::BuildingUpdatePlan,
+        UpdateStateId::AwaitingApply,
+        UpdateStateId::Applying,
+    ] {
+        tx.transition_to(state).unwrap();
+    }
+    tx.save_to_dir(root).unwrap();
+
+    let outcome = consume_update_result_on_startup(root)
+        .unwrap()
+        .expect("msi startup outcome");
+    assert!(outcome.was_success);
+    assert_eq!(outcome.attempt_id, attempt_id);
+    assert!(!root.join(UPDATE_LOCK_FILENAME).exists());
+    assert!(!root.join(HEALTH_PROOF_FILENAME).exists());
+
+    let loaded = UpdateTransaction::load_from_dir(root, root)
+        .unwrap()
+        .unwrap();
+    assert_eq!(loaded.current_state, UpdateStateId::Committed);
+    assert!(consume_update_result_on_startup(root).unwrap().is_none());
+
+    // Scenariusz błędu niezgodności wersji/commita -> FailedPostApply
+    let mismatch_dir = temp.path().join("mismatch");
+    fs::create_dir_all(&mismatch_dir).unwrap();
+    fs::write(
+        mismatch_dir.join(WINDOWS_MSI_MARKER_FILENAME),
+        serde_json::to_vec_pretty(&marker).unwrap(),
+    )
+    .unwrap();
+    let bad_attempt = UpdateAttemptId::generate();
+    let bad_lock = UpdateLockGuard::acquire(&mismatch_dir, bad_attempt).unwrap();
+    std::mem::forget(bad_lock);
+    let mut bad_tx = UpdateTransaction::new(
+        bad_attempt,
+        "9.9.9".to_string(),
+        "v9.9.9".to_string(),
+        "windows".to_string(),
+        "x86_64".to_string(),
+        "windows-msi".to_string(),
+        InstallationType::WindowsMsi,
+        "0000000000000000000000000000000000000000".to_string(),
+        "SPLogbook-Windows-x64.msi".to_string(),
+        4096,
+        "3333333333333333333333333333333333333333333333333333333333333333".to_string(),
+        mismatch_dir.join(".staging"),
+        &mismatch_dir,
+    )
+    .unwrap()
+    .with_commit_identity("0000000000000000000000000000000000000000");
+
+    for state in [
+        UpdateStateId::CheckingRelease,
+        UpdateStateId::FetchingManifest,
+        UpdateStateId::VerifyingManifest,
+        UpdateStateId::SelectingAsset,
+        UpdateStateId::Downloading,
+        UpdateStateId::VerifyingDownload,
+        UpdateStateId::InspectingPackage,
+        UpdateStateId::Staging,
+        UpdateStateId::BuildingUpdatePlan,
+        UpdateStateId::AwaitingApply,
+        UpdateStateId::Applying,
+    ] {
+        bad_tx.transition_to(state).unwrap();
+    }
+    bad_tx.save_to_dir(&mismatch_dir).unwrap();
+
+    let bad_outcome = consume_update_result_on_startup(&mismatch_dir)
+        .unwrap()
+        .expect("msi mismatch outcome");
+    assert!(!bad_outcome.was_success);
+    assert!(!mismatch_dir.join(UPDATE_LOCK_FILENAME).exists());
+    let bad_loaded = UpdateTransaction::load_from_dir(&mismatch_dir, &mismatch_dir)
+        .unwrap()
+        .unwrap();
+    assert_eq!(bad_loaded.current_state, UpdateStateId::FailedPostApply);
+}
+
+#[test]
+fn windows_multi_artifact_manifest_selects_msi_and_rejects_duplicate_triad() {
+    use base64::Engine;
+    use base64::engine::general_purpose::STANDARD as BASE64;
+    use ed25519_dalek::Signer;
+    use splogbook::cloud::updater::{
+        ReleaseArchitecture, ReleaseAsset, ReleasePackageType, ReleasePlatform, TrustedKey,
+        UpdaterError, VerifiedReleaseManifest,
+    };
+
+    let sha_zip = "1111111111111111111111111111111111111111111111111111111111111111";
+    let sha_inno = "2222222222222222222222222222222222222222222222222222222222222222";
+    let sha_msi = "3333333333333333333333333333333333333333333333333333333333333333";
+
+    let build_signed = |dup_pkg_type: Option<&str>| {
+        let dup_entry = if let Some(pkg) = dup_pkg_type {
+            format!(
+                r#",{{
+                    "platform": "windows",
+                    "arch": "x86_64",
+                    "package_type": "{pkg}",
+                    "filename": "SPLogbook-Windows-x64-dup.msi",
+                    "size": 3001,
+                    "sha256": "{sha_msi}"
+                }}"#
+            )
+        } else {
+            String::new()
+        };
+        let manifest_json = format!(
+            r#"{{
+                "manifest_version": 1,
+                "key_id": "test-f05-key",
+                "product": "SPLogbook",
+                "version": "1.3.0",
+                "channel": "stable",
+                "minimum_updater_version": "1.2.0",
+                "commit": "0123456789abcdef0123456789abcdef01234567",
+                "assets": [
+                    {{
+                        "platform": "windows",
+                        "arch": "x86_64",
+                        "package_type": "zip",
+                        "filename": "SPLogbook-Windows-x64.zip",
+                        "size": 1000,
+                        "sha256": "{sha_zip}"
+                    }},
+                    {{
+                        "platform": "windows",
+                        "arch": "x86_64",
+                        "package_type": "inno-exe",
+                        "filename": "SPLogbook-Windows-x64-Setup-1.3.0.exe",
+                        "size": 2000,
+                        "sha256": "{sha_inno}"
+                    }},
+                    {{
+                        "platform": "windows",
+                        "arch": "x86_64",
+                        "package_type": "msi",
+                        "filename": "SPLogbook-Windows-x64-1.3.0.msi",
+                        "size": 3000,
+                        "sha256": "{sha_msi}"
+                    }}{dup_entry}
+                ]
+            }}"#
+        );
+
+        let secret: [u8; 32] = rand::random();
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&secret);
+        let verifying_key = signing_key.verifying_key();
+        let sig = signing_key.sign(manifest_json.as_bytes());
+        let sig_b64 = BASE64.encode(sig.to_bytes());
+        let tkey = TrustedKey {
+            key_id: "test-f05-key",
+            public_key: verifying_key.to_bytes(),
+            active: true,
+            min_version: Some("1.2.0"),
+            max_version: None,
+        };
+        VerifiedReleaseManifest::verify_with_keys(
+            manifest_json.as_bytes(),
+            &sig_b64,
+            &[tkey],
+            &[],
+            &[],
+            "1.2.0",
+        )
+    };
+
+    let api_assets = vec![
+        ReleaseAsset {
+            name: "SPLogbook-Windows-x64.zip".into(),
+            browser_download_url: "https://example.com/SPLogbook-Windows-x64.zip".into(),
+            digest: Some(format!("sha256:{sha_zip}")),
+            size: 1000,
+        },
+        ReleaseAsset {
+            name: "SPLogbook-Windows-x64-Setup-1.3.0.exe".into(),
+            browser_download_url: "https://example.com/SPLogbook-Windows-x64-Setup-1.3.0.exe"
+                .into(),
+            digest: Some(format!("sha256:{sha_inno}")),
+            size: 2000,
+        },
+        ReleaseAsset {
+            name: "SPLogbook-Windows-x64-1.3.0.msi".into(),
+            browser_download_url: "https://example.com/SPLogbook-Windows-x64-1.3.0.msi".into(),
+            digest: Some(format!("sha256:{sha_msi}")),
+            size: 3000,
+        },
+    ];
+
+    let verified = build_signed(None).expect("verify manifest");
+    let msi_asset = verified
+        .select_asset_for_installation_type(
+            ReleasePlatform::Windows,
+            ReleaseArchitecture::X86_64,
+            InstallationType::WindowsMsi,
+            &api_assets,
+        )
+        .expect("select msi");
+    assert_eq!(msi_asset.package_type(), ReleasePackageType::Msi);
+    assert_eq!(msi_asset.filename(), "SPLogbook-Windows-x64-1.3.0.msi");
+
+    let exact_dup_res = build_signed(Some("msi"));
+    assert!(matches!(
+        exact_dup_res,
+        Err(UpdaterError::ManifestValidation(_))
+    ));
+
+    let alias_dup_verified = build_signed(Some("windows-msi")).expect("verify alias manifest");
+    let dup_res = alias_dup_verified.select_asset_for_platform(
+        ReleasePlatform::Windows,
+        ReleaseArchitecture::X86_64,
+        &api_assets,
+    );
+    assert!(matches!(dup_res, Err(UpdaterError::AmbiguousArtifact(_))));
+}
+
+#[test]
+fn msi_workflow_builds_verifies_e2e_and_publishes_msi() {
+    let workflow = fs::read_to_string(".github/workflows/build-and-release.yml")
+        .expect("read build-and-release.yml");
+    for required in [
+        "Build Windows System Setup (MSI / WiX 7.0.1)",
+        "./scripts/build_windows_msi.ps1 -OutputDir dist -SkipCargoBuild",
+        "Verify built Windows Inno Setup and MSI installers (opt-in E2E)",
+        "SPLOG_RUN_MSI_E2E",
+        "msi_built_artifact_verification_if_present",
+        "dist/SPLogbook-Windows-x64-MSI-*.msi",
+        "dist/SPLogbook-Windows-x64-MSI-*.msi.sha256",
+        r#""package_type": "msi""#,
+        "release-staging/SPLogbook-Windows-x64-MSI-${{ env.RELEASE_VERSION }}.msi",
+    ] {
+        assert!(
+            workflow.contains(required),
+            "build-and-release.yml musi zawierać krok/artefakt MSI: {required}"
+        );
+    }
+
+    let build_script =
+        fs::read_to_string("scripts/build_windows_msi.ps1").expect("read build_windows_msi.ps1");
+    assert!(
+        build_script.contains("vswhere.exe")
+            && build_script.contains("Microsoft.Component.MSBuild")
+            && build_script.contains("Enterprise"),
+        "build_windows_msi.ps1 musi dynamicznie wykrywać MSBuild.exe przez vswhere.exe"
+    );
+}

@@ -108,6 +108,22 @@ Przykład ilustracyjny (wartości `commit`, `size` i `sha256` są przykładowe):
       "filename": "SPLogbook-Windows-x64.zip",
       "size": 61245600,
       "sha256": "8a7c2e4f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d"
+    },
+    {
+      "platform": "windows",
+      "arch": "x86_64",
+      "package_type": "inno-exe",
+      "filename": "SPLogbook-Windows-x64-Setup-1.3.0-alpha.1.exe",
+      "size": 55412300,
+      "sha256": "1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d"
+    },
+    {
+      "platform": "windows",
+      "arch": "x86_64",
+      "package_type": "msi",
+      "filename": "SPLogbook-Windows-x64-MSI-1.3.0-alpha.1.msi",
+      "size": 58120400,
+      "sha256": "9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8e"
     }
   ]
 }
@@ -209,7 +225,10 @@ sequenceDiagram
   retencji, a jego rozmiar jest raportowany jako `backup_retained_bytes`.
 - **Wersje systemowe:** MSI, Inno Setup, DEB, RPM i Flatpak są zarządzane przez menedżer
   pakietów (`SystemManaged`); updater nie podmienia ich plików bezpośrednio i nie eskaluje
-  uprawnień.
+  uprawnień. Dla delegowanych aktualizacji Windows (`WindowsInnoSetup`, `WindowsMsi`) `F-22`
+  zapewnia blokadę `.update.lock`, trwały journal `.update_transaction.json` (w katalogu instalacji
+  lub fallbacku `%LOCALAPPDATA%\SPLogbook\updater_state` / `%APPDATA%\SPLogbook\updater_state`)
+  oraz walidację `HealthProof` po zakończeniu instalatora lub przy restarcie aplikacji.
 
 ---
 
@@ -241,10 +260,10 @@ Konfiguracja potoku wydawniczego znajduje się w `.github/workflows/build-and-re
        fi
      ```
    - **Brak możliwości publikacji niepodpisanego wydania.**
-3. **Kompletność zestawu artefaktów:**
-   - Weryfikacja obecności obu wymaganych archiwów platformowych: `SPLogbook-Linux-x86_64.tar.gz` oraz `SPLogbook-Windows-x64.zip`.
-   - Weryfikacja niepustego rozmiaru (`[ -s <plik> ]`).
-   - Weryfikacja braku duplikatów i nieoczekiwanych plików w stagingu.
+3. **Kompletność zestawu artefaktów (`F-05 = CLOSED`):**
+   - Weryfikacja obecności wszystkich 4 artefaktów wydania: `SPLogbook-Linux-x86_64.tar.gz`, `SPLogbook-Windows-x64.zip`, `SPLogbook-Windows-x64-Setup-${VERSION}.exe` (`inno-exe`) oraz `SPLogbook-Windows-x64-MSI-${VERSION}.msi` (`msi`).
+   - Weryfikacja niepustego rozmiaru (`[ -s <plik> ]`) oraz dokładnej liczby 4 plików w `release-staging/`.
+   - Weryfikacja braku duplikatów i nieoczekiwanych plików w stagingu (w tym zakaz publikacji DEB, RPM i Flatpak).
 4. **Sumy kontrolne `SHA256SUMS.txt`:**
    - Generowanie ustandaryzowanego pliku `SHA256SUMS.txt` dla wszystkich archiwów wydania.
    - Automatyczna weryfikacja integralności (`sha256sum -c SHA256SUMS.txt`) przed publikacją.

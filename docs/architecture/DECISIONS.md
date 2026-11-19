@@ -66,13 +66,14 @@ These are not preferences; they are contract. Weakening them requires a new deci
 | `OWNER-M2-14` | Native tests on Windows and Linux | IMPLEMENTED | `tests/windows_*`, `tests/linux_*` | — |
 | `OWNER-M2-15` | Native test matrix requirement for M3 | IMPLEMENTED | `.github/workflows/build-and-release.yml` | `m3_f_f03_fail_closed_verification_guard` |
 
-### 2.2 Windows installer toolchains
+### 2.2 Windows installer toolchains, CI publishing, and delegated update safety
 
 | ID | Decision | Status | Implemented in | Guarded by |
 |---|---|---|---|---|
-| `OWNER-M3-D-TOOLCHAIN-01` | Inno Setup **7.1.1** at `C:\Program Files\Inno Setup 7\ISCC.exe` (SHA-256 `E0F9F1DC32032650C6629F6DEE41EB6D20BA140E4E3C07C25D8A24F9BA781644`), zero compiler warnings tolerated | IMPLEMENTED | `installer/windows/inno/SPLogbook.iss`, `installer/windows/inno/README.md` | `m3_d_inno_setup_toolchain_decision_guard` |
-| `OWNER-M3-E-TOOLCHAIN-01` | WiX Toolset SDK **7.0.1** with .NET 8 SDK / MSBuild 2022 SDK resolver; EULA accepted once and recorded in-repo | IMPLEMENTED | `installer/windows/msi/SPLogbook.wixproj`, `installer/windows/msi/README.md` | `m3_e_msi_toolchain_decision_and_identity_guard` |
+| `OWNER-M3-D-TOOLCHAIN-01` | Inno Setup **7.1.1** at `C:\Program Files\Inno Setup 7\ISCC.exe` (SHA-256 `E0F9F1DC32032650C6629F6DEE41EB6D20BA140E4E3C07C25D8A24F9BA781644`), zero compiler warnings tolerated; CI installs and verifies the pinned 7.1.1 installer (`F-05 = CLOSED`) | IMPLEMENTED | `installer/windows/inno/SPLogbook.iss`, `installer/windows/inno/README.md`, `.github/workflows/build-and-release.yml` | `m3_d_inno_setup_toolchain_decision_guard`, `m3_d_inno_setup_ci_build_and_publish_guard` |
+| `OWNER-M3-E-TOOLCHAIN-01` | WiX Toolset SDK **7.0.1** with .NET 8 SDK / MSBuild 2022 SDK resolver discovered via `vswhere.exe` (fallback to VS 2022 editions); EULA accepted via `wix eula accept wix7` / `AcceptEula=true`; CI builds, E2E-verifies, and publishes `.msi` (`F-05 = CLOSED`) | IMPLEMENTED | `installer/windows/msi/SPLogbook.wixproj`, `scripts/build_windows_msi.ps1`, `.github/workflows/build-and-release.yml` | `m3_e_msi_toolchain_decision_and_identity_guard`, `m3_e_msi_ci_build_and_publish_guard` |
 | `OWNER-M3-E-MSI-VERSIONING-01` | MSI prerelease version mapping | **OPEN** — blocks MSI for `1.3.0-alpha.2` (error 1638) | — | `m3_e_*` version-mapping guards |
+| `F-05`, `F-12`, `F-13`, `F-22` | Windows installer Wave 3 remediation: numeric SemVer 2.0.0 in Inno (`F-12 = CLOSED`), explicit `AppMutexName` + Win32 named mutexes via `kernel32` FFI (`F-13 = CLOSED`), lock + transaction journal + `HealthProof` + restart reconciliation for `WindowsInnoSetup`/`WindowsMsi` (`F-22 = CLOSED`), and CI build/E2E/manifest/release publishing of ZIP + Inno `.exe` + WiX `.msi` (`F-05 = CLOSED`) | IMPLEMENTED | `installer/windows/inno/SPLogbook.iss`, `src/main.rs`, `src/cloud/updater.rs`, `.github/workflows/build-and-release.yml` | `windows_inno_setup_test`, `windows_msi_test`, `release_workflow_rejects_incomplete_artifact_set`, `release_manifest_lists_every_expected_artifact_once` |
 
 ### 2.3 Linux support and packaging (M3-F)
 
