@@ -1,17 +1,17 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 #
-# Static pins of the official AppImage toolchain (STAGE-CI-APPIMAGE-TOOLCHAIN-PINNING,
-# OWNER-M3-G-10, which supersedes the dynamic "latest" resolution of OWNER-M3-G-08).
+# Static pins of the official AppImage toolchain (ADR-44,
+# which supersedes the dynamic "latest" resolution of ADR-42).
 #
 # scripts/install_appimage_toolchain.sh reads this file, downloads each asset directly from
 # its official GitHub release URL (no REST API, no cache), and fails closed unless the exact
-# byte size and SHA-256 below match. The values are the owner-approved builds of
-# OWNER-M3-G-03-R1 (appimagetool) and OWNER-M3-G-04-R1 (type-2 runtime).
+# byte size and SHA-256 below match. The values are the pinned builds of
+# ADR-40 (appimagetool) and ADR-41 (type-2 runtime).
 #
 # The `continuous` release assets are replaced upstream on every new build. When that
-# happens the download no longer matches and the installer stops with PIN_STALE; a new pin
-# requires a new owner decision and a separate gate. Never edit a value without one.
+# happens the download no longer matches and the installer stops with PIN_STALE; updating
+# a pin requires an explicit ADR revision. Never edit a value without updating the ADR.
 #
 # Format: `<artifact>.<field>=<value>`, one per line, no spaces; `#` starts a comment line.
 # Artifacts: appimagetool, runtime. Fields: repo, channel, commit, asset, size, sha256, url.

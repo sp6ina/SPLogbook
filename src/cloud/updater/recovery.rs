@@ -1,6 +1,6 @@
 //! Silnik decyzji recovery dla przerwanych transakcji aktualizacji SPLogbook (M3-A).
 //!
-//! Zgodnie z decyzjami OWNER-M2-14, OWNER-M2-15 oraz Sekcją 22 specyfikacji bramki:
+//! Zgodnie z `ADR-08`, `ADR-09` oraz zasadami odzyskiwania po awarii aktualizacji:
 //! - Silnik decyzji (`RecoveryDecisionEngine`) jest czystą logiką biznesową (zero niekontrolowanego I/O).
 //! - Bezwzględny zakaz automatycznego ponawiania `apply` lub `download` (Zero Automatic Re-apply).
 //! - Przed `Applying` następuje wyłącznie bezpieczne sprzątanie własnych artefaktów (`CleanupPreApplyArtifacts`).

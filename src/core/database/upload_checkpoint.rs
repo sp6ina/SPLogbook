@@ -747,7 +747,7 @@ impl LogDatabase {
     /// Zatwierdza lokalny skutek zaakceptowanej paczki: status wysłania,
     /// datę wysłania i stan paczki — **w jednej transakcji**.
     ///
-    /// Sekwencja jest dokładnie taka, jak wymaga bramka:
+    /// Sekwencja jest zgodna z kontraktem F20-R1:
     /// 1. weryfikacja planu (usługa, dziennik, wersja schematu),
     /// 2. weryfikacja paczki (stan `Accepted`, skrót, rozmiar),
     /// 3. weryfikacja dziennika i pełnego uporządkowanego zbioru `QSO id`,

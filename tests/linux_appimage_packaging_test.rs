@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
-//! STAGE-M3-G — durable contracts for the Linux AppImage packaging pipeline.
+//! Durable contracts for the Linux AppImage packaging pipeline.
 //!
 //! These tests are deliberately independent of `dist/` and of any downloaded
 //! binary. They assert the *contracts* that the shell pipeline implements, so
@@ -493,13 +493,13 @@ fn toolchain_resolution_is_official_verified_and_pinned() {
             "appimagetool",
             "AppImage/appimagetool",
             "appimagetool-x86_64.AppImage",
-            "OWNER-M3-G-03-R1",
+            "ADR-40",
         ),
         (
             "runtime",
             "AppImage/type2-runtime",
             "runtime-x86_64",
-            "OWNER-M3-G-04-R1",
+            "ADR-41",
         ),
     ] {
         let pin = toolchain_pins(&pins, artifact);
@@ -544,12 +544,12 @@ fn toolchain_resolution_is_official_verified_and_pinned() {
         }
         let pinning = decisions
             .lines()
-            .find(|line| line.starts_with("| `OWNER-M3-G-10`"))
-            .expect("DECISIONS.md must record OWNER-M3-G-10");
+            .find(|line| line.starts_with("| `ADR-44`"))
+            .expect("DECISIONS.md must record ADR-44");
         for field in ["sha256", "size", "url"] {
             assert!(
                 pinning.contains(&pin[field]),
-                "{artifact}.{field} must equal the value pinned by OWNER-M3-G-10"
+                "{artifact}.{field} must equal the value pinned by ADR-44"
             );
         }
     }

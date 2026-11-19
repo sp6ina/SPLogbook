@@ -349,7 +349,7 @@ fn verifier_checks_every_required_security_property() {
         verifier
             .contains("LINTIAN_SUPPRESSED_TAGS=\"dir-or-file-in-opt,custom-library-search-path\"")
     );
-    assert!(verifier.contains("OWNER-M3-H-03"));
+    assert!(verifier.contains("ADR-47"));
     assert!(verifier.contains("/etc/dpkg/dpkg.cfg.d/excludes"));
     for forbidden in [
         "*.db",

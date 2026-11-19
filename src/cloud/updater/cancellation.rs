@@ -1,6 +1,6 @@
 //! Centralna polityka anulowania transakcji aktualizacji SPLogbook (M3-A).
 //!
-//! Zgodnie z decyzją OWNER-M2-13 oraz Sekcją 18 specyfikacji bramki M3-A:
+//! Zgodnie z `ADR-07` oraz zasadami kontroli anulowania aktualizacji:
 //! - Stany przed `Applying` są bezpiecznie anulowalne (`CANCELLABLE`).
 //! - Od wejścia w stan `Applying` anulowanie jest bezwzględnie zabronione (`NON-CANCELLABLE`).
 //! - Próba anulowania w trakcie lub po `Applying` zwraca typowany błąd `UpdaterError::CancellationRejected`.

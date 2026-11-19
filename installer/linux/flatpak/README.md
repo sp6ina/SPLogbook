@@ -207,9 +207,9 @@ a dirty build and the verifier rejects it.
 | Direct USB device access, SDR via `libusb` | **not available** |
 | Automatic local `rigctld` start | **not available** (no `rigctld` binary in the bundle) |
 
-### 6.1 Owner decision and the documented opt-in
+### 6.1 Sandbox decision and the documented opt-in
 
-`OWNER-M3-J-DEVICE-01` approved this model: the default sandbox stays minimal
+`ADR-57` establishes this model: the default sandbox stays minimal
 and native serial CAT is **fail-closed** with a clear diagnostic instead of
 silently failing. Flatpak has no per-port device permission — `--device=dri`,
 `input`, `usb`, `kvm`, `shm`, `all` are the only values, and `--device=usb`

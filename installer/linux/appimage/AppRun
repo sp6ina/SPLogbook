@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 #
-# AppRun for the SPLogbook AppImage (STAGE-M3-G).
+# AppRun for the SPLogbook Linux x86_64 AppImage.
 #
 # Contract:
 #   * POSIX sh, no bashisms;

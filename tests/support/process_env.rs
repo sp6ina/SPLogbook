@@ -3,7 +3,7 @@
 //
 // Wspólny, testowy mechanizm izolacji środowiska procesu.
 //
-// Bramka: STAGE-QA-XDG-ENVIRONMENT-DETERMINISM (2026-11-14).
+// Zakres: determinizm i serializacja zmiennych środowiskowych w testach (2026-11-14).
 //
 // Problem: testy tego samego procesu równolegle nadpisywały procesowe `HOME` i `XDG_*`,
 // a `XdgPaths::resolve()` czyta je w kilku krokach. Efektem był wyścig: jeden test

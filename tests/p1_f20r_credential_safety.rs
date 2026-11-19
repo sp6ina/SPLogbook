@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
-//! STAGE-P1-F20R-SOFTWARE — bezpieczeństwo transportu poświadczeń na ścieżkach
+//! P1-F20R — bezpieczeństwo transportu poświadczeń na ścieżkach
 //! pobierania (ryzyko **F20-R3**).
 //!
 //! Oficjalny kontrakt LoTW i eQSL wymaga poświadczeń w query stringu i nie

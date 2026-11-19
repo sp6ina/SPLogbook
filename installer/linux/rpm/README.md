@@ -221,9 +221,9 @@ fixture harness and is never evidence of installation.
 Fedora's `rpmlint` is the reference validator. `dir-or-file-in-opt` and
 `binary-or-shlib-defines-rpath` are suppressed because they are a direct
 consequence of the approved `/opt/SPLogbook` layout and the private bundled
-Hamlib (`OWNER-M3-H-03`). No other tag is suppressed. The verifier requires
+Hamlib (`ADR-47`). No other tag is suppressed. The verifier requires
 **0 errors** and reports every warning. A new warning that would need a
-suppression requires an explicit owner decision.
+suppression requires an explicit ADR revision.
 
 ## 12. Negative fixtures
 

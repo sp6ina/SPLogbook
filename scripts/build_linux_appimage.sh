@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 #
-# STAGE-M3-G: build the canonical SPLogbook Linux x86_64 AppImage from the
+# Build the canonical SPLogbook Linux x86_64 AppImage from the
 # already verified portable tar.gz of the SAME commit.
 #
 # Contract:
@@ -15,7 +15,7 @@
 #   * the AppDir follows the approved M3-G layout (no symlinks, no AppStream,
 #     only libhamlib.so.4 bundled);
 #   * appimagetool is the statically pinned, verified continuous build
-#     (installer/linux/appimage/toolchain-pins, OWNER-M3-G-10) and receives the
+#     (installer/linux/appimage/toolchain-pins, ADR-44) and receives the
 #     pinned type-2 runtime explicitly through --runtime-file;
 #   * no update information, no signing, no publication, no tag;
 #   * a deterministic `.sha256` sidecar is produced next to the AppImage.
@@ -65,7 +65,7 @@ fail() {
 }
 
 log "=================================================================="
-log "SPLogbook Linux AppImage Builder (STAGE-M3-G)"
+log "SPLogbook Linux AppImage Builder"
 log "Portable input: ${PORTABLE_TAR}"
 log "Output:         ${OUTPUT_DIR}"
 log "Toolchain:      ${TOOLCHAIN_DIR}"

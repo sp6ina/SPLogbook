@@ -13,7 +13,7 @@
 //!   * niesprawdzonych stringów argumentów (wymuszone tablice argumentów).
 //! - Wszystkie operacje na ścieżkach wymuszają `-LiteralPath`.
 //! - Skrypt wymusza `Set-StrictMode -Version Latest` oraz `$ErrorActionPreference = 'Stop'`.
-//! - Kopia `.rollback` po udanej aktualizacji jest ZACHOWYWANA (decyzja retencyjna OWNER-M2-08/09).
+//! - Kopia `.rollback` po udanej aktualizacji jest ZACHOWYWANA (polityka retencji `ADR-03`).
 
 use std::path::Path;
 
@@ -113,7 +113,7 @@ pub fn generate_powershell_update_script(exe: &Path, pid: u32, plan: &UpdatePlan
          if ($success) {{\n\
              Remove-Item -Recurse -Force -LiteralPath $staging -ErrorAction SilentlyContinue\n\
              Remove-Item -Force -LiteralPath $healthOk -ErrorAction SilentlyContinue\n\
-             # Kopia .rollback jest ZACHOWYWANA do decyzji retencyjnej (M3-B / OWNER-M2-08/09)\n\
+             # Kopia .rollback jest ZACHOWYWANA zgodnie z konserwatywną polityką retencji (ADR-03)\n\
              exit 0\n\
          }} else {{\n\
              Stop-Process -Id $newProc.Id -Force -ErrorAction SilentlyContinue\n\

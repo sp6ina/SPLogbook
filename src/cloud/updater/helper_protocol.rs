@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 //! Wersjonowany kontrakt protokołu procesów pomocniczych aktualizatora Windows (M3-B).
 //!
-//! Zgodnie ze specyfikacją STAGE-M3-B oraz regułami bezpieczeństwa Windows:
+//! Zgodnie ze specyfikacją protokołu helpera oraz regułami bezpieczeństwa Windows:
 //! - Wersjonowany rekord żądania (`WindowsHelperRequest`) jest lokalny, podpisany logicznie
 //!   przez powiązanie z `UpdateAttemptId`, `UpdateTransaction` oraz `UpdatePlanIdentity`.
 //! - Helper nigdy nie przyjmuje adresów URL, tokenów, poświadczeń ani kluczy prywatnych.

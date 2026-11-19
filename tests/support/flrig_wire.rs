@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
-//! TEST-ONLY FLRig 2.0.00 XML-RPC *wire* double (STAGE-CAT-018-019-SOFTWARE).
+//! TEST-ONLY FLRig 2.0.00 XML-RPC *wire* double (CAT-018 / CAT-019).
 //!
 //! This module lives **only** in `tests/support/` and is included explicitly with
 //! `#[path = "support/flrig_wire.rs"]`. It is never part of the production library, it is not

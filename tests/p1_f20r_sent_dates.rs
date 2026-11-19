@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
-//! STAGE-P1-F20R-SOFTWARE — ADIF `LOTW_QSLSDATE` / `EQSL_QSLSDATE` (ryzyko **F20-R2**).
+//! P1-F20R — ADIF `LOTW_QSLSDATE` / `EQSL_QSLSDATE` (ryzyko **F20-R2**).
 //!
 //! Dane są syntetyczne (`TST…`), baza jest w pamięci lub w katalogu tymczasowym,
 //! nie ma sieci ani prawdziwych poświadczeń. Zegar jest **wstrzykiwany** — każdy

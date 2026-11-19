@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 #
-# STAGE-M3-G: prove that scripts/verify_appimage.sh rejects every mutated
+# Prove that scripts/verify_appimage.sh rejects every mutated
 # fixture. The job succeeds ONLY when all fixtures were rejected with a
 # non-zero exit code and without the success message.
 #

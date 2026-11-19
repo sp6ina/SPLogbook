@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 #
-# STAGE-CI-APPIMAGE-TOOLCHAIN-PINNING: download and verify the statically pinned official
+# Download and verify the statically pinned official
 # AppImage toolchain (appimagetool + type-2 runtime).
 #
-# Contract (OWNER-M3-G-03-R1 / -04-R1 / -09 / -10):
+# Contract (ADR-40 / ADR-41 / ADR-43 / ADR-44):
 #   1. read the pins from installer/linux/appimage/toolchain-pins and validate the file
 #      (format tag, known keys only, no duplicates, hex commit/SHA-256, positive size,
 #      official URL https://github.com/AppImage/<repo>/releases/download/<channel>/<asset>);
@@ -270,7 +270,7 @@ import sys
 
 payload = {
     "schema_version": 2,
-    "gate": "STAGE-CI-APPIMAGE-TOOLCHAIN-PINNING",
+    "source": "appimage-toolchain-pins",
     "pins": "installer/linux/appimage/toolchain-pins",
     "appimagetool": {
         "source": f"https://github.com/{tool_repo}",

@@ -2401,7 +2401,7 @@ impl F17Harness {
         self.app.ptt.last_outcome
     }
 
-    /// Rozłączne liczniki wymagane przez bramkę: żądania PTT, żądania ON i wywołania backendu.
+    /// Rozłączne liczniki weryfikacji F-17: żądania PTT, żądania ON i wywołania backendu.
     fn counters(&self) -> (usize, usize, usize) {
         match self.last_outcome() {
             Some(outcome) if outcome.is_request() => (

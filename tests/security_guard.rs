@@ -2268,7 +2268,7 @@ fn state_machine_has_no_unrestricted_setter_guard() {
 fn cancellation_prohibited_from_applying_guard() {
     use splogbook::cloud::updater::{UpdateStateId, can_cancel};
 
-    // Stany bezwzględnie nieanulowalne zgodnie z OWNER-M2-13
+    // Stany bezwzględnie nieanulowalne zgodnie z ADR-07
     let non_cancellable = [
         UpdateStateId::Applying,
         UpdateStateId::LaunchingCandidate,
@@ -3283,7 +3283,7 @@ fn m3_b_stability_50_iterations_health_proof_and_rollback() {
             b"SQLITE_WAL"
         );
 
-        // 4. Rollback directory preserved for retention (OWNER-M2-08/09)
+        // 4. Rollback directory preserved for retention (ADR-03)
         assert!(root.join(".rollback").exists());
     }
 }
@@ -3456,7 +3456,7 @@ fn m3_b_stability_20_iterations_helper_parity_and_e2e_cycle() {
             fs::read(root.join("serviceLOG.db")).expect("read db"),
             b"SQLITE_DATA"
         );
-        // Rollback directory preserved for OWNER-M2-08/09
+        // Rollback directory preserved for ADR-03
         assert!(root.join(".rollback").exists());
 
         // 2. PowerShell Fallback Parity Check
@@ -3595,24 +3595,24 @@ fn m3_c_temporary_conservative_backup_retention_guard() {
         "PowerShell fallback nie może usuwać .rollback w bloku sukcesu"
     );
 
-    // 3. Status decyzji OWNER-M2-08 i OWNER-M2-09 musi pozostać OPEN / NON-BLOCKING.
+    // 3. Status ADR-03 (retencja .rollback) musi pozostać Open / non-blocking.
     // Źródłem prawdy jest publiczny rejestr decyzji (docs/architecture/DECISIONS.md)
-    // oraz rejestr znanych problemów (docs/KNOWN_ISSUES.md) — nigdy raport procesowy.
+    // oraz rejestr znanych problemów (docs/KNOWN_ISSUES.md).
     let decisions = fs::read_to_string("docs/architecture/DECISIONS.md")
         .expect("docs/architecture/DECISIONS.md");
     let known_issues = fs::read_to_string("docs/KNOWN_ISSUES.md").expect("docs/KNOWN_ISSUES.md");
 
     assert!(
-        decisions.contains("OWNER-M2-08") && decisions.contains("OWNER-M2-09"),
-        "DECISIONS musi jawnie rejestrować decyzje OWNER-M2-08 i OWNER-M2-09"
+        decisions.contains("| `ADR-03` |") && decisions.contains("**Open** (non-blocking)"),
+        "DECISIONS musi jawnie rejestrować ADR-03 ze statusem Open (non-blocking)"
     );
     for (name, doc) in [
         ("docs/architecture/DECISIONS.md", &decisions),
         ("docs/KNOWN_ISSUES.md", &known_issues),
     ] {
         assert!(
-            !doc.contains("OWNER-M2-08: APPROVED") && !doc.contains("OWNER-M2-09: APPROVED"),
-            "Decyzje OWNER-M2-08 i OWNER-M2-09 nie mogą być oznaczone jako APPROVED ({name}) przed formalnym rozstrzygnięciem"
+            !doc.contains("ADR-03: APPROVED") && !doc.contains("ADR-03: Approved"),
+            "ADR-03 (retencja .rollback) nie może być oznaczony jako APPROVED ({name}) przed formalnym rozstrzygnięciem"
         );
     }
 }
@@ -4022,7 +4022,7 @@ fn m3_git_repository_tag_v1_2_0_is_intact_and_no_automated_publishing_scripts_ex
         let tags = String::from_utf8_lossy(&output.stdout).trim().to_string();
         assert!(
             tags.is_empty(),
-            "No git tag matching *1.3.0* may exist during STAGE-M3-DEV-VERSION-IDENTITY-GATE: found '{tags}'"
+            "No git tag matching *1.3.0* may exist on the unreleased development line: found '{tags}'"
         );
     }
 
@@ -4219,12 +4219,12 @@ fn m3_d_inno_setup_toolchain_decision_guard() {
     let inno_doc = fs::read_to_string("installer/windows/inno/README.md")
         .expect("installer/windows/inno/README.md");
     assert!(
-        inno_doc.contains("OWNER-M3-D-TOOLCHAIN-01"),
-        "Dokumentacja instalatora musi zawierać identyfikator decyzji OWNER-M3-D-TOOLCHAIN-01"
+        inno_doc.contains("ADR-10"),
+        "Dokumentacja instalatora musi zawierać identyfikator ADR-10"
     );
     assert!(
         inno_doc.contains("APPROVED"),
-        "Decyzja OWNER-M3-D-TOOLCHAIN-01 musi mieć status APPROVED"
+        "Rekord ADR-10 musi mieć status APPROVED"
     );
     assert!(
         inno_doc.contains("7.1.1"),
@@ -4704,7 +4704,7 @@ fn m3_e_msi_toolchain_decision_and_identity_guard() {
         .expect("read SPLogbook.wixproj");
     assert!(
         wixproj.contains("WixToolset.Sdk/7.0.1"),
-        "SPLogbook.wixproj musi używać zatwierdzonego WiX Toolset SDK 7.0.1 (decyzja OWNER-M3-E-TOOLCHAIN-01)"
+        "SPLogbook.wixproj musi używać zatwierdzonego WiX Toolset SDK 7.0.1 (ADR-11)"
     );
     assert!(
         wixproj.contains("<AcceptEula>true</AcceptEula>"),
@@ -4714,7 +4714,7 @@ fn m3_e_msi_toolchain_decision_and_identity_guard() {
     let pkg = fs::read_to_string("installer/windows/msi/Package.wxs").expect("read Package.wxs");
     assert!(
         pkg.contains("UpgradeCode=\"B7D14532-6A10-4F8A-9A4B-3DE189E502B0\""),
-        "Package.wxs musi zawierać stały UpgradeCode zatwierdzony w OWNER-M3-E-TOOLCHAIN-01"
+        "Package.wxs musi zawierać stały UpgradeCode zatwierdzony w ADR-11"
     );
     assert_eq!(
         WINDOWS_MSI_UPGRADE_CODE,
@@ -5092,18 +5092,18 @@ fn m3_f_owner_decisions_and_support_policy_guard() {
     let decisions_doc = fs::read_to_string("docs/architecture/DECISIONS.md")
         .expect("docs/architecture/DECISIONS.md");
 
-    // Wszystkie 11 formalnych decyzji M3-F
-    assert!(decisions_doc.contains("OWNER-M3-F-LINUX-BASELINE-01"));
-    assert!(decisions_doc.contains("OWNER-M3-F-KERNEL-POLICY-01"));
-    assert!(decisions_doc.contains("OWNER-M3-F-ARCHITECTURE-01"));
-    assert!(decisions_doc.contains("OWNER-M3-F-LIBRARY-POLICY-01"));
-    assert!(decisions_doc.contains("OWNER-M3-F-DYNAMIC-LIBRARIES-01"));
-    assert!(decisions_doc.contains("OWNER-M3-F-PORTABLE-LAYOUT-01"));
-    assert!(decisions_doc.contains("OWNER-M3-F-UPDATE-MODE-01"));
-    assert!(decisions_doc.contains("OWNER-M3-F-ARCHIVE-EXTRACTION-01"));
-    assert!(decisions_doc.contains("OWNER-M3-F-XDG-DATA-01"));
-    assert!(decisions_doc.contains("OWNER-M3-F-SIGNING-01"));
-    assert!(decisions_doc.contains("OWNER-M3-F-DESKTOP-INTEGRATION-01"));
+    // Wszystkie 11 formalnych rekordów ADR dla pakowania Linux
+    assert!(decisions_doc.contains("| `ADR-14` |"));
+    assert!(decisions_doc.contains("| `ADR-15` |"));
+    assert!(decisions_doc.contains("| `ADR-19` |"));
+    assert!(decisions_doc.contains("| `ADR-20` |"));
+    assert!(decisions_doc.contains("| `ADR-21` |"));
+    assert!(decisions_doc.contains("| `ADR-22` |"));
+    assert!(decisions_doc.contains("| `ADR-23` |"));
+    assert!(decisions_doc.contains("| `ADR-24` |"));
+    assert!(decisions_doc.contains("| `ADR-25` |"));
+    assert!(decisions_doc.contains("| `ADR-26` |"));
+    assert!(decisions_doc.contains("| `ADR-27` |"));
 
     // Kluczowe zasady
     assert!(decisions_doc.contains("DYNAMIC DISTRIBUTION-DERIVED KERNEL COMPATIBILITY FLOOR"));
@@ -5128,18 +5128,15 @@ fn m3_f_owner_decisions_and_support_policy_guard() {
     assert_eq!(json["snapshot_date"], "2026-11-09");
     assert_eq!(json["resolved_minimum_kernel"], "7.0");
 
-    // OWNER-M3-F-KERNEL-POLICY-OPTION-A: minimum dynamiczne, nie sztywne 7.2.
-    assert_eq!(
-        json["kernel_policy"]["decision_id"],
-        "OWNER-M3-F-KERNEL-POLICY-OPTION-A"
-    );
+    // ADR-16: minimum dynamiczne, nie sztywne 7.2.
+    assert_eq!(json["kernel_policy"]["decision_id"], "ADR-16");
     assert_eq!(
         json["kernel_policy"]["model"],
         "dynamic-distribution-derived-floor"
     );
     assert_eq!(json["kernel_policy"]["minimum_kernel"], "7.0");
 
-    // OWNER-M3-F-GLIBC-POLICY-01: minimum glibc 2.43.
+    // ADR-17: minimum glibc 2.43.
     assert_eq!(json["glibc_policy"]["minimum_glibc"], "2.43");
     assert_eq!(
         json["glibc_policy"]["maximum_required_glibc_symbol"],
@@ -5303,7 +5300,7 @@ fn m3_f_owner_decisions_and_support_policy_guard() {
     );
     assert!(
         build_script.contains("RESOLVED_MIN_KERNEL=\"7.0\""),
-        "Skrypt budowania musi zapisywać minimum kernela 7.0 (OWNER-M3-F-KERNEL-POLICY-OPTION-A)"
+        "Skrypt budowania musi zapisywać minimum kernela 7.0 (ADR-16)"
     );
     assert!(
         !build_script.contains("RESOLVED_MIN_KERNEL=\"6.12\"")
@@ -5355,7 +5352,7 @@ fn m3_f_owner_decisions_and_support_policy_guard() {
 }
 
 // ============================================================================
-// STAGE-M3-F-POST-CLOSURE-CONSISTENCY-VERIFICATION-GATE (2026-11-09)
+// Linux packaging consistency verification guard (2026-11-09)
 // Strażnik spójności po zamknięciu M3-F: precyzyjna klasyfikacja drzewa
 // (tracked / untracked / ignored / strict), klasyfikacja dowodu natywnego
 // oraz formalna bramka F-03 (fail-closed weryfikacja Linux).
@@ -5423,15 +5420,11 @@ fn m3_f_post_closure_consistency_guard() {
         "ROADMAP musi odnotowywać M3-J (Flatpak) jako dostarczone po zamknięciu bramki"
     );
 
-    // 5. Rejestr decyzji zachowuje trwałe identyfikatory; otwarte P0 jest jawne.
-    for owner_id in [
-        "OWNER-M3-F-PCV-01",
-        "OWNER-M3-F-PCV-07",
-        "OWNER-M3-F-F03-01",
-    ] {
+    // 5. Rejestr decyzji zachowuje trwałe identyfikatory ADR; otwarte P0 jest jawne.
+    for adr_id in ["| `ADR-31` |", "| `ADR-37` |", "| `ADR-38` |"] {
         assert!(
-            decisions.contains(owner_id),
-            "DECISIONS musi zapisywać decyzję {owner_id}"
+            decisions.contains(adr_id),
+            "DECISIONS musi zapisywać rekord {adr_id}"
         );
     }
     assert!(
@@ -5447,7 +5440,7 @@ fn m3_f_post_closure_consistency_guard() {
 }
 
 // ============================================================================
-// STAGE-QA-BASELINE-DETERMINISM-AND-HERMETICITY-GATE (2026-11-09)
+// Baseline determinism and hermeticity guard (2026-11-09)
 // Strażnik hermetyczności natywnych testów instalatorów (F-24).
 // Wymaga wyłącznie plików źródłowych — NIE wymaga lokalnego instalatora.
 // ============================================================================
@@ -5620,7 +5613,7 @@ fn qa_native_installer_tests_are_hermetic_and_fail_closed() {
 }
 
 // ============================================================================
-// STAGE-QA-XDG-ENVIRONMENT-DETERMINISM (2026-11-14)
+// XDG environment determinism guard (2026-11-14)
 // Strażnik determinizmu testów mutujących środowisko procesu.
 //
 // Wymusza: jeden wspólny helper (mutex + RAII + odzyskiwanie po poison),
@@ -5844,7 +5837,7 @@ fn qa_process_environment_mutation_is_serialized_and_guarded() {
 }
 
 // ============================================================================
-// STAGE-M3-F-F03-FAIL-CLOSED-CI-VERIFICATION-GATE (2026-11-09)
+// F-03 fail-closed Linux CI verification guard (2026-11-09)
 // Strażnik fail-closed natywnej weryfikacji Linux (F-03): brak maskowania
 // progów krytycznych, jawna kontrola GLIBC_2.43, instalacja bibliotek runtime
 // przed weryfikatorem, dokładnie 4 profile, test negatywny w CI oraz
@@ -6055,7 +6048,7 @@ fn m3_f_f03_fail_closed_verification_guard() {
         publish.contains("if: startsWith(github.ref, 'refs/tags/v')"),
         "Publish Release Assets musi być warunkowany tagiem v*"
     );
-    // OWNER-CI-PUBLISH-01: job-level warunek publikacji to dokładnie push tagu v*;
+    // ADR-71: job-level warunek publikacji to dokładnie push tagu v*;
     // workflow_dispatch (dowolna gałąź, dowolne dry_run) zawsze pomija publikację.
     let publish_header = publish
         .split("    steps:")
@@ -6068,7 +6061,7 @@ fn m3_f_f03_fail_closed_verification_guard() {
     assert_eq!(
         publish_conditions,
         ["    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'"],
-        "Publish Release Assets musi mieć dokładnie warunek push tagu v* (OWNER-CI-PUBLISH-01)"
+        "Publish Release Assets musi mieć dokładnie warunek push tagu v* (ADR-71)"
     );
     assert!(
         !publish_conditions
@@ -6151,8 +6144,8 @@ fn m3_f_f03_fail_closed_verification_guard() {
         "SECURITY_PROCESS musi opisywać fail-closed weryfikację natywną i zamknięcie F-03"
     );
     assert!(
-        decisions.contains("OWNER-M3-F-F03-01"),
-        "kanon decyzji musi zapisywać OWNER-M3-F-F03-01"
+        decisions.contains("| `ADR-38` |"),
+        "kanon decyzji musi zapisywać ADR-38"
     );
     let snapshot_json: serde_json::Value =
         serde_json::from_str(&snapshot).expect("snapshot JSON musi być poprawny");
@@ -6171,17 +6164,17 @@ fn m3_f_f03_fail_closed_verification_guard() {
 }
 
 // ============================================================================
-// STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE (2026-11-11)
+// Linux AppImage integration guard (2026-11-11)
 // Strażnik trwałych kontraktów pakunku AppImage: oficjalne źródło i kanał
 // continuous appimagetool, weryfikacja opublikowanego i lokalnego SHA-256,
-// przypięcie jednego toolchainu na całą bramkę, jawny type-2 runtime,
+// przypięcie jednego toolchainu na całą budowę, jawny type-2 runtime,
 // AppRun bez eskalacji i bez LD_LIBRARY_PATH, polityka GLIBC_2.43, bundlowanie
 // wyłącznie libhamlib.so.4, cztery profile, testy negatywne, brak publikacji
 // release oraz utrzymane fail-closed F-03.
 //
-// Od STAGE-CI-APPIMAGE-TOOLCHAIN-PINNING (OWNER-M3-G-10) toolchain jest
-// przypięty statycznie w installer/linux/appimage/toolchain-pins: bez REST API,
-// bez cache, z twardą weryfikacją rozmiaru i SHA-256; piny muszą być zgodne z
+// Zgodnie z ADR-44 toolchain jest przypięty statycznie w
+// installer/linux/appimage/toolchain-pins: bez REST API, bez cache, z twardą
+// weryfikacją rozmiaru i SHA-256; piny muszą być zgodne z
 // docs/architecture/DECISIONS.md.
 // ============================================================================
 
@@ -6216,7 +6209,7 @@ fn m3_g_appimage_integration_guard() {
         "zakaz używania starego repozytorium AppImageKit"
     );
 
-    // 2. Statyczny pin (OWNER-M3-G-10): zero zapytań REST API, bez cache, bez
+    // 2. Statyczny pin (ADR-44): zero zapytań REST API, bez cache, bez
     //    tokenu; piny w installer/linux/appimage/toolchain-pins zgodne z DECISIONS.
     for forbidden in [
         "api.github.com",
@@ -6246,12 +6239,9 @@ fn m3_g_appimage_integration_guard() {
         .replace("\r\n", "\n");
     let pinning_row = decisions
         .lines()
-        .find(|line| line.starts_with("| `OWNER-M3-G-10`"))
-        .expect("DECISIONS.md musi zapisywać OWNER-M3-G-10");
-    for (artifact, decision) in [
-        ("appimagetool", "OWNER-M3-G-03-R1"),
-        ("runtime", "OWNER-M3-G-04-R1"),
-    ] {
+        .find(|line| line.starts_with("| `ADR-44`"))
+        .expect("DECISIONS.md musi zapisywać ADR-44");
+    for (artifact, decision) in [("appimagetool", "ADR-40"), ("runtime", "ADR-41")] {
         let approved = decisions
             .lines()
             .find(|line| line.starts_with(&format!("| `{decision}`")))
@@ -6507,7 +6497,7 @@ fn m3_g_appimage_integration_guard() {
 }
 
 // ============================================================================
-// STAGE-M3-H-LINUX-DEB-INTEGRATION-GATE (2026-11-12)
+// Linux DEB integration guard (2026-11-12)
 // Strażnik binarnego pakietu DEB: oficjalny dpkg-deb, deterministyczna budowa,
 // układ /opt/SPLogbook, fail-closed launcher, minimalne maintainer scripts,
 // weryfikator fail-closed, 27 mutacji negatywnych, artefakt wyłącznie w CI,
@@ -6753,8 +6743,8 @@ fn m3_h_deb_integration_guard() {
         "weryfikator może wyciszyć wyłącznie zatwierdzony tag /opt"
     );
     assert!(
-        verify.contains("OWNER-M3-H-03"),
-        "wyciszenie tagu musi odwoływać się do decyzji OWNER"
+        verify.contains("ADR-47"),
+        "wyciszenie tagu musi odwoływać się do ADR-47"
     );
     assert!(verify.contains("dpkg --remove") && verify.contains("dpkg --purge"));
     assert!(verify.contains("user data unchanged"));
@@ -6868,7 +6858,7 @@ fn m3_h_deb_integration_guard() {
 }
 
 // ============================================================================
-// STAGE-M3-I-LINUX-RPM-INTEGRATION-GATE (2026-11-13)
+// Linux RPM integration guard (2026-11-13)
 // Strażnik binarnego pakietu RPM: rpmbuild, deterministyczna budowa,
 // układ /opt/SPLogbook, fail-closed launcher, tylko post/postun, weryfikator
 // fail-closed, 34 mutacje negatywne, artefakt wyłącznie w CI, brak publikacji
@@ -7023,7 +7013,7 @@ fn m3_i_rpm_integration_guard() {
     assert!(verify.contains("rpm -U --nosignature --replacepkgs"));
     assert!(verify.contains("user data unchanged"));
     assert!(verify.contains("RPM VERIFICATION COMPLETED SUCCESSFULLY"));
-    assert!(verify.contains("OWNER-M3-H-03"));
+    assert!(verify.contains("ADR-47"));
     assert!(verify.contains("dir-or-file-in-opt,binary-or-shlib-defines-rpath"));
     for forbidden in ["|| true", "|| :", "--nodeps"] {
         assert!(
@@ -7617,7 +7607,7 @@ fn p0_f14_hil_hardware_tests_remain_ignored_guard() {
 fn p0_f14_documentation_separates_software_and_hardware_guard() {
     let known = fs::read_to_string("docs/KNOWN_ISSUES.md").expect("KNOWN_ISSUES.md");
     for required in [
-        "F-14 software remediation = CLOSED",
+        "F-14 = Resolved (Verified)",
         "Hardware validation = NOT_EXECUTED",
         "Protocol conformance software verification = COMPLETED",
         "NATIVE-7B = NOT_STARTED",
@@ -7649,7 +7639,7 @@ fn p0_f14_documentation_separates_software_and_hardware_guard() {
 }
 
 // ============================================================================
-// STAGE-CAT-018-019-SOFTWARE -- protocol conformance guards
+// CAT-018 / CAT-019 -- protocol conformance guards
 // ============================================================================
 
 /// CAT-018: the Kenwood PTT mapping is model-specific and documented per model. There is no
@@ -7914,8 +7904,8 @@ fn cat018_cat019_documentation_and_gate_state_guard() {
     for required in [
         "CAT-018",
         "CAT-019",
-        "COMPLETED_KENWOOD_PTT_PROTOCOL_CONFORMANCE_VERIFIED",
-        "COMPLETED_FLRIG_XMLRPC_PTT_CONFORMANCE_VERIFIED",
+        "CAT-018 = CLOSED / Verified",
+        "CAT-019 = CLOSED / Verified",
         "F-15 (P1)",
         "F-17 (P1)",
         "NATIVE-7B",
@@ -7943,7 +7933,7 @@ fn cat018_cat019_documentation_and_gate_state_guard() {
 }
 
 // ============================================================================
-// STAGE-P1-F15-SOFTWARE -- HIL readiness independent-evidence guards (F-15)
+// P1-F15 -- HIL readiness independent-evidence guards (F-15)
 //
 // F-15 removed the self-certifiable readiness model. These guards pin the
 // software properties that make self-certification impossible:
@@ -7958,7 +7948,7 @@ fn cat018_cat019_documentation_and_gate_state_guard() {
 //   * the ten hardware-in-the-loop tests stay ignored;
 //   * the public documentation records the software-only scope honestly.
 // The guards read only tracked repository files; they never depend on the
-// owner-local .local-work/ reports.
+// local working notes or reports.
 // ============================================================================
 
 /// No HIL safety field may default to `true`, and no fallback may turn a missing value into an
@@ -8339,11 +8329,11 @@ fn p1_f15_documentation_records_software_only_scope_guard() {
     let known = fs::read_to_string("docs/KNOWN_ISSUES.md").expect("KNOWN_ISSUES.md");
     for required in [
         "F-15 (P1)",
-        "F-15 software remediation = CLOSED",
+        "F-15 = Resolved (Verified)",
         "HIL readiness self-certification = REMOVED",
         "Production default = DENIED",
         "Hardware readiness = NOT_VERIFIED",
-        "F-14 software remediation = CLOSED",
+        "F-14 = Resolved (Verified)",
         "Hardware validation = NOT_EXECUTED",
         "Protocol conformance software verification = COMPLETED",
         "F-17 (P1)",
@@ -8387,7 +8377,7 @@ fn p1_f15_documentation_records_software_only_scope_guard() {
 }
 
 // ============================================================================
-// STAGE-P1-F17-SOFTWARE -- safe PTT user interaction and release control (F-17)
+// P1-F17 -- safe PTT user interaction and release control (F-17)
 //
 // F-17 removed the unsafe single-key PTT toggle. These guards pin the software
 // properties that make an unsafe PTT interaction impossible:
@@ -8402,7 +8392,7 @@ fn p1_f15_documentation_records_software_only_scope_guard() {
 //   * no bypass token exists in source, manifest, workflow or localisation;
 //   * F-14 / CAT-018 / CAT-019 / F-15 stay closed, NATIVE-7B stays NOT_STARTED.
 // The guards read only tracked repository files; they never depend on the
-// owner-local .local-work/ reports.
+// local working notes or reports.
 // ============================================================================
 
 /// Reads a tracked source file and returns its contents (F-17 helper).
@@ -8823,7 +8813,7 @@ fn p1_f17_gui_tx_state_is_telemetry_derived_guard() {
 fn p1_f17_documentation_records_software_only_scope_guard() {
     let known = p1_f17_read("docs/KNOWN_ISSUES.md");
     for required in [
-        "F-17 software remediation = CLOSED",
+        "F-17 = Resolved (Verified)",
         "Single-key PTT = REMOVED",
         "Text editing PTT = BLOCKED",
         "IME PTT = BLOCKED",
@@ -8908,8 +8898,8 @@ fn p1_f17_localisation_exposes_two_explicit_ptt_intents_guard() {
 fn p1_f17_prior_gate_state_is_unchanged_guard() {
     let known = p1_f17_read("docs/KNOWN_ISSUES.md");
     for required in [
-        "F-14 software remediation = CLOSED",
-        "F-15 software remediation = CLOSED",
+        "F-14 = Resolved (Verified)",
+        "F-15 = Resolved (Verified)",
         "CAT-018 = CLOSED",
         "CAT-019 = CLOSED",
         "NATIVE-7B = NOT_STARTED",
@@ -9013,7 +9003,7 @@ fn p1_f17_refusal_is_signalled_as_text_guard() {
 // ============================================================================
 // P1-F16 — panic-free logbook pagination and filter-transition guards
 //
-// Wymagane przez OWNER_GO_P1_F16_SOFTWARE_REMEDIATION:
+// Kontrakt F-16 (ADR-97..ADR-102):
 //   * jedno centralne, czyste i totalne obliczenie paginacji;
 //   * brak bezpośredniego, niezweryfikowanego slicingu strony;
 //   * checked arithmetic zamiast panic/wrap/saturating-maskowania;
@@ -9024,7 +9014,7 @@ fn p1_f17_refusal_is_signalled_as_text_guard() {
 //   * F-14 / CAT-018 / CAT-019 / F-15 / F-17 pozostają CLOSED,
 //     NATIVE-7B pozostaje NOT_STARTED, 10 testów HIL pozostaje ignored.
 // Guardy czytają wyłącznie pliki śledzone w repozytorium; nie zależą od
-// prywatnych raportów .local-work/.
+// lokalnych notatek roboczych.
 // ============================================================================
 
 fn p1_f16_read(path: &str) -> String {
@@ -9248,7 +9238,6 @@ fn p1_f16_tests_use_only_synthetic_data_guard() {
         "F-16: tests must use an in-memory synthetic database"
     );
     for forbidden in [
-        ".local-work",
         "default_log.db",
         "station_config.json",
         "APPDATA",
@@ -9275,17 +9264,17 @@ fn p1_f16_tests_use_only_synthetic_data_guard() {
 fn p1_f16_documentation_records_the_closed_remediation_guard() {
     let known = p1_f16_read("docs/KNOWN_ISSUES.md");
     for required in [
-        "F-16 (P1) — GUI panic in logbook paging — F-16 software remediation = CLOSED",
+        "F-16 (P1) — GUI panic in logbook paging — F-16 = Resolved (Verified)",
         "F-16 = CLOSED",
-        "COMPLETED_LOGBOOK_PAGINATION_PANIC_REMEDIATION_VERIFIED",
+        "Status: Resolved (Verified)",
         "Logbook pagination = PANIC_FREE_SOFTWARE_VERIFIED",
         "Stale page normalization = VERIFIED",
         "Filter transitions = VERIFIED",
         "Selection stability = VERIFIED",
         "Real user data = NOT_USED",
-        "F-14 software remediation = CLOSED",
-        "F-15 software remediation = CLOSED",
-        "F-17 software remediation = CLOSED",
+        "F-14 = Resolved (Verified)",
+        "F-15 = Resolved (Verified)",
+        "F-17 = Resolved (Verified)",
         "CAT-018 = CLOSED",
         "CAT-019 = CLOSED",
         "NATIVE-7B = NOT_STARTED",
@@ -9298,15 +9287,13 @@ fn p1_f16_documentation_records_the_closed_remediation_guard() {
 
     let roadmap = p1_f16_read("docs/ROADMAP.md");
     assert!(
-        roadmap.contains("F-16")
-            && roadmap.contains("COMPLETED_LOGBOOK_PAGINATION_PANIC_REMEDIATION_VERIFIED"),
-        "docs/ROADMAP.md must record the closed F-16 remediation"
+        roadmap.contains("F-16") && roadmap.contains("F-16 = Resolved (Verified)"),
+        "docs/ROADMAP.md must record the resolved F-16 pagination fix"
     );
 
     let baseline = p1_f16_read("docs/VERIFICATION_BASELINE.md");
     assert!(
-        baseline.contains("F-16")
-            && baseline.contains("COMPLETED_LOGBOOK_PAGINATION_PANIC_REMEDIATION_VERIFIED"),
+        baseline.contains("F-16") && baseline.contains("Resolved (Verified)"),
         "docs/VERIFICATION_BASELINE.md must record the F-16 verification"
     );
 
@@ -9320,10 +9307,10 @@ fn p1_f16_documentation_records_the_closed_remediation_guard() {
 
     let decisions = p1_f16_read("docs/architecture/DECISIONS.md");
     for required in [
-        "DEC-P1-F16-MODEL-01",
-        "DEC-P1-F16-NORMALIZE-01",
-        "DEC-P1-F16-SLICE-01",
-        "DEC-P1-F16-SCOPE-01",
+        "| `ADR-97` |",
+        "| `ADR-98` |",
+        "| `ADR-100` |",
+        "| `ADR-102` |",
     ] {
         assert!(
             decisions.contains(required),
@@ -9387,7 +9374,7 @@ fn p1_f16_prior_gate_state_and_scope_are_unchanged_guard() {
 }
 
 // ============================================================================
-// STAGE-P1-F19-SOFTWARE — SOTA/POTA operator-correspondent reference semantics
+// P1-F19 — SOTA/POTA operator-correspondent reference semantics
 // ============================================================================
 //
 // These guards pin the role-aware reference mapping required by the F-19 gate:
@@ -9746,7 +9733,7 @@ fn p1_f19_documentation_records_the_closed_remediation_guard() {
     for required in [
         "F-19 (P1)",
         "F-19 = CLOSED",
-        "COMPLETED_SOTA_POTA_REFERENCE_SEMANTICS_REMEDIATION_VERIFIED",
+        "F-19 = Resolved (Verified)",
         "SOTA local/remote mapping =",
         "POTA local/remote mapping =",
         "S2S mapping =",
@@ -9825,12 +9812,12 @@ fn p1_f19_documentation_records_the_closed_remediation_guard() {
 fn p1_f19_prior_gates_scope_and_safety_are_unchanged_guard() {
     let known = p1_f16_read("docs/KNOWN_ISSUES.md");
     for required in [
-        "F-14 software remediation = CLOSED",
+        "F-14 = Resolved (Verified)",
         "CAT-018 = CLOSED",
         "CAT-019 = CLOSED",
-        "F-15 software remediation = CLOSED",
-        "F-16 software remediation = CLOSED",
-        "F-17 software remediation = CLOSED",
+        "F-15 = Resolved (Verified)",
+        "F-16 = Resolved (Verified)",
+        "F-17 = Resolved (Verified)",
         "NATIVE-7B = NOT_STARTED",
     ] {
         assert!(
@@ -9943,7 +9930,7 @@ fn p1_f19_synthetic_data_only_guard() {
 }
 
 // ---------------------------------------------------------------------------
-// STAGE-P1-F20-SOFTWARE - LoTW/eQSL journal-scoped, lossless upload selection
+// P1-F20 - LoTW/eQSL journal-scoped, lossless upload selection
 // ---------------------------------------------------------------------------
 
 fn p1_f20_read(path: &str) -> String {
@@ -10514,7 +10501,7 @@ fn p1_f20_documentation_records_the_closed_remediation_guard() {
 
     for required in [
         "F-20 = CLOSED",
-        "COMPLETED_JOURNAL_SCOPED_UPLOAD_SELECTION_REMEDIATION_VERIFIED",
+        "F-20 = Resolved (Verified)",
         "LoTW selection = JOURNAL_SCOPED",
         "eQSL selection = JOURNAL_SCOPED",
         "Silent truncation = REMOVED",
@@ -10544,22 +10531,22 @@ fn p1_f20_documentation_records_the_closed_remediation_guard() {
 fn p1_f20_prior_gates_remain_closed_guard() {
     let known = p1_f20_read("docs/KNOWN_ISSUES.md");
     for closed in [
-        "F-14 software remediation = CLOSED",
+        "F-14 = Resolved (Verified)",
         "CAT-018 = CLOSED",
         "CAT-019 = CLOSED",
-        "F-15 software remediation = CLOSED",
+        "F-15 = Resolved (Verified)",
         "F-16 = CLOSED",
-        "F-17 software remediation = CLOSED",
+        "F-17 = Resolved (Verified)",
         "F-19 = CLOSED",
     ] {
         assert!(
             known.contains(closed),
-            "F-20: a previously closed gate was reopened: `{closed}`"
+            "F-20: a previously resolved issue was reopened: `{closed}`"
         );
     }
     assert!(
         known.contains("F-21 = CLOSED"),
-        "F-21: F-21 must be recorded as CLOSED after STAGE-P1-F21-SOFTWARE"
+        "F-21: F-21 must remain recorded as CLOSED"
     );
     assert!(
         known.contains("F-21 (P1)"),
@@ -10591,7 +10578,7 @@ fn p1_f20_hil_tests_remain_ignored_guard() {
 }
 
 // ---------------------------------------------------------------------------
-// STAGE-P1-F20R-SOFTWARE - persistent upload checkpoints, sent dates and
+// P1-F20R - persistent upload checkpoints, sent dates and
 // download-credential transport hardening (F20-R1, F20-R2, F20-R3)
 // ---------------------------------------------------------------------------
 
@@ -11061,7 +11048,7 @@ fn p1_f20r_documentation_records_the_residual_hardening_guard() {
     let baseline = p1_f20_read("docs/VERIFICATION_BASELINE.md");
     assert!(
         baseline.contains("P1-F20R"),
-        "F-20R: the verification baseline must record this gate"
+        "F-20R: the verification baseline must record P1-F20R"
     );
 }
 
@@ -11070,24 +11057,23 @@ fn p1_f20r_prior_gates_and_dependency_policy_guard() {
     let roadmap = p1_f20_read("docs/ROADMAP.md");
     assert!(roadmap.contains("F-20"), "F-20 must stay recorded");
     assert!(roadmap.contains("F-21"), "F-21 must stay recorded");
-    // Tylko dokumenty śledzone w repozytorium: `docs/PROJECT_CURRENT_STATE.md`
-    // i `docs/NEXT_WORK_GATE.md` są plikami lokalnymi (`.git/info/exclude`)
-    // i nie istnieją w czystym checkoucie.
+    // Tylko dokumenty śledzone w repozytorium: lokalne notatki robocze
+    // nie są częścią publicznego drzewa Git i nie mogą być czytane przez testy.
     assert!(
         roadmap.contains("NATIVE-7B"),
         "NATIVE-7B must stay recorded as NOT_STARTED"
     );
     assert!(
-        roadmap.contains("F-21 = CLOSED"),
-        "F-21 must stay recorded as CLOSED"
+        roadmap.contains("F-21 = Resolved (Verified)"),
+        "F-21 must stay recorded as Resolved (Verified)"
     );
     assert!(
-        roadmap.contains("F20R = CLOSED"),
-        "F20R must stay recorded as CLOSED"
+        roadmap.contains("| F20R hardening | **Resolved (Verified)**"),
+        "F20R hardening must stay recorded as Resolved (Verified)"
     );
     assert!(
-        roadmap.contains("F-18 = CLOSED"),
-        "F-18 must stay recorded as CLOSED"
+        roadmap.contains("F-18 = Resolved (Verified)"),
+        "F-18 must stay recorded as Resolved (Verified)"
     );
     // Zależności: bez zmian, `rusqlite` nadal bundled, brak dev-dependency w
     // produkcyjnych zależnościach.
@@ -11110,7 +11096,7 @@ fn p1_f20r_prior_gates_and_dependency_policy_guard() {
 }
 
 // ============================================================================
-// STAGE-RUSTSEC-2026-0543-CHRONO-REPLACEMENT: chrono (RUSTSEC-2026-0543, unmaintained) is
+// RUSTSEC-2026-0543 (chrono replacement): chrono (unmaintained) is
 // gone and jiff 1.x is the only time crate. F20-R4: the LoTW received date is never invented.
 // ============================================================================
 

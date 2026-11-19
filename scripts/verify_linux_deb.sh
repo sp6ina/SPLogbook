@@ -480,13 +480,13 @@ if [ "${SKIP_LINTIAN}" = "1" ]; then
     log "lintian: skipped by SPLOG_DEB_SKIP_LINTIAN=1 (inspection-only fixtures)"
 else
     require_tool lintian
-    # OWNER-M3-H-03 explicitly approves the /opt/SPLogbook layout and the
+    # ADR-47 explicitly approves the /opt/SPLogbook layout and the
     # private bundled libhamlib.so.4. FHS reserves /opt for add-on software and
     # the private library requires RUNPATH=$ORIGIN/lib, so lintian reports
     # dir-or-file-in-opt and custom-library-search-path as errors. These two
     # documented suppressions record the approved design; no other tag is hidden.
     LINTIAN_SUPPRESSED_TAGS="dir-or-file-in-opt,custom-library-search-path"
-    log "lintian suppressed tags (OWNER-M3-H-03 approved /opt layout): ${LINTIAN_SUPPRESSED_TAGS}"
+    log "lintian suppressed tags (ADR-47 approved /opt layout): ${LINTIAN_SUPPRESSED_TAGS}"
     set +e
     lintian --no-tag-display-limit --suppress-tags "${LINTIAN_SUPPRESSED_TAGS}" "${DEB}" \
         > "${WORK}/lintian.txt" 2>&1

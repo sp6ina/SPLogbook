@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
-//! STAGE-P1-F20R-SOFTWARE — trwałe checkpointy uploadu i recovery po restarcie.
+//! P1-F20R — trwałe checkpointy uploadu i recovery po restarcie.
 //!
 //! Wszystkie dane są syntetyczne (`TST…`), bazy są lokalne (in-memory lub plik
 //! w katalogu tymczasowym), nie ma sieci, prawdziwych poświadczeń ani

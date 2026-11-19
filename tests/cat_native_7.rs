@@ -2719,7 +2719,7 @@ async fn hil_hardware_live_test_bench() {
 }
 
 // =========================================================================
-// NATIVE-7A-EVIDENCE-SEMANTICS-FINAL-GATE: Offline vs Physical Separation Tests
+// HIL Evidence Semantics: Offline vs Physical Separation Tests
 // =========================================================================
 
 #[test]
@@ -3531,7 +3531,7 @@ fn hil_physical_measurement_requires_instrument_identity() {
 }
 
 // =========================================================================
-// NATIVE-7A-CANONICAL-IDENTITY-CLOSURE-GATE:
+// HIL Canonical Identity and Evidence Origin Integrity:
 // Canonical 1-30 Identity, Restored Conditions 3/7/15/18/19/20/24/25,
 // Extended HIL-X16..HIL-X22, and Evidence Origin Integrity Tests
 // =========================================================================

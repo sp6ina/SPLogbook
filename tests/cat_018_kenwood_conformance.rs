@@ -2,8 +2,8 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 //! CAT-018 — SOFTWARE-ONLY Kenwood PTT protocol conformance.
 //!
-//! Every assertion is grounded in an official JVC Kenwood document that was opened and read in
-//! this gate (see `.local-work/reports/CAT_018_019_PRE_IMPLEMENTATION.md`):
+//! Every assertion is grounded in an official JVC Kenwood reference document
+//! (see `docs/HARDWARE_VALIDATION_MATRIX.md` and `ADR-75`–`ADR-78`):
 //!
 //! * **TS-590S / TS-590SG** — PC CONTROL COMMAND Reference **B5A-0316-20/01** (2019-01-30),
 //!   `TX` p. 30, `RX` p. 25, `IF` p. 15, `ID` p. 14, `SM` p. 27, error messages p. 3.

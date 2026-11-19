@@ -34,7 +34,7 @@ pub struct XdgPaths {
 impl XdgPaths {
     /// Rozwiązuje ścieżki XDG z pełnym egzekwowaniem bezpieczeństwa ścieżek bezwzględnych.
     ///
-    /// Zgodnie ze specyfikacją XDG Base Directory oraz decyzją OWNER-M3-F-XDG-DATA-01:
+    /// Zgodnie ze specyfikacją XDG Base Directory oraz `ADR-25`:
     /// - Zmienne XDG muszą zawierać ścieżki bezwzględne;
     /// - Wszelkie ścieżki względne są odrzucane jako niepoprawne i zastępowane bezpiecznym fallbackiem w `$HOME`;
     /// - W razie braku `$HOME` lub gdy `$HOME` nie jest ścieżką bezwzględną funkcja zwraca błąd fail-closed.
@@ -96,7 +96,7 @@ pub struct LegacyDataFinding {
 
 /// Wykrywa istniejące pliki baz lub konfiguracji w starych lokalizacjach (np. bezpośrednio w korzeniu portable).
 ///
-/// Gwarancja architektoniczna (OWNER-M3-F-XDG-DATA-01):
+/// Gwarancja architektoniczna (`ADR-25`):
 /// - Funkcja ma charakter wyłącznie detekcyjno-informacyjny.
 /// - Bezwzględny ZAKAZ automatycznej, cichej migracji plików bez wiedzy i zgody użytkownika.
 pub fn detect_legacy_portable_user_data(portable_root: &Path) -> Vec<LegacyDataFinding> {

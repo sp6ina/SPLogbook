@@ -188,7 +188,7 @@ fixtures. It prints `DEB VERIFICATION COMPLETED SUCCESSFULLY` only at the end.
 Lintian reports `dir-or-file-in-opt` for the `/opt/SPLogbook` layout and
 `custom-library-search-path` for the relative `$ORIGIN/lib` RUNPATH required by
 the private bundled `libhamlib.so.4`. Both are explicitly approved by
-`OWNER-M3-H-03`; the verifier therefore suppresses **exactly these two tags**
+`ADR-47`; the verifier therefore suppresses **exactly these two tags**
 and prints the suppression in the evidence. No other lintian tag is suppressed.
 
 `SPLOG_DEB_INSPECTION_ONLY=1` stops after the static checks and prints

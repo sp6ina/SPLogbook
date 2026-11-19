@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
-//! Testy integracyjne dla bramki `STAGE-P1-F21-SOFTWARE` (`F-21`):
+//! Testy integracyjne dla `F-21` (eksport Cabrillo bez limitu 10 000 QSO):
 //! - pełny, bezstratny eksport Cabrillo dla dziennika > 10 000 QSO (brak ucięcia najstarszych QSO),
 //! - wyliczanie `CLAIMED-SCORE` z tego samego pełnego, kanonicznie posortowanego zbioru,
 //! - ścisła separacja między dziennikami (`journal_id`) przy eksporcie i punktacji.

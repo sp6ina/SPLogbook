@@ -5,8 +5,7 @@
 ## 1. Przeznaczenie i zakres
 
 Katalog `installer/linux/appimage/` zawiera trwałe definicje pakunku AppImage
-(`SPLogbook-Linux-x86_64.AppImage`) dla SPLogbook Linux x86_64. Bramka:
-`STAGE-M3-G-LINUX-APPIMAGE-INTEGRATION-GATE`.
+(`SPLogbook-Linux-x86_64.AppImage`) dla SPLogbook Linux x86_64 (`ADR-39`).
 
 Polityka wsparcia pozostaje niezmieniona (M3-F): **kernel >= 7.0**, **glibc 2.43**,
 cztery wspierane dystrybucje (Ubuntu 26.04 LTS, Fedora 45, Arch Linux, openSUSE Tumbleweed).
@@ -108,7 +107,7 @@ Dane użytkownika pozostają poza obrazem, w ścieżkach XDG:
 ## 6. Narzędzia budowy
 
 - `appimagetool` i type-2 runtime są przypięte **statycznie** w
-  `installer/linux/appimage/toolchain-pins` (decyzja `OWNER-M3-G-10`). Plik podaje repozytorium,
+  `installer/linux/appimage/toolchain-pins` (`ADR-44`). Plik podaje repozytorium,
   kanał `continuous`, commit, asset, dokładny rozmiar, SHA-256 i oficjalny URL wydania.
 - `scripts/install_appimage_toolchain.sh` nie odpytuje GitHub REST API i nie używa cache. Pobiera
   oba pliki bezpośrednio z `https://github.com/AppImage/.../releases/download/continuous/...`

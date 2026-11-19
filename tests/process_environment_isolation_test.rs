@@ -3,7 +3,7 @@
 //
 // Testy kontraktu wspólnego mechanizmu izolacji środowiska procesu.
 //
-// Bramka: STAGE-QA-XDG-ENVIRONMENT-DETERMINISM (2026-11-14).
+// Zakres: determinizm i izolacja zmiennych środowiskowych XDG (2026-11-14).
 //
 // Każdy test używa własnych, unikalnych nazw zmiennych, więc nie zależy od kolejności
 // wykonania binarki. Wszystkie mutacje przechodzą przez `EnvGuard`; żaden test nie

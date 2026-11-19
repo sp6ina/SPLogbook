@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
-//! STAGE-P1-F20-SOFTWARE — journal-scoped, complete and lossless upload selection.
+//! P1-F20 — journal-scoped, complete and lossless upload selection.
 //!
 //! Wszystkie dane są syntetyczne (`TST…`), baza jest w pamięci, nie ma sieci,
 //! prawdziwych poświadczeń ani prawdziwego uploadu. Testy pilnują invariántów

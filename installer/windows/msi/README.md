@@ -1,14 +1,13 @@
 # SPLogbook Windows System Setup (MSI / WiX Toolset 7.0.1)
 
-Dokumentacja techniczna i architektoniczna instalatora **Windows System Setup (MSI)** dla projektu SPLogbook w ramach bramki:
-`STAGE-M3-E-WINDOWS-MSI-WIX-INTEGRATION-GATE`.
+Dokumentacja techniczna i architektoniczna instalatora **Windows System Setup (MSI)** dla projektu SPLogbook (`ADR-11`).
 
 ---
 
 ## 1. Status Formalny i Zatwierdzony Toolchain
 
-- **DECYZJA WŁAŚCICIELA:** `OWNER-M3-E-TOOLCHAIN-01`
-- **STATUS DECYZJI:** `APPROVED` (2026-11-08)
+- **REKORD ARCHITEKTONICZNY:** `ADR-11`
+- **STATUS:** `APPROVED` (2026-11-08)
 - **ZATWIERDZONY KOMPILATOR / SDK:** `WiX Toolset SDK 7.0.1` (`WixToolset.Sdk/7.0.1`)
 - **SILNIK KOMPILACJI:** MSBuild 2022 wyszukiwany dynamicznie przez `vswhere.exe` (`-latest -products * -requires Microsoft.Component.MSBuild`) z fallbackiem do standardowych ścieżek Visual Studio 2022 (`Enterprise`, `Professional`, `Community`, `BuildTools`) oraz wbudowanym `NuGetSdkResolver` i silnikiem `wix.exe` (7.0.1)
 - **AKCEPTACJA EULA:** Jawna akceptacja EULA WiX 7 (`wix eula accept wix7`, tworząca plik `%USERPROFILE%\.wix\wix7-osmf-eula.txt`); na świeżych runnerach CI skrypt wykonuje ją celem MSBuild `-t:AcceptEula -p:EulaId=wix7` (sam `-p:AcceptEula=true` nie wystarcza — `wix.exe` zgłasza WIX7015)

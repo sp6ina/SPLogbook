@@ -1,14 +1,13 @@
 # SPLogbook Windows User Setup (Inno Setup 7.1.1)
 
-Dokumentacja techniczna i architektoniczna instalatora **Windows User Setup** dla projektu SPLogbook w ramach bramki:
-`STAGE-M3-D-WINDOWS-USER-SETUP-INTEGRATION-GATE`.
+Dokumentacja techniczna i architektoniczna instalatora **Windows User Setup** dla projektu SPLogbook (`ADR-10`).
 
 ---
 
 ## 1. Status Formalny i Zatwierdzony Toolchain
 
-- **DECYZJA WŁAŚCICIELA:** `OWNER-M3-D-TOOLCHAIN-01`
-- **STATUS DECYZJI:** `APPROVED` (2026-11-08)
+- **REKORD ARCHITEKTONICZNY:** `ADR-10`
+- **STATUS:** `APPROVED` (2026-11-08)
 - **ZATWIERDZONY KOMPILATOR:** `Inno Setup 7.1.1`
 - **ŚCIEŻKA KOMPILATORA:** `C:\Program Files\Inno Setup 7\ISCC.exe`
 - **SHA-256 ISCC.EXE:** `E0F9F1DC32032650C6629F6DEE41EB6D20BA140E4E3C07C25D8A24F9BA781644`

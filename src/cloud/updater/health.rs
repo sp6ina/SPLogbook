@@ -1,6 +1,6 @@
 //! Kontrakt dowodu poprawności działania (Health Proof) dla aktualizatora SPLogbook (M3-A).
 //!
-//! Zgodnie z decyzjami OWNER-M2-13, OWNER-M2-14 oraz Sekcją 23 specyfikacji bramki M3-A:
+//! Zgodnie z `ADR-07`, `ADR-08` oraz wymaganiami weryfikacji zdrowia po aktualizacji:
 //! - Dowód zdrowia (`HealthProof`) jest powiązany z:
 //!   * attempt ID (`UpdateAttemptId`);
 //!   * docelową wersją (`target_version`);

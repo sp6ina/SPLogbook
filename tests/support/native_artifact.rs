@@ -3,7 +3,7 @@
 //
 // Wspólny, hermetyczny kontrakt natywnych testów instalatorów.
 //
-// Bramka: STAGE-QA-BASELINE-DETERMINISM-AND-HERMETICITY-GATE (2026-11-09).
+// Zakres: hermetyczność i determinizm testów natywnych instalatorów (2026-11-09).
 //
 // Zasady, których pilnuje ten moduł:
 // 1. Standardowy baseline NIE MOŻE wykonywać lokalnego instalatora tylko dlatego,

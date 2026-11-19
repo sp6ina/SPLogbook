@@ -615,7 +615,7 @@ if [ "${SKIP_RPMLINT}" = "1" ]; then
 else
     require_tool rpmlint
     RPMLINT_SUPPRESSED_TAGS="dir-or-file-in-opt,binary-or-shlib-defines-rpath"
-    log "rpmlint suppressed tags (OWNER-M3-H-03 approved /opt layout): ${RPMLINT_SUPPRESSED_TAGS}"
+    log "rpmlint suppressed tags (ADR-47 approved /opt layout): ${RPMLINT_SUPPRESSED_TAGS}"
     cat > "${WORK}/rpmlintrc" <<'EOF'
 addFilter("dir-or-file-in-opt")
 addFilter("binary-or-shlib-defines-rpath")

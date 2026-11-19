@@ -9,7 +9,7 @@
 #     last statement, and no step is masked with `|| true`;
 #   * the build runs from one explicit, pinned commit
 #     (EXPECTED_BUILD_COMMIT must be the 40-hex HEAD of the tree);
-#   * the tree must be a clean build tree: target/, dist/ and owner-private
+#   * the tree must be a clean build tree: target/, dist/ and untracked local
 #     directories are never read (they are also skipped by the manifest) and the
 #     builder refuses to run when `target/` exists, so a previous Cargo build can
 #     never leak into the artefact;

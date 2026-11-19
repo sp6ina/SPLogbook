@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Mariusz Woźniak (SP6INA)
-# Skrypt budowy kanonicznego pakietu SPLogbook Linux Portable tar.gz (M3-F)
-# Decyzje: OWNER-M3-F-PORTABLE-LAYOUT-01, OWNER-M3-F-ARCHIVE-EXTRACTION-01, OWNER-M3-F-DYNAMIC-LIBRARIES-01
+# Skrypt budowy kanonicznego pakietu SPLogbook Linux Portable tar.gz
+# Kontrakt: ADR-22, ADR-24, ADR-21
 
 set -euo pipefail
 
@@ -176,7 +176,7 @@ Aktualizacje programu nie naruszają Twoich danych łączności.
 EOF
 
 # 9. Generowanie kanonicznego markera instalacji
-# OWNER-M3-F-KERNEL-POLICY-OPTION-A: minimum = najstarsza domyślna linia kernela
+# ADR-16: minimum = najstarsza domyślna linia kernela
 # wspieranych dystrybucji (Ubuntu 26.04 LTS) = 7.0. Wartość jest przeliczana przy
 # każdym wydaniu; nie wolno podnosić jej bez dowodu technicznego.
 RESOLVED_MIN_KERNEL="7.0"

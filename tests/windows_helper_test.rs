@@ -8,7 +8,7 @@
 //! 5. Automatyczny rollback w przypadku przekroczenia limitu czasu na dowód zdrowia (`.health_ok`);
 //! 6. Odrzucenie niepoprawnego `HealthProof` (stale proof, wrong attempt ID);
 //! 7. Bezwzględną ochronę baz SQLite (`default_log.db`, WAL, SHM) i plików konfiguracyjnych;
-//! 8. Zachowanie katalogu `.rollback` po udanej aktualizacji (retencja OWNER-M2-08/09);
+//! 8. Zachowanie katalogu `.rollback` po udanej aktualizacji (retencja `ADR-03`);
 //! 9. Pełną parzystość polityki bezpieczeństwa między helperem Rust a fallbackiem PowerShell.
 
 use std::fs;

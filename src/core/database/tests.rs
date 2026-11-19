@@ -3751,7 +3751,7 @@ fn test_restore_qso_scoped_prevents_cross_journal_restoration() {
 }
 
 // ---------------------------------------------------------------------------
-// STAGE-P1-F20R-SOFTWARE — trwałe checkpointy uploadu (F20-R1) i daty (F20-R2)
+// P1-F20R — trwałe checkpointy uploadu (F20-R1) i daty (F20-R2)
 // ---------------------------------------------------------------------------
 
 fn f20r_journal(id: &str) -> Journal {

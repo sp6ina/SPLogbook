@@ -14,8 +14,8 @@
 #   the build uses a vendored-source replacement plus `--locked --offline`
 #   and CARGO_NET_OFFLINE=1, inside a sandbox that has no network namespace.
 # * The application tree is one `dir` source with an explicit `skip` list, so
-#   the build sees exactly the tracked tree and never sees target/, dist/ or an
-#   owner-private directory. `.git` is intentionally kept: it is the single
+#   the build sees the tracked tree and excludes build output directories such
+#   as target/ and dist/. `.git` is intentionally kept: it is the single
 #   source of the build identity (`git rev-parse HEAD`) and it is read-only.
 # * Sandbox permissions are the documented minimum for the supported feature
 #   set: network CAT (rigctld/rotctld, TCI, FlexRadio, Kenwood LAN, Elecraft K4
@@ -23,7 +23,7 @@
 #   credential store. There is deliberately no --device=all, no
 #   --filesystem=host, no --filesystem=home, no system-bus socket and no
 #   wildcard D-Bus name. Native CAT over /dev/ttyUSB* and /dev/ttyACM* is not
-#   available inside the sandbox (owner decision OWNER-M3-J-DEVICE-01); the
+#   available inside the sandbox (ADR-57); the
 #   documented user-side opt-in is in README.md section 6.
 # * This package is a local/CI artifact only. It is never submitted to Flathub
 #   and never attached to a GitHub release.
@@ -37,7 +37,7 @@ command: SPLogbook
 # The build toolchain is the project's pinned Rust release, fetched as one
 # immutable archive and verified by SHA-256. The SDK's own Rust extension is
 # deliberately not used: it ships rustc 1.98.0 for branch 26.08, which is below
-# the project MSRV 1.99.0 (owner decision OWNER-M3-J-TOOLCHAIN-01). The
+# the project MSRV 1.99.0 (ADR-58). The
 # `Resolve Rust toolchain pin` CI job re-verifies this digest against the
 # official distribution on every run.
 
@@ -262,18 +262,15 @@ modules:
 
       # The tracked repository tree, three levels above this manifest
       # (installer/linux/flatpak -> repository root). `skip` is a documented
-      # flatpak-builder `dir` source key; only non-hermetic build output and
-      # owner-private directories are removed. `.git` stays for the build
+      # flatpak-builder `dir` source key; non-hermetic build output directories
+      # are excluded. `.git` stays for the build
       # identity. A `dir` source above the manifest directory is only accepted
       # in a non-sandboxed flatpak-builder invocation, which is why the builder
       # does not pass --sandbox (see installer/linux/flatpak/README.md §5).
       - type: dir
         path: ../../..
         skip:
-          - .local-work
-          - SPLogbook-backup
           - dist
-          - scratch
           - target
 
       # 662 pinned crates (see scripts/generate_flatpak_cargo_sources.sh).

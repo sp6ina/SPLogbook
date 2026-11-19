@@ -84,7 +84,7 @@ impl UpdateStateId {
     }
 
     /// Określa, czy w danym stanie użytkownik może bezpiecznie anulować transakcję.
-    /// Zgodnie z decyzją OWNER-M2-13, anulowanie od wejścia w `Applying` jest bezwzględnie zabronione.
+    /// Zgodnie z `ADR-07`, anulowanie od wejścia w `Applying` jest bezwzględnie zabronione.
     pub fn is_cancellable(&self) -> bool {
         matches!(
             self,

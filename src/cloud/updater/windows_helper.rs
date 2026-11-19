@@ -692,7 +692,7 @@ impl<'a> WindowsHelperEngine<'a> {
             Some(HealthResultKind::Passed),
             completed_ops,
             total_ops,
-            true, // Backup zachowany zgodnie z polityką retencji OWNER-M2-08/09
+            true, // Backup zachowany zgodnie z polityką retencji ADR-03
             false,
             "Aktualizacja i weryfikacja zdrowia kandydata zakończona pełnym sukcesem".to_string(),
         )
@@ -1184,7 +1184,7 @@ impl<'a> WindowsHelperEngine<'a> {
             let _ = fs::remove_file(health_proof_path);
         }
 
-        // Zgodnie z decyzjami OWNER-M2-08/09 katalog `.rollback` jest zachowywany do czasu zatwierdzenia polityki retencji
+        // Zgodnie z ADR-03 katalog `.rollback` jest zachowywany zgodnie z konserwatywną polityką retencji
         self.log_diagnostic("Katalog .rollback zachowany zgodnie z otwartą polityką retencji");
     }
 
@@ -1510,7 +1510,7 @@ mod tests {
             b"NEW_RES"
         );
 
-        // Kopia zapasowa zachowana zgodnie z polityką OWNER-M2-08/09
+        // Kopia zapasowa zachowana zgodnie z polityką ADR-03
         assert!(root.join(ROLLBACK_DIR_NAME).exists());
         assert_eq!(
             fs::read(root.join(ROLLBACK_DIR_NAME).join("SPLogbook.exe")).unwrap(),

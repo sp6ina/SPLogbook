@@ -3,8 +3,7 @@
 //! Protocol conformance â€” SOFTWARE-ONLY verification against official documentation.
 //!
 //! Every assertion in this file is grounded in an official manufacturer / official project
-//! document that was opened during the P0-F14 gate (see `docs/HARDWARE_VALIDATION_MATRIX.md`
-//! and the local `.local-work/reports/P0_F14_TRANSCEIVER_DOCUMENTATION_MATRIX.md`).
+//! reference document (see `docs/HARDWARE_VALIDATION_MATRIX.md` and `ADR-72`–`ADR-74`).
 //!
 //! The tests call the **real** production codecs and clients. No hardware, no serial port, no
 //! real `rigctld`, no real transceiver and no RF is involved. Loopback TCP listeners are

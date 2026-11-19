@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 #
-# STAGE-M3-G: fail-closed verification of the canonical SPLogbook Linux
+# Fail-closed verification of the canonical SPLogbook Linux
 # x86_64 AppImage (and of an extracted AppDir in negative-fixture mode).
 #
 # Contract:
@@ -22,7 +22,7 @@
 #   EXPECTED_APPIMAGETOOL_SHA256, EXPECTED_APPIMAGETOOL_COMMIT,
 #   EXPECTED_RUNTIME_SHA256, EXPECTED_RUNTIME_COMMIT
 #   (the toolchain values come from appimage-toolchain.json, i.e. from the static
-#   pins in installer/linux/appimage/toolchain-pins, OWNER-M3-G-10)
+#   pins in installer/linux/appimage/toolchain-pins, ADR-44)
 #
 # Usage:
 #   verify_appimage.sh [--appdir DIR]

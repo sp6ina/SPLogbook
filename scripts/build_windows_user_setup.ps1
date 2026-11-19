@@ -1,8 +1,7 @@
 ﻿<#
 .SYNOPSIS
     Skrypt budowy instalatora SPLogbook Windows User Setup (Inno Setup 7.1.1).
-    Bramka: STAGE-M3-D-WINDOWS-USER-SETUP-INTEGRATION-GATE
-    Decyzja: OWNER-M3-D-TOOLCHAIN-01 (APPROVED 2026-11-08)
+    Kontrakt: ADR-10 (przypięty kompilator Inno Setup 7.1.1)
 
 .DESCRIPTION
     Skrypt dziala w trybie fail-closed, weryfikuje czystosc srodowiska, kompiluje
@@ -33,7 +32,7 @@ if ([string]::IsNullOrWhiteSpace($OutputDir)) {
     $OutputDir = Join-Path $repoRoot $OutputDir
 }
 
-# 1. Weryfikacja zatwierdzonego kompilatora Inno Setup 7.1.1 (OWNER-M3-D-TOOLCHAIN-01)
+# 1. Weryfikacja zatwierdzonego kompilatora Inno Setup 7.1.1 (ADR-10)
 $approvedIsccPath = "C:\Program Files\Inno Setup 7\ISCC.exe"
 if (-not (Test-Path $approvedIsccPath)) {
     throw "BLOKER: Zatwierdzony kompilator Inno Setup nie istnieje pod sciezka: $approvedIsccPath"

@@ -1,7 +1,7 @@
 //! Testy bezpieczeństwa, struktury i polityki cyklu życia Windows MSI (M3-E).
 //!
 //! Weryfikacja:
-//! - Zgodności z decyzją OWNER-M3-E-TOOLCHAIN-01 (WiX Toolset SDK 7.0.1)
+//! - Zgodności z ADR-11 (WiX Toolset SDK 7.0.1)
 //! - Architektury x64 i instalacji systemowej per-machine
 //! - Stałego UpgradeCode {B7D14532-6A10-4F8A-9A4B-3DE189E502B0}
 //! - Rozłączności tożsamości UpgradeCode od Inno Setup AppId

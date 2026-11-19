@@ -1,8 +1,7 @@
 ﻿<#
 .SYNOPSIS
     Skrypt budowy instalatora SPLogbook Windows System Setup (MSI / WiX Toolset 7.0.1).
-    Bramka: STAGE-M3-E-WINDOWS-MSI-WIX-INTEGRATION-GATE
-    Decyzja: OWNER-M3-E-TOOLCHAIN-01 (APPROVED 2026-11-08)
+    Kontrakt: ADR-11 (przypięty WiX Toolset SDK 7.0.1)
 
 .DESCRIPTION
     Skrypt dziala w trybie fail-closed, weryfikuje czystosc srodowiska, kompiluje
@@ -23,7 +22,7 @@ $ErrorActionPreference = "Stop"
 Write-Host "=================================================================="
 Write-Host "SPLogbook Windows System Setup MSI Build Engine (M3-E)"
 Write-Host "Data: 2026-11-08"
-Write-Host "WiX Toolset SDK: 7.0.1 (Decyzja OWNER-M3-E-TOOLCHAIN-01)"
+Write-Host "WiX Toolset SDK: 7.0.1 (ADR-11)"
 Write-Host "=================================================================="
 
 $repoRoot = (Resolve-Path "$PSScriptRoot\..").Path

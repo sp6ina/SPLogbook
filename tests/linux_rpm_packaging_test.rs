@@ -317,7 +317,7 @@ fn verifier_checks_every_required_security_property() {
             "verifier must check {required}"
         );
     }
-    assert!(verifier.contains("OWNER-M3-H-03"));
+    assert!(verifier.contains("ADR-47"));
     assert!(verifier.contains("dir-or-file-in-opt,binary-or-shlib-defines-rpath"));
     for forbidden in [
         "*.db",

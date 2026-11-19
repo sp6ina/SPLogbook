@@ -217,7 +217,7 @@ fn flatpak_manifest_forbids_wide_sandbox_permissions() {
 
 #[test]
 fn flatpak_sandbox_has_no_network_bypass_and_no_privileged_device() {
-    // Kontrakt OWNER-M3-J-DEVICE-01: brak --device=all, brak --filesystem=/dev.
+    // Kontrakt ADR-57: brak --device=all, brak --filesystem=/dev.
     let text = manifest_effective();
     assert!(!text.contains("device=all"));
     assert!(!text.contains("filesystem=/dev"));
@@ -283,7 +283,7 @@ fn flatpak_manifest_sources_are_pinned_and_hermetic() {
         text.contains("        path: ../../.."),
         "źródło aplikacji musi wskazywać katalog główny repozytorium (../../..)"
     );
-    for skipped in [".local-work", "scratch", "target", "dist"] {
+    for skipped in ["target", "dist"] {
         assert!(
             text.contains(&format!("          - {skipped}\n")),
             "źródło musi pomijać {skipped}"
@@ -1407,11 +1407,7 @@ fn flatpak_ci_preserves_the_build_exit_code_and_always_collects_diagnostics() {
         "krok diagnostyczny nie może włączać fail-closed trybu powłoki"
     );
 
-    // 4. Brak prywatnych ścieżek i brak publikacji.
-    assert!(
-        !job_effective.contains(".local-work") && !job_effective.contains("scratch/"),
-        "artefakt nie może publikować prywatnych katalogów"
-    );
+    // 4. Brak publikacji poza artefakt CI.
     assert!(
         !job_effective.contains("release-staging"),
         "job Flatpaka nie może dotykać release-staging"

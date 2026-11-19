@@ -119,7 +119,7 @@ fn test_mandatory_multi_distribution_matrix_completeness_and_dynamic_floor() {
         "Wspierana macierz dystrybucji musi liczyć dokładnie 4 profile"
     );
 
-    // 2. Dynamiczne wyznaczenie progu kernela (OWNER-M3-F-KERNEL-POLICY-OPTION-A)
+    // 2. Dynamiczne wyznaczenie progu kernela (ADR-16)
     let floor = calculate_dynamic_kernel_floor(&MANDATORY_DISTRO_PROFILES);
     assert_eq!(
         floor,
