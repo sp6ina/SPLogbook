@@ -3,6 +3,7 @@
 
 //! Centralny system motywów, palet kolorystycznych i dostępności aplikacji SPLogbook.
 
+pub mod components;
 pub mod contrast;
 pub mod ext;
 pub mod palette;
@@ -11,6 +12,10 @@ pub mod tokens;
 use eframe::egui;
 use egui::Color32;
 
+pub use components::{
+    StatusKind, danger_button, primary_button, readable_on, secondary_button, section_header,
+    status_badge, toast_accent,
+};
 pub use contrast::{contrast_ratio, relative_luminance};
 pub use ext::{ColorExt, ThemeExt};
 pub use palette::{BandColors, MapColors, Palette, SegmentColors, ThemePreset, waterfall_color};

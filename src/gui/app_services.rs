@@ -173,7 +173,9 @@ impl SpLogApp {
 
         let start_msg = tr(key::UPDATER_DOWNLOADING_DATABASES, lang).to_string();
         self.gui.chrome.status_message = Some(start_msg.clone());
-        self.gui.chrome.status_toast = Some((start_msg, std::time::Instant::now()));
+        self.gui
+            .chrome
+            .push_status_toast(crate::gui::state::ToastSeverity::Info, start_msg);
     }
 
     /// Sprawdza najnowsze wydanie na GitHub w tle i zapisuje wynik do odbiornika.

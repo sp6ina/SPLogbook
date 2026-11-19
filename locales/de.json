@@ -1463,5 +1463,15 @@
   "sync.upload_failed": "[{service}] FEHLER: kein Paket wurde akzeptiert (fehlgeschlagen {failed}, mehrdeutig {unknown}, abgelehnt {rejected}).",
   "sync.upload_cancelled": "[{service}] ABGEBROCHEN: vor dem Abbruch akzeptiert {accepted}, nicht gesendet {not_attempted}.",
   "sync.upload_cancel_btn": "Upload abbrechen",
-  "sync.upload_cancel_requested": "Abbruch angefordert — das aktuelle Paket kann noch abschließen."
+  "sync.upload_cancel_requested": "Abbruch angefordert — das aktuelle Paket kann noch abschließen.",
+  "toast.dismiss": "Benachrichtigung schließen",
+  "sync.in_progress": "Wird ausgeführt…",
+  "log.empty_title": "Das Logbuch ist leer",
+  "log.empty_hint": "Gib den ersten Kontakt im QSO-Formular ein und speichere ihn mit Enter.",
+  "log.no_matches_title": "Keine QSOs entsprechen dem Filter",
+  "log.clear_filter": "Filter löschen",
+  "log.selected_count": "✔ {count} QSO ausgewählt",
+  "qso.gmina_preview": "🇵🇱 Gemeinde: {name} (Kreis {powiat})",
+  "cluster.auto_tune_status": "Auto-Tune → {call} auf {freq} kHz",
+  "vfo.manual_transceiver": "Manueller Transceiver"
 }

@@ -1463,5 +1463,15 @@
   "sync.upload_failed": "[{service}] ERRORE: nessun lotto accettato (falliti {failed}, ambigui {unknown}, rifiutati {rejected}).",
   "sync.upload_cancelled": "[{service}] ANNULLATO: accettati prima dell'annullamento {accepted}, non inviati {not_attempted}.",
   "sync.upload_cancel_btn": "Annulla invio",
-  "sync.upload_cancel_requested": "Annullamento richiesto — il lotto corrente può ancora terminare."
+  "sync.upload_cancel_requested": "Annullamento richiesto — il lotto corrente può ancora terminare.",
+  "toast.dismiss": "Chiudi notifica",
+  "sync.in_progress": "In corso…",
+  "log.empty_title": "Il giornale di stazione è vuoto",
+  "log.empty_hint": "Inserisci il primo collegamento nel modulo QSO e premi Invio per salvarlo.",
+  "log.no_matches_title": "Nessun QSO corrisponde al filtro",
+  "log.clear_filter": "Cancella filtro",
+  "log.selected_count": "✔ {count} QSO selezionati",
+  "qso.gmina_preview": "🇵🇱 Comune: {name} (distretto {powiat})",
+  "cluster.auto_tune_status": "Auto-tune → {call} su {freq} kHz",
+  "vfo.manual_transceiver": "Ricetrasmettitore manuale"
 }

@@ -12,7 +12,8 @@ impl SpLogApp {
             .unwrap_or(0);
         self.gui.appearance.theme_preset = all[(idx + 1) % all.len()];
         self.save_station_config();
-        self.gui.chrome.status_toast = Some((
+        self.gui.chrome.push_status_toast(
+            crate::gui::state::ToastSeverity::Info,
             format!(
                 "Zmieniono motyw: {}",
                 self.gui
@@ -20,8 +21,7 @@ impl SpLogApp {
                     .theme_preset
                     .label(self.gui.appearance.language)
             ),
-            std::time::Instant::now(),
-        ));
+        );
     }
 
     /// Tworzy zaktualizowaną strukturę [`AppConfig`] odzwierciedlającą bieżący stan aplikacji.
@@ -87,14 +87,18 @@ impl SpLogApp {
     pub fn report_error(&mut self, msg: impl Into<String>) {
         let msg = msg.into();
         log::error!("{msg}");
-        self.gui.chrome.status_toast = Some((msg, std::time::Instant::now()));
+        self.gui
+            .chrome
+            .push_status_toast(crate::gui::state::ToastSeverity::Error, msg);
     }
 
     /// Scentralizowane zgłaszanie ostrzeżeń (log warning + pływające powiadomienie).
     pub fn report_warning(&mut self, msg: impl Into<String>) {
         let msg = msg.into();
         log::warn!("{msg}");
-        self.gui.chrome.status_toast = Some((msg, std::time::Instant::now()));
+        self.gui
+            .chrome
+            .push_status_toast(crate::gui::state::ToastSeverity::Warning, msg);
     }
 
     /// Zlokalizowane zgłoszenie informacji/statusu (UI toast + log info).
@@ -103,7 +107,9 @@ impl SpLogApp {
         drop(msg);
         log::info!("{text}");
         self.gui.chrome.status_message = Some(text.clone());
-        self.gui.chrome.status_toast = Some((text, std::time::Instant::now()));
+        self.gui
+            .chrome
+            .push_status_toast(crate::gui::state::ToastSeverity::Info, text);
     }
 
     /// Zlokalizowane zgłoszenie ostrzeżenia (UI toast + log warn).
@@ -111,7 +117,9 @@ impl SpLogApp {
         let text = msg.text(self.gui.appearance.language);
         drop(msg);
         log::warn!("{text}");
-        self.gui.chrome.status_toast = Some((text, std::time::Instant::now()));
+        self.gui
+            .chrome
+            .push_status_toast(crate::gui::state::ToastSeverity::Warning, text);
     }
 
     /// Zlokalizowane zgłoszenie błędu (UI toast + log error).
@@ -119,7 +127,9 @@ impl SpLogApp {
         let text = msg.text(self.gui.appearance.language);
         drop(msg);
         log::error!("{text}");
-        self.gui.chrome.status_toast = Some((text, std::time::Instant::now()));
+        self.gui
+            .chrome
+            .push_status_toast(crate::gui::state::ToastSeverity::Error, text);
     }
 
     pub fn add_new_equipment(&mut self) {
@@ -220,12 +230,12 @@ impl SpLogApp {
             } else {
                 &prof.name
             };
-            self.gui.chrome.status_toast = Some((
+            self.gui.chrome.push_status_toast(
+                crate::gui::state::ToastSeverity::Info,
                 Msg::new(key::PROFILE_SWITCHED_STATION)
                     .arg("name", prof_name)
                     .text(self.gui.appearance.language),
-                std::time::Instant::now(),
-            ));
+            );
         }
     }
 }

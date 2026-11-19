@@ -3,7 +3,12 @@
 
 use super::*;
 use crate::core::i18n::{key, tr};
-use crate::gui::theme::{TEXT_BODY, TEXT_CAPTION, ThemeExt};
+use crate::gui::theme::{
+    SPACE_SM, TEXT_BODY, TEXT_CAPTION, TEXT_SUBHEADING, ThemeExt, toast_accent,
+};
+
+/// Maksymalna szerokość tekstu pojedynczego toastu (dłuższe komunikaty zawijają się).
+const TOAST_TEXT_MAX_WIDTH: f32 = 380.0;
 
 /// Szerokość okna, powyżej której pasek statusu pokazuje napis wersji.
 const STATUS_BAR_VERSION_MIN_WIDTH: f32 = 1600.0;
@@ -257,30 +262,75 @@ impl SpLogApp {
         }
     }
 
-    pub fn render_chrome_overlays(&mut self, ctx: &egui::Context) {
-        // Pływające powiadomienia Toast
-        if let Some((ref msg, time)) = self.gui.chrome.status_toast {
-            if time.elapsed().as_secs() < 5 {
-                egui::Area::new(egui::Id::new("status_toast_area"))
-                    .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-20.0, -40.0))
-                    .show(ctx, |ui| {
-                        let palette = ui.palette();
+    /// Rysuje widoczne toasty (maks. kilka naraz, najstarszy u góry) i obsługuje ✕.
+    fn render_toasts(&mut self, ctx: &egui::Context) {
+        self.gui.chrome.toasts.tick(std::time::Instant::now());
+        let visible: Vec<(u64, crate::gui::state::ToastSeverity, String)> = self
+            .gui
+            .chrome
+            .toasts
+            .visible()
+            .iter()
+            .map(|t| (t.id, t.severity, t.message.clone()))
+            .collect();
+        if visible.is_empty() {
+            return;
+        }
+
+        let lang = self.gui.appearance.language;
+        let mut dismissed: Option<u64> = None;
+        egui::Area::new(egui::Id::new("status_toast_area"))
+            .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-20.0, -40.0))
+            .show(ctx, |ui| {
+                let palette = ui.palette();
+                ui.vertical(|ui| {
+                    for (id, severity, message) in &visible {
+                        let accent = toast_accent(&palette, *severity);
                         egui::Frame::popup(ui.style())
                             .fill(palette.surface_bg)
-                            .stroke(egui::Stroke::new(1.0_f32, palette.accent))
-                            .inner_margin(egui::Margin::same(10))
+                            .stroke(egui::Stroke::new(1.5_f32, accent))
+                            .inner_margin(egui::Margin::symmetric(10, 8))
                             .show(ui, |ui| {
-                                ui.label(
-                                    egui::RichText::new(format!("🔔 {msg}"))
-                                        .strong()
-                                        .color(palette.text_primary),
-                                );
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        egui::RichText::new(severity.icon())
+                                            .size(TEXT_SUBHEADING)
+                                            .strong()
+                                            .color(accent),
+                                    );
+                                    ui.scope(|ui| {
+                                        ui.set_max_width(TOAST_TEXT_MAX_WIDTH);
+                                        ui.add(
+                                            egui::Label::new(
+                                                egui::RichText::new(message)
+                                                    .color(palette.text_primary),
+                                            )
+                                            .wrap(),
+                                        );
+                                    });
+                                    if ui
+                                        .small_button("✕")
+                                        .on_hover_text(tr(key::TOAST_DISMISS, lang))
+                                        .clicked()
+                                    {
+                                        dismissed = Some(*id);
+                                    }
+                                });
                             });
-                    });
-            } else {
-                self.gui.chrome.status_toast = None;
-            }
+                        ui.add_space(SPACE_SM);
+                    }
+                });
+            });
+        if let Some(id) = dismissed {
+            self.gui.chrome.toasts.dismiss(id);
         }
+        // Wygasanie toastów wymaga odświeżeń także przy bezczynnym UI.
+        ctx.request_repaint_after(std::time::Duration::from_millis(500));
+    }
+
+    pub fn render_chrome_overlays(&mut self, ctx: &egui::Context) {
+        // Pływające powiadomienia Toast: kolejka z ważnością, ikoną i ręcznym zamknięciem.
+        self.render_toasts(ctx);
 
         // Okno "O programie SPLogbook"
         if self.gui.chrome.show_about_window {

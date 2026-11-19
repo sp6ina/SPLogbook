@@ -11,14 +11,14 @@ impl SpLogApp {
             let _ =
                 crate::cat::rotor::RotorClient::set_position(&host, port, azimuth_deg, 0.0).await;
         });
-        self.gui.chrome.status_toast = Some((
+        self.gui.chrome.push_status_toast(
+            crate::gui::state::ToastSeverity::Info,
             Msg::new(key::ROTOR_CMD_SENT_AZ)
                 .arg("az", format!("{azimuth_deg:.0}"))
                 .arg("host", &self.config.rotor_host)
                 .arg("port", self.config.rotor_port)
                 .text(self.gui.appearance.language),
-            std::time::Instant::now(),
-        ));
+        );
     }
 
     /// Obraca antenę na zadany azymut i elewację (akcja pluginu `rotate`).
@@ -36,13 +36,13 @@ impl SpLogApp {
             )
             .await;
         });
-        self.gui.chrome.status_toast = Some((
+        self.gui.chrome.push_status_toast(
+            crate::gui::state::ToastSeverity::Info,
             Msg::new(key::ROTOR_CMD_SENT_AZ_EL)
                 .arg("az", format!("{azimuth_deg:.0}"))
                 .arg("el", format!("{elevation_deg:.0}"))
                 .text(self.gui.appearance.language),
-            std::time::Instant::now(),
-        ));
+        );
     }
 
     /// Centralne wejście warstwy GUI do intencji PTT (F-17).
@@ -128,7 +128,9 @@ impl SpLogApp {
         let message = Msg::new(key::PTT_REFUSED)
             .arg("reason", reason)
             .text(self.gui.appearance.language);
-        self.gui.chrome.status_toast = Some((message, std::time::Instant::now()));
+        self.gui
+            .chrome
+            .push_status_toast(crate::gui::state::ToastSeverity::Warning, message);
     }
 
     /// Próbuje wykonać kontrolowane zwolnienie PTT po utracie fokusu okna (F-17).

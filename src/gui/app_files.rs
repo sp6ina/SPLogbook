@@ -66,10 +66,10 @@ impl SpLogApp {
                     let _ = write!(msg, " | {first_err_prefix}: {reason}");
                 }
                 self.gui.chrome.status_message = Some(msg);
-                self.gui.chrome.status_toast = Some((
+                self.gui.chrome.push_status_toast(
+                    crate::gui::state::ToastSeverity::Success,
                     format!("Zaimportowano {inserted} QSO"),
-                    std::time::Instant::now(),
-                ));
+                );
             }
             Err(e) => {
                 let err_text = Msg::new(key::IMPORT_DB_SAVE_ERROR)

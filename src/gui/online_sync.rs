@@ -108,6 +108,10 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     });
 
                                     ui.add_space(6.0);
+                                    let lotw_busy = app.online.lotw_download_busy.load(std::sync::atomic::Ordering::SeqCst);
+                                    if lotw_busy {
+                                        crate::gui::theme::status_badge(ui, &palette, crate::gui::theme::StatusKind::Busy, tr(key::SYNC_IN_PROGRESS, lang));
+                                    }
                                     ui.horizontal(|ui| {
                                         if ui.button(egui::RichText::new(format!("📤 {}", tr(key::SYNC_LOTW_TQSL, lang))).strong()).clicked() {
                                             if app.config.lotw_tqsl_path.trim().is_empty() {
@@ -124,16 +128,18 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                             }
                                         }
 
-                                        if ui.button(egui::RichText::new(format!("📥 {}", tr(key::SYNC_LOTW_DOWNLOAD, lang)))).clicked() {
+                                        if ui.add_enabled(!lotw_busy, egui::Button::new(egui::RichText::new(format!("📥 {}", tr(key::SYNC_LOTW_DOWNLOAD, lang))))).clicked() {
                                             if app.config.lotw_username.is_empty() || app.config.lotw_password.is_empty() {
                                                 app.online.online_sync_logs.push(tr(key::SYNC_LOTW_MISSING_CREDS, lang).to_string());
                                             } else {
                                                 let tx = app.online.sync_log_tx.clone();
+                                                let busy_guard = app.online.begin_lotw_download();
                                                 let user = app.config.lotw_username.clone();
                                                 let pass = app.config.lotw_password.clone();
                                                 let log_db = app.services.log_db.clone();
                                                 let journal_id = app.active_journal.id.clone();
                                                 tokio::spawn(async move {
+                                                    let _busy_guard = busy_guard;
                                                     let _ = tx.send((tr(key::SYNC_LOTW_DOWNLOADING, lang).to_string(), false));
                                                     let lotw_client = crate::cloud::lotw::LotwClient::new(&user, &pass);
                                                     let report_res = lotw_client.fetch_confirmations(None)
@@ -180,6 +186,10 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     });
 
                                     ui.add_space(6.0);
+                                    let eqsl_busy = app.online.eqsl_download_busy.load(std::sync::atomic::Ordering::SeqCst);
+                                    if eqsl_busy {
+                                        crate::gui::theme::status_badge(ui, &palette, crate::gui::theme::StatusKind::Busy, tr(key::SYNC_IN_PROGRESS, lang));
+                                    }
                                     ui.horizontal(|ui| {
                                         if ui.button(format!("📤 {}", tr(key::SYNC_EQSL_UPLOAD, lang))).clicked() {
                                             if app.config.eqsl_username.is_empty() || app.config.eqsl_password.is_empty() {
@@ -195,16 +205,18 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                 );
                                             }
                                         }
-                                        if ui.button(format!("📥 {}", tr(key::SYNC_EQSL_DOWNLOAD, lang))).clicked() {
+                                        if ui.add_enabled(!eqsl_busy, egui::Button::new(format!("📥 {}", tr(key::SYNC_EQSL_DOWNLOAD, lang)))).clicked() {
                                             if app.config.eqsl_username.is_empty() || app.config.eqsl_password.is_empty() {
                                                 app.online.online_sync_logs.push(tr(key::SYNC_EQSL_MISSING_CREDS, lang).to_string());
                                             } else {
                                                 let tx = app.online.sync_log_tx.clone();
+                                                let busy_guard = app.online.begin_eqsl_download();
                                                 let user = app.config.eqsl_username.clone();
                                                 let pass = app.config.eqsl_password.clone();
                                                 let log_db = app.services.log_db.clone();
                                                 let journal_id = app.active_journal.id.clone();
                                                 tokio::spawn(async move {
+                                                    let _busy_guard = busy_guard;
                                                     let client = crate::cloud::eqsl::EqslClient::new(user, pass);
                                                     let _ = tx.send(("[eQSL] Pobieranie skrzynki odbiorczej (Inbox ADIF)...".to_string(), false));
                                                     match client.download_inbox_adif().await {

@@ -1463,5 +1463,15 @@
   "sync.upload_failed": "[{service}] ОШИБКА: ни один пакет не принят (с ошибкой {failed}, неоднозначно {unknown}, отклонено {rejected}).",
   "sync.upload_cancelled": "[{service}] ОТМЕНЕНО: принято до отмены {accepted}, не отправлено {not_attempted}.",
   "sync.upload_cancel_btn": "Отменить отправку",
-  "sync.upload_cancel_requested": "Запрошена отмена — текущий пакет может ещё завершиться."
+  "sync.upload_cancel_requested": "Запрошена отмена — текущий пакет может ещё завершиться.",
+  "toast.dismiss": "Закрыть уведомление",
+  "sync.in_progress": "Выполняется…",
+  "log.empty_title": "Журнал пуст",
+  "log.empty_hint": "Введите первую связь в форме QSO и нажмите Enter, чтобы сохранить её.",
+  "log.no_matches_title": "Нет QSO, соответствующих фильтру",
+  "log.clear_filter": "Сбросить фильтр",
+  "log.selected_count": "✔ Выбрано QSO: {count}",
+  "qso.gmina_preview": "🇵🇱 Гмина: {name} (повят {powiat})",
+  "cluster.auto_tune_status": "Автонастройка → {call} на {freq} кГц",
+  "vfo.manual_transceiver": "Трансивер (ручной)"
 }

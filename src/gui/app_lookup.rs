@@ -364,8 +364,12 @@ impl SpLogApp {
         self.set_vfo_frequency(freq_hz);
         self.on_callsign_changed();
         self.focus_qso_entry();
-        self.gui.chrome.status_message =
-            Some(format!("Auto-tune → {dx_call} na {freq_khz:.1} kHz"));
+        self.gui.chrome.status_message = Some(
+            Msg::new(key::CLUSTER_AUTO_TUNE_STATUS)
+                .arg("call", dx_call)
+                .arg("freq", format!("{freq_khz:.1}"))
+                .text(self.gui.appearance.language),
+        );
     }
 
     /// Zwraca rodzaj odznaki (⭐ nowe DXCC, ✨ nowe pasmo) dla spotu klastra,

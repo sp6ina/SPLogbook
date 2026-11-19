@@ -1463,5 +1463,15 @@
   "sync.upload_failed": "[{service}] BŁĄD: brak zaakceptowanych paczek (nieudane {failed}, niejednoznaczne {unknown}, odrzucone {rejected}).",
   "sync.upload_cancelled": "[{service}] ANULOWANO: zaakceptowane przed anulowaniem {accepted}, niewysłane {not_attempted}.",
   "sync.upload_cancel_btn": "Anuluj wysyłkę",
-  "sync.upload_cancel_requested": "Zlecono anulowanie wysyłki — bieżąca paczka może się jeszcze zakończyć."
+  "sync.upload_cancel_requested": "Zlecono anulowanie wysyłki — bieżąca paczka może się jeszcze zakończyć.",
+  "toast.dismiss": "Zamknij powiadomienie",
+  "sync.in_progress": "W toku…",
+  "log.empty_title": "Dziennik jest pusty",
+  "log.empty_hint": "Wpisz pierwszą łączność w formularzu QSO i zatwierdź ją klawiszem Enter.",
+  "log.no_matches_title": "Brak QSO pasujących do filtra",
+  "log.clear_filter": "Wyczyść filtr",
+  "log.selected_count": "✔ Zaznaczono {count} QSO",
+  "qso.gmina_preview": "🇵🇱 Gmina: {name} (powiat {powiat})",
+  "cluster.auto_tune_status": "Auto-tune → {call} na {freq} kHz",
+  "vfo.manual_transceiver": "Transceiver ręczny"
 }

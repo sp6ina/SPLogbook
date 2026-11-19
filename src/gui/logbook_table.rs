@@ -3,7 +3,11 @@
 
 use crate::core::i18n::{Msg, key, tr};
 use crate::gui::app::SpLogApp;
-use crate::gui::theme::{ThemeExt, mono_table_cell};
+use crate::gui::qso_entry::{STANDARD_BANDS, STANDARD_MODES};
+use crate::gui::theme::{
+    SPACE_MD, SPACE_XL, TEXT_BODY, TEXT_SUBHEADING, ThemeExt, danger_button, mono_table_cell,
+    primary_button, secondary_button, section_header,
+};
 use eframe::egui;
 use egui_extras::{Column, TableBuilder};
 
@@ -312,6 +316,76 @@ pub(crate) fn normalize_digits_stack<const N: usize>(s: &str) -> [u8; N] {
     out
 }
 
+/// Stała szerokość kolumny akcji (✏ 🗑 🔊), niezależna od języka.
+const ACTIONS_COLUMN_WIDTH: f32 = 84.0;
+
+/// Stan pusty tabeli logbooka.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogEmptyState {
+    /// Dziennik nie zawiera żadnych QSO.
+    EmptyLogbook,
+    /// Dziennik ma QSO, ale filtr/wyszukiwanie nie zwraca żadnego.
+    NoMatches,
+}
+
+/// Wyznacza stan pusty: `total` to liczba QSO po filtrach, `journal_has_qsos` — czy dziennik
+/// w ogóle zawiera QSO.
+#[must_use]
+pub fn log_empty_state(total: usize, journal_has_qsos: bool) -> Option<LogEmptyState> {
+    if total > 0 {
+        None
+    } else if journal_has_qsos {
+        Some(LogEmptyState::NoMatches)
+    } else {
+        Some(LogEmptyState::EmptyLogbook)
+    }
+}
+
+/// Wyśrodkowany komunikat stanu pustego; zwraca `true`, gdy kliknięto „Wyczyść filtr”.
+fn render_log_empty_state(
+    ui: &mut egui::Ui,
+    palette: &crate::gui::theme::Palette,
+    lang: crate::core::i18n::Language,
+    state: LogEmptyState,
+) -> bool {
+    let mut clear_filter = false;
+    ui.vertical_centered(|ui| {
+        ui.add_space(SPACE_XL * 2.0);
+        match state {
+            LogEmptyState::EmptyLogbook => {
+                ui.label(
+                    egui::RichText::new(tr(key::LOG_EMPTY_TITLE, lang))
+                        .strong()
+                        .size(TEXT_SUBHEADING)
+                        .color(palette.text_primary),
+                );
+                ui.add_space(SPACE_MD);
+                ui.label(
+                    egui::RichText::new(tr(key::LOG_EMPTY_HINT, lang))
+                        .size(TEXT_BODY)
+                        .color(palette.text_muted),
+                );
+            }
+            LogEmptyState::NoMatches => {
+                ui.label(
+                    egui::RichText::new(tr(key::LOG_NO_MATCHES_TITLE, lang))
+                        .strong()
+                        .size(TEXT_SUBHEADING)
+                        .color(palette.text_primary),
+                );
+                ui.add_space(SPACE_MD);
+                if ui
+                    .add(secondary_button(palette, tr(key::LOG_CLEAR_FILTER, lang)))
+                    .clicked()
+                {
+                    clear_filter = true;
+                }
+            }
+        }
+    });
+    clear_filter
+}
+
 pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.gui.appearance.language;
     let palette = ui.palette();
@@ -427,10 +501,18 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             let count = app.log_view.selected_qso_ids.len();
             ui.label(
-                egui::RichText::new(format!("✔ Zaznaczono {count} QSO")).color(palette.success),
+                egui::RichText::new(
+                    Msg::new(key::LOG_SELECTED_COUNT)
+                        .arg("count", count)
+                        .text(lang),
+                )
+                .color(palette.accent),
             );
             if ui
-                .button(format!("🗑 {}", tr(key::QSO_DELETE, lang)))
+                .add(danger_button(
+                    &palette,
+                    format!("🗑 {}", tr(key::QSO_DELETE, lang)),
+                ))
                 .clicked()
             {
                 app.log_view.confirm_bulk_delete = true;
@@ -444,6 +526,17 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             }
         });
         ui.separator();
+    }
+
+    // Stan pusty: osobny komunikat dla pustego dziennika i dla braku dopasowań filtra.
+    if let Some(empty) = log_empty_state(total, !app.log_view.recent_qsos.is_empty())
+        && !app.log_view.confirm_bulk_delete
+    {
+        if render_log_empty_state(ui, &palette, lang, empty) {
+            app.log_view.search_query.clear();
+            app.clear_drill_down();
+        }
+        return;
     }
 
     // Wyznacz zakres strony — model normalizuje page i gwarantuje start <= end <= total.
@@ -494,8 +587,8 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         .striped(true)
         .resizable(true)
         .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-        .column(Column::auto().at_least(72.0))
-        .column(Column::auto().at_least(24.0));
+        .column(Column::exact(ACTIONS_COLUMN_WIDTH).clip(true))
+        .column(Column::exact(24.0));
     for (_id, _label, width) in &visible_cols {
         table = table.column(
             Column::initial(*width)
@@ -507,8 +600,11 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
     table
         .header(22.0, |mut header| {
+            // Zwarty nagłówek ("⚙") — pełna nazwa w wybranym języku w tooltipie, aby długie
+            // tłumaczenia (np. FR „Actions disponibles”) nie wypychały kolumny Znak.
             header.col(|ui| {
-                ui.label(egui::RichText::new(tr(key::LEDGER_COL_ACTIONS, lang)).strong());
+                ui.label(egui::RichText::new("⚙").strong())
+                    .on_hover_text(tr(key::LEDGER_COL_ACTIONS, lang));
             });
             header.col(|ui| {
                 ui.checkbox(&mut select_all, "");
@@ -719,13 +815,19 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     if ui
-                        .button(format!("🗑 {}", tr(key::QSO_DELETE, lang)))
+                        .add(danger_button(
+                            &palette,
+                            format!("🗑 {}", tr(key::QSO_DELETE, lang)),
+                        ))
                         .clicked()
                     {
                         app.log_view.confirm_bulk_delete = false;
                         app.delete_selected_qso();
                     }
-                    if ui.button(tr(key::BTN_CANCEL, lang)).clicked() {
+                    if ui
+                        .add(secondary_button(&palette, tr(key::BTN_CANCEL, lang)))
+                        .clicked()
+                    {
                         app.log_view.confirm_bulk_delete = false;
                     }
                 });
@@ -734,6 +836,31 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.log_view.confirm_bulk_delete = false;
         }
     }
+}
+
+/// Opcje `ComboBox`: lista standardowa; gdy bieżąca wartość jest niestandardowa
+/// (np. pasmo „5m” lub tryb „JT65”), trafia na początek, aby edycja nie gubiła danych.
+#[must_use]
+pub fn combo_options(current: &str, standard: &[&str]) -> Vec<String> {
+    let mut options: Vec<String> = Vec::with_capacity(standard.len() + 1);
+    if !current.trim().is_empty() && !standard.contains(&current) {
+        options.push(current.to_string());
+    }
+    options.extend(standard.iter().map(|s| (*s).to_string()));
+    options
+}
+
+/// `ComboBox` wyboru wartości tekstowej z listy standardowej (z zachowaniem wartości bieżącej).
+fn value_combo(ui: &mut egui::Ui, id_salt: &str, value: &mut String, standard: &[&str]) {
+    let options = combo_options(value, standard);
+    egui::ComboBox::from_id_salt(id_salt)
+        .selected_text(value.as_str())
+        .width(70.0)
+        .show_ui(ui, |ui| {
+            for option in options {
+                ui.selectable_value(value, option.clone(), option);
+            }
+        });
 }
 
 /// Okno dialogowe edycji rekordu QSO
@@ -756,15 +883,16 @@ pub fn render_edit_qso_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
         .default_size([460.0, 520.0])
         .resizable(true)
         .show(ctx, |ui| {
+            let palette = ui.palette();
             ui.vertical(|ui| {
                 ui.group(|ui| {
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new(tr(key::QSO_CALLSIGN, lang)).strong());
                         ui.add(egui::TextEdit::singleline(&mut qso.callsign).desired_width(120.0));
                         ui.label(tr(key::QSO_BAND, lang));
-                        ui.add(egui::TextEdit::singleline(&mut qso.band).desired_width(60.0));
+                        value_combo(ui, "edit_qso_band", &mut qso.band, &STANDARD_BANDS);
                         ui.label(tr(key::QSO_MODE, lang));
-                        ui.add(egui::TextEdit::singleline(&mut qso.mode).desired_width(60.0));
+                        value_combo(ui, "edit_qso_mode", &mut qso.mode, &STANDARD_MODES);
                     });
                     ui.horizontal(|ui| {
                         ui.label(tr(key::QSO_DATE, lang));
@@ -841,7 +969,7 @@ pub fn render_edit_qso_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
                 });
                 ui.add_space(6.0);
                 ui.group(|ui| {
-                    ui.label(egui::RichText::new(tr(key::QSO_QSL_STATUS_HEADING, lang)).strong());
+                    section_header(ui, &palette, tr(key::QSO_QSL_STATUS_HEADING, lang));
                     ui.horizontal(|ui| {
                         ui.label(format!(
                             "{} {}:",
@@ -873,20 +1001,18 @@ pub fn render_edit_qso_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
                         );
                     });
                 });
-                let palette = ui.palette();
                 ui.horizontal(|ui| {
-                    let save_btn = ui.add(
-                        egui::Button::new(
-                            egui::RichText::new(format!("💾 {}", tr(key::BTN_SAVE, lang)))
-                                .strong()
-                                .color(palette.selection_text),
-                        )
-                        .fill(palette.accent),
-                    );
+                    let save_btn = ui.add(primary_button(
+                        &palette,
+                        format!("💾 {}", tr(key::BTN_SAVE, lang)),
+                    ));
                     if save_btn.clicked() {
                         should_save = true;
                     }
-                    if ui.button(tr(key::BTN_CANCEL, lang)).clicked() {
+                    if ui
+                        .add(secondary_button(&palette, tr(key::BTN_CANCEL, lang)))
+                        .clicked()
+                    {
                         should_cancel = true;
                     }
                 });

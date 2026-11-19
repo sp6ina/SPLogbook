@@ -88,7 +88,8 @@ impl SpLogApp {
                             .arg("path", path.display().to_string())
                             .text(self.gui.appearance.language),
                     );
-                    self.gui.chrome.status_toast = Some((
+                    self.gui.chrome.push_status_toast(
+                        crate::gui::state::ToastSeverity::Success,
                         Msg::new(key::EXPORT_CABRILLO_TOAST)
                             .arg(
                                 "file",
@@ -98,8 +99,7 @@ impl SpLogApp {
                                     .to_string(),
                             )
                             .text(self.gui.appearance.language),
-                        std::time::Instant::now(),
-                    ));
+                    );
                 }
                 Err(e) => {
                     self.gui.chrome.status_message = Some(
@@ -304,10 +304,10 @@ impl SpLogApp {
             match std::fs::write(&path, bytes) {
                 Ok(()) => {
                     let filename = path.file_name().unwrap_or_default().to_string_lossy();
-                    self.gui.chrome.status_toast = Some((
+                    self.gui.chrome.push_status_toast(
+                        crate::gui::state::ToastSeverity::Success,
                         format!("Wyeksportowano {row_count} QSO do PDF: {filename}"),
-                        std::time::Instant::now(),
-                    ));
+                    );
                     let _ = open::that(&path);
                 }
                 Err(e) => {
@@ -393,10 +393,10 @@ impl SpLogApp {
             match gpx::write(&gpx, file) {
                 Ok(()) => {
                     let filename = path.file_name().unwrap_or_default().to_string_lossy();
-                    self.gui.chrome.status_toast = Some((
+                    self.gui.chrome.push_status_toast(
+                        crate::gui::state::ToastSeverity::Success,
                         format!("Wyeksportowano {row_count} QSO do GPX: {filename}"),
-                        std::time::Instant::now(),
-                    ));
+                    );
                     let _ = open::that(&path);
                 }
                 Err(e) => {

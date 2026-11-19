@@ -1463,5 +1463,15 @@
   "sync.upload_failed": "[{service}] ERROR: ningún lote fue aceptado (fallidos {failed}, ambiguos {unknown}, rechazados {rejected}).",
   "sync.upload_cancelled": "[{service}] CANCELADO: aceptados antes de cancelar {accepted}, no enviados {not_attempted}.",
   "sync.upload_cancel_btn": "Cancelar envío",
-  "sync.upload_cancel_requested": "Cancelación solicitada — el lote actual aún puede terminar."
+  "sync.upload_cancel_requested": "Cancelación solicitada — el lote actual aún puede terminar.",
+  "toast.dismiss": "Cerrar notificación",
+  "sync.in_progress": "En curso…",
+  "log.empty_title": "El diario está vacío",
+  "log.empty_hint": "Introduce tu primer contacto en el formulario QSO y pulsa Enter para guardarlo.",
+  "log.no_matches_title": "Ningún QSO coincide con el filtro",
+  "log.clear_filter": "Borrar filtro",
+  "log.selected_count": "✔ {count} QSO seleccionados",
+  "qso.gmina_preview": "🇵🇱 Municipio: {name} (condado {powiat})",
+  "cluster.auto_tune_status": "Auto-tune → {call} en {freq} kHz",
+  "vfo.manual_transceiver": "Transceptor manual"
 }

@@ -3,8 +3,26 @@
 
 use crate::core::i18n::{Msg, key, tr};
 use crate::gui::app::SpLogApp;
-use crate::gui::theme::{RADIUS_MD, SPACE_MD, TEXT_BODY, TEXT_CAPTION, ThemeExt, callsign_font};
+use crate::gui::theme::{
+    SPACE_MD, SPACE_SM, TEXT_BODY, TEXT_CAPTION, ThemeExt, callsign_font, primary_button,
+    secondary_button,
+};
 use eframe::egui;
+
+/// Szerokość zarezerwowana obok pola komentarza na przycisk ● REC / ⏹ STOP (z odstępem).
+const COMMENT_BUTTON_RESERVE: f32 = 100.0;
+
+/// Zapas szerokości przy pomiarze etykiet przycisków (ramka, zaokrąglenia).
+const BUTTON_WIDTH_MARGIN: f32 = 6.0;
+
+/// Standardowe pasma formularza QSO i dialogu edycji.
+pub const STANDARD_BANDS: [&str; 15] = [
+    "160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "4m", "2m",
+    "70cm", "23cm",
+];
+
+/// Standardowe tryby formularza QSO i dialogu edycji.
+pub const STANDARD_MODES: [&str; 8] = ["CW", "SSB", "FT8", "FT4", "RTTY", "PSK31", "AM", "FM"];
 
 pub fn render_qso_entry_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if !app.views.panel_qso.visible {
@@ -182,68 +200,64 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     });
     ui.add_space(4.0);
 
-    // 2. Pasmo i Emisja
-    ui.horizontal(|ui| {
-        ui.label(tr(key::QSO_BAND, lang));
+    // 2. Pasmo i Emisja — dwie kolumny „etykieta nad polem” (jak RST).
+    ui.columns(2, |cols| {
+        cols[0].label(tr(key::QSO_BAND, lang));
+        let band_width = cols[0].available_width();
         egui::ComboBox::from_id_salt("qso_band")
             .selected_text(&app.entry.band)
-            .show_ui(ui, |ui| {
-                for band in &[
-                    "160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m",
-                    "4m", "2m", "70cm", "23cm",
-                ] {
+            .width(band_width)
+            .show_ui(&mut cols[0], |ui| {
+                for band in &STANDARD_BANDS {
                     ui.selectable_value(&mut app.entry.band, band.to_string(), *band);
                 }
             });
 
-        ui.add_space(10.0);
-
-        ui.label(tr(key::QSO_MODE, lang));
+        cols[1].label(tr(key::QSO_MODE, lang));
+        let mode_width = cols[1].available_width();
         egui::ComboBox::from_id_salt("qso_mode")
             .selected_text(&app.entry.mode)
-            .show_ui(ui, |ui| {
-                for mode in &["CW", "SSB", "FT8", "FT4", "RTTY", "PSK31", "AM", "FM"] {
+            .width(mode_width)
+            .show_ui(&mut cols[1], |ui| {
+                for mode in &STANDARD_MODES {
                     ui.selectable_value(&mut app.entry.mode, mode.to_string(), *mode);
                 }
             });
     });
-    // 3. Raporty RST
-    ui.horizontal(|ui| {
-        ui.label(tr(key::QSO_RST_SENT, lang));
-        let rst_sent_resp = ui.add(
+    // 3. Raporty RST — dwie kolumny „etykieta nad polem”, aby długie etykiety
+    // (np. PL „Raport odebrany (RST)”) nie były przycinane w wąskim panelu (~340 px).
+    ui.columns(2, |cols| {
+        cols[0].label(tr(key::QSO_RST_SENT, lang));
+        let rst_sent_resp = cols[0].add(
             egui::TextEdit::singleline(&mut app.entry.rst_sent)
                 .id(egui::Id::new("qso_entry_rst_sent"))
-                .desired_width(60.0),
+                .desired_width(f32::INFINITY),
         );
-
-        ui.add_space(10.0);
-
-        ui.label(tr(key::QSO_RST_RCVD, lang));
-        let rst_rcvd_resp = ui.add(
+        cols[1].label(tr(key::QSO_RST_RCVD, lang));
+        let rst_rcvd_resp = cols[1].add(
             egui::TextEdit::singleline(&mut app.entry.rst_rcvd)
                 .id(egui::Id::new("qso_entry_rst_rcvd"))
-                .desired_width(60.0),
+                .desired_width(f32::INFINITY),
         );
         field_responses.push(rst_sent_resp.clone());
         field_responses.push(rst_rcvd_resp.clone());
     });
-    // 4. Imię operatora & Lokator QTH
-    ui.horizontal(|ui| {
-        ui.label(tr(key::QSO_NAME, lang));
-        let name_resp = ui.add(
+    // 4. Imię operatora & Lokator, 5. Miejscowość (QTH) & Gmina PGA — dwie kolumny
+    // „etykieta nad polem” (jak RST), więc długie etykiety nie przekraczają szerokości panelu.
+    ui.columns(2, |cols| {
+        cols[0].label(tr(key::QSO_NAME, lang));
+        let name_resp = cols[0].add(
             egui::TextEdit::singleline(&mut app.entry.name)
                 .id(egui::Id::new("qso_entry_name"))
-                .desired_width(120.0),
+                .desired_width(f32::INFINITY),
         );
         field_responses.push(name_resp.clone());
 
-        ui.add_space(10.0);
-
-        ui.label(tr(key::QSO_LOCATOR, lang));
-        let loc_resp = ui.add(
+        cols[1].label(tr(key::QSO_LOCATOR, lang));
+        let loc_resp = cols[1].add(
             egui::TextEdit::singleline(&mut app.entry.grid)
                 .id(egui::Id::new("qso_entry_grid"))
-                .desired_width(80.0),
+                .desired_width(f32::INFINITY),
         );
         if loc_resp.changed() {
             app.entry.grid = app.entry.grid.to_uppercase();
@@ -251,13 +265,12 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
         field_responses.push(loc_resp.clone());
     });
-    // 5. Miejscowość (QTH) & Gmina PGA
-    ui.horizontal(|ui| {
-        ui.label(tr(key::QSO_QTH, lang));
-        let qth_resp = ui.add(
+    ui.columns(2, |cols| {
+        cols[0].label(tr(key::QSO_QTH, lang));
+        let qth_resp = cols[0].add(
             egui::TextEdit::singleline(&mut app.entry.qth)
                 .id(egui::Id::new("qso_entry_qth"))
-                .desired_width(120.0),
+                .desired_width(f32::INFINITY),
         );
         if qth_resp.changed()
             && app.entry.pga.is_empty()
@@ -266,13 +279,11 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.entry.pga = gmina.code.to_string();
         }
 
-        ui.add_space(8.0);
-
-        ui.label(tr(key::QSO_PGA, lang));
-        let pga_resp = ui.add(
+        cols[1].label(tr(key::QSO_PGA, lang));
+        let pga_resp = cols[1].add(
             egui::TextEdit::singleline(&mut app.entry.pga)
                 .id(egui::Id::new("qso_entry_pga"))
-                .desired_width(65.0),
+                .desired_width(f32::INFINITY),
         );
         if pga_resp.changed() {
             app.entry.pga = app.entry.pga.to_uppercase();
@@ -280,128 +291,142 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         field_responses.push(qth_resp.clone());
         field_responses.push(pga_resp.clone());
     });
-    // Referencje dyplomowe i lokalizacyjne
-    ui.horizontal(|ui| {
-        ui.label(format!("🏝 {}:", tr(key::QSO_IOTA, lang)));
-        let iota_resp = ui.add(
-            egui::TextEdit::singleline(&mut app.entry.iota)
-                .id(egui::Id::new("qso_entry_iota"))
-                .desired_width(65.0)
-                .hint_text("EU-001"),
-        );
-        if iota_resp.changed() {
-            app.entry.iota = app.entry.iota.to_uppercase();
-        }
-        if side_button(ui, "🔍")
-            .on_hover_text(tr(key::QSO_BROWSE_IOTA_TOOLTIP, lang))
-            .clicked()
-        {
-            app.gui.dialogs.iota_dialog.open();
-        }
+    // Referencje dyplomowe, własne referencje (F-19) i QSL via w jednej siatce
+    // „etykieta | pole”: długie etykiety DE/IT („Bundesstaat / Provinz”, „Il mio parco
+    // POTA”) nie wypychają pól poza szerokość panelu. Własne referencje stacji (`my_*`)
+    // to osobne pola, osobna strona QSO — nigdy nie są kopiowane do pól korespondenta.
+    egui::Grid::new("qso_refs_grid")
+        .num_columns(2)
+        .spacing([SPACE_MD, SPACE_SM])
+        .show(ui, |ui| {
+            ui.label(format!("🏝 {}:", tr(key::QSO_IOTA, lang)));
+            ui.horizontal(|ui| {
+                let iota_resp = ui.add(
+                    egui::TextEdit::singleline(&mut app.entry.iota)
+                        .id(egui::Id::new("qso_entry_iota"))
+                        .desired_width(110.0)
+                        .hint_text("EU-001"),
+                );
+                if iota_resp.changed() {
+                    app.entry.iota = app.entry.iota.to_uppercase();
+                }
+                if side_button(ui, "🔍")
+                    .on_hover_text(tr(key::QSO_BROWSE_IOTA_TOOLTIP, lang))
+                    .clicked()
+                {
+                    app.gui.dialogs.iota_dialog.open();
+                }
+                field_responses.push(iota_resp.clone());
+            });
+            ui.end_row();
 
-        ui.add_space(4.0);
+            ui.label(format!("🗺 {}:", tr(key::QSO_STATE, lang)));
+            ui.horizontal(|ui| {
+                let st_resp = ui.add(
+                    egui::TextEdit::singleline(&mut app.entry.state)
+                        .id(egui::Id::new("qso_entry_state"))
+                        .desired_width(110.0)
+                        .hint_text("CA"),
+                );
+                if st_resp.changed() {
+                    app.entry.state = app.entry.state.to_uppercase();
+                }
+                if side_button(ui, "🔍")
+                    .on_hover_text(tr(key::QSO_BROWSE_STATES_TOOLTIP, lang))
+                    .clicked()
+                {
+                    app.gui.dialogs.states_dialog.open();
+                }
+                field_responses.push(st_resp.clone());
+            });
+            ui.end_row();
 
-        ui.label(format!("🗺 {}:", tr(key::QSO_STATE, lang)));
-        let st_resp = ui.add(
-            egui::TextEdit::singleline(&mut app.entry.state)
-                .id(egui::Id::new("qso_entry_state"))
-                .desired_width(45.0)
-                .hint_text("CA"),
-        );
-        if st_resp.changed() {
-            app.entry.state = app.entry.state.to_uppercase();
-        }
-        if side_button(ui, "🔍")
-            .on_hover_text(tr(key::QSO_BROWSE_STATES_TOOLTIP, lang))
-            .clicked()
-        {
-            app.gui.dialogs.states_dialog.open();
-        }
+            ui.label(format!("🏔 {}:", tr(key::QSO_SOTA, lang)));
+            let sota_resp = ui.add(
+                egui::TextEdit::singleline(&mut app.entry.sota)
+                    .id(egui::Id::new("qso_entry_sota"))
+                    .desired_width(110.0)
+                    .hint_text("SP/BZ-001"),
+            );
+            if sota_resp.changed() {
+                app.entry.sota = app.entry.sota.to_uppercase();
+            }
+            field_responses.push(sota_resp.clone());
+            ui.end_row();
 
-        ui.add_space(4.0);
+            ui.label(format!("🏔 {}:", tr(key::QSO_MY_SOTA, lang)));
+            let my_sota_resp = ui.add(
+                egui::TextEdit::singleline(&mut app.entry.my_refs.sota)
+                    .id(egui::Id::new("qso_entry_my_sota"))
+                    .desired_width(110.0)
+                    .hint_text("SP/BZ-001"),
+            );
+            if my_sota_resp.changed() {
+                app.entry.my_refs.sota = app.entry.my_refs.sota.to_uppercase();
+            }
+            field_responses.push(my_sota_resp.clone());
+            ui.end_row();
 
-        ui.label(format!("🏔 {}:", tr(key::QSO_SOTA, lang)));
-        let sota_resp = ui.add(
-            egui::TextEdit::singleline(&mut app.entry.sota)
-                .id(egui::Id::new("qso_entry_sota"))
-                .desired_width(75.0)
-                .hint_text("SP/BZ-001"),
-        );
-        if sota_resp.changed() {
-            app.entry.sota = app.entry.sota.to_uppercase();
-        }
-        field_responses.push(iota_resp.clone());
-        field_responses.push(st_resp.clone());
-        field_responses.push(sota_resp.clone());
-    });
+            ui.label(format!("🌲 {}:", tr(key::QSO_MY_POTA, lang)));
+            let my_pota_resp = ui.add(
+                egui::TextEdit::singleline(&mut app.entry.my_refs.pota)
+                    .id(egui::Id::new("qso_entry_my_pota"))
+                    .desired_width(110.0)
+                    .hint_text("SP-0123"),
+            );
+            if my_pota_resp.changed() {
+                app.entry.my_refs.pota = app.entry.my_refs.pota.to_uppercase();
+            }
+            field_responses.push(my_pota_resp.clone());
+            ui.end_row();
 
-    // F-19: własne referencje stacji logującej (kontekst aktywacji).
-    // Osobne pola, osobna strona QSO — nigdy nie są kopiowane do pól korespondenta.
-    ui.horizontal(|ui| {
-        ui.label(format!("🏔 {}:", tr(key::QSO_MY_SOTA, lang)));
-        let my_sota_resp = ui.add(
-            egui::TextEdit::singleline(&mut app.entry.my_refs.sota)
-                .id(egui::Id::new("qso_entry_my_sota"))
-                .desired_width(75.0)
-                .hint_text("SP/BZ-001"),
-        );
-        if my_sota_resp.changed() {
-            app.entry.my_refs.sota = app.entry.my_refs.sota.to_uppercase();
-        }
-        ui.label(format!("🌲 {}:", tr(key::QSO_MY_POTA, lang)));
-        let my_pota_resp = ui.add(
-            egui::TextEdit::singleline(&mut app.entry.my_refs.pota)
-                .id(egui::Id::new("qso_entry_my_pota"))
-                .desired_width(80.0)
-                .hint_text("SP-0123"),
-        );
-        if my_pota_resp.changed() {
-            app.entry.my_refs.pota = app.entry.my_refs.pota.to_uppercase();
-        }
-        field_responses.push(my_sota_resp.clone());
-        field_responses.push(my_pota_resp.clone());
-    });
-    // QSL Manager i dane stacji
-    ui.horizontal(|ui| {
-        ui.label(format!("📋 {}:", tr(key::QSO_QSL_VIA, lang)));
-        let mgr_resp = ui.add(
-            egui::TextEdit::singleline(&mut app.entry.qsl_manager)
-                .id(egui::Id::new("qso_entry_qsl_via"))
-                .desired_width(80.0)
-                .hint_text("Manager"),
-        );
-        if mgr_resp.changed() {
-            app.entry.qsl_manager = app.entry.qsl_manager.to_uppercase();
-        }
-        if side_button(ui, "🔍")
-            .on_hover_text(tr(key::QSO_SEARCH_MANAGER_TOOLTIP, lang))
-            .clicked()
-        {
-            let call = app.entry.callsign.clone();
-            app.gui.dialogs.qsl_manager_dialog.open_for_call(&call);
-        }
+            ui.label(format!("📋 {}:", tr(key::QSO_QSL_VIA, lang)));
+            ui.horizontal(|ui| {
+                let mgr_resp = ui.add(
+                    egui::TextEdit::singleline(&mut app.entry.qsl_manager)
+                        .id(egui::Id::new("qso_entry_qsl_via"))
+                        .desired_width(110.0)
+                        .hint_text("Manager"),
+                );
+                if mgr_resp.changed() {
+                    app.entry.qsl_manager = app.entry.qsl_manager.to_uppercase();
+                }
+                if side_button(ui, "🔍")
+                    .on_hover_text(tr(key::QSO_SEARCH_MANAGER_TOOLTIP, lang))
+                    .clicked()
+                {
+                    let call = app.entry.callsign.clone();
+                    app.gui.dialogs.qsl_manager_dialog.open_for_call(&call);
+                }
+                field_responses.push(mgr_resp.clone());
+            });
+            ui.end_row();
 
-        if let Some(ref mgr_rec) = app.entry.active_qsl_manager_record {
-            ui.colored_label(palette.success, format!("✓ Mgr: {}", mgr_rec.manager));
-        }
+            // Podgląd managera i zdjęcie w osobnym wierszu siatki (nie wypychają pola QSL).
+            ui.label("");
+            ui.horizontal(|ui| {
+                if let Some(ref mgr_rec) = app.entry.active_qsl_manager_record {
+                    ui.colored_label(palette.success, format!("✓ Mgr: {}", mgr_rec.manager));
+                }
+                if side_button(ui, tr(key::QSO_BTN_PHOTO, lang))
+                    .on_hover_text(tr(key::QSO_SHOW_PHOTO_TOOLTIP, lang))
+                    .clicked()
+                {
+                    let call = app.entry.callsign.clone();
+                    let photo_url = app.gui.dialogs.photo_viewer_dialog.photo_url.clone();
+                    app.gui.dialogs.photo_viewer_dialog.open(&call, photo_url);
+                }
+            });
+            ui.end_row();
+        });
 
-        if side_button(ui, tr(key::QSO_BTN_PHOTO, lang))
-            .on_hover_text(tr(key::QSO_SHOW_PHOTO_TOOLTIP, lang))
-            .clicked()
-        {
-            let call = app.entry.callsign.clone();
-            let photo_url = app.gui.dialogs.photo_viewer_dialog.photo_url.clone();
-            app.gui.dialogs.photo_viewer_dialog.open(&call, photo_url);
-        }
-        field_responses.push(mgr_resp.clone());
-    });
     // 6. Komentarz i nagrywanie audio łączności
     ui.horizontal(|ui| {
         ui.label(tr(key::QSO_COMMENT, lang));
         let comment_resp = ui.add(
             egui::TextEdit::singleline(&mut app.entry.comment)
                 .id(egui::Id::new("qso_entry_comment"))
-                .desired_width(ui.available_width() - 85.0),
+                .desired_width((ui.available_width() - COMMENT_BUTTON_RESERVE).max(60.0)),
         );
 
         let is_rec = crate::media::audio_recorder::AudioRecorder::is_recording();
@@ -431,30 +456,56 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
     ui.add_space(SPACE_MD);
 
-    // 7. Przyciski Zapisz / Wyczyść (Enter=Zapisz, Esc=Wyczyść z pól formularza)
-    ui.horizontal(|ui| {
-        let save_btn = ui.add_sized(
-            [ui.available_width() * 0.65, 30.0],
-            egui::Button::new(
-                egui::RichText::new(format!("💾 {}", tr(key::QSO_SAVE, lang)))
-                    .strong()
-                    .color(palette.selection_text),
+    // 7. Przyciski Zapisz / Wyczyść (Enter=Zapisz, Esc=Wyczyść z pól formularza).
+    // Równe połowy szerokości: długie etykiety PL/FR nie są ucinane.
+    let avail = ui.available_width();
+    let half = ((avail - ui.spacing().item_spacing.x) / 2.0).max(90.0);
+    let save_text = format!("💾 {}", tr(key::QSO_SAVE, lang));
+    let clear_text = tr(key::QSO_CLEAR, lang);
+    let text_width = |ui: &egui::Ui, text: &str| {
+        ui.painter()
+            .layout_no_wrap(
+                text.to_owned(),
+                egui::TextStyle::Button.resolve(ui.style()),
+                palette.text_primary,
             )
-            .fill(palette.accent)
-            .corner_radius(RADIUS_MD),
-        );
-        if save_btn.clicked() {
-            app.save_qso();
-        }
-
-        let clear_btn = ui.add_sized(
-            [ui.available_width(), 30.0],
-            egui::Button::new(tr(key::QSO_CLEAR, lang)),
-        );
-        if clear_btn.clicked() {
-            app.clear_qso_form();
-        }
-    });
+            .size()
+            .x
+            + ui.spacing().button_padding.x * 2.0
+            + BUTTON_WIDTH_MARGIN
+    };
+    // Gdy któraś etykieta nie mieści się w połowie szerokości, przyciski układają się
+    // jeden pod drugim (pełna szerokość) zamiast wychodzić poza panel.
+    let stacked = text_width(ui, &save_text) > half || text_width(ui, clear_text) > half;
+    let (save_clicked, clear_clicked) = if stacked {
+        ui.vertical(|ui| {
+            let save = ui
+                .add_sized([avail, 30.0], primary_button(&palette, save_text))
+                .clicked();
+            let clear = ui
+                .add_sized([avail, 30.0], secondary_button(&palette, clear_text))
+                .clicked();
+            (save, clear)
+        })
+        .inner
+    } else {
+        ui.horizontal(|ui| {
+            let save = ui
+                .add_sized([half, 30.0], primary_button(&palette, save_text))
+                .clicked();
+            let clear = ui
+                .add_sized([half, 30.0], secondary_button(&palette, clear_text))
+                .clicked();
+            (save, clear)
+        })
+        .inner
+    };
+    if save_clicked {
+        app.save_qso();
+    }
+    if clear_clicked {
+        app.clear_qso_form();
+    }
 
     handle_form_keys(app, ui, &field_responses, popup_open_at_start);
 
@@ -689,10 +740,12 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         && let Some(gmina) = crate::core::pga::find_by_code(&app.entry.pga)
     {
         ui.label(
-            egui::RichText::new(format!(
-                "🇵🇱 Gmina: {} (powiat {})",
-                gmina.name, gmina.powiat
-            ))
+            egui::RichText::new(
+                Msg::new(key::QSO_GMINA_PREVIEW)
+                    .arg("name", gmina.name)
+                    .arg("powiat", gmina.powiat)
+                    .text(lang),
+            )
             .small()
             .color(palette.success),
         );

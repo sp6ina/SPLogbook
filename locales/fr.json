@@ -1463,5 +1463,15 @@
   "sync.upload_failed": "[{service}] ERREUR : aucun lot accepté (échoués {failed}, ambigus {unknown}, rejetés {rejected}).",
   "sync.upload_cancelled": "[{service}] ANNULÉ : acceptés avant annulation {accepted}, non envoyés {not_attempted}.",
   "sync.upload_cancel_btn": "Annuler l'envoi",
-  "sync.upload_cancel_requested": "Annulation demandée — le lot en cours peut encore se terminer."
+  "sync.upload_cancel_requested": "Annulation demandée — le lot en cours peut encore se terminer.",
+  "toast.dismiss": "Fermer la notification",
+  "sync.in_progress": "En cours…",
+  "log.empty_title": "Le journal est vide",
+  "log.empty_hint": "Saisissez votre premier contact dans le formulaire QSO et validez avec Entrée.",
+  "log.no_matches_title": "Aucun QSO ne correspond au filtre",
+  "log.clear_filter": "Effacer le filtre",
+  "log.selected_count": "✔ {count} QSO sélectionné(s)",
+  "qso.gmina_preview": "🇵🇱 Commune : {name} (powiat {powiat})",
+  "cluster.auto_tune_status": "Auto-tune → {call} sur {freq} kHz",
+  "vfo.manual_transceiver": "Transceiver manuel"
 }

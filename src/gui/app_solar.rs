@@ -78,10 +78,10 @@ impl SpLogApp {
         if !newly_opened.is_empty() && self.solar.band_alert_enabled {
             let names = newly_opened.join(", ");
             crate::media::sounds::play_band_opened_alert();
-            self.gui.chrome.status_toast = Some((
+            self.gui.chrome.push_status_toast(
+                crate::gui::state::ToastSeverity::Info,
                 format!("📡 Otwarcie pasma: {names}"),
-                std::time::Instant::now(),
-            ));
+            );
             for band in newly_opened {
                 self.services.plugin_engine.run_on_band_opened(band);
             }

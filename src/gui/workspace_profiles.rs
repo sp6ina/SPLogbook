@@ -64,10 +64,10 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
                         && let Some(preset) = workspace_profile_presets().into_iter().nth(i)
                     {
                         apply_profile(app, &preset);
-                        app.gui.chrome.status_toast = Some((
+                        app.gui.chrome.push_status_toast(
+                            crate::gui::state::ToastSeverity::Info,
                             format!("Zastosowano preset: {}", preset.name),
-                            std::time::Instant::now(),
-                        ));
+                        );
                     }
                 });
             ui.separator();
@@ -112,10 +112,10 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
                         app.config.workspace_profiles.push(profile.clone());
                     }
                     app.save_station_config();
-                    app.gui.chrome.status_toast = Some((
+                    app.gui.chrome.push_status_toast(
+                        crate::gui::state::ToastSeverity::Success,
                         format!("Zapisano profil: {}", profile.name),
-                        std::time::Instant::now(),
-                    ));
+                    );
                     new_name.clear();
                 }
             });
@@ -190,20 +190,20 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
                         if let Some(idx) = apply_idx {
                             let profile = app.config.workspace_profiles[idx].clone();
                             apply_profile(app, &profile);
-                            app.gui.chrome.status_toast = Some((
+                            app.gui.chrome.push_status_toast(
+                                crate::gui::state::ToastSeverity::Info,
                                 format!("Zastosowano profil: {}", profile.name),
-                                std::time::Instant::now(),
-                            ));
+                            );
                         }
                         if let Some(idx) = commit_rename {
                             app.config.workspace_profiles[idx].name =
                                 rename_text.trim().to_string();
                             app.config.workspace_profiles[idx].ensure_id();
                             app.save_station_config();
-                            app.gui.chrome.status_toast = Some((
+                            app.gui.chrome.push_status_toast(
+                                crate::gui::state::ToastSeverity::Info,
                                 tr(key::WS_PROFILES_RENAMED_TOAST, lang).to_string(),
-                                std::time::Instant::now(),
-                            ));
+                            );
                             renaming = None;
                         }
                         if let Some(idx) = delete_idx {
@@ -250,25 +250,25 @@ fn export_profile(app: &mut SpLogApp, profile: &WorkspaceProfile) {
         match serde_json::to_string_pretty(&file) {
             Ok(json) => match std::fs::write(&path, json) {
                 Ok(()) => {
-                    app.gui.chrome.status_toast = Some((
+                    app.gui.chrome.push_status_toast(
+                        crate::gui::state::ToastSeverity::Success,
                         format!("Wyeksportowano: {}", path.display()),
-                        std::time::Instant::now(),
-                    ));
+                    );
                 }
                 Err(e) => {
-                    app.gui.chrome.status_toast = Some((
+                    app.gui.chrome.push_status_toast(
+                        crate::gui::state::ToastSeverity::Error,
                         Msg::new(key::WS_PROFILES_ERR_SAVE).arg("err", e).text(lang),
-                        std::time::Instant::now(),
-                    ));
+                    );
                 }
             },
             Err(e) => {
-                app.gui.chrome.status_toast = Some((
+                app.gui.chrome.push_status_toast(
+                    crate::gui::state::ToastSeverity::Error,
                     Msg::new(key::WS_PROFILES_ERR_SERIALIZE)
                         .arg("err", e)
                         .text(lang),
-                    std::time::Instant::now(),
-                ));
+                );
             }
         }
     }
@@ -285,13 +285,13 @@ fn import_profile(app: &mut SpLogApp) {
             Ok(text) => match serde_json::from_str::<WorkspaceFile>(&text) {
                 Ok(file) => {
                     if file.version > WorkspaceFile::CURRENT_VERSION {
-                        app.gui.chrome.status_toast = Some((
+                        app.gui.chrome.push_status_toast(
+                            crate::gui::state::ToastSeverity::Error,
                             Msg::new(key::WS_PROFILES_ERR_UNSUPPORTED_VERSION)
                                 .arg("ver", file.version)
                                 .arg("path", path.display())
                                 .text(lang),
-                            std::time::Instant::now(),
-                        ));
+                        );
                         return;
                     }
                     let mut ws = file.workspace;
@@ -308,25 +308,25 @@ fn import_profile(app: &mut SpLogApp) {
                         app.config.workspace_profiles.push(ws.clone());
                     }
                     app.save_station_config();
-                    app.gui.chrome.status_toast = Some((
+                    app.gui.chrome.push_status_toast(
+                        crate::gui::state::ToastSeverity::Success,
                         format!("Zaimportowano profil: {}", ws.name),
-                        std::time::Instant::now(),
-                    ));
+                    );
                 }
                 Err(e) => {
-                    app.gui.chrome.status_toast = Some((
+                    app.gui.chrome.push_status_toast(
+                        crate::gui::state::ToastSeverity::Error,
                         Msg::new(key::WS_PROFILES_ERR_INVALID_FILE)
                             .arg("err", e)
                             .text(lang),
-                        std::time::Instant::now(),
-                    ));
+                    );
                 }
             },
             Err(e) => {
-                app.gui.chrome.status_toast = Some((
+                app.gui.chrome.push_status_toast(
+                    crate::gui::state::ToastSeverity::Error,
                     Msg::new(key::WS_PROFILES_ERR_READ).arg("err", e).text(lang),
-                    std::time::Instant::now(),
-                ));
+                );
             }
         }
     }

@@ -33,10 +33,10 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             }
             if resp.clicked() {
                 apply_profile(app, &preset);
-                app.gui.chrome.status_toast = Some((
+                app.gui.chrome.push_status_toast(
+                    crate::gui::state::ToastSeverity::Info,
                     format!("{}: {name}", tr(key::WORKSPACE_PRESET_APPLIED, lang)),
-                    std::time::Instant::now(),
-                ));
+                );
                 ui.close();
             }
         }

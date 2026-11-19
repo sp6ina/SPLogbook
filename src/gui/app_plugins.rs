@@ -111,8 +111,10 @@ impl SpLogApp {
                         .run_on_sota_info(&reference, &name, points);
                 }
                 crate::plugins::bridge::PluginLookupResult::Error(msg) => {
-                    self.gui.chrome.status_toast =
-                        Some((format!("Plugin: {msg}"), std::time::Instant::now()));
+                    self.gui.chrome.push_status_toast(
+                        crate::gui::state::ToastSeverity::Info,
+                        format!("Plugin: {msg}"),
+                    );
                 }
             }
         }
@@ -161,12 +163,12 @@ impl SpLogApp {
                             }
                         });
                     } else {
-                        self.gui.chrome.status_toast = Some((
+                        self.gui.chrome.push_status_toast(
+                            crate::gui::state::ToastSeverity::Info,
                             Msg::new(key::PLUGIN_VOICE_ANNOUNCEMENT)
                                 .arg("text", &text)
                                 .text(self.gui.appearance.language),
-                            std::time::Instant::now(),
-                        ));
+                        );
                     }
                 }
                 crate::plugins::bridge::PluginCommand::Rotate {
@@ -195,7 +197,9 @@ impl SpLogApp {
                     self.trigger_sota_lookup(&reference);
                 }
                 crate::plugins::bridge::PluginCommand::Notify { message } => {
-                    self.gui.chrome.status_toast = Some((message, std::time::Instant::now()));
+                    self.gui
+                        .chrome
+                        .push_status_toast(crate::gui::state::ToastSeverity::Info, message);
                 }
             }
         }
@@ -219,10 +223,10 @@ impl SpLogApp {
             received_at: jiff::Timestamp::now().as_second(),
         };
         self.cluster.spots.insert(0, spot);
-        self.gui.chrome.status_toast = Some((
+        self.gui.chrome.push_status_toast(
+            crate::gui::state::ToastSeverity::Info,
             format!("Spot (plugin): {dx_call} na {freq_khz:.1} kHz"),
-            std::time::Instant::now(),
-        ));
+        );
     }
 
     /// Odtwarza dźwięk powiadomienia o zadanej nazwie (akcja `play_sound`).
@@ -234,12 +238,12 @@ impl SpLogApp {
             "qso_saved" | "saved" => crate::media::sounds::play_qso_saved_alert(),
             "band_opened" | "band" => crate::media::sounds::play_band_opened_alert(),
             _ => {
-                self.gui.chrome.status_toast = Some((
+                self.gui.chrome.push_status_toast(
+                    crate::gui::state::ToastSeverity::Info,
                     Msg::new(key::PLUGIN_UNKNOWN_SOUND)
                         .arg("name", name)
                         .text(self.gui.appearance.language),
-                    std::time::Instant::now(),
-                ));
+                );
             }
         }
     }

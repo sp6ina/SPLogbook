@@ -13,7 +13,7 @@ use crate::core::ingest::{IngestError, QsoOrigin};
 use crate::core::qso::QsoRecord;
 use crate::core::station::CustomContest;
 use crate::gui::app::SpLogApp;
-use crate::gui::theme::ThemeExt;
+use crate::gui::theme::{ThemeExt, primary_button};
 
 use eframe::egui;
 
@@ -429,78 +429,98 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 // QSO ENTRY FORM
                 ui.group(|ui| {
                     ui.label(egui::RichText::new(tr(key::CONTEST_ENTRY_HEADER, lang)).strong());
-                    ui.horizontal(|ui| {
-                        ui.label(format!("{}:", tr(key::QSO_CALLSIGN, lang)));
+                    // Siatka „etykieta | pole”: długie etykiety (np. DE „Empfangener Rapport /
+                    // Austausch:”) nie wylewają się w jednym wierszu poziomym.
+                    egui::Grid::new("contest_entry_grid")
+                        .num_columns(2)
+                        .spacing([8.0, 4.0])
+                        .show(ui, |ui| {
+                            ui.label(format!("{}:", tr(key::QSO_CALLSIGN, lang)));
 
-                        let dummy_qso = QsoRecord {
-                            callsign: app.entry.callsign.clone(),
-                            band: app.entry.band.clone(),
-                            mode: app.entry.mode.clone(),
-                            ..Default::default()
-                        };
+                            let dummy_qso = QsoRecord {
+                                callsign: app.entry.callsign.clone(),
+                                band: app.entry.band.clone(),
+                                mode: app.entry.mode.clone(),
+                                ..Default::default()
+                            };
 
-                        let is_dupe = if is_custom {
-                            app.log_view.recent_qsos.iter().any(|q| {
-                                q.callsign.eq_ignore_ascii_case(&dummy_qso.callsign)
-                                    && q.band.eq_ignore_ascii_case(&dummy_qso.band)
-                            })
-                        } else if let Some(rule_idx) =
-                            RULES.iter().position(|r| r.name == app.contest.name)
-                        {
-                            detect_duplicate(
-                                &RULES[rule_idx],
-                                &dummy_qso,
-                                &app.log_view.recent_qsos,
-                            )
-                        } else {
-                            // Nieznane reguły kontestu: prosta kontrola duplikatu wg znaku+pasma
-                            // zamiast cichego zastosowania reguł innego (pierwszego) kontestu.
-                            app.log_view.recent_qsos.iter().any(|q| {
-                                q.callsign.eq_ignore_ascii_case(&dummy_qso.callsign)
-                                    && q.band.eq_ignore_ascii_case(&dummy_qso.band)
-                            })
-                        };
+                            let is_dupe = if is_custom {
+                                app.log_view.recent_qsos.iter().any(|q| {
+                                    q.callsign.eq_ignore_ascii_case(&dummy_qso.callsign)
+                                        && q.band.eq_ignore_ascii_case(&dummy_qso.band)
+                                })
+                            } else if let Some(rule_idx) =
+                                RULES.iter().position(|r| r.name == app.contest.name)
+                            {
+                                detect_duplicate(
+                                    &RULES[rule_idx],
+                                    &dummy_qso,
+                                    &app.log_view.recent_qsos,
+                                )
+                            } else {
+                                // Nieznane reguły kontestu: prosta kontrola duplikatu wg znaku+pasma
+                                // zamiast cichego zastosowania reguł innego (pierwszego) kontestu.
+                                app.log_view.recent_qsos.iter().any(|q| {
+                                    q.callsign.eq_ignore_ascii_case(&dummy_qso.callsign)
+                                        && q.band.eq_ignore_ascii_case(&dummy_qso.band)
+                                })
+                            };
 
-                        if is_dupe && !app.entry.callsign.is_empty() {
-                            ui.visuals_mut().widgets.inactive.bg_stroke =
-                                egui::Stroke::new(2.0_f32, palette.dupe);
-                        }
+                            if is_dupe && !app.entry.callsign.is_empty() {
+                                ui.visuals_mut().widgets.inactive.bg_stroke =
+                                    egui::Stroke::new(2.0_f32, palette.dupe);
+                            }
 
-                        let call_resp = ui.add(
-                            egui::TextEdit::singleline(&mut app.entry.callsign)
-                                .id(egui::Id::new("contest_entry_callsign"))
-                                .desired_width(120.0),
-                        );
-                        if app.entry.focus_callsign_requested {
-                            call_resp.request_focus();
-                            app.entry.focus_callsign_requested = false;
-                        }
+                            let call_resp = ui
+                                .horizontal(|ui| {
+                                    let call_resp = ui.add(
+                                        egui::TextEdit::singleline(&mut app.entry.callsign)
+                                            .id(egui::Id::new("contest_entry_callsign"))
+                                            .desired_width(140.0),
+                                    );
+                                    if app.entry.focus_callsign_requested {
+                                        call_resp.request_focus();
+                                        app.entry.focus_callsign_requested = false;
+                                    }
+                                    if is_dupe && !app.entry.callsign.is_empty() {
+                                        ui.label(
+                                            egui::RichText::new("DUPE!")
+                                                .color(palette.dupe)
+                                                .strong(),
+                                        );
+                                    }
+                                    call_resp
+                                })
+                                .inner;
+                            ui.end_row();
 
-                        if is_dupe && !app.entry.callsign.is_empty() {
-                            ui.label(egui::RichText::new("DUPE!").color(palette.dupe).strong());
-                        }
+                            ui.label(tr(key::CONTEST_RCVD_REPORT_EXCHANGE, lang));
+                            let exch_resp = ui.add(
+                                egui::TextEdit::singleline(&mut app.entry.exchange)
+                                    .id(egui::Id::new("contest_entry_exchange"))
+                                    .desired_width(ui.available_width().clamp(120.0, 240.0)),
+                            );
+                            ui.end_row();
 
-                        ui.label(tr(key::CONTEST_RCVD_REPORT_EXCHANGE, lang));
-                        let exch_resp = ui.add(
-                            egui::TextEdit::singleline(&mut app.entry.exchange)
-                                .id(egui::Id::new("contest_entry_exchange"))
-                                .desired_width(200.0),
-                        );
+                            // `Enter` zwykle trafia tu przez `AppAction::ContestSaveQso`; jednowierszowe
+                            // `TextEdit` oddaje fokus przy Enter, więc zapasowo sprawdzamy `lost_focus()`.
+                            let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter));
+                            if (call_resp.lost_focus() || exch_resp.lost_focus()) && enter_pressed {
+                                save_clicked = true;
+                            }
+                            if std::mem::take(&mut app.contest.save_requested) {
+                                save_clicked = true;
+                            }
 
-                        // `Enter` zwykle trafia tu przez `AppAction::ContestSaveQso`; jednowierszowe
-                        // `TextEdit` oddaje fokus przy Enter, więc zapasowo sprawdzamy `lost_focus()`.
-                        let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter));
-                        if (call_resp.lost_focus() || exch_resp.lost_focus()) && enter_pressed {
-                            save_clicked = true;
-                        }
-                        if std::mem::take(&mut app.contest.save_requested) {
-                            save_clicked = true;
-                        }
-
-                        if ui.button(tr(key::CONTEST_SAVE_QSO, lang)).clicked() {
-                            save_clicked = true;
-                        }
-                    });
+                            ui.label("");
+                            if ui
+                                .add(primary_button(&palette, tr(key::CONTEST_SAVE_QSO, lang)))
+                                .clicked()
+                            {
+                                save_clicked = true;
+                            }
+                            ui.end_row();
+                        });
 
                     if !exchange_hint.is_empty() {
                         ui.label(
@@ -657,25 +677,25 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
             } else if !prev.rst_rcvd.is_empty() {
                 app.entry.exchange = prev.rst_rcvd.clone();
             }
-            app.gui.chrome.status_toast = Some((
+            app.gui.chrome.push_status_toast(
+                crate::gui::state::ToastSeverity::Warning,
                 format!(
                     "{}: {}",
                     tr(key::CONTEST_WORKED_BEFORE, app.gui.appearance.language),
                     call
                 ),
-                std::time::Instant::now(),
-            ));
+            );
         }
     }
 
     if save_clicked {
         if app.entry.callsign.trim().is_empty() {
-            app.gui.chrome.status_toast = Some((
+            app.gui.chrome.push_status_toast(
+                crate::gui::state::ToastSeverity::Error,
                 Msg::new(key::CONTEST_VALIDATION_ERROR)
                     .arg("err", Msg::new(key::QSO_ISSUE_EMPTY_CALLSIGN).text(lang))
                     .text(lang),
-                std::time::Instant::now(),
-            ));
+            );
         } else {
             let mut new_qso = QsoRecord::new(&app.entry.callsign, &app.entry.band, &app.entry.mode);
             new_qso.stx = Some(app.contest.stx);
@@ -699,12 +719,12 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     Ok(parsed) => apply_to_qso(&parsed, &mut new_qso),
                     Err(e) => {
                         exchange_ok = false;
-                        app.gui.chrome.status_toast = Some((
+                        app.gui.chrome.push_status_toast(
+                            crate::gui::state::ToastSeverity::Error,
                             Msg::new(key::CONTEST_EXCHANGE_ERROR)
                                 .arg("err", &e.message)
                                 .text(lang),
-                            std::time::Instant::now(),
-                        ));
+                        );
                     }
                 }
             } else {
@@ -729,14 +749,14 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         app.invalidate_cluster_badges();
                         app.apply_post_effects(&outcome);
                         app.contest.stx += 1;
-                        app.gui.chrome.status_toast = Some((
+                        app.gui.chrome.push_status_toast(
+                            crate::gui::state::ToastSeverity::Success,
                             Msg::new(key::CONTEST_QSO_SAVED)
                                 .arg("call", &outcome.qso.callsign)
                                 .arg("rst", &outcome.qso.band)
                                 .arg("exch", &outcome.qso.mode)
                                 .text(lang),
-                            std::time::Instant::now(),
-                        ));
+                        );
                         app.entry.callsign.clear();
                         app.entry.rst_rcvd.clear();
                         app.entry.exchange.clear();
@@ -744,34 +764,34 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         app.reload_qsos();
                     }
                     Err(IngestError::Invalid(reason)) => {
-                        app.gui.chrome.status_toast = Some((
+                        app.gui.chrome.push_status_toast(
+                            crate::gui::state::ToastSeverity::Error,
                             Msg::new(key::CONTEST_VALIDATION_ERROR)
                                 .arg("err", reason.msg().text(lang))
                                 .text(lang),
-                            std::time::Instant::now(),
-                        ));
+                        );
                     }
                     Err(IngestError::Duplicate) => {
-                        app.gui.chrome.status_toast = Some((
+                        app.gui.chrome.push_status_toast(
+                            crate::gui::state::ToastSeverity::Warning,
                             Msg::new(key::MSG_QSO_DUPLICATE).text(lang),
-                            std::time::Instant::now(),
-                        ));
+                        );
                     }
                     Err(IngestError::EmptyCallsign) => {
-                        app.gui.chrome.status_toast = Some((
+                        app.gui.chrome.push_status_toast(
+                            crate::gui::state::ToastSeverity::Error,
                             Msg::new(key::CONTEST_VALIDATION_ERROR)
                                 .arg("err", Msg::new(key::QSO_ISSUE_EMPTY_CALLSIGN).text(lang))
                                 .text(lang),
-                            std::time::Instant::now(),
-                        ));
+                        );
                     }
                     Err(IngestError::Storage(error)) => {
-                        app.gui.chrome.status_toast = Some((
+                        app.gui.chrome.push_status_toast(
+                            crate::gui::state::ToastSeverity::Error,
                             Msg::new(key::CONTEST_SAVE_ERROR)
                                 .arg("err", error)
                                 .text(lang),
-                            std::time::Instant::now(),
-                        ));
+                        );
                     }
                 }
             }

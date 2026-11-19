@@ -85,8 +85,11 @@ impl SpLogApp {
         loop {
             match self.runtime.event_bus_rx.try_recv() {
                 Ok(event) => match event {
-                    crate::core::events::AppEvent::Toast { level: _, message } => {
-                        self.gui.chrome.status_toast = Some((message, std::time::Instant::now()));
+                    crate::core::events::AppEvent::Toast { level, message } => {
+                        self.gui.chrome.push_status_toast(
+                            crate::gui::state::ToastSeverity::from_level(&level),
+                            message,
+                        );
                     }
                     crate::core::events::AppEvent::RigState {
                         frequency_hz,
@@ -361,7 +364,9 @@ impl SpLogApp {
                         self.cluster.connected = true;
                         self.cluster.connecting = false;
                         self.cluster.status_text.clone_from(&msg);
-                        self.gui.chrome.status_toast = Some((msg, std::time::Instant::now()));
+                        self.gui
+                            .chrome
+                            .push_status_toast(crate::gui::state::ToastSeverity::Info, msg);
                         self.services.event_bus.publish(
                             crate::core::events::AppEvent::ClusterStatus { connected: true },
                         );
@@ -407,13 +412,13 @@ impl SpLogApp {
 
                             if is_atno && self.solar.band_alert_enabled {
                                 crate::media::sounds::play_new_dxcc_alert();
-                                self.gui.chrome.status_toast = Some((
+                                self.gui.chrome.push_status_toast(
+                                    crate::gui::state::ToastSeverity::Info,
                                     format!(
                                         "⭐ ATNO DXCC: {} na pasmie {} ({:.1} kHz)!",
                                         spot.dx_call, spot.band, spot.frequency_khz
                                     ),
-                                    std::time::Instant::now(),
-                                ));
+                                );
                             }
 
                             self.services.event_bus.publish(
@@ -499,10 +504,10 @@ impl SpLogApp {
                     "Pobrano dane Callbook dla: {} ({})",
                     data.callsign, self.entry.name
                 ));
-                self.gui.chrome.status_toast = Some((
+                self.gui.chrome.push_status_toast(
+                    crate::gui::state::ToastSeverity::Success,
                     format!("Pobrano dane korespondenta {}!", data.callsign),
-                    std::time::Instant::now(),
-                ));
+                );
             }
         }
     }
@@ -516,7 +521,14 @@ impl SpLogApp {
                 self.online.online_sync_logs.drain(0..excess);
             }
             self.gui.chrome.status_message = Some(msg.clone());
-            self.gui.chrome.status_toast = Some((msg, std::time::Instant::now()));
+            self.gui.chrome.push_status_toast(
+                if rebuild_awards {
+                    crate::gui::state::ToastSeverity::Success
+                } else {
+                    crate::gui::state::ToastSeverity::Info
+                },
+                msg,
+            );
             if rebuild_awards {
                 self.rebuild_awards_full();
             }

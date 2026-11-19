@@ -1463,5 +1463,15 @@
   "sync.upload_failed": "[{service}] ERROR: no batch was accepted (failed {failed}, ambiguous {unknown}, rejected {rejected}).",
   "sync.upload_cancelled": "[{service}] CANCELLED: accepted before cancellation {accepted}, not sent {not_attempted}.",
   "sync.upload_cancel_btn": "Cancel upload",
-  "sync.upload_cancel_requested": "Cancellation requested — the current batch may still finish."
+  "sync.upload_cancel_requested": "Cancellation requested — the current batch may still finish.",
+  "toast.dismiss": "Dismiss notification",
+  "sync.in_progress": "In progress…",
+  "log.empty_title": "The logbook is empty",
+  "log.empty_hint": "Enter your first contact in the QSO form and press Enter to save it.",
+  "log.no_matches_title": "No QSOs match the filter",
+  "log.clear_filter": "Clear filter",
+  "log.selected_count": "✔ {count} QSO selected",
+  "qso.gmina_preview": "🇵🇱 Municipality: {name} (county {powiat})",
+  "cluster.auto_tune_status": "Auto-tune → {call} on {freq} kHz",
+  "vfo.manual_transceiver": "Manual Transceiver"
 }

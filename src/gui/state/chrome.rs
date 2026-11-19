@@ -3,11 +3,14 @@
 
 //! Application chrome state (status bar, toast notifications, palette, wizard, manual).
 
+use super::toast::{ToastQueue, ToastSeverity};
+
 /// State for top/bottom chrome, toasts, manual, wizard, and command palette.
 #[derive(Default)]
 pub struct ChromeState {
     pub status_message: Option<String>,
-    pub status_toast: Option<(String, std::time::Instant)>,
+    /// Kolejka powiadomień z ważnością (zastępuje pojedynczy slot).
+    pub toasts: ToastQueue,
     pub show_welcome_wizard: bool,
     pub wizard_tab: u8,
     pub show_about_window: bool,
@@ -21,6 +24,13 @@ pub struct ChromeState {
     pub manual_selected: usize,
 }
 
+impl ChromeState {
+    /// Dodaje powiadomienie o zadanej ważności do kolejki.
+    pub fn push_status_toast(&mut self, severity: ToastSeverity, message: impl Into<String>) {
+        self.toasts.push(severity, message);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -29,7 +39,7 @@ mod tests {
     fn default_matches_initial_values() {
         let state = ChromeState::default();
         assert!(state.status_message.is_none());
-        assert!(state.status_toast.is_none());
+        assert!(state.toasts.is_empty());
         assert!(!state.show_welcome_wizard);
         assert_eq!(state.wizard_tab, 0);
         assert!(!state.show_about_window);

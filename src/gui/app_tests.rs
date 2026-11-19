@@ -309,7 +309,7 @@ fn form_qso_validation_error_aborts_without_side_effects() {
     assert!(event_rx.try_recv().is_err());
 
     // Toast z błędem
-    assert!(app.gui.chrome.status_toast.is_some());
+    assert!(!app.gui.chrome.toasts.is_empty());
 }
 
 #[test]
@@ -1354,8 +1354,12 @@ fn qso_enter_validates_before_save() {
         "Empty callsign must not save a QSO"
     );
     assert!(
-        app.gui.chrome.status_toast.is_some(),
-        "Status toast should report validation issue"
+        app.gui
+            .chrome
+            .toasts
+            .iter()
+            .any(|t| t.severity == crate::gui::state::ToastSeverity::Error),
+        "Błąd walidacji (pusty znak) musi trafić do kolejki jako Error"
     );
 }
 
@@ -1846,7 +1850,7 @@ fn background_error_becomes_visible_without_continuous_polling() {
         });
         out.textures_delta.clear();
     }
-    assert!(app.gui.chrome.status_toast.is_none());
+    assert!(app.gui.chrome.toasts.is_empty());
 
     // Background worker emits error toast on EventBus
     app.services
@@ -1862,12 +1866,14 @@ fn background_error_becomes_visible_without_continuous_polling() {
     });
     out.textures_delta.clear();
 
-    assert!(
-        app.gui.chrome.status_toast.is_some(),
-        "Background error must be visible in UI immediately"
-    );
-    let (msg, _) = app.gui.chrome.status_toast.as_ref().unwrap();
-    assert!(msg.contains("Proxy server binding port conflict"));
+    let toast = app
+        .gui
+        .chrome
+        .toasts
+        .latest()
+        .expect("Background error must be visible in UI immediately");
+    assert!(toast.message.contains("Proxy server binding port conflict"));
+    assert_eq!(toast.severity, crate::gui::state::ToastSeverity::Error);
 }
 
 #[test]
@@ -2821,8 +2827,11 @@ fn run_qso_form_frame(ctx: &egui::Context, app: &mut SpLogApp, events: Vec<egui:
 /// Ustawia fokus na polu i „rozgrzewa” egui jedną klatką bez zdarzeń, tak aby
 /// `lost_focus()` w następnej klatce był wiarygodny.
 fn focus_qso_field(ctx: &egui::Context, app: &mut SpLogApp, id: &str) {
-    ctx.memory_mut(|m| m.request_focus(egui::Id::new(id)));
-    run_qso_form_frame(ctx, app, Vec::new());
+    // Dwie klatki: widgety w `Grid` rejestrują się dopiero po przebiegu pomiarowym.
+    for _ in 0..2 {
+        ctx.memory_mut(|m| m.request_focus(egui::Id::new(id)));
+        run_qso_form_frame(ctx, app, Vec::new());
+    }
     assert!(
         ctx.memory(|m| m.has_focus(egui::Id::new(id))),
         "pole {id} powinno mieć fokus po rozgrzewce"
@@ -3074,7 +3083,7 @@ fn ctrl_w_in_my_sota_and_my_pota_wipes_qso_form() {
         app.entry.callsign = "SP6INA".to_string();
         app.entry.my_refs.sota = "SP/BZ-001".to_string();
         let ctx = egui::Context::default();
-        ctx.memory_mut(|m| m.request_focus(egui::Id::new(field)));
+        focus_qso_field(&ctx, &mut app, field);
 
         let raw_input = egui::RawInput {
             events: vec![key_press(egui::Key::W, egui::Modifiers::COMMAND)],
@@ -3293,5 +3302,300 @@ fn status_bar_items_fit_without_overlap_on_narrow_windows() {
         }
         // Napis wersji nie zjada miejsca w oknach <= 1600 px.
         assert!(!texts.iter().any(|(t, _)| t.contains("GPLv3")));
+    }
+}
+
+// ======================================================================================
+// Etap 4 — toasty z ważnością, stan pusty logbooka, edycja QSO, układy w wielu językach
+// ======================================================================================
+
+#[test]
+fn save_qso_success_and_warnings_are_separate_toasts() {
+    use crate::gui::state::ToastSeverity;
+    let mut app = qso_form_test_app();
+    // Pasmo/tryb spoza reguł dają ostrzeżenia pipeline'u; w razie braku ostrzeżeń
+    // sprawdzamy przynajmniej, że sukces jest osobnym toastem `Success`.
+    ready_to_save(&mut app, "SP9WARN");
+    app.entry.rst_sent = "599".to_string();
+    app.entry.rst_rcvd = "599".to_string();
+
+    app.save_qso();
+
+    let toasts: Vec<_> = app.gui.chrome.toasts.iter().collect();
+    let success: Vec<_> = toasts
+        .iter()
+        .filter(|t| t.severity == ToastSeverity::Success)
+        .collect();
+    assert_eq!(
+        success.len(),
+        1,
+        "dokładnie jeden toast sukcesu: {toasts:?}"
+    );
+    assert!(
+        !success[0].message.contains('⚠'),
+        "ostrzeżenia nie mogą być sklejone z komunikatem sukcesu"
+    );
+    for warning in toasts
+        .iter()
+        .filter(|t| t.severity == ToastSeverity::Warning)
+    {
+        assert_ne!(warning.id, success[0].id);
+    }
+}
+
+#[test]
+fn save_qso_duplicate_is_warning_and_validation_is_error() {
+    use crate::gui::state::ToastSeverity;
+    let mut app = qso_form_test_app();
+    ready_to_save(&mut app, "SP9DUP");
+    app.save_qso();
+    ready_to_save(&mut app, "SP9DUP");
+    app.save_qso();
+    let severities: Vec<_> = app.gui.chrome.toasts.iter().map(|t| t.severity).collect();
+    assert!(
+        severities.contains(&ToastSeverity::Success),
+        "pierwszy zapis: {severities:?}"
+    );
+
+    let mut empty = qso_form_test_app();
+    empty.entry.callsign = String::new();
+    empty.save_qso();
+    assert_eq!(
+        empty.gui.chrome.toasts.latest().map(|t| t.severity),
+        Some(ToastSeverity::Error)
+    );
+}
+
+#[test]
+fn error_toast_survives_later_success_toasts_in_app() {
+    use crate::gui::state::ToastSeverity;
+    let mut app = qso_form_test_app();
+    app.gui
+        .chrome
+        .push_status_toast(ToastSeverity::Error, "krytyczny błąd");
+    for i in 0..10 {
+        app.gui
+            .chrome
+            .push_status_toast(ToastSeverity::Success, format!("ok {i}"));
+    }
+    assert!(
+        app.gui
+            .chrome
+            .toasts
+            .iter()
+            .any(|t| t.severity == ToastSeverity::Error && t.message == "krytyczny błąd")
+    );
+}
+
+#[test]
+fn toast_overlay_renders_icon_and_dismiss_button() {
+    use crate::gui::state::ToastSeverity;
+    let mut app = qso_form_test_app();
+    app.gui
+        .chrome
+        .push_status_toast(ToastSeverity::Error, "Nie zapisano");
+    let ctx = egui::Context::default();
+    let mut texts = Vec::new();
+    for _ in 0..2 {
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.render_chrome_overlays(ui.ctx());
+        });
+        output.textures_delta.clear();
+        texts.clear();
+        for clipped in &output.shapes {
+            collect_text_shapes(&clipped.shape, &mut texts);
+        }
+    }
+    assert!(texts.iter().any(|(t, _)| t.contains("Nie zapisano")));
+    assert!(
+        texts.iter().any(|(t, _)| t == "✖"),
+        "ikona błędu: {texts:?}"
+    );
+    assert!(texts.iter().any(|(t, _)| t == "✕"), "przycisk zamknięcia");
+}
+
+#[test]
+fn log_empty_state_distinguishes_empty_logbook_from_no_matches() {
+    use crate::gui::logbook_table::{LogEmptyState, log_empty_state};
+    assert_eq!(log_empty_state(5, true), None);
+    assert_eq!(log_empty_state(0, false), Some(LogEmptyState::EmptyLogbook));
+    assert_eq!(log_empty_state(0, true), Some(LogEmptyState::NoMatches));
+}
+
+#[test]
+fn empty_logbook_renders_empty_state_message() {
+    let mut app = qso_form_test_app();
+    let ctx = egui::Context::default();
+    let mut texts = Vec::new();
+    for _ in 0..2 {
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            crate::gui::logbook_table::render_logbook_body(&mut app, ui);
+        });
+        output.textures_delta.clear();
+        texts.clear();
+        for clipped in &output.shapes {
+            collect_text_shapes(&clipped.shape, &mut texts);
+        }
+    }
+    let lang = app.gui.appearance.language;
+    let title = crate::core::i18n::tr(crate::core::i18n::key::LOG_EMPTY_TITLE, lang);
+    assert!(
+        texts.iter().any(|(t, _)| t == title),
+        "pusty dziennik musi pokazać komunikat «{title}»: {texts:?}"
+    );
+}
+
+#[test]
+fn filter_without_matches_shows_clear_filter_state() {
+    let mut app = qso_form_test_app();
+    ready_to_save(&mut app, "SP9FIL");
+    app.save_qso();
+    assert_ne!(app.log_view.recent_qsos.len(), 0);
+    app.log_view.search_query = "ZZZZZZ-NIE-ISTNIEJE".to_string();
+
+    let ctx = egui::Context::default();
+    let mut texts = Vec::new();
+    for _ in 0..2 {
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            crate::gui::logbook_table::render_logbook_body(&mut app, ui);
+        });
+        output.textures_delta.clear();
+        texts.clear();
+        for clipped in &output.shapes {
+            collect_text_shapes(&clipped.shape, &mut texts);
+        }
+    }
+    let lang = app.gui.appearance.language;
+    let title = crate::core::i18n::tr(crate::core::i18n::key::LOG_NO_MATCHES_TITLE, lang);
+    let clear = crate::core::i18n::tr(crate::core::i18n::key::LOG_CLEAR_FILTER, lang);
+    assert!(texts.iter().any(|(t, _)| t == title), "{texts:?}");
+    assert!(
+        texts.iter().any(|(t, _)| t == clear),
+        "przycisk czyszczenia filtra"
+    );
+}
+
+#[test]
+fn edit_dialog_combo_keeps_custom_band_and_mode() {
+    use crate::gui::logbook_table::combo_options;
+    use crate::gui::qso_entry::{STANDARD_BANDS, STANDARD_MODES};
+
+    let custom_band = combo_options("5m", &STANDARD_BANDS);
+    assert_eq!(
+        custom_band[0], "5m",
+        "niestandardowe pasmo zostaje, na początku"
+    );
+    assert_eq!(custom_band.len(), STANDARD_BANDS.len() + 1);
+    let custom_mode = combo_options("JT65", &STANDARD_MODES);
+    assert_eq!(custom_mode[0], "JT65");
+    assert!(custom_mode.contains(&"CW".to_string()));
+
+    let standard = combo_options("20m", &STANDARD_BANDS);
+    assert_eq!(standard.len(), STANDARD_BANDS.len(), "bez duplikatu");
+
+    // Render dialogu nie gubi wartości niestandardowych.
+    let mut app = qso_form_test_app();
+    let mut qso = QsoRecord::new("SP9EDIT", "5m", "JT65");
+    qso.id = Some(1);
+    app.log_view.editing_qso = Some(qso);
+    let ctx = egui::Context::default();
+    for _ in 0..2 {
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            crate::gui::logbook_table::render_edit_qso_dialog(&mut app, ui.ctx());
+        });
+        output.textures_delta.clear();
+    }
+    let edited = app.log_view.editing_qso.as_ref().expect("dialog otwarty");
+    assert_eq!(edited.band, "5m");
+    assert_eq!(edited.mode, "JT65");
+}
+
+/// Maksymalna prawa krawędź tekstów formularza QSO w oknie o zadanej szerokości.
+fn qso_form_right_edge(lang: crate::core::i18n::Language, width: f32) -> f32 {
+    let mut app = qso_form_test_app();
+    app.gui.appearance.language = lang;
+    app.entry.callsign = "SP9LANG".to_string();
+    let ctx = egui::Context::default();
+    let mut texts = Vec::new();
+    for _ in 0..2 {
+        let raw_input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(width, 900.0),
+            )),
+            ..Default::default()
+        };
+        let mut output = ctx.run_ui(raw_input, |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
+                crate::gui::qso_entry::render_qso_entry_body(&mut app, ui);
+            });
+        });
+        output.textures_delta.clear();
+        texts.clear();
+        for clipped in &output.shapes {
+            collect_text_shapes(&clipped.shape, &mut texts);
+        }
+    }
+    texts
+        .iter()
+        .map(|(_, rect)| rect.max.x)
+        .fold(0.0_f32, f32::max)
+}
+
+#[test]
+fn qso_form_fits_340px_in_long_languages() {
+    use crate::core::i18n::Language;
+    for lang in [
+        Language::Pl,
+        Language::De,
+        Language::Fr,
+        Language::It,
+        Language::Ru,
+    ] {
+        let right = qso_form_right_edge(lang, 340.0);
+        assert!(
+            right <= 340.0 + 0.5,
+            "{lang:?}: formularz QSO wychodzi poza 340 px (prawa krawędź {right})"
+        );
+    }
+}
+
+#[test]
+fn contest_entry_row_fits_in_long_languages() {
+    use crate::core::i18n::Language;
+    for lang in [Language::De, Language::Fr, Language::Pl] {
+        let mut app = qso_form_test_app();
+        app.gui.appearance.language = lang;
+        app.contest.show_window = true;
+        let ctx = egui::Context::default();
+        let mut texts = Vec::new();
+        let width = 640.0;
+        for _ in 0..2 {
+            let raw_input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(width, 900.0),
+                )),
+                ..Default::default()
+            };
+            let mut output = ctx.run_ui(raw_input, |ui| {
+                crate::gui::contest::render_contest_window(&mut app, ui.ctx());
+            });
+            output.textures_delta.clear();
+            texts.clear();
+            for clipped in &output.shapes {
+                collect_text_shapes(&clipped.shape, &mut texts);
+            }
+        }
+        let label =
+            crate::core::i18n::tr(crate::core::i18n::key::CONTEST_RCVD_REPORT_EXCHANGE, lang);
+        let (_, rect) = texts
+            .iter()
+            .find(|(t, _)| t == label)
+            .unwrap_or_else(|| panic!("{lang:?}: etykieta wymiany «{label}» musi być widoczna"));
+        assert!(
+            rect.max.x <= width,
+            "{lang:?}: etykieta wymiany wychodzi poza okno ({rect:?})"
+        );
     }
 }

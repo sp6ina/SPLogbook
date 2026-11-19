@@ -255,7 +255,8 @@ impl SpLogApp {
                 ui.add(
                     egui::TextEdit::singleline(&mut self.log_view.search_query)
                         .hint_text(tr(key::QSO_SEARCH, lang))
-                        .desired_width(110.0),
+                        // Elastycznie: min. 150 px, max. 200 px (miejsce na 🔄 i 🗗 po prawej).
+                        .desired_width((ui.available_width() - 90.0).clamp(150.0, 200.0)),
                 );
                 if ui
                     .button("🔄")
@@ -266,26 +267,18 @@ impl SpLogApp {
                 }
             }
             "cluster" => {
+                use crate::gui::theme::{StatusKind, status_badge};
                 if self.cluster.connected {
-                    ui.label(
-                        egui::RichText::new("● ONLINE")
-                            .color(palette.success)
-                            .size(10.0)
-                            .strong(),
-                    );
+                    status_badge(ui, &palette, StatusKind::Ok, "ONLINE");
                 } else if self.cluster.connecting {
-                    ui.label(
-                        egui::RichText::new(tr(key::CLUSTER_STATUS_CONNECTING, lang))
-                            .color(palette.warning)
-                            .size(10.0)
-                            .strong(),
+                    status_badge(
+                        ui,
+                        &palette,
+                        StatusKind::Busy,
+                        tr(key::CLUSTER_STATUS_CONNECTING, lang),
                     );
                 } else {
-                    ui.label(
-                        egui::RichText::new("○ OFFLINE")
-                            .color(palette.text_muted)
-                            .size(10.0),
-                    );
+                    status_badge(ui, &palette, StatusKind::Idle, "OFFLINE");
                 }
                 if ui
                     .button(
@@ -438,7 +431,9 @@ impl SpLogApp {
                     // Dyskretny pasek pomocy i szybkiego resetowania układu na dole pulpitu
                     ui.with_layout(egui::Layout::bottom_up(egui::Align::RIGHT), |ui| {
                         ui.add_space(6.0);
-                        ui.horizontal(|ui| {
+                        // `horizontal_wrapped`: długie komunikaty FR/IT i przycisk resetu RU
+                        // zawijają się zamiast nachodzić na siebie.
+                        ui.horizontal_wrapped(|ui| {
                             if ui
                                 .button(
                                     egui::RichText::new(tr(key::APP_RESTORE_LAYOUT_BTN, lang))
@@ -710,7 +705,9 @@ impl SpLogApp {
                 .arg("call", &sub.dx_call)
                 .arg("freq", format!("{:.1}", sub.freq_khz))
                 .text(self.gui.appearance.language);
-            self.gui.chrome.status_toast = Some((toast_msg, std::time::Instant::now()));
+            self.gui
+                .chrome
+                .push_status_toast(crate::gui::state::ToastSeverity::Success, toast_msg);
         }
     }
 }

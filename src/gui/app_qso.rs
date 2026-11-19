@@ -92,7 +92,9 @@ impl SpLogApp {
     pub fn save_qso(&mut self) {
         if self.entry.callsign.trim().is_empty() {
             let msg = Msg::new(key::QSO_ISSUE_EMPTY_CALLSIGN).text(self.gui.appearance.language);
-            self.gui.chrome.status_toast = Some((msg, std::time::Instant::now()));
+            self.gui
+                .chrome
+                .push_status_toast(crate::gui::state::ToastSeverity::Error, msg);
             return;
         }
 
@@ -121,21 +123,31 @@ impl SpLogApp {
         let outcome = match self.services.ingestor.ingest(qso, QsoOrigin::Form) {
             Ok(outcome) => outcome,
             Err(e) => {
-                let msg = match e {
-                    IngestError::EmptyCallsign => {
-                        Msg::new(key::QSO_ISSUE_EMPTY_CALLSIGN).text(self.gui.appearance.language)
-                    }
-                    IngestError::Invalid(issue) => Msg::new(key::MSG_QSO_NOT_SAVED)
-                        .arg("reason", issue.msg().text(self.gui.appearance.language))
-                        .text(self.gui.appearance.language),
-                    IngestError::Duplicate => {
-                        Msg::new(key::MSG_QSO_DUPLICATE).text(self.gui.appearance.language)
-                    }
-                    IngestError::Storage(err) => Msg::new(key::MSG_QSO_SAVE_FAILED)
-                        .arg("error", err)
-                        .text(self.gui.appearance.language),
+                let lang = self.gui.appearance.language;
+                // Błędy walidacji/zapisu to `Error`, duplikat to `Warning`.
+                let (severity, msg) = match e {
+                    IngestError::EmptyCallsign => (
+                        crate::gui::state::ToastSeverity::Error,
+                        Msg::new(key::QSO_ISSUE_EMPTY_CALLSIGN).text(lang),
+                    ),
+                    IngestError::Invalid(issue) => (
+                        crate::gui::state::ToastSeverity::Error,
+                        Msg::new(key::MSG_QSO_NOT_SAVED)
+                            .arg("reason", issue.msg().text(lang))
+                            .text(lang),
+                    ),
+                    IngestError::Duplicate => (
+                        crate::gui::state::ToastSeverity::Warning,
+                        Msg::new(key::MSG_QSO_DUPLICATE).text(lang),
+                    ),
+                    IngestError::Storage(err) => (
+                        crate::gui::state::ToastSeverity::Error,
+                        Msg::new(key::MSG_QSO_SAVE_FAILED)
+                            .arg("error", err)
+                            .text(lang),
+                    ),
                 };
-                self.gui.chrome.status_toast = Some((msg, std::time::Instant::now()));
+                self.gui.chrome.push_status_toast(severity, msg);
                 return;
             }
         };
@@ -143,21 +155,21 @@ impl SpLogApp {
         self.invalidate_cluster_badges();
         self.apply_post_effects(&outcome);
 
-        let mut success_msg = Msg::new(key::MSG_QSO_SAVED)
+        let success_msg = Msg::new(key::MSG_QSO_SAVED)
             .arg("callsign", &outcome.qso.callsign)
             .arg("band", &outcome.qso.band)
             .arg("mode", &outcome.qso.mode)
             .text(self.gui.appearance.language);
-        if !outcome.warnings.is_empty() {
-            success_msg.push_str("\n⚠ ");
-            let warning_texts: Vec<String> = outcome
-                .warnings
-                .iter()
-                .map(|w| w.msg().text(self.gui.appearance.language))
-                .collect();
-            success_msg.push_str(&warning_texts.join("; "));
+        self.gui
+            .chrome
+            .push_status_toast(crate::gui::state::ToastSeverity::Success, success_msg);
+        // Ostrzeżenia to osobne toasty `Warning`, a nie doklejka do komunikatu sukcesu.
+        for warning in &outcome.warnings {
+            let text = warning.msg().text(self.gui.appearance.language);
+            self.gui
+                .chrome
+                .push_status_toast(crate::gui::state::ToastSeverity::Warning, text);
         }
-        self.gui.chrome.status_toast = Some((success_msg, std::time::Instant::now()));
         self.entry.focus_callsign_requested = true;
 
         self.clear_qso_form();
@@ -320,13 +332,13 @@ impl SpLogApp {
                         issue.msg().text(self.gui.appearance.language)
                     );
                 }
-                self.gui.chrome.status_toast = Some((
+                self.gui.chrome.push_status_toast(
+                    crate::gui::state::ToastSeverity::Success,
                     format!(
                         "WSJT-X: Automatycznie dodano QSO z {}!",
                         outcome.qso.callsign
                     ),
-                    std::time::Instant::now(),
-                ));
+                );
                 self.reload_qsos();
             }
             Err(e) => {
@@ -353,22 +365,22 @@ impl SpLogApp {
                         issue.msg().text(self.gui.appearance.language)
                     );
                 }
-                self.gui.chrome.status_toast = Some((
+                self.gui.chrome.push_status_toast(
+                    crate::gui::state::ToastSeverity::Success,
                     format!(
                         "JS8Call: Automatycznie dodano QSO z {}!",
                         outcome.qso.callsign
                     ),
-                    std::time::Instant::now(),
-                ));
+                );
                 self.reload_qsos();
             }
             Err(e) => {
-                self.gui.chrome.status_toast = Some((
+                self.gui.chrome.push_status_toast(
+                    crate::gui::state::ToastSeverity::Error,
                     Msg::new(key::JS8CALL_AUTO_SAVE_ERROR)
                         .arg("e", &e)
                         .text(self.gui.appearance.language),
-                    std::time::Instant::now(),
-                ));
+                );
             }
         }
     }
@@ -390,10 +402,10 @@ impl SpLogApp {
                     outcome.qso.callsign, outcome.qso.band, outcome.qso.mode
                 );
                 self.sync_ui.push_log(log_entry);
-                self.gui.chrome.status_toast = Some((
+                self.gui.chrome.push_status_toast(
+                    crate::gui::state::ToastSeverity::Success,
                     format!("🌐 Multi-Op LAN: Dodano QSO z {}!", outcome.qso.callsign),
-                    std::time::Instant::now(),
-                ));
+                );
                 self.reload_qsos();
             }
             Err(crate::core::ingest::IngestError::Duplicate) => {
@@ -457,8 +469,10 @@ impl SpLogApp {
                     let err_msg = err.to_string();
                     self.sync_ui.push_log(format!("Error: {err_msg}"));
                     self.sync_ui.status = format!("Error: {err_msg}");
-                    self.gui.chrome.status_toast =
-                        Some((format!("⚠ Multi-Op: {err_msg}"), std::time::Instant::now()));
+                    self.gui.chrome.push_status_toast(
+                        crate::gui::state::ToastSeverity::Warning,
+                        format!("⚠ Multi-Op: {err_msg}"),
+                    );
                 }
             }
         }
@@ -470,12 +484,12 @@ impl SpLogApp {
         if catchup_applied > 0 {
             self.rebuild_awards_full();
             self.reload_qsos();
-            self.gui.chrome.status_toast = Some((
+            self.gui.chrome.push_status_toast(
+                crate::gui::state::ToastSeverity::Info,
                 Msg::new(key::MULTI_OP_CATCHUP_TOAST)
                     .arg("count", catchup_applied)
                     .text(self.gui.appearance.language),
-                std::time::Instant::now(),
-            ));
+            );
         }
     }
 
@@ -539,12 +553,12 @@ impl SpLogApp {
                 Err(error) => {
                     log::error!("Failed to calculate QSO serial numbers: {error}");
                     self.log_view.qso_numbers.clear();
-                    self.gui.chrome.status_toast = Some((
+                    self.gui.chrome.push_status_toast(
+                        crate::gui::state::ToastSeverity::Error,
                         Msg::new(key::QSO_SERIAL_ERROR)
                             .arg("err", &error)
                             .text(self.gui.appearance.language),
-                        std::time::Instant::now(),
-                    ));
+                    );
                 }
             }
             self.log_view.bump_revision();
@@ -657,12 +671,12 @@ impl SpLogApp {
         self.rebuild_scp();
         self.reload_qsos();
 
-        self.gui.chrome.status_toast = Some((
+        self.gui.chrome.push_status_toast(
+            crate::gui::state::ToastSeverity::Info,
             Msg::new(key::PROFILE_SWITCHED_JOURNAL)
                 .arg("name", &journal_name)
                 .text(self.gui.appearance.language),
-            std::time::Instant::now(),
-        ));
+        );
     }
 
     pub fn delete_selected_qso(&mut self) {
