@@ -635,7 +635,7 @@ impl TabViewer for SpLogApp {
         // Szukaj, Spot) albo w kompaktowy wiersz bez ramek. ✕ zostaje natywnym przyciskiem zakładki.
         let palette = ui.palette();
         // Mapa świata wkomponowuje przycisk odpinania w swój pasek narzędzi (bez osobnego wiersza).
-        if tile_id != "world_map" {
+        if tile_id != "world_map" && tile_id != "waterfall" {
             ui.horizontal(|ui| {
                 self.render_tile_header_custom(&tile_id, ui);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

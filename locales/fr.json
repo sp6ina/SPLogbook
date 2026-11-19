@@ -1146,8 +1146,8 @@
   "waterfall.noise_floor": "Plancher de bruit :",
   "waterfall.saturation": "Saturation :",
   "waterfall.clear_btn": "Effacer",
-  "waterfall.start_hint": "Appuyez sur ▶ Démarrer pour capturer le spectre.",
-  "waterfall.dock_btn": "↙ Ancrer",
+  "waterfall.start_hint": "Appuyez sur Démarrer pour capturer le spectre.",
+  "waterfall.dock_btn": "Ancrer",
   "waterfall.dock_tooltip": "Ancrer la tuile",
   "qsl.missing_callsign": "Indicatif de station manquant pour l'impression des étiquettes.",
   "qsl.pdf_saved": "Feuille d'étiquettes PDF enregistrée ({pages} pages) : {path}",
@@ -1474,5 +1474,16 @@
   "qso.gmina_preview": "🇵🇱 Commune : {name} (powiat {powiat})",
   "cluster.auto_tune_status": "Auto-tune → {call} sur {freq} kHz",
   "vfo.manual_transceiver": "Transceiver manuel",
-  "map.locator_grid": "Grille de localisateurs"
+  "map.locator_grid": "Grille de localisateurs",
+  "waterfall.start_btn": "Démarrer",
+  "waterfall.stop_btn": "Arrêter",
+  "waterfall.refresh_btn": "Actualiser",
+  "waterfall.palette_label": "Palette :",
+  "waterfall.auto_level": "Niveau auto",
+  "waterfall.auto_level_tooltip": "Règle automatiquement le niveau de fond d'après le bruit du spectre (percentile bas, lissé). Le curseur de plancher de bruit est désactivé tant que l'option est active.",
+  "waterfall.peak_hold": "Maintien des crêtes",
+  "waterfall.peak_reset": "Réinit. des crêtes",
+  "waterfall.range_label": "Plage :",
+  "waterfall.click_qsy_tooltip": "Cliquez pour accorder le VFO sur ce signal (QSY)",
+  "waterfall.click_tone_tooltip": "Cliquez pour définir la tonalité cible (CAT non connecté)"
 }

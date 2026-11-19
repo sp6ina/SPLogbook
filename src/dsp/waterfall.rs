@@ -138,6 +138,9 @@ pub struct WaterfallEngine {
     gain_db: f32,
     floor_db: f32,
     pending: Vec<f32>,
+    /// Licznik generacji: rośnie przy każdej nowej linii FFT oraz przy `clear()`, dzięki czemu
+    /// GUI przebudowuje teksturę wyłącznie wtedy, gdy dane faktycznie się zmieniły.
+    generation: u64,
 }
 
 impl WaterfallEngine {
@@ -156,7 +159,13 @@ impl WaterfallEngine {
             gain_db: 0.0,
             floor_db: -100.0,
             pending: Vec::with_capacity(fft_size * 2),
+            generation: 0,
         }
+    }
+
+    /// Licznik generacji danych widma (zmienia się przy nowej linii FFT i po `clear()`).
+    pub fn generation(&self) -> u64 {
+        self.generation
     }
 
     pub fn fft_size(&self) -> usize {
@@ -191,6 +200,7 @@ impl WaterfallEngine {
     pub fn clear(&mut self) {
         self.history.clear();
         self.pending.clear();
+        self.generation = self.generation.wrapping_add(1);
     }
 
     /// Dokłada próbki i wytwarza nowe wiersze widma, gdy zgromadzi się pełny blok FFT.
@@ -222,6 +232,7 @@ impl WaterfallEngine {
                 self.history.pop_front();
             }
             self.history.push_back(row);
+            self.generation = self.generation.wrapping_add(1);
             offset += self.fft_size;
         }
         if offset > 0 {
@@ -237,6 +248,171 @@ impl WaterfallEngine {
     /// Historia wierszy (najstarszy na początku, najnowszy na końcu).
     pub fn history(&self) -> &VecDeque<Vec<f32>> {
         &self.history
+    }
+}
+
+// ---------------------------------------------------------------------------------------
+// Częstotliwość: kosze FFT <-> Hz, audio (AF) <-> radio (RF), Click-to-QSY
+// ---------------------------------------------------------------------------------------
+
+/// Częstotliwość środka kosza `bin` (Hz).
+#[must_use]
+pub fn bin_to_hz(bin: usize, bin_hz: f32) -> f32 {
+    bin as f32 * bin_hz
+}
+
+/// Najbliższy kosz dla częstotliwości `hz`, ograniczony do `0..bins`.
+#[must_use]
+pub fn hz_to_bin(hz: f32, bin_hz: f32, bins: usize) -> usize {
+    if bins == 0 || !hz.is_finite() || bin_hz <= 0.0 {
+        return 0;
+    }
+    ((hz / bin_hz).round().max(0.0) as usize).min(bins - 1)
+}
+
+/// Strona wstęgi / sposób przeliczania AF <-> RF dla trybu pracy radia.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sideband {
+    /// USB, DIGU, PKTUSB, RTTY: `RF = VFO + AF`.
+    Upper,
+    /// LSB, DIGL, PKTLSB, RTTYR: `RF = VFO - AF`.
+    Lower,
+    /// CW: `RF = VFO + (AF - ton)`.
+    Cw,
+    /// CWR: `RF = VFO - (AF - ton)`.
+    CwReverse,
+}
+
+/// Wstęga dla trybu (nazwy jak w Hamlib; nieznane tryby traktujemy jak USB).
+#[must_use]
+pub fn sideband_for_mode(mode: &str) -> Sideband {
+    match mode.trim().to_ascii_uppercase().as_str() {
+        "LSB" | "DIGL" | "PKTLSB" | "RTTYR" => Sideband::Lower,
+        "CW" => Sideband::Cw,
+        "CWR" => Sideband::CwReverse,
+        _ => Sideband::Upper,
+    }
+}
+
+/// Domyślny ton odniesienia (Hz): ton CW dla CW, 1500 Hz dla pozostałych trybów.
+#[must_use]
+pub fn default_tone_hz(mode: &str, cw_pitch_hz: f64) -> f64 {
+    match sideband_for_mode(mode) {
+        Sideband::Cw | Sideband::CwReverse => cw_pitch_hz,
+        _ => 1500.0,
+    }
+}
+
+/// Częstotliwość radiowa (RF, Hz) sygnału o częstotliwości audio `af_hz` przy VFO `vfo_hz`.
+#[must_use]
+pub fn af_to_rf_hz(vfo_hz: f64, af_hz: f64, mode: &str, cw_pitch_hz: f64) -> f64 {
+    match sideband_for_mode(mode) {
+        Sideband::Upper => vfo_hz + af_hz,
+        Sideband::Lower => vfo_hz - af_hz,
+        Sideband::Cw => vfo_hz + (af_hz - cw_pitch_hz),
+        Sideband::CwReverse => vfo_hz - (af_hz - cw_pitch_hz),
+    }
+}
+
+/// Przesunięcie VFO (Hz) potrzebne, aby sygnał z `clicked_af_hz` trafił na ton `target_tone_hz`:
+/// `+delta` dla USB/DIGU/CW, `-delta` dla LSB/DIGL (delta = kliknięta AF - ton docelowy).
+#[must_use]
+pub fn click_qsy_delta_hz(clicked_af_hz: f64, target_tone_hz: f64, mode: &str) -> f64 {
+    let delta = clicked_af_hz - target_tone_hz;
+    match sideband_for_mode(mode) {
+        Sideband::Upper | Sideband::Cw => delta,
+        Sideband::Lower | Sideband::CwReverse => -delta,
+    }
+}
+
+// ---------------------------------------------------------------------------------------
+// Peak Hold i Auto-Level
+// ---------------------------------------------------------------------------------------
+
+/// Linia Peak Hold: śledzi maksima kosz po koszu i powoli opada.
+#[derive(Debug, Default, Clone)]
+pub struct PeakHold {
+    values: Vec<f32>,
+}
+
+impl PeakHold {
+    /// Aktualizuje maksima nowym wierszem widma; każdy kosz opada o `decay_db` na wiersz.
+    pub fn update(&mut self, row: &[f32], decay_db: f32) {
+        if self.values.len() != row.len() {
+            self.values = row.to_vec();
+            return;
+        }
+        let decay = decay_db.max(0.0);
+        for (peak, &now) in self.values.iter_mut().zip(row) {
+            let held = *peak - decay;
+            *peak = if now.is_finite() && now > held {
+                now
+            } else {
+                held
+            };
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.values.clear();
+    }
+
+    #[must_use]
+    pub fn values(&self) -> &[f32] {
+        &self.values
+    }
+}
+
+/// Percentyl `p` (0..=1) wartości skończonych; `None`, gdy brak danych.
+#[must_use]
+pub fn percentile_db(values: &[f32], p: f32) -> Option<f32> {
+    let mut finite: Vec<f32> = values.iter().copied().filter(|v| v.is_finite()).collect();
+    if finite.is_empty() {
+        return None;
+    }
+    finite.sort_by(f32::total_cmp);
+    let idx = ((finite.len() - 1) as f32 * p.clamp(0.0, 1.0)).round() as usize;
+    finite.get(idx).copied()
+}
+
+/// Auto-Level: poziom tła szumu z dolnego percentyla wiersza FFT, wygładzony wykładniczo (EMA).
+/// Pojedynczy silny sygnał nie zawyża progu, bo percentyl ignoruje górę rozkładu.
+#[derive(Debug, Clone)]
+pub struct AutoLevel {
+    ema_noise_db: Option<f32>,
+    alpha: f32,
+    percentile: f32,
+}
+
+impl Default for AutoLevel {
+    fn default() -> Self {
+        Self {
+            ema_noise_db: None,
+            alpha: 0.05,
+            percentile: 0.20,
+        }
+    }
+}
+
+impl AutoLevel {
+    /// Uwzględnia nowy wiersz i zwraca wygładzony poziom szumu (dBFS).
+    pub fn update(&mut self, row: &[f32]) -> Option<f32> {
+        let noise = percentile_db(row, self.percentile)?;
+        let next = match self.ema_noise_db {
+            Some(prev) => prev + (noise - prev) * self.alpha,
+            None => noise,
+        };
+        self.ema_noise_db = Some(next);
+        self.ema_noise_db
+    }
+
+    #[must_use]
+    pub fn noise_db(&self) -> Option<f32> {
+        self.ema_noise_db
+    }
+
+    pub fn reset(&mut self) {
+        self.ema_noise_db = None;
     }
 }
 
@@ -304,5 +480,124 @@ mod tests {
         let many: Vec<f32> = vec![0.0; 256 * 20];
         engine.feed(&many);
         assert_eq!(engine.history().len(), 10);
+    }
+
+    #[test]
+    fn bin_hz_conversions_round_trip() {
+        let engine = WaterfallEngine::new(1024, 48_000, 8);
+        let bin_hz = engine.bin_hz();
+        assert!((bin_hz - 46.875).abs() < 1e-4);
+        assert!((bin_to_hz(32, bin_hz) - 1500.0).abs() < 1e-3);
+        assert_eq!(hz_to_bin(1500.0, bin_hz, 512), 32);
+        assert_eq!(hz_to_bin(-5.0, bin_hz, 512), 0);
+        assert_eq!(
+            hz_to_bin(1.0e9, bin_hz, 512),
+            511,
+            "ograniczone do ostatniego kosza"
+        );
+        assert_eq!(hz_to_bin(f32::NAN, bin_hz, 512), 0);
+        assert_eq!(hz_to_bin(100.0, bin_hz, 0), 0);
+    }
+
+    #[test]
+    fn af_to_rf_follows_the_sideband() {
+        let vfo = 14_074_000.0;
+        assert_eq!(af_to_rf_hz(vfo, 1500.0, "USB", 700.0), 14_075_500.0);
+        assert_eq!(af_to_rf_hz(vfo, 1500.0, "DIGU", 700.0), 14_075_500.0);
+        assert_eq!(af_to_rf_hz(vfo, 1500.0, "RTTY", 700.0), 14_075_500.0);
+        assert_eq!(af_to_rf_hz(vfo, 1500.0, "LSB", 700.0), 14_072_500.0);
+        assert_eq!(af_to_rf_hz(vfo, 1500.0, "DIGL", 700.0), 14_072_500.0);
+        assert_eq!(af_to_rf_hz(vfo, 900.0, "CW", 700.0), 14_074_200.0);
+        assert_eq!(af_to_rf_hz(vfo, 900.0, "CWR", 700.0), 14_073_800.0);
+        assert_eq!(
+            af_to_rf_hz(vfo, 1500.0, "cw", 700.0),
+            af_to_rf_hz(vfo, 1500.0, "CW", 700.0)
+        );
+    }
+
+    #[test]
+    fn click_qsy_delta_puts_the_clicked_signal_on_the_target_tone() {
+        let vfo = 7_050_000.0;
+        for (mode, tone) in [
+            ("USB", 1500.0),
+            ("LSB", 1500.0),
+            ("CW", 700.0),
+            ("CWR", 700.0),
+        ] {
+            let clicked = tone + 230.0;
+            let signal_rf = af_to_rf_hz(vfo, clicked, mode, 700.0);
+            let new_vfo = vfo + click_qsy_delta_hz(clicked, tone, mode);
+            // Po dostrojeniu sygnał ma wypaść dokładnie na tonie docelowym.
+            let after = af_to_rf_hz(new_vfo, tone, mode, 700.0);
+            assert!(
+                (after - signal_rf).abs() < 1e-6,
+                "{mode}: {after} vs {signal_rf}"
+            );
+        }
+        assert_eq!(click_qsy_delta_hz(1730.0, 1500.0, "USB"), 230.0);
+        assert_eq!(click_qsy_delta_hz(1730.0, 1500.0, "LSB"), -230.0);
+        assert_eq!(click_qsy_delta_hz(930.0, 700.0, "CW"), 230.0);
+        assert_eq!(default_tone_hz("CW", 650.0), 650.0);
+        assert_eq!(default_tone_hz("USB", 650.0), 1500.0);
+    }
+
+    #[test]
+    fn peak_hold_tracks_maxima_decays_and_resets() {
+        let mut peak = PeakHold::default();
+        peak.update(&[-60.0, -40.0, -80.0], 1.0);
+        assert_eq!(peak.values(), &[-60.0, -40.0, -80.0]);
+        peak.update(&[-70.0, -20.0, -90.0], 1.0);
+        assert_eq!(peak.values()[1], -20.0, "nowe maksimum przejmuje linię");
+        assert_eq!(peak.values()[0], -61.0, "pozostałe opadają o decay");
+        assert_eq!(peak.values()[2], -81.0);
+        for _ in 0..5 {
+            peak.update(&[-120.0, -120.0, -120.0], 1.0);
+        }
+        assert_eq!(peak.values()[1], -25.0, "stopniowe opadanie");
+        peak.update(&[f32::NAN, -120.0, -120.0], 1.0);
+        assert!(peak.values()[0].is_finite(), "NaN nie psuje linii");
+        peak.reset();
+        assert_eq!(peak.values().len(), 0);
+    }
+
+    #[test]
+    fn auto_level_ignores_a_single_strong_peak() {
+        // Szum około -80 dBFS z szumem deterministycznym + jeden silny ton -5 dBFS.
+        let mut row: Vec<f32> = (0..512).map(|i| -82.0 + (i % 7) as f32).collect();
+        row[100] = -5.0;
+        let mut auto = AutoLevel::default();
+        let noise = auto.update(&row).expect("poziom");
+        assert!(
+            (-83.0..=-74.0).contains(&noise),
+            "szum {noise} nie może być zawyżony pikiem"
+        );
+        // EMA: skok poziomu przesuwa próg stopniowo, nie natychmiast.
+        let louder: Vec<f32> = row.iter().map(|v| v + 30.0).collect();
+        let next = auto.update(&louder).unwrap();
+        assert!(next > noise && next < noise + 30.0, "{next}");
+        assert!(auto.update(&[]).is_none() || auto.noise_db().is_some());
+        let mut empty = AutoLevel::default();
+        assert_eq!(empty.update(&[f32::NAN, f32::INFINITY]), None);
+        assert_eq!(percentile_db(&[3.0, 1.0, 2.0], 0.0), Some(1.0));
+        assert_eq!(percentile_db(&[3.0, 1.0, 2.0], 1.0), Some(3.0));
+    }
+
+    #[test]
+    fn generation_changes_only_when_new_data_arrives() {
+        let mut engine = WaterfallEngine::new(256, 8_000, 8);
+        let g0 = engine.generation();
+        engine.feed(&vec![0.0; 100]); // za mało na pełny blok FFT
+        assert_eq!(
+            engine.generation(),
+            g0,
+            "brak nowej linii = brak zmiany generacji"
+        );
+        engine.feed(&vec![0.1; 200]); // dopełnia blok (300 >= 256)
+        let g1 = engine.generation();
+        assert_ne!(g1, g0, "nowa linia FFT zmienia generację");
+        engine.feed(&[]);
+        assert_eq!(engine.generation(), g1);
+        engine.clear();
+        assert_ne!(engine.generation(), g1, "clear też unieważnia teksturę");
     }
 }

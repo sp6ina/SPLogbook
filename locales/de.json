@@ -1146,8 +1146,8 @@
   "waterfall.noise_floor": "Rauschpegel:",
   "waterfall.saturation": "Sättigung:",
   "waterfall.clear_btn": "Leeren",
-  "waterfall.start_hint": "Drücken Sie ▶ Start, um die Spektrum-Erfassung zu starten.",
-  "waterfall.dock_btn": "↙ Andocken",
+  "waterfall.start_hint": "Drücken Sie Start, um die Spektrum-Erfassung zu starten.",
+  "waterfall.dock_btn": "Andocken",
   "waterfall.dock_tooltip": "Kachel andocken",
   "qsl.missing_callsign": "Fehlendes Stationsrufzeichen für den Etikettendruck.",
   "qsl.pdf_saved": "PDF-Etikettenbogen gespeichert ({pages} Seiten): {path}",
@@ -1474,5 +1474,16 @@
   "qso.gmina_preview": "🇵🇱 Gemeinde: {name} (Kreis {powiat})",
   "cluster.auto_tune_status": "Auto-Tune → {call} auf {freq} kHz",
   "vfo.manual_transceiver": "Manueller Transceiver",
-  "map.locator_grid": "Lokatorgitter"
+  "map.locator_grid": "Lokatorgitter",
+  "waterfall.start_btn": "Starten",
+  "waterfall.stop_btn": "Stoppen",
+  "waterfall.refresh_btn": "Aktualisieren",
+  "waterfall.palette_label": "Farbpalette:",
+  "waterfall.auto_level": "Auto-Pegel",
+  "waterfall.auto_level_tooltip": "Stellt den Hintergrundpegel automatisch aus dem Spektrumrauschen ein (unteres Perzentil, geglättet). Der Rauschboden-Regler ist dabei deaktiviert.",
+  "waterfall.peak_hold": "Spitzenwert",
+  "waterfall.peak_reset": "Spitzen zurücksetzen",
+  "waterfall.range_label": "Bereich:",
+  "waterfall.click_qsy_tooltip": "Klicken, um das VFO auf dieses Signal abzustimmen (QSY)",
+  "waterfall.click_tone_tooltip": "Klicken, um den Zielton zu setzen (CAT nicht verbunden)"
 }

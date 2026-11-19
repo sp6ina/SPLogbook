@@ -1146,8 +1146,8 @@
   "waterfall.noise_floor": "Fondo di rumore:",
   "waterfall.saturation": "Saturazione:",
   "waterfall.clear_btn": "Pulisci",
-  "waterfall.start_hint": "Premi ▶ Avvia per iniziare l'acquisizione dello spettro.",
-  "waterfall.dock_btn": "↙ Aggancia",
+  "waterfall.start_hint": "Premi Avvia per iniziare l'acquisizione dello spettro.",
+  "waterfall.dock_btn": "Aggancia",
   "waterfall.dock_tooltip": "Aggancia riquadro",
   "qsl.missing_callsign": "Nominativo di stazione mancante per la stampa delle etichette.",
   "qsl.pdf_saved": "Foglio etichette PDF salvato ({pages} pagg.): {path}",
@@ -1474,5 +1474,16 @@
   "qso.gmina_preview": "🇵🇱 Comune: {name} (distretto {powiat})",
   "cluster.auto_tune_status": "Auto-tune → {call} su {freq} kHz",
   "vfo.manual_transceiver": "Ricetrasmettitore manuale",
-  "map.locator_grid": "Griglia dei locatori"
+  "map.locator_grid": "Griglia dei locatori",
+  "waterfall.start_btn": "Avvia",
+  "waterfall.stop_btn": "Ferma",
+  "waterfall.refresh_btn": "Aggiorna",
+  "waterfall.palette_label": "Tavolozza:",
+  "waterfall.auto_level": "Livello auto",
+  "waterfall.auto_level_tooltip": "Imposta automaticamente il livello di fondo dal rumore dello spettro (percentile inferiore, livellato). Il cursore del rumore di fondo è disattivato finché è attivo.",
+  "waterfall.peak_hold": "Mantieni picchi",
+  "waterfall.peak_reset": "Azzera picchi",
+  "waterfall.range_label": "Intervallo:",
+  "waterfall.click_qsy_tooltip": "Clicca per sintonizzare il VFO su questo segnale (QSY)",
+  "waterfall.click_tone_tooltip": "Clicca per impostare il tono di destinazione (CAT non collegato)"
 }

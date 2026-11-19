@@ -212,6 +212,110 @@ fn waterfall_color_impl(t: f32) -> Color32 {
     Color32::from_rgb(255, 0, 0)
 }
 
+/// Paleta kolorów wodospadu (wybierana z paska narzędzi panelu).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WaterfallPalette {
+    /// Czarny → granat → cyjan → zielony → żółty → czerwony.
+    #[default]
+    Classic,
+    Inferno,
+    Viridis,
+    /// Czarny → granat → niebieski → cyjan → biały (styl wyświetlaczy Icom).
+    IcomBlue,
+    /// Wysoki kontrast: czarny → fiolet → błękit → żółty → biały.
+    HighContrast,
+}
+
+impl WaterfallPalette {
+    pub const ALL: [WaterfallPalette; 5] = [
+        WaterfallPalette::Classic,
+        WaterfallPalette::Inferno,
+        WaterfallPalette::Viridis,
+        WaterfallPalette::IcomBlue,
+        WaterfallPalette::HighContrast,
+    ];
+
+    fn stops(self) -> &'static [(f32, (u8, u8, u8))] {
+        match self {
+            WaterfallPalette::Classic => &[
+                (0.00, (0, 0, 0)),
+                (0.25, (0, 0, 128)),
+                (0.50, (0, 200, 255)),
+                (0.68, (0, 230, 0)),
+                (0.85, (255, 230, 0)),
+                (1.00, (255, 0, 0)),
+            ],
+            WaterfallPalette::Inferno => &[
+                (0.00, (0, 0, 4)),
+                (0.25, (87, 16, 110)),
+                (0.50, (188, 55, 84)),
+                (0.75, (249, 142, 9)),
+                (1.00, (252, 255, 164)),
+            ],
+            WaterfallPalette::Viridis => &[
+                (0.00, (68, 1, 84)),
+                (0.25, (59, 82, 139)),
+                (0.50, (33, 145, 140)),
+                (0.75, (94, 201, 98)),
+                (1.00, (253, 231, 37)),
+            ],
+            WaterfallPalette::IcomBlue => &[
+                (0.00, (0, 0, 0)),
+                (0.30, (0, 0, 110)),
+                (0.55, (0, 70, 220)),
+                (0.80, (0, 210, 255)),
+                (1.00, (255, 255, 255)),
+            ],
+            WaterfallPalette::HighContrast => &[
+                (0.00, (0, 0, 0)),
+                (0.25, (60, 0, 170)),
+                (0.50, (0, 160, 255)),
+                (0.75, (255, 255, 0)),
+                (1.00, (255, 255, 255)),
+            ],
+        }
+    }
+
+    /// Stabilny identyfikator (do zapisu ustawień).
+    pub fn id(self) -> &'static str {
+        match self {
+            WaterfallPalette::Classic => "classic",
+            WaterfallPalette::Inferno => "inferno",
+            WaterfallPalette::Viridis => "viridis",
+            WaterfallPalette::IcomBlue => "icom_blue",
+            WaterfallPalette::HighContrast => "high_contrast",
+        }
+    }
+
+    /// Kolor dla znormalizowanej wartości; NaN i wartości spoza 0..1 są obcinane (bez paniki).
+    pub fn color(self, t: f32) -> Color32 {
+        let value = if t.is_finite() {
+            t.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let stops = self.stops();
+        for window in stops.windows(2) {
+            let (t0, c0) = window[0];
+            let (t1, c1) = window[1];
+            if value <= t1 {
+                let frac = if t1 > t0 {
+                    ((value - t0) / (t1 - t0)).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                return Color32::from_rgb(
+                    lerp_u8(c0.0, c1.0, frac),
+                    lerp_u8(c0.1, c1.1, frac),
+                    lerp_u8(c0.2, c1.2, frac),
+                );
+            }
+        }
+        let (_, last) = stops[stops.len() - 1];
+        Color32::from_rgb(last.0, last.1, last.2)
+    }
+}
+
 #[inline]
 fn lerp_u8(a: u8, b: u8, f: f32) -> u8 {
     (a as f32 + (b as f32 - a as f32) * f).round() as u8
@@ -548,5 +652,47 @@ impl ThemePreset {
                 },
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_waterfall_palette_is_safe_over_the_whole_range() {
+        for palette in WaterfallPalette::ALL {
+            for t in [
+                -1.0,
+                0.0,
+                0.25,
+                0.5,
+                0.75,
+                1.0,
+                2.0,
+                f32::NAN,
+                f32::INFINITY,
+                f32::NEG_INFINITY,
+            ] {
+                let _ = palette.color(t); // brak paniki
+            }
+            assert_eq!(palette.color(f32::NAN), palette.color(0.0));
+            assert_eq!(palette.color(7.0), palette.color(1.0));
+            assert_ne!(palette.color(0.0), palette.color(1.0), "{palette:?}");
+            let mut previous = palette.color(0.0);
+            let mut changes = 0;
+            for i in 1..=100 {
+                let color = palette.color(i as f32 / 100.0);
+                if color != previous {
+                    changes += 1;
+                }
+                previous = color;
+            }
+            assert!(
+                changes > 50,
+                "{palette:?}: paleta musi się płynnie zmieniać"
+            );
+        }
+        assert_eq!(WaterfallPalette::Classic.color(0.4), waterfall_color(0.4));
     }
 }

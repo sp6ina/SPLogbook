@@ -1146,8 +1146,8 @@
   "waterfall.noise_floor": "Podłoga szumów:",
   "waterfall.saturation": "Nasycenie:",
   "waterfall.clear_btn": "Wyczyść",
-  "waterfall.start_hint": "Naciśnij ▶ Start, aby rozpocząć przechwytywanie widma.",
-  "waterfall.dock_btn": "↙ Zadokuj",
+  "waterfall.start_hint": "Naciśnij Start, aby rozpocząć przechwytywanie widma.",
+  "waterfall.dock_btn": "Zadokuj",
   "waterfall.dock_tooltip": "Zadokuj kafelek",
   "qsl.missing_callsign": "Brak znaku stacji (callsign) do wydruku na etykietach.",
   "qsl.pdf_saved": "Zapisano arkusz naklejek PDF ({pages} str.): {path}",
@@ -1474,5 +1474,16 @@
   "qso.gmina_preview": "🇵🇱 Gmina: {name} (powiat {powiat})",
   "cluster.auto_tune_status": "Auto-tune → {call} na {freq} kHz",
   "vfo.manual_transceiver": "Transceiver ręczny",
-  "map.locator_grid": "Siatka lokatorów"
+  "map.locator_grid": "Siatka lokatorów",
+  "waterfall.start_btn": "Start",
+  "waterfall.stop_btn": "Zatrzymaj",
+  "waterfall.refresh_btn": "Odśwież",
+  "waterfall.palette_label": "Paleta:",
+  "waterfall.auto_level": "Auto-poziom",
+  "waterfall.auto_level_tooltip": "Automatycznie ustawia poziom tła z szumu widma (dolny percentyl, wygładzany). Przy włączonej opcji suwak podłogi szumów jest nieaktywny.",
+  "waterfall.peak_hold": "Szczyty",
+  "waterfall.peak_reset": "Reset szczytów",
+  "waterfall.range_label": "Zakres:",
+  "waterfall.click_qsy_tooltip": "Kliknij, aby dostroić VFO na ten sygnał (QSY)",
+  "waterfall.click_tone_tooltip": "Kliknij, aby ustawić ton docelowy (CAT niepodłączony)"
 }

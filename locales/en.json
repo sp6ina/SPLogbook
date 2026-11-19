@@ -1146,8 +1146,8 @@
   "waterfall.noise_floor": "Noise floor:",
   "waterfall.saturation": "Saturation:",
   "waterfall.clear_btn": "Clear",
-  "waterfall.start_hint": "Press ▶ Start to begin spectrum capture.",
-  "waterfall.dock_btn": "↙ Dock",
+  "waterfall.start_hint": "Press Start to begin spectrum capture.",
+  "waterfall.dock_btn": "Dock",
   "waterfall.dock_tooltip": "Dock tile",
   "qsl.missing_callsign": "Missing station callsign for label printing.",
   "qsl.pdf_saved": "Saved PDF label sheet ({pages} pages): {path}",
@@ -1474,5 +1474,16 @@
   "qso.gmina_preview": "🇵🇱 Municipality: {name} (county {powiat})",
   "cluster.auto_tune_status": "Auto-tune → {call} on {freq} kHz",
   "vfo.manual_transceiver": "Manual Transceiver",
-  "map.locator_grid": "Locator grid"
+  "map.locator_grid": "Locator grid",
+  "waterfall.start_btn": "Start",
+  "waterfall.stop_btn": "Stop",
+  "waterfall.refresh_btn": "Refresh",
+  "waterfall.palette_label": "Palette:",
+  "waterfall.auto_level": "Auto level",
+  "waterfall.auto_level_tooltip": "Sets the background level automatically from the spectrum noise (lower percentile, smoothed). The noise floor slider is disabled while this is on.",
+  "waterfall.peak_hold": "Peak hold",
+  "waterfall.peak_reset": "Reset peaks",
+  "waterfall.range_label": "Range:",
+  "waterfall.click_qsy_tooltip": "Click to tune the VFO to this signal (QSY)",
+  "waterfall.click_tone_tooltip": "Click to set the target tone (CAT not connected)"
 }

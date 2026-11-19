@@ -1146,8 +1146,8 @@
   "waterfall.noise_floor": "Piso de ruido:",
   "waterfall.saturation": "Saturación:",
   "waterfall.clear_btn": "Limpiar",
-  "waterfall.start_hint": "Pulse ▶ Iniciar para comenzar la captura de espectro.",
-  "waterfall.dock_btn": "↙ Acoplar",
+  "waterfall.start_hint": "Pulse Iniciar para comenzar la captura de espectro.",
+  "waterfall.dock_btn": "Acoplar",
   "waterfall.dock_tooltip": "Acoplar mosaico",
   "qsl.missing_callsign": "Falta el indicativo de la estación para imprimir etiquetas.",
   "qsl.pdf_saved": "Hoja de etiquetas PDF guardada ({pages} págs.): {path}",
@@ -1474,5 +1474,16 @@
   "qso.gmina_preview": "🇵🇱 Municipio: {name} (condado {powiat})",
   "cluster.auto_tune_status": "Auto-tune → {call} en {freq} kHz",
   "vfo.manual_transceiver": "Transceptor manual",
-  "map.locator_grid": "Cuadrícula de locator"
+  "map.locator_grid": "Cuadrícula de locator",
+  "waterfall.start_btn": "Iniciar",
+  "waterfall.stop_btn": "Detener",
+  "waterfall.refresh_btn": "Actualizar",
+  "waterfall.palette_label": "Paleta:",
+  "waterfall.auto_level": "Nivel auto",
+  "waterfall.auto_level_tooltip": "Ajusta automáticamente el nivel de fondo según el ruido del espectro (percentil inferior, suavizado). El control del piso de ruido se desactiva mientras esté activo.",
+  "waterfall.peak_hold": "Retención de picos",
+  "waterfall.peak_reset": "Reiniciar picos",
+  "waterfall.range_label": "Rango:",
+  "waterfall.click_qsy_tooltip": "Haga clic para sintonizar el VFO en esta señal (QSY)",
+  "waterfall.click_tone_tooltip": "Haga clic para fijar el tono objetivo (CAT no conectado)"
 }

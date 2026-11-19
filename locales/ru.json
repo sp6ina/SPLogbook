@@ -1146,8 +1146,8 @@
   "waterfall.noise_floor": "Уровень шума:",
   "waterfall.saturation": "Насыщение:",
   "waterfall.clear_btn": "Очистить",
-  "waterfall.start_hint": "Нажмите ▶ Старт для начала захвата спектра.",
-  "waterfall.dock_btn": "↙ Прикрепить",
+  "waterfall.start_hint": "Нажмите Старт для начала захвата спектра.",
+  "waterfall.dock_btn": "Прикрепить",
   "waterfall.dock_tooltip": "Прикрепить панель",
   "qsl.missing_callsign": "Отсутствует позывной станции для печати наклеек.",
   "qsl.pdf_saved": "Сохранен лист наклеек PDF ({pages} стр.): {path}",
@@ -1474,5 +1474,16 @@
   "qso.gmina_preview": "🇵🇱 Гмина: {name} (повят {powiat})",
   "cluster.auto_tune_status": "Автонастройка → {call} на {freq} кГц",
   "vfo.manual_transceiver": "Трансивер (ручной)",
-  "map.locator_grid": "Сетка локаторов"
+  "map.locator_grid": "Сетка локаторов",
+  "waterfall.start_btn": "Старт",
+  "waterfall.stop_btn": "Стоп",
+  "waterfall.refresh_btn": "Обновить",
+  "waterfall.palette_label": "Палитра:",
+  "waterfall.auto_level": "Авто-уровень",
+  "waterfall.auto_level_tooltip": "Автоматически задаёт уровень фона по шуму спектра (нижний процентиль, со сглаживанием). Пока опция включена, ползунок уровня шума недоступен.",
+  "waterfall.peak_hold": "Удержание пиков",
+  "waterfall.peak_reset": "Сброс пиков",
+  "waterfall.range_label": "Диапазон:",
+  "waterfall.click_qsy_tooltip": "Нажмите, чтобы настроить VFO на этот сигнал (QSY)",
+  "waterfall.click_tone_tooltip": "Нажмите, чтобы задать целевой тон (CAT не подключён)"
 }

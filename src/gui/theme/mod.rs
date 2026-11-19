@@ -18,7 +18,9 @@ pub use components::{
 };
 pub use contrast::{contrast_ratio, relative_luminance};
 pub use ext::{ColorExt, ThemeExt};
-pub use palette::{BandColors, MapColors, Palette, SegmentColors, ThemePreset, waterfall_color};
+pub use palette::{
+    BandColors, MapColors, Palette, SegmentColors, ThemePreset, WaterfallPalette, waterfall_color,
+};
 pub use tokens::{
     RADIUS_MD, RADIUS_SM, SPACE_LG, SPACE_MD, SPACE_SM, SPACE_XL, SPACE_XS, TEXT_BODY,
     TEXT_CALLSIGN, TEXT_CAPTION, TEXT_FREQ, TEXT_SUBHEADING, callsign_font, mono_callsign,
