@@ -371,6 +371,7 @@ procedure CurStepChanged(CurStep: TSetupStep);
 var
   MarkerPath: String;
   MarkerContent: String;
+  MarkerLines: TArrayOfString;
 begin
   if CurStep = ssPostInstall then
   begin
@@ -386,6 +387,8 @@ begin
       '  "build_commit": "' + EscapeJsonString(ExpandConstant('{#GitCommit}')) + '",' + #13#10 +
       '  "installer_engine": "InnoSetup"' + #13#10 +
       '}';
-    SaveStringToUTF8FileWithoutBOM(MarkerPath, MarkerContent, False);
+    SetArrayLength(MarkerLines, 1);
+    MarkerLines[0] := MarkerContent;
+    SaveStringsToUTF8FileWithoutBOM(MarkerPath, MarkerLines, False);
   end;
 end;
