@@ -832,42 +832,14 @@ impl VerifiedReleaseManifest {
         &self.signing_key_fingerprint
     }
 
-    pub fn select_asset_for_platform(
+    fn validate_and_bind_manifest_asset(
         &self,
         target_platform: ReleasePlatform,
         target_arch: ReleaseArchitecture,
+        expected_package: ReleasePackageType,
+        m_asset: &ManifestAsset,
         release_assets: &[ReleaseAsset],
     ) -> Result<VerifiedReleaseAsset, UpdaterError> {
-        let expected_package = ReleasePackageType::expected_for_platform(target_platform);
-
-        let mut matches = Vec::new();
-        for m_asset in &self.manifest.assets {
-            let p = ReleasePlatform::parse(&m_asset.platform)?;
-            let a = ReleaseArchitecture::parse(&m_asset.arch)?;
-            if p == target_platform && a == target_arch {
-                matches.push(m_asset);
-            }
-        }
-
-        if matches.is_empty() {
-            return Err(UpdaterError::UnsupportedPlatform(format!(
-                "Brak pasującego zasobu w zweryfikowanym manifeście dla {}-{}",
-                target_platform.as_str(),
-                target_arch.as_str()
-            )));
-        }
-
-        if matches.len() > 1 {
-            return Err(UpdaterError::AmbiguousArtifact(format!(
-                "Niejednoznaczne dopasowanie w manifeście: {} zasobów dla {}-{}",
-                matches.len(),
-                target_platform.as_str(),
-                target_arch.as_str()
-            )));
-        }
-
-        let m_asset = matches[0];
-
         // Walidacja package_type
         let pkg_type = ReleasePackageType::parse(&m_asset.package_type)?;
         if pkg_type != expected_package {
@@ -929,9 +901,10 @@ impl VerifiedReleaseManifest {
             )));
         }
 
-        // Ścisła walidacja kanonicznej nazwy pliku dla Windows x86_64
+        // Ścisła walidacja kanonicznej nazwy pliku dla Windows x86_64 Portable ZIP
         if target_platform == ReleasePlatform::Windows
             && target_arch == ReleaseArchitecture::X86_64
+            && pkg_type == ReleasePackageType::Zip
             && filename != "SPLogbook-Windows-x64.zip"
         {
             return Err(UpdaterError::SafetyGate(format!(
@@ -976,6 +949,71 @@ impl VerifiedReleaseManifest {
         })
     }
 
+    pub fn select_asset_for_platform(
+        &self,
+        target_platform: ReleasePlatform,
+        target_arch: ReleaseArchitecture,
+        release_assets: &[ReleaseAsset],
+    ) -> Result<VerifiedReleaseAsset, UpdaterError> {
+        let expected_package = if ReleasePlatform::current().ok() == Some(target_platform) {
+            ReleasePackageType::expected_for_installation(
+                target_platform,
+                detect_current_installation_type_best_effort(),
+            )
+        } else {
+            ReleasePackageType::expected_for_platform(target_platform)
+        };
+
+        let mut matches = Vec::new();
+        for m_asset in &self.manifest.assets {
+            let p = ReleasePlatform::parse(&m_asset.platform)?;
+            let a = ReleaseArchitecture::parse(&m_asset.arch)?;
+            if p == target_platform && a == target_arch {
+                matches.push(m_asset);
+            }
+        }
+
+        if matches.is_empty() {
+            return Err(UpdaterError::UnsupportedPlatform(format!(
+                "Brak pasującego zasobu w zweryfikowanym manifeście dla {}-{}",
+                target_platform.as_str(),
+                target_arch.as_str()
+            )));
+        }
+
+        ensure_unique_package_types_in_matches(
+            &matches,
+            target_platform.as_str(),
+            target_arch.as_str(),
+        )?;
+
+        let m_asset = if matches.len() == 1 {
+            matches[0]
+        } else {
+            matches
+                .iter()
+                .copied()
+                .find(|m| {
+                    ReleasePackageType::parse(&m.package_type).ok() == Some(expected_package)
+                })
+                .ok_or_else(|| {
+                    UpdaterError::SafetyGate(format!(
+                        "Nieoczekiwany typ paczki w manifeście dla {}-{}: oczekiwano {expected_package:?}",
+                        target_platform.as_str(),
+                        target_arch.as_str()
+                    ))
+                })?
+        };
+
+        self.validate_and_bind_manifest_asset(
+            target_platform,
+            target_arch,
+            expected_package,
+            m_asset,
+            release_assets,
+        )
+    }
+
     pub fn select_asset_for_installation_type(
         &self,
         target_platform: ReleasePlatform,
@@ -1015,103 +1053,13 @@ impl VerifiedReleaseManifest {
             )));
         }
 
-        let m_asset = matches[0];
-
-        // Walidacja package_type
-        let pkg_type = ReleasePackageType::parse(&m_asset.package_type)?;
-        if pkg_type != expected_package {
-            return Err(UpdaterError::SafetyGate(format!(
-                "Nieoczekiwany typ paczki w manifeście: oczekiwano {expected_package:?}, znaleziono {pkg_type:?}"
-            )));
-        }
-
-        // Walidacja nazwy pliku
-        let filename = m_asset.filename.trim();
-        if filename.is_empty()
-            || filename == "."
-            || filename == ".."
-            || filename.contains('/')
-            || filename.contains('\\')
-            || filename.contains(':')
-        {
-            return Err(UpdaterError::UnsafeArchivePath(format!(
-                "Nazwa pliku w manifeście '{filename}' zawiera niedozwolone znaki"
-            )));
-        }
-
-        // Walidacja rozszerzenia dla danego typu paczki
-        let expected_ext = match pkg_type {
-            ReleasePackageType::Zip => ".zip",
-            ReleasePackageType::TarGz => ".tar.gz",
-            ReleasePackageType::InnoExe => ".exe",
-            ReleasePackageType::Msi => ".msi",
-        };
-        if !filename.to_ascii_lowercase().ends_with(expected_ext) {
-            return Err(UpdaterError::SafetyGate(format!(
-                "Nazwa pliku '{filename}' nie odpowiada typowi paczki {pkg_type:?}"
-            )));
-        }
-
-        // Walidacja rozmiaru
-        if m_asset.size == 0 || m_asset.size > MAX_ARTIFACT_DOWNLOAD_SIZE {
-            return Err(UpdaterError::FileTooLarge);
-        }
-
-        // Walidacja SHA256
-        if m_asset.sha256.len() != 64 || !m_asset.sha256.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Err(UpdaterError::HashMismatch);
-        }
-
-        // Dopasowanie do assetu wydań GitHub
-        let matching_api_assets: Vec<&ReleaseAsset> = release_assets
-            .iter()
-            .filter(|ra| ra.name == m_asset.filename)
-            .collect();
-
-        if matching_api_assets.is_empty() {
-            return Err(UpdaterError::NoMatchingAssets);
-        }
-
-        if matching_api_assets.len() > 1 {
-            return Err(UpdaterError::AmbiguousArtifact(format!(
-                "Wielokrotny asset o tej samej nazwie w API: {}",
-                m_asset.filename
-            )));
-        }
-
-        let ra = matching_api_assets[0];
-
-        if ra.browser_download_url.trim().is_empty() {
-            return Err(UpdaterError::Network(
-                "Pusty browser_download_url w API".into(),
-            ));
-        }
-
-        if ra.size > 0 && ra.size != m_asset.size {
-            return Err(UpdaterError::SizeMismatch);
-        }
-
-        if let Some(ref api_digest) = ra.digest {
-            let clean_digest = api_digest
-                .trim()
-                .trim_start_matches("sha256:")
-                .trim_start_matches("SHA256:");
-            if !clean_digest.eq_ignore_ascii_case(&m_asset.sha256) {
-                return Err(UpdaterError::ChecksumMismatch);
-            }
-        }
-
-        Ok(VerifiedReleaseAsset {
-            platform: target_platform,
-            arch: target_arch,
-            package_type: pkg_type,
-            filename: m_asset.filename.clone(),
-            declared_size: m_asset.size,
-            declared_sha256: m_asset.sha256.to_ascii_lowercase(),
-            browser_download_url: ra.browser_download_url.clone(),
-            bound_manifest_version: self.manifest.version.clone(),
-            bound_commit: self.manifest.commit.clone(),
-        })
+        self.validate_and_bind_manifest_asset(
+            target_platform,
+            target_arch,
+            expected_package,
+            matches[0],
+            release_assets,
+        )
     }
 
     pub fn select_asset_for_current_platform(
@@ -1120,8 +1068,44 @@ impl VerifiedReleaseManifest {
     ) -> Result<VerifiedReleaseAsset, UpdaterError> {
         let platform = ReleasePlatform::current()?;
         let arch = ReleaseArchitecture::current()?;
-        self.select_asset_for_platform(platform, arch, release_assets)
+        let inst_type = detect_current_installation_type()?;
+        self.select_asset_for_installation_type(platform, arch, inst_type, release_assets)
     }
+}
+
+fn detect_current_installation_type() -> Result<InstallationType, UpdaterError> {
+    if let Ok(current) = std::env::current_exe()
+        && let Some(parent) = current.parent()
+    {
+        return detect_installation_with_context(parent, &InstallationDetectionContext::default());
+    }
+    Ok(InstallationType::UnknownInstallation)
+}
+
+fn detect_current_installation_type_best_effort() -> InstallationType {
+    detect_current_installation_type().unwrap_or(InstallationType::UnknownInstallation)
+}
+
+fn ensure_unique_package_types_in_matches(
+    matches: &[&ManifestAsset],
+    platform: &str,
+    arch: &str,
+) -> Result<(), UpdaterError> {
+    let mut seen_known = std::collections::HashSet::new();
+    let mut seen_unknown = std::collections::HashSet::new();
+    for m in matches {
+        let is_dup = match ReleasePackageType::parse(&m.package_type) {
+            Ok(pkg) => !seen_known.insert(pkg),
+            Err(_) => !seen_unknown.insert(m.package_type.trim().to_ascii_lowercase()),
+        };
+        if is_dup {
+            return Err(UpdaterError::AmbiguousArtifact(format!(
+                "Niejednoznaczne dopasowanie w manifeście: duplikat paczki '{}' dla {platform}-{arch}",
+                m.package_type
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Pojedynczy plik (asset) dołączony do wydania GitHub.
@@ -3343,14 +3327,33 @@ pub fn select_manifest_asset<'a>(
         )));
     }
 
-    if matches.len() > 1 {
-        return Err(UpdaterError::AmbiguousArtifact(format!(
-            "Niejednoznaczne dopasowanie: znaleziono {} artefaktów dla {platform}-{arch}",
-            matches.len()
-        )));
-    }
+    let selected = if matches.len() == 1 {
+        matches[0]
+    } else {
+        ensure_unique_package_types_in_matches(&matches, platform, arch)?;
 
-    let selected = matches[0];
+        let target_platform = ReleasePlatform::parse(platform)?;
+        let expected_package = if ReleasePlatform::current().ok() == Some(target_platform) {
+            ReleasePackageType::expected_for_installation(
+                target_platform,
+                detect_current_installation_type_best_effort(),
+            )
+        } else {
+            ReleasePackageType::expected_for_platform(target_platform)
+        };
+
+        matches
+            .iter()
+            .copied()
+            .find(|a| ReleasePackageType::parse(&a.package_type).ok() == Some(expected_package))
+            .ok_or_else(|| {
+                UpdaterError::UnsupportedPlatform(format!(
+                    "Brak domyślnego artefaktu ({}) dla {platform}-{arch}",
+                    expected_package.as_str()
+                ))
+            })?
+    };
+
     let fn_str = &selected.filename;
     if fn_str.trim().is_empty()
         || fn_str == "."
@@ -4196,6 +4199,390 @@ pub fn delegate_msi_update(
     })
 }
 
+const UPDATER_STATE_SUBDIR: &str = "updater_state";
+
+fn can_write_dir(dir: &Path) -> Result<(), std::io::Error> {
+    let probe = dir.join(format!(
+        ".splogbook_write_probe_{}_{}",
+        std::process::id(),
+        rand::random::<u64>()
+    ));
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe)?;
+    drop(file);
+    let _ = std::fs::remove_file(&probe);
+    Ok(())
+}
+
+fn non_empty_env_path(name: &str) -> Option<PathBuf> {
+    std::env::var(name)
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+}
+
+fn fallback_updater_state_dir(
+    local_app_data: Option<&Path>,
+    app_data: Option<&Path>,
+) -> Option<PathBuf> {
+    local_app_data
+        .or(app_data)
+        .map(|base| base.join("SPLogbook").join(UPDATER_STATE_SUBDIR))
+}
+
+fn resolve_delegated_state_dir_with<F>(
+    install_dir: &Path,
+    can_write: F,
+    local_app_data: Option<&Path>,
+    app_data: Option<&Path>,
+) -> Result<PathBuf, UpdaterError>
+where
+    F: FnOnce(&Path) -> Result<(), std::io::Error>,
+{
+    match can_write(install_dir) {
+        Ok(()) => Ok(install_dir.to_path_buf()),
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            let fallback =
+                fallback_updater_state_dir(local_app_data, app_data).ok_or_else(|| {
+                    UpdaterError::Io(format!(
+                        "Brak uprawnień zapisu do '{}' oraz brak zmiennych LOCALAPPDATA/APPDATA dla katalogu stanu aktualizacji",
+                        install_dir.display()
+                    ))
+                })?;
+            std::fs::create_dir_all(&fallback).map_err(|create_err| {
+                UpdaterError::Io(format!(
+                    "Nie można utworzyć katalogu stanu aktualizacji '{}': {create_err}",
+                    fallback.display()
+                ))
+            })?;
+            Ok(fallback)
+        }
+        Err(e) => Err(UpdaterError::Io(format!(
+            "Nie można zweryfikować zapisywalności katalogu '{}': {e}",
+            install_dir.display()
+        ))),
+    }
+}
+
+pub fn resolve_delegated_state_dir(install_dir: &Path) -> Result<PathBuf, UpdaterError> {
+    let local_app_data = non_empty_env_path("LOCALAPPDATA");
+    let app_data = non_empty_env_path("APPDATA");
+    resolve_delegated_state_dir_with(
+        install_dir,
+        can_write_dir,
+        local_app_data.as_deref(),
+        app_data.as_deref(),
+    )
+}
+
+fn begin_delegated_transaction(
+    attempt_id: UpdateAttemptId,
+    inst_type: InstallationType,
+    asset: &VerifiedReleaseAsset,
+    state_dir: &Path,
+) -> Result<UpdateTransaction, UpdaterError> {
+    let mut tx = UpdateTransaction::new(
+        attempt_id,
+        asset.bound_manifest_version().to_string(),
+        format!("v{}", asset.bound_manifest_version()),
+        "windows".to_string(),
+        "x86_64".to_string(),
+        inst_type.as_str().to_string(),
+        inst_type,
+        asset.bound_commit().to_string(),
+        asset.filename().to_string(),
+        asset.declared_size(),
+        asset.declared_sha256().to_string(),
+        state_dir.join(".staging"),
+        state_dir,
+    )?;
+    tx.installed_version = Some(
+        crate::core::build_info::BuildIdentity::current()
+            .package_version
+            .to_string(),
+    );
+    tx.commit_identity = Some(asset.bound_commit().to_string());
+    tx.lock_identity = Some(format!("{}:{}", std::process::id(), attempt_id));
+    tx.rollback_path = None;
+    tx.health_proof_path = Some(state_dir.join(HEALTH_PROOF_FILENAME));
+    tx.transition_to(UpdateStateId::CheckingRelease)?;
+    tx.transition_to(UpdateStateId::FetchingManifest)?;
+    tx.transition_to(UpdateStateId::VerifyingManifest)?;
+    tx.transition_to(UpdateStateId::SelectingAsset)?;
+    tx.transition_to(UpdateStateId::Downloading)?;
+    tx.save_to_dir(state_dir)?;
+    Ok(tx)
+}
+
+fn mark_delegated_failed_pre_apply(
+    tx: &mut UpdateTransaction,
+    state_dir: &Path,
+    stage: UpdateStateId,
+    summary: impl Into<String>,
+) {
+    tx.failure_stage = Some(stage);
+    tx.sanitized_diagnostic_summary = Some(summary.into());
+    let _ = tx.transition_to(UpdateStateId::FailedPreApply);
+    let _ = tx.save_to_dir(state_dir);
+}
+
+fn advance_delegated_transaction_to_applying(
+    tx: &mut UpdateTransaction,
+    state_dir: &Path,
+) -> Result<(), UpdaterError> {
+    let stages = [
+        UpdateStateId::InspectingPackage,
+        UpdateStateId::Staging,
+        UpdateStateId::BuildingUpdatePlan,
+        UpdateStateId::AwaitingApply,
+        UpdateStateId::Applying,
+    ];
+    for stage in stages {
+        if let Err(e) = tx.transition_to(stage) {
+            mark_delegated_failed_pre_apply(tx, state_dir, tx.current_state, e.to_string());
+            return Err(e);
+        }
+    }
+    tx.save_to_dir(state_dir)?;
+    Ok(())
+}
+
+fn verify_delegated_candidate_health(
+    candidate_exe: &Path,
+    state_dir: &Path,
+    attempt_id: UpdateAttemptId,
+    expected_version: &str,
+    expected_commit: &str,
+    tx: &mut UpdateTransaction,
+    lock_guard: &mut UpdateLockGuard,
+) -> Result<(), UpdaterError> {
+    let health_ok = state_dir.join(HEALTH_PROOF_FILENAME);
+    let _ = std::fs::remove_file(&health_ok);
+
+    tx.transition_to(UpdateStateId::LaunchingCandidate)?;
+    tx.save_to_dir(state_dir)?;
+
+    let mut child = match std::process::Command::new(candidate_exe)
+        .arg("--check-health-startup")
+        .arg("--update-attempt-id")
+        .arg(attempt_id.to_string())
+        .arg("--health-proof-path")
+        .arg(&health_ok)
+        .arg("--expected-version")
+        .arg(expected_version)
+        .arg("--expected-commit")
+        .arg(expected_commit)
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            tx.failure_stage = Some(UpdateStateId::LaunchingCandidate);
+            tx.sanitized_diagnostic_summary = Some(format!(
+                "Nie można uruchomić zaktualizowanej binarki do kontroli zdrowia: {e}"
+            ));
+            let _ = tx.transition_to(UpdateStateId::FailedPostApply);
+            let _ = tx.save_to_dir(state_dir);
+            return Err(UpdaterError::Io(format!(
+                "Nie można uruchomić kandydata zaktualizowanego programu: {e}"
+            )));
+        }
+    };
+
+    tx.transition_to(UpdateStateId::AwaitingHealth)?;
+    tx.save_to_dir(state_dir)?;
+
+    let deadline = std::time::Instant::now()
+        + std::time::Duration::from_secs(DEFAULT_HEALTH_PROOF_MAX_AGE_SECS);
+    let mut verified_health = false;
+
+    let check_proof = || -> bool {
+        HealthProof::load_from_dir(state_dir)
+            .and_then(|proof| {
+                proof.validate(
+                    &attempt_id,
+                    expected_version,
+                    expected_commit,
+                    DEFAULT_HEALTH_PROOF_MAX_AGE_SECS,
+                )
+            })
+            .is_ok()
+    };
+
+    while std::time::Instant::now() < deadline {
+        if check_proof() {
+            verified_health = true;
+            break;
+        }
+        if let Ok(Some(_)) = child.try_wait() {
+            if check_proof() {
+                verified_health = true;
+            }
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    if verified_health {
+        let _ = child.wait();
+        tx.transition_to(UpdateStateId::Committed)?;
+        tx.save_to_dir(state_dir)?;
+        let _ = std::fs::remove_file(&health_ok);
+        lock_guard.release()?;
+        Ok(())
+    } else {
+        let _ = child.kill();
+        let _ = child.wait();
+        tx.failure_stage = Some(UpdateStateId::AwaitingHealth);
+        tx.sanitized_diagnostic_summary = Some(
+            "Dowód zdrowia (HealthProof) kandydata nie przeszedł walidacji po delegowanej aktualizacji"
+                .to_string(),
+        );
+        let _ = tx.transition_to(UpdateStateId::FailedPostApply);
+        let _ = tx.save_to_dir(state_dir);
+        let _ = std::fs::remove_file(&health_ok);
+        Err(UpdaterError::HealthCheckFailed)
+    }
+}
+
+#[cfg(target_os = "windows")]
+async fn install_delegated_windows_update(
+    parent: &Path,
+    current: &Path,
+    asset: &VerifiedReleaseAsset,
+    inst_type: InstallationType,
+) -> Result<(), UpdaterError> {
+    let state_dir = resolve_delegated_state_dir(parent)?;
+    let attempt_id = UpdateAttemptId::generate();
+    let mut lock_guard = UpdateLockGuard::acquire(&state_dir, attempt_id)?;
+    let mut tx = begin_delegated_transaction(attempt_id, inst_type, asset, &state_dir)?;
+
+    let (tmp_installer, log_path) = match inst_type {
+        InstallationType::WindowsInnoSetup => (
+            std::env::temp_dir().join(format!("SPLogbook_Setup_{attempt_id}.exe")),
+            std::env::temp_dir().join(format!("SPLogbook_Setup_{attempt_id}.log")),
+        ),
+        InstallationType::WindowsMsi => (
+            std::env::temp_dir().join(format!("SPLogbook_Setup_{attempt_id}.msi")),
+            std::env::temp_dir().join(format!("SPLogbook_MSI_{attempt_id}.log")),
+        ),
+        other => {
+            return Err(UpdaterError::SafetyGate(format!(
+                "Nieobsługiwany typ delegowanej aktualizacji Windows: {other:?}"
+            )));
+        }
+    };
+
+    if let Err(e) = download_verified_asset(asset, &tmp_installer).await {
+        let _ = tokio::fs::remove_file(&tmp_installer).await;
+        mark_delegated_failed_pre_apply(
+            &mut tx,
+            &state_dir,
+            UpdateStateId::Downloading,
+            e.to_string(),
+        );
+        return Err(e);
+    }
+
+    tx.transition_to(UpdateStateId::VerifyingDownload)?;
+    tx.save_to_dir(&state_dir)?;
+
+    let data = match tokio::fs::read(&tmp_installer).await {
+        Ok(d) => d,
+        Err(e) => {
+            let _ = tokio::fs::remove_file(&tmp_installer).await;
+            mark_delegated_failed_pre_apply(
+                &mut tx,
+                &state_dir,
+                UpdateStateId::VerifyingDownload,
+                e.to_string(),
+            );
+            return Err(UpdaterError::Io(format!(
+                "Błąd odczytu pobranego instalatora: {e}"
+            )));
+        }
+    };
+
+    if asset.declared_size() > 0 && data.len() as u64 != asset.declared_size() {
+        let _ = tokio::fs::remove_file(&tmp_installer).await;
+        mark_delegated_failed_pre_apply(
+            &mut tx,
+            &state_dir,
+            UpdateStateId::VerifyingDownload,
+            "Rozmiar pobranego instalatora nie zgadza się ze zweryfikowanym manifestem",
+        );
+        return Err(UpdaterError::SizeMismatch);
+    }
+
+    if !verify_sha256(&data, asset.declared_sha256()) {
+        let _ = tokio::fs::remove_file(&tmp_installer).await;
+        mark_delegated_failed_pre_apply(
+            &mut tx,
+            &state_dir,
+            UpdateStateId::VerifyingDownload,
+            "Suma kontrolna SHA-256 pobranego instalatora nie zgadza się ze zweryfikowanym manifestem",
+        );
+        return Err(UpdaterError::HashMismatch);
+    }
+
+    advance_delegated_transaction_to_applying(&mut tx, &state_dir)?;
+
+    let del_res = match inst_type {
+        InstallationType::WindowsInnoSetup => delegate_inno_setup_update(
+            &tmp_installer,
+            &log_path,
+            asset.bound_manifest_version(),
+            asset.bound_commit(),
+            parent,
+        ),
+        InstallationType::WindowsMsi => delegate_msi_update(
+            &tmp_installer,
+            &log_path,
+            asset.bound_manifest_version(),
+            asset.bound_commit(),
+            parent,
+        ),
+        _ => unreachable!(),
+    };
+
+    let _ = tokio::fs::remove_file(&tmp_installer).await;
+    let delegation = match del_res {
+        Ok(d) => d,
+        Err(e) => {
+            tx.failure_stage = Some(UpdateStateId::Applying);
+            tx.sanitized_diagnostic_summary = Some(e.to_string());
+            let _ = tx.transition_to(UpdateStateId::FailedPostApply);
+            let _ = tx.save_to_dir(&state_dir);
+            return Err(e);
+        }
+    };
+
+    if delegation.requires_restart {
+        return Ok(());
+    }
+
+    let candidate_exe = {
+        let primary = parent.join("SPLogbook.exe");
+        if primary.exists() {
+            primary
+        } else {
+            current.to_path_buf()
+        }
+    };
+
+    verify_delegated_candidate_health(
+        &candidate_exe,
+        &state_dir,
+        attempt_id,
+        asset.bound_manifest_version(),
+        asset.bound_commit(),
+        &mut tx,
+        &mut lock_guard,
+    )
+}
+
 pub async fn install_update(asset: &VerifiedReleaseAsset) -> Result<(), UpdaterError> {
     let current = std::env::current_exe()
         .map_err(|e| UpdaterError::ExePath(format!("Nie można ustalić ścieżki programu: {e}")))?;
@@ -4221,48 +4608,13 @@ pub async fn install_update(asset: &VerifiedReleaseAsset) -> Result<(), UpdaterE
                 ));
             }
 
-            let attempt_id = UpdateAttemptId::generate();
-            let tmp_installer =
-                std::env::temp_dir().join(format!("SPLogbook_Setup_{attempt_id}.exe"));
-            let log_path = std::env::temp_dir().join(format!("SPLogbook_Setup_{attempt_id}.log"));
-
-            let dl_res = download_verified_asset(asset, &tmp_installer).await;
-            if let Err(e) = dl_res {
-                let _ = tokio::fs::remove_file(&tmp_installer).await;
-                return Err(e);
-            }
-
-            let data = match tokio::fs::read(&tmp_installer).await {
-                Ok(d) => d,
-                Err(e) => {
-                    let _ = tokio::fs::remove_file(&tmp_installer).await;
-                    return Err(UpdaterError::Io(format!(
-                        "Błąd odczytu pobranego instalatora: {e}"
-                    )));
-                }
-            };
-
-            if asset.declared_size() > 0 && data.len() as u64 != asset.declared_size() {
-                let _ = tokio::fs::remove_file(&tmp_installer).await;
-                return Err(UpdaterError::SizeMismatch);
-            }
-
-            if !verify_sha256(&data, asset.declared_sha256()) {
-                let _ = tokio::fs::remove_file(&tmp_installer).await;
-                return Err(UpdaterError::HashMismatch);
-            }
-
-            let del_res = delegate_inno_setup_update(
-                &tmp_installer,
-                &log_path,
-                asset.bound_manifest_version(),
-                asset.bound_commit(),
+            return install_delegated_windows_update(
                 parent,
-            );
-
-            let _ = tokio::fs::remove_file(&tmp_installer).await;
-            del_res.map(|_| ())?;
-            return Ok(());
+                &current,
+                asset,
+                InstallationType::WindowsInnoSetup,
+            )
+            .await;
         }
 
         if inst_type == InstallationType::WindowsMsi {
@@ -4277,48 +4629,13 @@ pub async fn install_update(asset: &VerifiedReleaseAsset) -> Result<(), UpdaterE
                 ));
             }
 
-            let attempt_id = UpdateAttemptId::generate();
-            let tmp_installer =
-                std::env::temp_dir().join(format!("SPLogbook_Setup_{attempt_id}.msi"));
-            let log_path = std::env::temp_dir().join(format!("SPLogbook_MSI_{attempt_id}.log"));
-
-            let dl_res = download_verified_asset(asset, &tmp_installer).await;
-            if let Err(e) = dl_res {
-                let _ = tokio::fs::remove_file(&tmp_installer).await;
-                return Err(e);
-            }
-
-            let data = match tokio::fs::read(&tmp_installer).await {
-                Ok(d) => d,
-                Err(e) => {
-                    let _ = tokio::fs::remove_file(&tmp_installer).await;
-                    return Err(UpdaterError::Io(format!(
-                        "Błąd odczytu pobranego pakietu MSI: {e}"
-                    )));
-                }
-            };
-
-            if asset.declared_size() > 0 && data.len() as u64 != asset.declared_size() {
-                let _ = tokio::fs::remove_file(&tmp_installer).await;
-                return Err(UpdaterError::SizeMismatch);
-            }
-
-            if !verify_sha256(&data, asset.declared_sha256()) {
-                let _ = tokio::fs::remove_file(&tmp_installer).await;
-                return Err(UpdaterError::HashMismatch);
-            }
-
-            let del_res = delegate_msi_update(
-                &tmp_installer,
-                &log_path,
-                asset.bound_manifest_version(),
-                asset.bound_commit(),
+            return install_delegated_windows_update(
                 parent,
-            );
-
-            let _ = tokio::fs::remove_file(&tmp_installer).await;
-            del_res.map(|_| ())?;
-            return Ok(());
+                &current,
+                asset,
+                InstallationType::WindowsMsi,
+            )
+            .await;
         }
 
         if inst_type != InstallationType::WindowsPortableZip {
@@ -5181,12 +5498,280 @@ pub struct UpdateStartupOutcome {
 /// 5. Jeśli aktualizacja zakończyła się sukcesem, czyści pozostałości stagingu (`.staging`) oraz dowód zdrowia (`.health_ok`).
 /// 6. Archiwizuje plik wyniku, zmieniając nazwę na `.update_helper_result.consumed` (zabezpieczenie przed ponowną konsumpcją przy jednoczesnym zachowaniu śladu audytowego).
 /// 7. Zwraca `Ok(Some(UpdateStartupOutcome))`.
+fn cleanup_orphaned_attempt_lock(state_dir: &Path, attempt_id: UpdateAttemptId) {
+    let lock_path = state_dir.join(UPDATE_LOCK_FILENAME);
+    if !lock_path.exists() {
+        return;
+    }
+    if let Ok(bytes) = std::fs::read(&lock_path)
+        && let Ok(record) = serde_json::from_slice::<UpdateLockRecord>(&bytes)
+        && record.attempt_id == attempt_id
+    {
+        let _ = std::fs::remove_file(&lock_path);
+    }
+}
+
+fn verify_delegated_post_restart_identity(
+    installation_root: &Path,
+    tx: &UpdateTransaction,
+) -> Result<(), UpdaterError> {
+    let current_identity = crate::core::build_info::BuildIdentity::current();
+    if current_identity.package_version != tx.release_version {
+        return Err(UpdaterError::SafetyGate(format!(
+            "Niezgodność wersji uruchomionej aplikacji '{}' z oczekiwaną wersją '{}'",
+            current_identity.package_version, tx.release_version
+        )));
+    }
+
+    let expected_commit = tx
+        .commit_identity
+        .as_deref()
+        .filter(|c| !c.trim().is_empty())
+        .ok_or_else(|| {
+            UpdaterError::SafetyGate(
+                "Brak zapisanego commita docelowego w rekordzie transakcji".to_string(),
+            )
+        })?;
+
+    if current_identity.git_commit_hash != expected_commit {
+        return Err(UpdaterError::SafetyGate(format!(
+            "Niezgodność commita uruchomionej aplikacji '{}' z oczekiwanym commitem '{}'",
+            current_identity.git_commit_hash, expected_commit
+        )));
+    }
+
+    match tx.installation_type {
+        InstallationType::WindowsInnoSetup => {
+            let marker = WindowsUserSetupMarker::read_from_dir(installation_root)?;
+            if marker.package_version != tx.release_version {
+                return Err(UpdaterError::SafetyGate(format!(
+                    "Niezgodność wersji w markerze Inno Setup '{}' z oczekiwaną '{}'",
+                    marker.package_version, tx.release_version
+                )));
+            }
+            if marker.build_commit != expected_commit {
+                return Err(UpdaterError::SafetyGate(format!(
+                    "Niezgodność commita w markerze Inno Setup '{}' z oczekiwanym '{}'",
+                    marker.build_commit, expected_commit
+                )));
+            }
+        }
+        InstallationType::WindowsMsi => {
+            let marker = WindowsMsiMarker::read_from_dir(installation_root)?;
+            if marker.package_version != tx.release_version {
+                return Err(UpdaterError::SafetyGate(format!(
+                    "Niezgodność wersji w markerze MSI '{}' z oczekiwaną '{}'",
+                    marker.package_version, tx.release_version
+                )));
+            }
+            if marker.build_commit != expected_commit {
+                return Err(UpdaterError::SafetyGate(format!(
+                    "Niezgodność commita w markerze MSI '{}' z oczekiwanym '{}'",
+                    marker.build_commit, expected_commit
+                )));
+            }
+        }
+        other => {
+            return Err(UpdaterError::SafetyGate(format!(
+                "Nieobsługiwany typ delegowanej transakcji: {other}"
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+fn find_delegated_state_dir_for_startup(
+    installation_root: &Path,
+    local_app_data: Option<&Path>,
+    app_data: Option<&Path>,
+) -> Option<PathBuf> {
+    if installation_root.join(TRANSACTION_FILE_NAME).exists() {
+        return Some(installation_root.to_path_buf());
+    }
+
+    let inst_ok = detect_installation_with_context(
+        installation_root,
+        &InstallationDetectionContext::default(),
+    )
+    .ok();
+    if matches!(
+        inst_ok,
+        Some(InstallationType::WindowsInnoSetup | InstallationType::WindowsMsi)
+    ) {
+        for candidate_base in [local_app_data, app_data].into_iter().flatten() {
+            let dir = candidate_base.join("SPLogbook").join(UPDATER_STATE_SUBDIR);
+            if dir.join(TRANSACTION_FILE_NAME).exists() {
+                return Some(dir);
+            }
+        }
+    }
+
+    None
+}
+
+fn consume_delegated_transaction_on_startup_with_env(
+    installation_root: &Path,
+    local_app_data: Option<&Path>,
+    app_data: Option<&Path>,
+) -> Result<Option<UpdateStartupOutcome>, UpdaterError> {
+    let Some(state_dir) =
+        find_delegated_state_dir_for_startup(installation_root, local_app_data, app_data)
+    else {
+        return Ok(None);
+    };
+
+    let tx_path = state_dir.join(TRANSACTION_FILE_NAME);
+    let meta = std::fs::symlink_metadata(&tx_path).map_err(|e| {
+        UpdaterError::Io(format!(
+            "Nie można odczytać metadanych pliku transakcji delegowanej: {e}"
+        ))
+    })?;
+    if meta.file_type().is_symlink() {
+        return Err(UpdaterError::SafetyGate(
+            "Plik transakcji aktualizacji nie może być dowiązaniem symbolicznym".to_string(),
+        ));
+    }
+
+    let raw_tx = std::fs::read(&tx_path)
+        .map_err(|e| UpdaterError::Io(format!("Nie można odczytać pliku transakcji: {e}")))?;
+    let clean_tx = if raw_tx.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        &raw_tx[3..]
+    } else {
+        &raw_tx[..]
+    };
+
+    let mut tx: UpdateTransaction = serde_json::from_slice(clean_tx).map_err(|e| {
+        UpdaterError::InvalidTransaction(format!(
+            "Błąd deserializacji rekordu transakcji {}: {e}",
+            tx_path.display()
+        ))
+    })?;
+
+    if tx.record_version != CURRENT_RECORD_VERSION {
+        return Err(UpdaterError::UnsupportedTransactionVersion(
+            tx.record_version,
+        ));
+    }
+
+    if !matches!(
+        tx.installation_type,
+        InstallationType::WindowsInnoSetup | InstallationType::WindowsMsi
+    ) || !matches!(
+        tx.current_state,
+        UpdateStateId::Applying | UpdateStateId::LaunchingCandidate | UpdateStateId::AwaitingHealth
+    ) {
+        return Ok(None);
+    }
+
+    let identity_result = verify_delegated_post_restart_identity(installation_root, &tx);
+
+    let health_result: Result<(), UpdaterError> = match identity_result {
+        Ok(()) => {
+            let current_identity = crate::core::build_info::BuildIdentity::current();
+            let expected_commit = tx.commit_identity.as_deref().unwrap_or("");
+            let proof = HealthProof::from_build_identity(
+                tx.attempt_id,
+                current_identity,
+                tx.installation_type,
+            );
+            proof
+                .save_to_dir(&state_dir)
+                .and_then(|_| HealthProof::load_from_dir(&state_dir))
+                .and_then(|loaded| {
+                    loaded.validate(
+                        &tx.attempt_id,
+                        &tx.release_version,
+                        expected_commit,
+                        DEFAULT_HEALTH_PROOF_MAX_AGE_SECS,
+                    )
+                })
+        }
+        Err(err) => Err(err),
+    };
+
+    match health_result {
+        Ok(()) => {
+            match tx.current_state {
+                UpdateStateId::Applying => {
+                    tx.transition_to(UpdateStateId::LaunchingCandidate)?;
+                    tx.transition_to(UpdateStateId::AwaitingHealth)?;
+                    tx.transition_to(UpdateStateId::Committed)?;
+                }
+                UpdateStateId::LaunchingCandidate => {
+                    tx.transition_to(UpdateStateId::AwaitingHealth)?;
+                    tx.transition_to(UpdateStateId::Committed)?;
+                }
+                UpdateStateId::AwaitingHealth => {
+                    tx.transition_to(UpdateStateId::Committed)?;
+                }
+                _ => {}
+            }
+            tx.save_to_dir(&state_dir)?;
+
+            let staging_dir = state_dir.join(".staging");
+            if staging_dir.exists() {
+                let _ = std::fs::remove_dir_all(&staging_dir);
+            }
+            let health_proof = state_dir.join(HEALTH_PROOF_FILENAME);
+            if health_proof.exists() {
+                let _ = std::fs::remove_file(&health_proof);
+            }
+            cleanup_orphaned_attempt_lock(&state_dir, tx.attempt_id);
+
+            Ok(Some(UpdateStartupOutcome {
+                attempt_id: tx.attempt_id,
+                plan_digest: tx.plan_digest.unwrap_or_default(),
+                result_category: HelperResultCategory::Success,
+                exit_code: WindowsHelperExitCode::Success.as_i32(),
+                helper_engine: tx.installation_type.as_str().to_string(),
+                backup_retained_bytes: 0,
+                sanitized_diagnostic_summary: format!(
+                    "Delegowana aktualizacja {} potwierdzona po restarcie.",
+                    tx.installation_type
+                ),
+                was_success: true,
+            }))
+        }
+        Err(err) => {
+            let reason = err.to_string();
+            tx.failure_stage = Some(tx.current_state);
+            tx.sanitized_diagnostic_summary = Some(reason.clone());
+            let _ = tx.transition_to(UpdateStateId::FailedPostApply);
+            let _ = tx.save_to_dir(&state_dir);
+
+            let health_proof = state_dir.join(HEALTH_PROOF_FILENAME);
+            if health_proof.exists() {
+                let _ = std::fs::remove_file(&health_proof);
+            }
+            cleanup_orphaned_attempt_lock(&state_dir, tx.attempt_id);
+
+            Ok(Some(UpdateStartupOutcome {
+                attempt_id: tx.attempt_id,
+                plan_digest: tx.plan_digest.unwrap_or_default(),
+                result_category: HelperResultCategory::ManualInterventionRequired,
+                exit_code: WindowsHelperExitCode::HealthRejectedRollbackSucceeded.as_i32(),
+                helper_engine: tx.installation_type.as_str().to_string(),
+                backup_retained_bytes: 0,
+                sanitized_diagnostic_summary: reason,
+                was_success: false,
+            }))
+        }
+    }
+}
+
 pub fn consume_update_result_on_startup(
     installation_root: &Path,
 ) -> Result<Option<UpdateStartupOutcome>, UpdaterError> {
     let result_file = installation_root.join(".update_helper_result.json");
     if !result_file.exists() {
-        return Ok(None);
+        let local_app_data = non_empty_env_path("LOCALAPPDATA");
+        let app_data = non_empty_env_path("APPDATA");
+        return consume_delegated_transaction_on_startup_with_env(
+            installation_root,
+            local_app_data.as_deref(),
+            app_data.as_deref(),
+        );
     }
 
     let meta = std::fs::symlink_metadata(&result_file).map_err(|e| {
@@ -9642,5 +10227,513 @@ mod tests {
             ),
             ReleasePackageType::Msi
         );
+    }
+
+    fn make_windows_multi_package_manifest() -> (VerifiedReleaseManifest, Vec<ReleaseAsset>) {
+        let sha_zip = "1111111111111111111111111111111111111111111111111111111111111111";
+        let sha_inno = "2222222222222222222222222222222222222222222222222222222222222222";
+        let sha_msi = "3333333333333333333333333333333333333333333333333333333333333333";
+
+        let manifest = ReleaseManifest {
+            manifest_version: 1,
+            key_id: "test-key".into(),
+            product: "SPLogbook".into(),
+            version: "1.3.0".into(),
+            channel: "stable".into(),
+            minimum_updater_version: "1.2.0".into(),
+            commit: "0123456789abcdef0123456789abcdef01234567".into(),
+            assets: vec![
+                ManifestAsset {
+                    platform: "windows".into(),
+                    arch: "x86_64".into(),
+                    package_type: "zip".into(),
+                    filename: "SPLogbook-Windows-x64.zip".into(),
+                    size: 1000,
+                    sha256: sha_zip.into(),
+                },
+                ManifestAsset {
+                    platform: "windows".into(),
+                    arch: "x86_64".into(),
+                    package_type: "inno-exe".into(),
+                    filename: "SPLogbook-Windows-x64-Setup-1.3.0.exe".into(),
+                    size: 2000,
+                    sha256: sha_inno.into(),
+                },
+                ManifestAsset {
+                    platform: "windows".into(),
+                    arch: "x86_64".into(),
+                    package_type: "msi".into(),
+                    filename: "SPLogbook-Windows-x64-1.3.0.msi".into(),
+                    size: 3000,
+                    sha256: sha_msi.into(),
+                },
+            ],
+        };
+        let verified = VerifiedReleaseManifest {
+            manifest,
+            signing_key_id: "test-key".into(),
+            signing_key_fingerprint: "fp".into(),
+        };
+        let api_assets = vec![
+            ReleaseAsset {
+                name: "SPLogbook-Windows-x64.zip".into(),
+                browser_download_url: "https://example.com/SPLogbook-Windows-x64.zip".into(),
+                digest: Some(format!("sha256:{sha_zip}")),
+                size: 1000,
+            },
+            ReleaseAsset {
+                name: "SPLogbook-Windows-x64-Setup-1.3.0.exe".into(),
+                browser_download_url: "https://example.com/SPLogbook-Windows-x64-Setup-1.3.0.exe"
+                    .into(),
+                digest: Some(format!("sha256:{sha_inno}")),
+                size: 2000,
+            },
+            ReleaseAsset {
+                name: "SPLogbook-Windows-x64-1.3.0.msi".into(),
+                browser_download_url: "https://example.com/SPLogbook-Windows-x64-1.3.0.msi".into(),
+                digest: Some(format!("sha256:{sha_msi}")),
+                size: 3000,
+            },
+        ];
+        (verified, api_assets)
+    }
+
+    #[test]
+    fn windows_multi_artifact_manifest_selects_package_by_installation_type() {
+        let (verified, api_assets) = make_windows_multi_package_manifest();
+
+        let zip_asset = verified
+            .select_asset_for_installation_type(
+                ReleasePlatform::Windows,
+                ReleaseArchitecture::X86_64,
+                InstallationType::WindowsPortableZip,
+                &api_assets,
+            )
+            .expect("select zip");
+        assert_eq!(zip_asset.package_type(), ReleasePackageType::Zip);
+        assert_eq!(zip_asset.filename(), "SPLogbook-Windows-x64.zip");
+
+        let inno_asset = verified
+            .select_asset_for_installation_type(
+                ReleasePlatform::Windows,
+                ReleaseArchitecture::X86_64,
+                InstallationType::WindowsInnoSetup,
+                &api_assets,
+            )
+            .expect("select inno-exe");
+        assert_eq!(inno_asset.package_type(), ReleasePackageType::InnoExe);
+        assert_eq!(
+            inno_asset.filename(),
+            "SPLogbook-Windows-x64-Setup-1.3.0.exe"
+        );
+
+        let msi_asset = verified
+            .select_asset_for_installation_type(
+                ReleasePlatform::Windows,
+                ReleaseArchitecture::X86_64,
+                InstallationType::WindowsMsi,
+                &api_assets,
+            )
+            .expect("select msi");
+        assert_eq!(msi_asset.package_type(), ReleasePackageType::Msi);
+        assert_eq!(msi_asset.filename(), "SPLogbook-Windows-x64-1.3.0.msi");
+
+        // Ogólny wybór dla platformy z 3 różnymi package_type nie zwraca AmbiguousArtifact
+        let default_asset = verified
+            .select_asset_for_platform(
+                ReleasePlatform::Windows,
+                ReleaseArchitecture::X86_64,
+                &api_assets,
+            )
+            .expect("select_asset_for_platform with 3 distinct package types");
+        assert_eq!(default_asset.package_type(), ReleasePackageType::Zip);
+
+        let manifest_selected =
+            select_manifest_asset(&verified.manifest().assets, "windows", "x86_64")
+                .expect("select_manifest_asset with 3 distinct package types");
+        assert_eq!(manifest_selected.package_type, "zip");
+    }
+
+    #[test]
+    fn windows_multi_artifact_manifest_rejects_duplicate_package_type_triad() {
+        let (mut verified, api_assets) = make_windows_multi_package_manifest();
+        verified.manifest.assets.push(ManifestAsset {
+            platform: "windows".into(),
+            arch: "x86_64".into(),
+            package_type: "msi".into(),
+            filename: "SPLogbook-Windows-x64-alt.msi".into(),
+            size: 3001,
+            sha256: "4444444444444444444444444444444444444444444444444444444444444444".into(),
+        });
+
+        let res_platform = verified.select_asset_for_platform(
+            ReleasePlatform::Windows,
+            ReleaseArchitecture::X86_64,
+            &api_assets,
+        );
+        assert!(matches!(
+            res_platform,
+            Err(UpdaterError::AmbiguousArtifact(_))
+        ));
+
+        let res_manifest = select_manifest_asset(&verified.manifest().assets, "windows", "x86_64");
+        assert!(matches!(
+            res_manifest,
+            Err(UpdaterError::AmbiguousArtifact(_))
+        ));
+    }
+
+    #[test]
+    fn delegated_state_dir_falls_back_on_permission_denied() {
+        let temp = tempfile::tempdir().unwrap();
+        let install_dir = temp.path().join("ProgramFilesSPLogbook");
+        let local_app_data = temp.path().join("LocalAppData");
+        let app_data = temp.path().join("AppData");
+        std::fs::create_dir_all(&install_dir).unwrap();
+
+        let direct = resolve_delegated_state_dir_with(
+            &install_dir,
+            |_| Ok(()),
+            Some(&local_app_data),
+            Some(&app_data),
+        )
+        .unwrap();
+        assert_eq!(direct, install_dir);
+
+        let fallback_local = resolve_delegated_state_dir_with(
+            &install_dir,
+            |_| Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied)),
+            Some(&local_app_data),
+            Some(&app_data),
+        )
+        .unwrap();
+        assert_eq!(
+            fallback_local,
+            local_app_data.join("SPLogbook").join(UPDATER_STATE_SUBDIR)
+        );
+        assert!(fallback_local.is_dir());
+
+        let fallback_roaming = resolve_delegated_state_dir_with(
+            &install_dir,
+            |_| Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied)),
+            None,
+            Some(&app_data),
+        )
+        .unwrap();
+        assert_eq!(
+            fallback_roaming,
+            app_data.join("SPLogbook").join(UPDATER_STATE_SUBDIR)
+        );
+        assert!(fallback_roaming.is_dir());
+    }
+
+    #[test]
+    fn delegated_transaction_lifecycle_and_health_proof_for_inno_and_msi() {
+        let (verified, api_assets) = make_windows_multi_package_manifest();
+        let identity = crate::core::build_info::BuildIdentity::current();
+
+        for (inst_type, expected_pkg) in [
+            (
+                InstallationType::WindowsInnoSetup,
+                ReleasePackageType::InnoExe,
+            ),
+            (InstallationType::WindowsMsi, ReleasePackageType::Msi),
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            let state_dir = temp.path();
+
+            let mut asset = verified
+                .select_asset_for_installation_type(
+                    ReleasePlatform::Windows,
+                    ReleaseArchitecture::X86_64,
+                    inst_type,
+                    &api_assets,
+                )
+                .unwrap();
+            assert_eq!(asset.package_type(), expected_pkg);
+            asset.bound_manifest_version = identity.package_version.to_string();
+            asset.bound_commit = identity.git_commit_hash.to_string();
+
+            let attempt_id = UpdateAttemptId::generate();
+            let mut lock_guard = UpdateLockGuard::acquire(state_dir, attempt_id).unwrap();
+            let mut tx =
+                begin_delegated_transaction(attempt_id, inst_type, &asset, state_dir).unwrap();
+            assert_eq!(tx.current_state, UpdateStateId::Downloading);
+            assert_eq!(tx.installation_type, inst_type);
+
+            tx.transition_to(UpdateStateId::VerifyingDownload).unwrap();
+            advance_delegated_transaction_to_applying(&mut tx, state_dir).unwrap();
+            assert_eq!(tx.current_state, UpdateStateId::Applying);
+
+            let proof = HealthProof::from_build_identity(attempt_id, identity, inst_type);
+            let canned_proof = temp.path().join("canned_proof.json");
+            std::fs::write(&canned_proof, serde_json::to_vec_pretty(&proof).unwrap()).unwrap();
+
+            #[cfg(windows)]
+            let fake_candidate = {
+                let p = temp.path().join("fake_candidate.cmd");
+                let script = format!(
+                    "@echo off\r\ncopy /Y \"{}\" \"%~5\" >nul\r\nexit 0\r\n",
+                    canned_proof.display()
+                );
+                std::fs::write(&p, script).unwrap();
+                p
+            };
+            #[cfg(not(windows))]
+            let fake_candidate = {
+                use std::os::unix::fs::PermissionsExt;
+                let p = temp.path().join("fake_candidate.sh");
+                let script = format!(
+                    "#!/bin/sh\ncp \"{}\" \"$5\"\nexit 0\n",
+                    canned_proof.display()
+                );
+                std::fs::write(&p, script).unwrap();
+                let mut perms = std::fs::metadata(&p).unwrap().permissions();
+                perms.set_mode(0o755);
+                std::fs::set_permissions(&p, perms).unwrap();
+                p
+            };
+
+            verify_delegated_candidate_health(
+                &fake_candidate,
+                state_dir,
+                attempt_id,
+                identity.package_version,
+                identity.git_commit_hash,
+                &mut tx,
+                &mut lock_guard,
+            )
+            .expect("delegated candidate health should succeed");
+
+            assert_eq!(tx.current_state, UpdateStateId::Committed);
+            assert!(!state_dir.join(HEALTH_PROOF_FILENAME).exists());
+            assert!(!state_dir.join(UPDATE_LOCK_FILENAME).exists());
+        }
+    }
+
+    #[test]
+    fn delegated_health_proof_failure_marks_failed_post_apply() {
+        let (verified, api_assets) = make_windows_multi_package_manifest();
+        let identity = crate::core::build_info::BuildIdentity::current();
+        let temp = tempfile::tempdir().unwrap();
+        let state_dir = temp.path();
+
+        let mut asset = verified
+            .select_asset_for_installation_type(
+                ReleasePlatform::Windows,
+                ReleaseArchitecture::X86_64,
+                InstallationType::WindowsInnoSetup,
+                &api_assets,
+            )
+            .unwrap();
+        asset.bound_manifest_version = identity.package_version.to_string();
+        asset.bound_commit = identity.git_commit_hash.to_string();
+
+        let attempt_id = UpdateAttemptId::generate();
+        let mut lock_guard = UpdateLockGuard::acquire(state_dir, attempt_id).unwrap();
+        let mut tx = begin_delegated_transaction(
+            attempt_id,
+            InstallationType::WindowsInnoSetup,
+            &asset,
+            state_dir,
+        )
+        .unwrap();
+        tx.transition_to(UpdateStateId::VerifyingDownload).unwrap();
+        advance_delegated_transaction_to_applying(&mut tx, state_dir).unwrap();
+
+        #[cfg(windows)]
+        let failing_candidate = {
+            let p = temp.path().join("fail_candidate.cmd");
+            std::fs::write(&p, b"@echo off\r\nexit 1\r\n").unwrap();
+            p
+        };
+        #[cfg(not(windows))]
+        let failing_candidate = {
+            use std::os::unix::fs::PermissionsExt;
+            let p = temp.path().join("fail_candidate.sh");
+            std::fs::write(&p, b"#!/bin/sh\nexit 1\n").unwrap();
+            let mut perms = std::fs::metadata(&p).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&p, perms).unwrap();
+            p
+        };
+
+        let res = verify_delegated_candidate_health(
+            &failing_candidate,
+            state_dir,
+            attempt_id,
+            identity.package_version,
+            identity.git_commit_hash,
+            &mut tx,
+            &mut lock_guard,
+        );
+        assert!(matches!(res, Err(UpdaterError::HealthCheckFailed)));
+        assert_eq!(tx.current_state, UpdateStateId::FailedPostApply);
+        assert_eq!(tx.failure_stage, Some(UpdateStateId::AwaitingHealth));
+    }
+
+    #[test]
+    fn consume_startup_reconciles_delegated_inno_and_msi_transactions() {
+        let identity = crate::core::build_info::BuildIdentity::current();
+        let (verified, api_assets) = make_windows_multi_package_manifest();
+
+        for (inst_type, initial_state) in [
+            (InstallationType::WindowsInnoSetup, UpdateStateId::Applying),
+            (
+                InstallationType::WindowsMsi,
+                UpdateStateId::LaunchingCandidate,
+            ),
+            (InstallationType::WindowsMsi, UpdateStateId::AwaitingHealth),
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            let install_root = temp.path().join("install");
+            let local_app_data = temp.path().join("local");
+            std::fs::create_dir_all(&install_root).unwrap();
+
+            let state_dir = if inst_type == InstallationType::WindowsMsi {
+                let dir = local_app_data.join("SPLogbook").join(UPDATER_STATE_SUBDIR);
+                std::fs::create_dir_all(&dir).unwrap();
+                let marker = WindowsMsiMarker::new(
+                    identity.package_version,
+                    &install_root,
+                    identity.git_commit_hash,
+                );
+                std::fs::write(
+                    install_root.join(WINDOWS_MSI_MARKER_FILENAME),
+                    serde_json::to_vec_pretty(&marker).unwrap(),
+                )
+                .unwrap();
+                dir
+            } else {
+                let marker = WindowsUserSetupMarker::new(
+                    identity.package_version,
+                    &install_root,
+                    identity.git_commit_hash,
+                );
+                std::fs::write(
+                    install_root.join(WINDOWS_INNO_MARKER_FILENAME),
+                    serde_json::to_vec_pretty(&marker).unwrap(),
+                )
+                .unwrap();
+                install_root.clone()
+            };
+
+            let mut asset = verified
+                .select_asset_for_installation_type(
+                    ReleasePlatform::Windows,
+                    ReleaseArchitecture::X86_64,
+                    inst_type,
+                    &api_assets,
+                )
+                .unwrap();
+            asset.bound_manifest_version = identity.package_version.to_string();
+            asset.bound_commit = identity.git_commit_hash.to_string();
+
+            let attempt_id = UpdateAttemptId::generate();
+            let lock_guard = UpdateLockGuard::acquire(&state_dir, attempt_id).unwrap();
+            // Symulacja osieroconego pliku blokady pozostawionego po zamknięciu procesu przez instalator
+            std::mem::forget(lock_guard);
+            assert!(state_dir.join(UPDATE_LOCK_FILENAME).exists());
+
+            let mut tx =
+                begin_delegated_transaction(attempt_id, inst_type, &asset, &state_dir).unwrap();
+            tx.transition_to(UpdateStateId::VerifyingDownload).unwrap();
+            advance_delegated_transaction_to_applying(&mut tx, &state_dir).unwrap();
+            if matches!(
+                initial_state,
+                UpdateStateId::LaunchingCandidate | UpdateStateId::AwaitingHealth
+            ) {
+                tx.transition_to(UpdateStateId::LaunchingCandidate).unwrap();
+            }
+            if initial_state == UpdateStateId::AwaitingHealth {
+                tx.transition_to(UpdateStateId::AwaitingHealth).unwrap();
+            }
+            tx.save_to_dir(&state_dir).unwrap();
+
+            let outcome = consume_delegated_transaction_on_startup_with_env(
+                &install_root,
+                Some(&local_app_data),
+                None,
+            )
+            .unwrap()
+            .expect("delegated startup outcome");
+
+            assert!(outcome.was_success);
+            assert_eq!(outcome.attempt_id, attempt_id);
+            assert_eq!(outcome.result_category, HelperResultCategory::Success);
+            assert!(!state_dir.join(UPDATE_LOCK_FILENAME).exists());
+            assert!(!state_dir.join(HEALTH_PROOF_FILENAME).exists());
+
+            let saved_tx = UpdateTransaction::load_from_dir(&state_dir, &state_dir)
+                .unwrap()
+                .unwrap();
+            assert_eq!(saved_tx.current_state, UpdateStateId::Committed);
+
+            // Idempotentne drugie wywołanie nie konsumuje ponownie transakcji w stanie Committed
+            let second = consume_delegated_transaction_on_startup_with_env(
+                &install_root,
+                Some(&local_app_data),
+                None,
+            )
+            .unwrap();
+            assert!(second.is_none());
+        }
+    }
+
+    #[test]
+    fn consume_startup_marks_failed_post_apply_on_delegated_identity_mismatch() {
+        let identity = crate::core::build_info::BuildIdentity::current();
+        let (verified, api_assets) = make_windows_multi_package_manifest();
+        let temp = tempfile::tempdir().unwrap();
+        let state_dir = temp.path();
+
+        let marker = WindowsUserSetupMarker::new(
+            identity.package_version,
+            state_dir,
+            identity.git_commit_hash,
+        );
+        std::fs::write(
+            state_dir.join(WINDOWS_INNO_MARKER_FILENAME),
+            serde_json::to_vec_pretty(&marker).unwrap(),
+        )
+        .unwrap();
+
+        let mut asset = verified
+            .select_asset_for_installation_type(
+                ReleasePlatform::Windows,
+                ReleaseArchitecture::X86_64,
+                InstallationType::WindowsInnoSetup,
+                &api_assets,
+            )
+            .unwrap();
+        asset.bound_manifest_version = "9.9.9".to_string();
+        asset.bound_commit = "0000000000000000000000000000000000000000".to_string();
+
+        let attempt_id = UpdateAttemptId::generate();
+        let lock_guard = UpdateLockGuard::acquire(state_dir, attempt_id).unwrap();
+        std::mem::forget(lock_guard);
+
+        let mut tx = begin_delegated_transaction(
+            attempt_id,
+            InstallationType::WindowsInnoSetup,
+            &asset,
+            state_dir,
+        )
+        .unwrap();
+        tx.transition_to(UpdateStateId::VerifyingDownload).unwrap();
+        advance_delegated_transaction_to_applying(&mut tx, state_dir).unwrap();
+
+        let outcome = consume_update_result_on_startup(state_dir)
+            .unwrap()
+            .expect("mismatch outcome");
+        assert!(!outcome.was_success);
+        assert_eq!(outcome.attempt_id, attempt_id);
+        assert!(!state_dir.join(UPDATE_LOCK_FILENAME).exists());
+
+        let saved_tx = UpdateTransaction::load_from_dir(state_dir, state_dir)
+            .unwrap()
+            .unwrap();
+        assert_eq!(saved_tx.current_state, UpdateStateId::FailedPostApply);
+        assert_eq!(saved_tx.failure_stage, Some(UpdateStateId::Applying));
     }
 }

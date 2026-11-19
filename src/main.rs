@@ -9,6 +9,64 @@ use splogbook::core::station::AppConfig;
 use splogbook::gui::app::SpLogApp;
 use std::sync::{Arc, Mutex};
 
+#[cfg(windows)]
+mod win32_instance_mutex {
+    use std::ffi::c_void;
+    use std::os::windows::ffi::OsStrExt;
+
+    const MUTEX_NAMES: [&str; 2] = [
+        "SPLogbook_Instance_Mutex_{C8E28541-7B21-4A9B-8F5C-4EF298F613C1}",
+        "SPLogbook",
+    ];
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn CreateMutexW(
+            lp_mutex_attributes: *const c_void,
+            b_initial_owner: i32,
+            lp_name: *const u16,
+        ) -> *mut c_void;
+        fn CloseHandle(h_object: *mut c_void) -> i32;
+        fn GetLastError() -> u32;
+    }
+
+    pub struct InstanceMutexGuard {
+        handles: Vec<*mut c_void>,
+    }
+
+    impl InstanceMutexGuard {
+        pub fn acquire() -> Self {
+            let mut handles = Vec::with_capacity(MUTEX_NAMES.len());
+            for name in MUTEX_NAMES {
+                let wide: Vec<u16> = std::ffi::OsStr::new(name)
+                    .encode_wide()
+                    .chain(std::iter::once(0))
+                    .collect();
+                let handle = unsafe { CreateMutexW(std::ptr::null(), 0, wide.as_ptr()) };
+                if handle.is_null() {
+                    let err = unsafe { GetLastError() };
+                    log::warn!("CreateMutexW({name}) failed with Win32 error {err}");
+                } else {
+                    handles.push(handle);
+                }
+            }
+            Self { handles }
+        }
+    }
+
+    impl Drop for InstanceMutexGuard {
+        fn drop(&mut self) {
+            for handle in self.handles.drain(..) {
+                if !handle.is_null() {
+                    unsafe {
+                        CloseHandle(handle);
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn main() -> Result<(), eframe::Error> {
     // Wczesna obsługa CLI diagnostyki tożsamości wersji (przed Tokio, bazą danych, audio, CAT i GUI)
     for arg in std::env::args().skip(1) {
@@ -151,6 +209,9 @@ fn main() -> Result<(), eframe::Error> {
 
         std::process::exit(0);
     }
+
+    #[cfg(windows)]
+    let _instance_mutex_guard = win32_instance_mutex::InstanceMutexGuard::acquire();
 
     // Konsumpcja wyniku pomocnika aktualizacji Windows po restarcie (jeśli istnieje)
     if let Ok(Some(outcome)) = splogbook::cloud::updater::consume_update_result_on_startup(&exe_dir)

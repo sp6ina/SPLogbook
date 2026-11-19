@@ -32,6 +32,8 @@
   #define OutputBaseFilename "SPLogbook-Windows-x64-Setup-1.3.0-alpha.1"
 #endif
 
+#define AppMutexName "SPLogbook_Instance_Mutex_{{C8E28541-7B21-4A9B-8F5C-4EF298F613C1}"
+
 [Setup]
 AppName=SPLogbook
 AppId={{C8E28541-7B21-4A9B-8F5C-4EF298F613C1}}
@@ -60,7 +62,7 @@ UsePreviousAppDir=yes
 OutputDir={#OutputDir}
 OutputBaseFilename={#OutputBaseFilename}
 
-AppMutex=SPLogbook_Instance_Mutex_{{C8E28541-7B21-4A9B-8F5C-4EF298F613C1},SPLogbook
+AppMutex={#AppMutexName},SPLogbook
 CloseApplications=yes
 CloseApplicationsFilter=SPLogbook.exe
 
@@ -98,18 +100,198 @@ Type: dirifempty; Name: "{app}\databases"
 Type: dirifempty; Name: "{app}"
 
 [Code]
+function ExtractNextToken(var S: String; const Delim: String): String;
+var
+  DelimPos: Integer;
+begin
+  DelimPos := Pos(Delim, S);
+  if DelimPos > 0 then
+  begin
+    Result := Copy(S, 1, DelimPos - 1);
+    S := Copy(S, DelimPos + Length(Delim), Length(S) - DelimPos - Length(Delim) + 1);
+  end
+  else
+  begin
+    Result := S;
+    S := '';
+  end;
+end;
+
+function IsAllDigits(const S: String): Boolean;
+var
+  I: Integer;
+begin
+  if S = '' then
+  begin
+    Result := False;
+    Exit;
+  end;
+  for I := 1 to Length(S) do
+  begin
+    if (S[I] < '0') or (S[I] > '9') then
+    begin
+      Result := False;
+      Exit;
+    end;
+  end;
+  Result := True;
+end;
+
+function CompareNumericStrings(const A, B: String): Integer;
+var
+  NA, NB: String;
+  Cmp: Integer;
+begin
+  NA := A;
+  NB := B;
+  while (Length(NA) > 1) and (NA[1] = '0') do
+    NA := Copy(NA, 2, Length(NA) - 1);
+  while (Length(NB) > 1) and (NB[1] = '0') do
+    NB := Copy(NB, 2, Length(NB) - 1);
+
+  if Length(NA) < Length(NB) then
+    Result := -1
+  else if Length(NA) > Length(NB) then
+    Result := 1
+  else
+  begin
+    Cmp := CompareStr(NA, NB);
+    if Cmp < 0 then
+      Result := -1
+    else if Cmp > 0 then
+      Result := 1
+    else
+      Result := 0;
+  end;
+end;
+
+function ComparePreRelease(const Pre1, Pre2: String): Integer;
+var
+  Rest1, Rest2, Tok1, Tok2: String;
+  Num1, Num2: Boolean;
+  Cmp: Integer;
+begin
+  if (Pre1 = '') and (Pre2 = '') then
+  begin
+    Result := 0;
+    Exit;
+  end;
+  if Pre1 = '' then
+  begin
+    Result := 1;
+    Exit;
+  end;
+  if Pre2 = '' then
+  begin
+    Result := -1;
+    Exit;
+  end;
+
+  Rest1 := Pre1;
+  Rest2 := Pre2;
+  while (Rest1 <> '') or (Rest2 <> '') do
+  begin
+    if Rest1 = '' then
+    begin
+      Result := -1;
+      Exit;
+    end;
+    if Rest2 = '' then
+    begin
+      Result := 1;
+      Exit;
+    end;
+
+    Tok1 := ExtractNextToken(Rest1, '.');
+    Tok2 := ExtractNextToken(Rest2, '.');
+    Num1 := IsAllDigits(Tok1);
+    Num2 := IsAllDigits(Tok2);
+
+    if Num1 and Num2 then
+      Cmp := CompareNumericStrings(Tok1, Tok2)
+    else if Num1 and (not Num2) then
+      Cmp := -1
+    else if (not Num1) and Num2 then
+      Cmp := 1
+    else
+    begin
+      Cmp := CompareStr(Tok1, Tok2);
+      if Cmp < 0 then
+        Cmp := -1
+      else if Cmp > 0 then
+        Cmp := 1;
+    end;
+
+    if Cmp <> 0 then
+    begin
+      Result := Cmp;
+      Exit;
+    end;
+  end;
+  Result := 0;
+end;
+
 function CompareSemVer(const V1, V2: String): Integer;
 var
-  Clean1, Clean2: String;
-  P1, P2: Integer;
+  S1, S2, Core1, Core2, Pre1, Pre2, Tok1, Tok2: String;
+  P, I, Cmp: Integer;
 begin
-  Clean1 := Trim(V1);
-  Clean2 := Trim(V2);
-  P1 := Pos('-', Clean1);
-  if P1 > 0 then Clean1 := Copy(Clean1, 1, P1 - 1);
-  P2 := Pos('-', Clean2);
-  if P2 > 0 then Clean2 := Copy(Clean2, 1, P2 - 1);
-  Result := CompareText(Clean1, Clean2);
+  S1 := Trim(V1);
+  S2 := Trim(V2);
+
+  if (Length(S1) > 0) and ((S1[1] = 'v') or (S1[1] = 'V')) then
+    S1 := Copy(S1, 2, Length(S1) - 1);
+  if (Length(S2) > 0) and ((S2[1] = 'v') or (S2[1] = 'V')) then
+    S2 := Copy(S2, 2, Length(S2) - 1);
+
+  P := Pos('+', S1);
+  if P > 0 then
+    S1 := Copy(S1, 1, P - 1);
+  P := Pos('+', S2);
+  if P > 0 then
+    S2 := Copy(S2, 1, P - 1);
+
+  P := Pos('-', S1);
+  if P > 0 then
+  begin
+    Core1 := Copy(S1, 1, P - 1);
+    Pre1 := Copy(S1, P + 1, Length(S1) - P);
+  end
+  else
+  begin
+    Core1 := S1;
+    Pre1 := '';
+  end;
+
+  P := Pos('-', S2);
+  if P > 0 then
+  begin
+    Core2 := Copy(S2, 1, P - 1);
+    Pre2 := Copy(S2, P + 1, Length(S2) - P);
+  end
+  else
+  begin
+    Core2 := S2;
+    Pre2 := '';
+  end;
+
+  for I := 1 to 3 do
+  begin
+    Tok1 := ExtractNextToken(Core1, '.');
+    Tok2 := ExtractNextToken(Core2, '.');
+    if not IsAllDigits(Tok1) then
+      Tok1 := '0';
+    if not IsAllDigits(Tok2) then
+      Tok2 := '0';
+    Cmp := CompareNumericStrings(Tok1, Tok2);
+    if Cmp <> 0 then
+    begin
+      Result := Cmp;
+      Exit;
+    end;
+  end;
+
+  Result := ComparePreRelease(Pre1, Pre2);
 end;
 
 function InitializeSetup(): Boolean;
