@@ -112,7 +112,7 @@ impl SpLogApp {
                 }
                 crate::plugins::bridge::PluginLookupResult::Error(msg) => {
                     self.gui.chrome.push_status_toast(
-                        crate::gui::state::ToastSeverity::Info,
+                        crate::gui::state::ToastSeverity::Error,
                         format!("Plugin: {msg}"),
                     );
                 }
@@ -239,7 +239,7 @@ impl SpLogApp {
             "band_opened" | "band" => crate::media::sounds::play_band_opened_alert(),
             _ => {
                 self.gui.chrome.push_status_toast(
-                    crate::gui::state::ToastSeverity::Info,
+                    crate::gui::state::ToastSeverity::Warning,
                     Msg::new(key::PLUGIN_UNKNOWN_SOUND)
                         .arg("name", name)
                         .text(self.gui.appearance.language),

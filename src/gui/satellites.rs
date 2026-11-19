@@ -26,10 +26,14 @@ pub fn render_satellites_window(app: &mut SpLogApp, ctx: &egui::Context) {
             |app, ui| {
                 egui::Panel::top("satellites_vp_bar").show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        if ui
-                            .button(format!("↙ {}", tr(key::WINDOW_DOCK, lang)))
-                            .on_hover_text(tr(key::WINDOW_DOCK_TOOLTIP, lang))
-                            .clicked()
+                        let palette = ui.palette();
+                        if crate::gui::theme::dock_button(
+                            ui,
+                            &palette,
+                            tr(key::WINDOW_DOCK, lang),
+                            tr(key::WINDOW_DOCK_TOOLTIP, lang),
+                        )
+                        .clicked()
                         {
                             dock_back = true;
                         }
@@ -53,7 +57,7 @@ pub fn render_satellites_window(app: &mut SpLogApp, ctx: &egui::Context) {
             app.save_station_config();
         }
         if dock_back {
-            app.views.panel_satellites.floating = false;
+            app.dock_tile("satellites");
             app.save_station_config();
         }
         if !still_open {

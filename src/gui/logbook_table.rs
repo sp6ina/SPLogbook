@@ -34,9 +34,14 @@ pub fn render_logbook_window(app: &mut SpLogApp, ctx: &egui::Context) {
             |app, ui| {
                 egui::Panel::top("logbook_vp_bar").show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        if ui
-                            .button(format!("↙ {}", tr(key::WINDOW_DOCK, lang)))
-                            .clicked()
+                        let palette = ui.palette();
+                        if crate::gui::theme::dock_button(
+                            ui,
+                            &palette,
+                            tr(key::WINDOW_DOCK, lang),
+                            tr(key::WINDOW_DOCK_TOOLTIP, lang),
+                        )
+                        .clicked()
                         {
                             dock_back = true;
                         }
@@ -86,7 +91,7 @@ pub fn render_logbook_window(app: &mut SpLogApp, ctx: &egui::Context) {
             app.save_station_config();
         }
         if dock_back {
-            app.views.panel_log.floating = false;
+            app.dock_tile("log");
             app.save_station_config();
         }
         if !still_open {

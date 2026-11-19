@@ -153,6 +153,22 @@ impl SpLogApp {
         }
     }
 
+    /// Zadokowuje odpięty kafelek z powrotem do pulpitu (odwrotność [`Self::popout_tile`]).
+    pub fn dock_tile(&mut self, tile_id: &str) {
+        match tile_id {
+            "vfo" => self.views.panel_vfo.floating = false,
+            "qso" => self.views.panel_qso.floating = false,
+            "log" => self.views.panel_log.floating = false,
+            "cluster" => self.views.panel_cluster.floating = false,
+            "bandmap" => self.views.panel_bandmap.floating = false,
+            "solar" => self.views.panel_solar.floating = false,
+            "satellites" => self.views.panel_satellites.floating = false,
+            "world_map" => self.views.panel_world_map.floating = false,
+            "waterfall" => self.views.panel_waterfall.floating = false,
+            _ => {}
+        }
+    }
+
     pub fn close_tile(&mut self, tile_id: &str) {
         match tile_id {
             "vfo" => self.views.panel_vfo.visible = false,
@@ -193,12 +209,6 @@ impl SpLogApp {
             "waterfall" => icons::SIGNAL_UP.label(tr(key::VIEW_PANEL_WATERFALL, lang)),
             _ => tile_id.to_string(),
         }
-    }
-
-    /// Czy kafelek ma własne widżety nagłówka (wiersz nagłówka jest rysowany tylko wtedy).
-    #[must_use]
-    pub fn tile_has_custom_header(tile_id: &str) -> bool {
-        matches!(tile_id, "vfo" | "qso" | "log" | "cluster")
     }
 
     pub fn render_tile_header_custom(&mut self, tile_id: &str, ui: &mut egui::Ui) {

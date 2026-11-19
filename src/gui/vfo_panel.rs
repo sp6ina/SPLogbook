@@ -29,10 +29,14 @@ pub fn render_vfo_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 egui::Panel::top("vfo_vp_bar").show(ui, |ui| {
                     ui.horizontal(|ui| {
                         let lang = app.gui.appearance.language;
-                        if ui
-                            .button(format!("↙ {}", tr(key::WINDOW_DOCK, lang)))
-                            .on_hover_text(tr(key::WINDOW_DOCK_TOOLTIP, lang))
-                            .clicked()
+                        let palette = ui.palette();
+                        if crate::gui::theme::dock_button(
+                            ui,
+                            &palette,
+                            tr(key::WINDOW_DOCK, lang),
+                            tr(key::WINDOW_DOCK_TOOLTIP, lang),
+                        )
+                        .clicked()
                         {
                             dock_back = true;
                         }
@@ -56,7 +60,7 @@ pub fn render_vfo_window(app: &mut SpLogApp, ctx: &egui::Context) {
             app.save_station_config();
         }
         if dock_back {
-            app.views.panel_vfo.floating = false;
+            app.dock_tile("vfo");
             app.save_station_config();
         }
         if !still_open {

@@ -27,7 +27,7 @@ use crate::gui::satellites::render_satellites_window;
 use crate::gui::solar_panel::render_solar_window;
 use crate::gui::station_ledger::render_station_ledger_window;
 use crate::gui::statistics::render_statistics_window;
-use crate::gui::theme::ThemeExt;
+use crate::gui::theme::{ThemeExt, undock_button};
 use crate::gui::vfo_panel::render_vfo_window;
 use crate::gui::voice_keyer::render_voice_keyer_window;
 use crate::gui::welcome_wizard::render_welcome_wizard;
@@ -629,25 +629,20 @@ impl TabViewer for SpLogApp {
         let tile_id = tab.clone();
         let mut action_popout = false;
 
-        // Pasek zakładki `egui_dock` dostarcza tytuł i przycisk ✕ (zamknięcie, `on_close`).
-        // Dodatkowy wiersz nagłówka istnieje wyłącznie dla kafelków z własnymi widżetami
-        // (CAT, SPLIT, Szukaj, Spot) i zawiera też kompaktowy przycisk odpięcia 🗗.
-        // Pozostałe kafelki odpinane są z menu kontekstowego zakładki.
-        if Self::tile_has_custom_header(&tile_id) {
-            ui.horizontal(|ui| {
-                self.render_tile_header_custom(&tile_id, ui);
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let lang = self.gui.appearance.language;
-                    if ui
-                        .small_button("🗗")
-                        .on_hover_text(tr(key::WINDOW_POPOUT_TOOLTIP, lang))
-                        .clicked()
-                    {
-                        action_popout = true;
-                    }
-                });
+        // `egui_dock` 0.21.1 nie ma haka na własny przycisk w pasku zakładki (są tylko ✕ oraz
+        // `+`), więc KAŻDY kafelek dostaje w pierwszym wierszu wektorowy przycisk odpinania
+        // w prawym górnym rogu — wkomponowany w wiersz z własnymi widżetami (CAT, SPLIT,
+        // Szukaj, Spot) albo w kompaktowy wiersz bez ramek. ✕ zostaje natywnym przyciskiem zakładki.
+        let palette = ui.palette();
+        ui.horizontal(|ui| {
+            self.render_tile_header_custom(&tile_id, ui);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let lang = self.gui.appearance.language;
+                if undock_button(ui, &palette, tr(key::WINDOW_POPOUT_TOOLTIP, lang)).clicked() {
+                    action_popout = true;
+                }
             });
-        }
+        });
         self.render_tile_body(&tile_id, ui);
 
         if action_popout {

@@ -277,10 +277,14 @@ pub fn render_world_map_window(app: &mut SpLogApp, ctx: &egui::Context) {
             |app, ui| {
                 egui::Panel::top("world_map_vp_bar").show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        if ui
-                            .button(format!("↙ {}", tr(key::WINDOW_DOCK, lang)))
-                            .on_hover_text(tr(key::WINDOW_DOCK_TOOLTIP, lang))
-                            .clicked()
+                        let palette = ui.palette();
+                        if crate::gui::theme::dock_button(
+                            ui,
+                            &palette,
+                            tr(key::WINDOW_DOCK, lang),
+                            tr(key::WINDOW_DOCK_TOOLTIP, lang),
+                        )
+                        .clicked()
                         {
                             dock_back = true;
                         }
@@ -304,7 +308,7 @@ pub fn render_world_map_window(app: &mut SpLogApp, ctx: &egui::Context) {
             app.save_station_config();
         }
         if dock_back {
-            app.views.panel_world_map.floating = false;
+            app.dock_tile("world_map");
             app.save_station_config();
         }
         if !still_open {

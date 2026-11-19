@@ -414,10 +414,14 @@ pub fn render_waterfall_window(app: &mut SpLogApp, ctx: &egui::Context) {
             let lang = app.gui.appearance.language;
             egui::Panel::top("waterfall_vp_bar").show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    if ui
-                        .button(tr(key::WATERFALL_DOCK_BTN, lang))
-                        .on_hover_text(tr(key::WATERFALL_DOCK_TOOLTIP, lang))
-                        .clicked()
+                    let palette = ui.palette();
+                    if crate::gui::theme::dock_button(
+                        ui,
+                        &palette,
+                        tr(key::WATERFALL_DOCK_BTN, lang),
+                        tr(key::WATERFALL_DOCK_TOOLTIP, lang),
+                    )
+                    .clicked()
                     {
                         dock_back = true;
                     }
@@ -444,7 +448,7 @@ pub fn render_waterfall_window(app: &mut SpLogApp, ctx: &egui::Context) {
     }
 
     if dock_back {
-        app.views.panel_waterfall.floating = false;
+        app.dock_tile("waterfall");
         app.save_station_config();
     }
 

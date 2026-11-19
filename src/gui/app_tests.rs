@@ -3599,3 +3599,86 @@ fn contest_entry_row_fits_in_long_languages() {
         );
     }
 }
+
+// ======================================================================================
+// Odpinanie / dokowanie kafelków: cykl undock -> floating -> redock dla każdego kafelka
+// ======================================================================================
+
+#[test]
+fn every_tile_supports_undock_floating_redock_cycle() {
+    for id in SpLogApp::all_tile_ids() {
+        let mut app = qso_form_test_app();
+        // Wszystkie kafelki widoczne i zadokowane.
+        app.views = crate::gui::state::ViewsState::from_config(&AppConfig::default());
+        for tile in SpLogApp::all_tile_ids() {
+            match tile {
+                "vfo" => app.views.panel_vfo.visible = true,
+                "qso" => app.views.panel_qso.visible = true,
+                "log" => app.views.panel_log.visible = true,
+                "cluster" => app.views.panel_cluster.visible = true,
+                "bandmap" => app.views.panel_bandmap.visible = true,
+                "solar" => app.views.panel_solar.visible = true,
+                "satellites" => app.views.panel_satellites.visible = true,
+                "world_map" => app.views.panel_world_map.visible = true,
+                _ => app.views.panel_waterfall.visible = true,
+            }
+        }
+        app.rebuild_dock_state_from_panels();
+        assert!(
+            app.gui
+                .workspace
+                .dock_state
+                .find_tab(&id.to_string())
+                .is_some(),
+            "{id}: kafelek zadokowany na starcie"
+        );
+
+        app.popout_tile(id);
+        app.sync_dock_state();
+        assert!(app.panel_config(id).floating, "{id}: po odpięciu floating");
+        assert!(
+            app.panel_config(id).visible,
+            "{id}: odpięcie nie ukrywa panelu"
+        );
+        assert!(
+            app.gui
+                .workspace
+                .dock_state
+                .find_tab(&id.to_string())
+                .is_none(),
+            "{id}: odpięty kafelek znika z docka"
+        );
+
+        app.dock_tile(id);
+        app.sync_dock_state();
+        assert!(
+            !app.panel_config(id).floating,
+            "{id}: po zadokowaniu nie floating"
+        );
+        assert!(app.panel_config(id).visible, "{id}: panel nie zginął");
+        assert!(
+            app.gui
+                .workspace
+                .dock_state
+                .find_tab(&id.to_string())
+                .is_some(),
+            "{id}: kafelek wraca do docka"
+        );
+    }
+}
+
+#[tokio::test]
+async fn every_tile_renders_with_its_undock_row() {
+    use egui_dock::TabViewer;
+    for id in SpLogApp::all_tile_ids() {
+        let mut app = qso_form_test_app();
+        let ctx = egui::Context::default();
+        for _ in 0..2 {
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                let mut tab = id.to_string();
+                TabViewer::ui(&mut app, ui, &mut tab);
+            });
+            output.textures_delta.clear();
+        }
+    }
+}

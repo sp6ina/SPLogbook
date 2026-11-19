@@ -4,11 +4,14 @@
 //! Lekkie, reużywalne komponenty UI oparte na `Palette` i tokenach: odznaki stanu,
 //! warianty przycisków (primary / secondary / danger) oraz nagłówki sekcji.
 
-use eframe::egui::{Button, Color32, Response, RichText, Stroke, Ui};
+use eframe::egui::{
+    self, Button, Color32, Pos2, Rect, Response, RichText, Sense, Shape, Stroke, StrokeKind,
+    TextStyle, Ui, WidgetInfo, WidgetType, vec2,
+};
 
 use super::contrast::contrast_ratio;
 use super::palette::Palette;
-use super::tokens::{RADIUS_MD, SPACE_MD, TEXT_CAPTION, TEXT_SUBHEADING};
+use super::tokens::{RADIUS_MD, RADIUS_SM, SPACE_MD, SPACE_SM, TEXT_CAPTION, TEXT_SUBHEADING};
 use crate::gui::state::ToastSeverity;
 
 /// Rodzaj odznaki stanu.
@@ -130,6 +133,107 @@ pub fn section_header(ui: &mut Ui, palette: &Palette, title: impl Into<String>) 
     ui.separator();
 }
 
+/// Bok kwadratu ikony okna (px logiczne).
+const WINDOW_ICON_SIZE: f32 = 18.0;
+
+/// Kształty wektorowej ikony okna w kwadracie `rect`.
+///
+/// * `redock == false` — „odepnij” (pop-out): małe okno + strzałka ↗ wychodząca w prawy górny róg,
+/// * `redock == true` — „zadokuj z powrotem”: większe okno + strzałka ↙ wchodząca do środka.
+///
+/// Rysowane ze `Shape`, bez znaków Unicode (które na części fontów renderują się jako kwadrat).
+#[must_use]
+pub fn window_icon_shapes(rect: Rect, color: Color32, redock: bool) -> Vec<Shape> {
+    let unit = rect.width() / WINDOW_ICON_SIZE;
+    let p = |x: f32, y: f32| -> Pos2 { rect.min + vec2(x * unit, y * unit) };
+    let stroke = Stroke::new(1.5_f32, color);
+    let line = |a: Pos2, b: Pos2| Shape::line_segment([a, b], stroke);
+    let frame = |min: Pos2, max: Pos2| {
+        Shape::rect_stroke(
+            Rect::from_min_max(min, max),
+            1.5_f32,
+            stroke,
+            StrokeKind::Inside,
+        )
+    };
+    if redock {
+        vec![
+            frame(p(2.0, 4.0), p(14.0, 16.0)),
+            line(p(16.0, 2.0), p(8.0, 10.0)),
+            line(p(8.0, 10.0), p(8.0, 5.0)),
+            line(p(8.0, 10.0), p(13.0, 10.0)),
+        ]
+    } else {
+        vec![
+            frame(p(2.0, 6.0), p(12.0, 16.0)),
+            line(p(7.0, 11.0), p(15.0, 3.0)),
+            line(p(15.0, 3.0), p(10.0, 3.0)),
+            line(p(15.0, 3.0), p(15.0, 8.0)),
+        ]
+    }
+}
+
+fn window_icon_button(
+    ui: &mut Ui,
+    palette: &Palette,
+    redock: bool,
+    label: Option<&str>,
+    tooltip: &str,
+) -> Response {
+    let galley = label.map(|text| {
+        ui.painter().layout_no_wrap(
+            text.to_owned(),
+            TextStyle::Button.resolve(ui.style()),
+            palette.text_primary,
+        )
+    });
+    let text_width = galley.as_ref().map_or(0.0, |g| g.size().x + SPACE_SM);
+    let size = vec2(WINDOW_ICON_SIZE + SPACE_SM * 2.0 + text_width, 22.0);
+    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, tooltip));
+    if ui.is_rect_visible(rect) {
+        let active = response.hovered() || response.has_focus();
+        let color = if active {
+            palette.accent
+        } else {
+            palette.text_primary
+        };
+        if active {
+            ui.painter().rect(
+                rect,
+                RADIUS_SM,
+                palette.subtle_bg,
+                Stroke::new(1.0_f32, palette.border),
+                StrokeKind::Inside,
+            );
+        }
+        let icon_rect = Rect::from_min_size(
+            rect.min + vec2(SPACE_SM, (size.y - WINDOW_ICON_SIZE) / 2.0),
+            vec2(WINDOW_ICON_SIZE, WINDOW_ICON_SIZE),
+        );
+        ui.painter()
+            .extend(window_icon_shapes(icon_rect, color, redock));
+        if let Some(galley) = galley {
+            let pos = egui::pos2(
+                icon_rect.max.x + SPACE_SM,
+                rect.center().y - galley.size().y / 2.0,
+            );
+            ui.painter().galley(pos, galley, color);
+        }
+    }
+    response.on_hover_text(tooltip)
+}
+
+/// Przycisk „odepnij do osobnego okna” (wektorowa ikona pop-out) z tooltipem.
+pub fn undock_button(ui: &mut Ui, palette: &Palette, tooltip: &str) -> Response {
+    window_icon_button(ui, palette, false, None, tooltip)
+}
+
+/// Przycisk „zadokuj z powrotem” (wektorowa ikona + etykieta) dla okna odpiętego.
+pub fn dock_button(ui: &mut Ui, palette: &Palette, label: &str, tooltip: &str) -> Response {
+    window_icon_button(ui, palette, true, Some(label), tooltip)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -191,6 +295,45 @@ mod tests {
                 "{preset:?}: secondary"
             );
         }
+    }
+
+    #[test]
+    fn window_icons_are_vector_shapes_inside_their_box() {
+        let rect = Rect::from_min_size(
+            egui::pos2(10.0, 20.0),
+            vec2(WINDOW_ICON_SIZE, WINDOW_ICON_SIZE),
+        );
+        let undock = window_icon_shapes(rect, Color32::WHITE, false);
+        let redock = window_icon_shapes(rect, Color32::WHITE, true);
+        for shapes in [&undock, &redock] {
+            assert_eq!(shapes.len(), 4, "ramka okna + trzon i dwa ramiona strzałki");
+            for shape in shapes {
+                assert!(
+                    rect.expand(0.1)
+                        .contains_rect(shape.visual_bounding_rect().shrink(1.0)),
+                    "ikona nie może wychodzić poza swój kwadrat: {shape:?}"
+                );
+            }
+        }
+        assert_ne!(
+            format!("{undock:?}"),
+            format!("{redock:?}"),
+            "undock i redock to różne ikony"
+        );
+    }
+
+    #[test]
+    fn dock_buttons_render_and_report_clicks_area() {
+        let ctx = egui::Context::default();
+        let palette = ThemePreset::OperatorDark.palette();
+        let mut sizes = Vec::new();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            sizes.push(undock_button(ui, &palette, "odepnij").rect.size());
+            sizes.push(dock_button(ui, &palette, "Przypnij", "zadokuj").rect.size());
+        });
+        output.textures_delta.clear();
+        assert!(sizes[0].x >= WINDOW_ICON_SIZE && sizes[0].y >= WINDOW_ICON_SIZE);
+        assert!(sizes[1].x > sizes[0].x, "wariant z etykietą jest szerszy");
     }
 
     #[test]

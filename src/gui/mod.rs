@@ -100,16 +100,13 @@ pub fn render_titlebar_popout_button_if(
         .interactable(true)
         .show(ctx, |ui| {
             ui.spacing_mut().item_spacing = eframe::egui::vec2(0.0, 0.0);
-            ui.spacing_mut().button_padding = eframe::egui::vec2(3.0, 1.0);
-            let btn =
-                eframe::egui::Button::new(eframe::egui::RichText::new("↗").size(11.0).strong());
-            if ui
-                .add(btn)
-                .on_hover_text(crate::core::i18n::tr(
-                    crate::core::i18n::key::GUI_POPOUT_TOOLTIP,
-                    lang,
-                ))
-                .clicked()
+            let palette = crate::gui::theme::ThemeExt::palette(ui);
+            if crate::gui::theme::undock_button(
+                ui,
+                &palette,
+                crate::core::i18n::tr(crate::core::i18n::key::GUI_POPOUT_TOOLTIP, lang),
+            )
+            .clicked()
             {
                 *popout_target = true;
             }
