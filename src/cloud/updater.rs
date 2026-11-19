@@ -4278,6 +4278,7 @@ pub fn resolve_delegated_state_dir(install_dir: &Path) -> Result<PathBuf, Update
     )
 }
 
+#[cfg(any(windows, test))]
 fn begin_delegated_transaction(
     attempt_id: UpdateAttemptId,
     inst_type: InstallationType,
@@ -4317,6 +4318,7 @@ fn begin_delegated_transaction(
     Ok(tx)
 }
 
+#[cfg(any(windows, test))]
 fn mark_delegated_failed_pre_apply(
     tx: &mut UpdateTransaction,
     state_dir: &Path,
@@ -4329,6 +4331,7 @@ fn mark_delegated_failed_pre_apply(
     let _ = tx.save_to_dir(state_dir);
 }
 
+#[cfg(any(windows, test))]
 fn advance_delegated_transaction_to_applying(
     tx: &mut UpdateTransaction,
     state_dir: &Path,
@@ -4350,6 +4353,7 @@ fn advance_delegated_transaction_to_applying(
     Ok(())
 }
 
+#[cfg(any(windows, test))]
 fn verify_delegated_candidate_health(
     candidate_exe: &Path,
     state_dir: &Path,

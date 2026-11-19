@@ -440,7 +440,9 @@ jobs:
               Remove-Item -Path $tmpSetup -Force -ErrorAction SilentlyContinue
               throw "SHA-256 mismatch for innosetup-7.1.1-x64.exe: expected $expectedInstallerSha, got $actualInstallerSha"
             }
-            $proc = Start-Process -FilePath $tmpSetup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/ALLUSERS', '/DIR=C:\Program Files\Inno Setup 7') -Wait -PassThru -NoNewWindow
+            $installLog = Join-Path $env:RUNNER_TEMP "inno-install.log"
+            $installerArgs = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/ALLUSERS', '/DIR="C:\Program Files\Inno Setup 7"', "/LOG=`"$installLog`"")
+            $proc = Start-Process -FilePath $tmpSetup -ArgumentList $installerArgs -Wait -PassThru -NoNewWindow
             Remove-Item -Path $tmpSetup -Force -ErrorAction SilentlyContinue
             if ($proc.ExitCode -ne 0) {
               throw "Inno Setup 7.1.1 installer exited with code $($proc.ExitCode)"
@@ -448,6 +450,19 @@ jobs:
           }
 
           if (-not (Test-Path $isccPath)) {
+            $diagLog = Join-Path $env:RUNNER_TEMP "inno-install.log"
+            if (Test-Path $diagLog) {
+              Write-Host "--- tail of $diagLog ---"
+              Get-Content -Path $diagLog -Tail 60 | ForEach-Object { Write-Host $_ }
+            } else {
+              Write-Host "Inno Setup install log not found at $diagLog"
+            }
+            Write-Host "--- ISCC.exe search ---"
+            $searchRoots = @('C:\Program Files*', $env:LOCALAPPDATA) | Where-Object { $_ }
+            foreach ($root in $searchRoots) {
+              Get-ChildItem -Path $root -Filter ISCC.exe -Recurse -ErrorAction SilentlyContinue |
+                ForEach-Object { Write-Host "found: $($_.FullName)" }
+            }
             throw "ISCC.exe not found at $isccPath after installation"
           }
           $actualIsccSha = (Get-FileHash -Path $isccPath -Algorithm SHA256).Hash
