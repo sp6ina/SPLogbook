@@ -91,7 +91,7 @@ if (-not (Test-Path $wixEulaFile)) {
         }
         Write-Host "[OK] EULA WiX 7 zaakceptowana ($wixEulaFile)"
     } else {
-        Write-Host "[INFO] Brak pliku $wixEulaFile przed restore; akceptacja EULA WiX 7 zostanie przekazana przez -p:AcceptEula=true oraz <AcceptEula>true</AcceptEula>."
+        Write-Host "[INFO] Brak pliku $wixEulaFile przed restore; akceptacja EULA WiX 7 zostanie wykonana przez cel MSBuild AcceptEula tuz przed kompilacja."
     }
 } else {
     Write-Host "[OK] EULA WiX 7 zweryfikowana ($wixEulaFile)"
@@ -218,6 +218,21 @@ try {
     $wixProj = Join-Path $repoRoot "installer\windows\msi\SPLogbook.wixproj"
     if (-not (Test-Path $wixProj)) {
         throw "BLOKER: Brak pliku projektu WiX: $wixProj"
+    }
+
+    # WiX 7: -p:AcceptEula=true nie wystarcza (wix.exe zglasza WIX7015 bez pliku akceptacji).
+    # Na swiezym runnerze akceptacja jest wykonywana przez cel MSBuild AcceptEula (wix eula accept wix7).
+    if (-not (Test-Path $wixEulaFile)) {
+        Write-Host "Akceptacja EULA OSMF WiX 7 przez MSBuild (-t:AcceptEula -p:EulaId=wix7)..."
+        $eulaArgs = @("-restore", "`"$wixProj`"", "-t:AcceptEula", "-p:EulaId=wix7", "-nologo", "-v:minimal")
+        $eulaProc = Start-Process -FilePath $approvedMsbuildPath -ArgumentList $eulaArgs -NoNewWindow -PassThru -Wait
+        if ($eulaProc.ExitCode -ne 0) {
+            throw "BLOKER: Nie udalo sie zaakceptowac EULA WiX 7 przez cel MSBuild AcceptEula (kod $($eulaProc.ExitCode))"
+        }
+        if (-not (Test-Path $wixEulaFile)) {
+            throw "BLOKER: Po akceptacji brak pliku EULA WiX 7: $wixEulaFile"
+        }
+        Write-Host "[OK] EULA WiX 7 zaakceptowana ($wixEulaFile)"
     }
 
     New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null

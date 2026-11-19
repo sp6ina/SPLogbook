@@ -11,7 +11,7 @@ Dokumentacja techniczna i architektoniczna instalatora **Windows System Setup (M
 - **STATUS DECYZJI:** `APPROVED` (2026-11-08)
 - **ZATWIERDZONY KOMPILATOR / SDK:** `WiX Toolset SDK 7.0.1` (`WixToolset.Sdk/7.0.1`)
 - **SILNIK KOMPILACJI:** MSBuild 2022 wyszukiwany dynamicznie przez `vswhere.exe` (`-latest -products * -requires Microsoft.Component.MSBuild`) z fallbackiem do standardowych ścieżek Visual Studio 2022 (`Enterprise`, `Professional`, `Community`, `BuildTools`) oraz wbudowanym `NuGetSdkResolver` i silnikiem `wix.exe` (7.0.1)
-- **AKCEPTACJA EULA:** Jawna akceptacja EULA WiX 7 (`wix eula accept wix7`, tworząca plik `%USERPROFILE%\.wix\wix7-osmf-eula.txt`, oraz `-p:AcceptEula=true` / `<AcceptEula>true</AcceptEula>` dla świeżych runnerów CI)
+- **AKCEPTACJA EULA:** Jawna akceptacja EULA WiX 7 (`wix eula accept wix7`, tworząca plik `%USERPROFILE%\.wix\wix7-osmf-eula.txt`); na świeżych runnerach CI skrypt wykonuje ją celem MSBuild `-t:AcceptEula -p:EulaId=wix7` (sam `-p:AcceptEula=true` nie wystarcza — `wix.exe` zgłasza WIX7015)
 - **WYMÓG OSTRZEŻEŃ:** 0 błędów i 0 nieprzejrzanych ostrzeżeń (ICE Errors = 0, ICE Warnings = 0).
 
 ---
@@ -101,7 +101,7 @@ Wymagania:
 - System operacyjny: Windows 10/11 x86_64
 - MSBuild 2022 (Visual Studio 2022 Enterprise / Professional / Community / BuildTools)
 - WiX Toolset SDK 7.0.1 (automatycznie rozwiązywany przez wbudowany resolver NuGet MSBuild)
-- Akceptacja EULA WiX 7 (`wix eula accept wix7` lub `-p:AcceptEula=true` w CI)
+- Akceptacja EULA WiX 7 (`wix eula accept wix7` lub, w CI, `msbuild -t:AcceptEula -p:EulaId=wix7`)
 
 ---
 
