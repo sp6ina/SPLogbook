@@ -3682,3 +3682,129 @@ async fn every_tile_renders_with_its_undock_row() {
         }
     }
 }
+
+// ======================================================================================
+// Mapa świata: Natural Earth, cień nocy jako jeden Mesh, ikony wektorowe, toasty bez dubli
+// ======================================================================================
+
+fn collect_meshes(shape: &egui::Shape, out: &mut Vec<usize>) {
+    match shape {
+        egui::Shape::Mesh(mesh) => out.push(mesh.vertices.len()),
+        egui::Shape::Vec(shapes) => {
+            for inner in shapes {
+                collect_meshes(inner, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[tokio::test]
+async fn world_map_renders_in_all_themes_with_single_night_mesh() {
+    use crate::gui::theme::ThemePreset;
+    for preset in ThemePreset::ALL {
+        let mut app = qso_form_test_app();
+        let ctx = egui::Context::default();
+        crate::gui::theme::ensure_applied(&ctx, preset, 1.0);
+        let mut meshes = Vec::new();
+        for _ in 0..2 {
+            let raw_input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(900.0, 600.0),
+                )),
+                ..Default::default()
+            };
+            let mut output = ctx.run_ui(raw_input, |ui| {
+                crate::gui::world_map::render_world_map_content(&mut app, ui);
+            });
+            output.textures_delta.clear();
+            meshes.clear();
+            for clipped in &output.shapes {
+                collect_meshes(&clipped.shape, &mut meshes);
+            }
+        }
+        let land = crate::gui::map_data::land();
+        assert!(
+            meshes.contains(&land.vertices.len()),
+            "{preset:?}: jeden Mesh lądów ({} wierzchołków): {meshes:?}",
+            land.vertices.len()
+        );
+        // Cień nocy: 91 kolumn x 5 wierszy, dokładnie jeden Mesh (bez 91 osobnych czworokątów).
+        let night_vertices = 91 * 5;
+        assert_eq!(
+            meshes.iter().filter(|&&n| n == night_vertices).count(),
+            1,
+            "{preset:?}: cień nocy to jeden Mesh: {meshes:?}"
+        );
+    }
+}
+
+#[test]
+fn world_map_home_label_and_beam_azimuth_avoid_misleading_zero() {
+    use crate::cat::rotor::RotorState;
+    use crate::gui::world_map::{beam_azimuth, home_label};
+    assert_eq!(
+        home_label("", ""),
+        None,
+        "bez znaku i lokatora brak etykiety"
+    );
+    assert_eq!(
+        home_label("SP6INA", "JO81").as_deref(),
+        Some("SP6INA (JO81)")
+    );
+    assert_eq!(home_label("SP6INA", "").as_deref(), Some("SP6INA"));
+    assert_eq!(home_label("", "JO81").as_deref(), Some("JO81"));
+
+    let idle = RotorState::default();
+    assert_eq!(
+        beam_azimuth(&idle, None),
+        None,
+        "nieaktywny rotator, brak DX: bez azymutu"
+    );
+    assert_eq!(
+        beam_azimuth(&idle, Some(45.0)),
+        Some(45.0),
+        "kierunek na DX"
+    );
+    let connected = RotorState {
+        connected: true,
+        azimuth_deg: 120.0,
+        ..RotorState::default()
+    };
+    assert_eq!(
+        beam_azimuth(&connected, Some(45.0)),
+        Some(120.0),
+        "rotator ma pierwszeństwo"
+    );
+}
+
+#[test]
+fn toast_overlay_does_not_duplicate_the_severity_icon() {
+    use crate::gui::state::ToastSeverity;
+    let mut app = qso_form_test_app();
+    app.gui
+        .chrome
+        .push_status_toast(ToastSeverity::Warning, "⚠ Uwaga na zapis");
+    let ctx = egui::Context::default();
+    let mut texts = Vec::new();
+    for _ in 0..2 {
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.render_chrome_overlays(ui.ctx());
+        });
+        output.textures_delta.clear();
+        texts.clear();
+        for clipped in &output.shapes {
+            collect_text_shapes(&clipped.shape, &mut texts);
+        }
+    }
+    assert!(
+        texts.iter().any(|(t, _)| t == "Uwaga na zapis"),
+        "{texts:?}"
+    );
+    assert_eq!(
+        texts.iter().filter(|(t, _)| t.contains('⚠')).count(),
+        1,
+        "jedna ikona ostrzeżenia (z ToastSeverity), nie dwie: {texts:?}"
+    );
+}

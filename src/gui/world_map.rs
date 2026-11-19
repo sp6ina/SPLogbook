@@ -4,242 +4,142 @@
 use crate::core::geo::{Coordinates, calculate_solar_position, locator_to_coordinates};
 use crate::core::i18n::{Msg, key, tr};
 use crate::gui::app::SpLogApp;
-use crate::gui::theme::{ColorExt, ThemeExt};
+use crate::gui::map_data;
+use crate::gui::theme::{ColorExt, ThemeExt, undock_button};
 use eframe::egui;
 
-// Kontury kontynentów (Współrzędne geograficzne w stopniach: [Szerokość Lat, Długość Lon])
-const CONTINENT_EUROPE: &[(f64, f64)] = &[
-    (71.0, 28.0),
-    (70.0, 20.0),
-    (62.0, 5.0),
-    (58.0, 6.0),
-    (55.0, 9.0),
-    (54.0, 8.0),
-    (51.0, 2.0),
-    (48.0, -4.5),
-    (43.5, -9.0),
-    (37.0, -9.0),
-    (36.0, -5.5),
-    (38.0, 0.0),
-    (43.0, 3.0),
-    (43.5, 10.0),
-    (41.0, 16.0),
-    (38.0, 15.0),
-    (36.5, 22.0),
-    (40.0, 24.0),
-    (41.0, 29.0),
-    (44.0, 29.0),
-    (46.0, 31.0),
-    (45.0, 36.0),
-    (42.0, 42.0),
-    (41.0, 48.0),
-    (46.0, 48.0),
-    (54.0, 40.0),
-    (60.0, 30.0),
-    (68.0, 31.0),
-    (71.0, 28.0),
-];
+// Kontury lądów: Natural Earth 110m Land (Public Domain), patrz `map_data`.
 
-const BRITISH_ISLES: &[(f64, f64)] = &[
-    (58.5, -3.0),
-    (58.0, -5.0),
-    (55.0, -6.0),
-    (50.0, -5.0),
-    (51.0, 1.5),
-    (53.0, 0.0),
-    (55.0, -1.5),
-    (58.5, -3.0),
-];
+/// Ikony rysowane wektorowo (bez glifów emoji, które bywają `☐` na części systemów).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MapIcon {
+    Sun,
+    Moon,
+    Compass,
+    Beam,
+}
 
-const IRELAND: &[(f64, f64)] = &[
-    (55.0, -7.0),
-    (51.5, -10.0),
-    (52.0, -6.0),
-    (54.5, -6.0),
-    (55.0, -7.0),
-];
+/// Rysuje ikonę o boku `size` wycentrowaną w `center`.
+pub fn paint_map_icon(
+    painter: &egui::Painter,
+    icon: MapIcon,
+    center: egui::Pos2,
+    size: f32,
+    color: egui::Color32,
+) {
+    let r = size * 0.5;
+    let stroke = egui::Stroke::new((size / 12.0).max(1.0), color);
+    match icon {
+        MapIcon::Sun => {
+            painter.circle_filled(center, r * 0.45, color);
+            for i in 0..8_u8 {
+                let angle = f32::from(i) * std::f32::consts::FRAC_PI_4;
+                let dir = egui::vec2(angle.cos(), angle.sin());
+                painter.line_segment([center + dir * (r * 0.65), center + dir * r], stroke);
+            }
+        }
+        MapIcon::Moon => {
+            let points = crescent_points(center, r);
+            let flat: Vec<[f32; 2]> = points.iter().map(|p| [p.x, p.y]).collect();
+            let mut mesh = egui::Mesh::default();
+            for point in &points {
+                mesh.colored_vertex(*point, color);
+            }
+            for [a, b, c] in map_data::triangulate(&flat) {
+                mesh.add_triangle(a as u32, b as u32, c as u32);
+            }
+            painter.add(egui::Shape::mesh(mesh));
+        }
+        MapIcon::Compass => {
+            painter.circle_stroke(center, r * 0.9, stroke);
+            let tip = center + egui::vec2(0.0, -r * 0.75);
+            let tail = center + egui::vec2(0.0, r * 0.75);
+            let side = egui::vec2(r * 0.25, 0.0);
+            painter.add(egui::Shape::convex_polygon(
+                vec![tip, center + side, tail, center - side],
+                color,
+                egui::Stroke::NONE,
+            ));
+        }
+        MapIcon::Beam => {
+            let apex = center + egui::vec2(0.0, r * 0.8);
+            let mut arc = Vec::new();
+            for i in 0..=8_u8 {
+                let angle = (-40.0_f32 + 10.0 * f32::from(i)).to_radians();
+                arc.push(apex + egui::vec2(angle.sin(), -angle.cos()) * (r * 1.6));
+            }
+            painter.line_segment([apex, arc[0]], stroke);
+            painter.line_segment([apex, arc[arc.len() - 1]], stroke);
+            painter.add(egui::Shape::line(arc, stroke));
+        }
+    }
+}
 
-const CONTINENT_ASIA: &[(f64, f64)] = &[
-    (70.0, 30.0),
-    (73.0, 70.0),
-    (73.0, 80.0),
-    (77.0, 105.0),
-    (70.0, 179.0),
-    (66.0, 170.0),
-    (60.0, 163.0),
-    (52.0, 143.0),
-    (43.0, 132.0),
-    (38.0, 128.0),
-    (35.0, 129.0),
-    (31.0, 122.0),
-    (22.0, 114.0),
-    (10.0, 107.0),
-    (1.0, 104.0),
-    (13.0, 100.0),
-    (21.0, 90.0),
-    (8.0, 77.0),
-    (23.0, 68.0),
-    (25.0, 57.0),
-    (13.0, 44.0),
-    (28.0, 34.0),
-    (31.0, 35.0),
-    (37.0, 36.0),
-    (41.0, 29.0),
-    (46.0, 48.0),
-    (55.0, 60.0),
-    (68.0, 66.0),
-    (70.0, 30.0),
-];
+/// Punkty półksiężyca (wielokąt wklęsły: łuk zewnętrzny + łuk wewnętrzny) o promieniu `r`.
+fn crescent_points(center: egui::Pos2, r: f32) -> Vec<egui::Pos2> {
+    // Okrąg zewnętrzny (0,0; 1) minus okrąg wewnętrzny (0,5; 0,8): przecięcia w ±52,4° / ±82,1°.
+    let mut points = Vec::new();
+    for i in 0..=20_u8 {
+        let angle = (52.4_f32 + (307.6 - 52.4) * f32::from(i) / 20.0).to_radians();
+        points.push(center + egui::vec2(angle.cos(), angle.sin()) * r);
+    }
+    for i in 0..=20_u8 {
+        let angle = (277.9_f32 - (277.9 - 82.1) * f32::from(i) / 20.0).to_radians();
+        points.push(center + egui::vec2(0.5 + 0.8 * angle.cos(), 0.8 * angle.sin()) * r);
+    }
+    points
+}
 
-const JAPAN: &[(f64, f64)] = &[
-    (45.0, 142.0),
-    (43.0, 145.0),
-    (35.0, 140.0),
-    (33.0, 131.0),
-    (37.0, 137.0),
-    (41.0, 141.0),
-    (45.0, 142.0),
-];
+/// Etykieta z ikoną wektorową.
+fn icon_label(ui: &mut egui::Ui, icon: MapIcon, color: egui::Color32, text: &str) {
+    ui.horizontal(|ui| {
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
+        paint_map_icon(ui.painter(), icon, rect.center(), 14.0, color);
+        ui.label(egui::RichText::new(text).color(color));
+    });
+}
 
-const CONTINENT_AFRICA: &[(f64, f64)] = &[
-    (36.0, -5.5),
-    (37.0, 10.0),
-    (32.0, 20.0),
-    (31.0, 32.0),
-    (28.0, 34.0),
-    (12.0, 44.0),
-    (11.0, 51.0),
-    (-1.0, 42.0),
-    (-12.0, 40.0),
-    (-26.0, 33.0),
-    (-34.0, 18.0),
-    (-30.0, 17.0),
-    (-16.0, 12.0),
-    (-5.0, 12.0),
-    (4.0, 9.0),
-    (6.0, 2.0),
-    (5.0, -4.0),
-    (15.0, -17.0),
-    (21.0, -17.0),
-    (28.0, -13.0),
-    (36.0, -5.5),
-];
+/// Checkbox z ikoną wektorową przed etykietą.
+fn icon_checkbox(
+    ui: &mut egui::Ui,
+    icon: MapIcon,
+    color: egui::Color32,
+    value: &mut bool,
+    text: &str,
+) {
+    ui.horizontal(|ui| {
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
+        paint_map_icon(ui.painter(), icon, rect.center(), 14.0, color);
+        ui.checkbox(value, text);
+    });
+}
 
-const MADAGASCAR: &[(f64, f64)] = &[
-    (-12.0, 49.0),
-    (-16.0, 50.0),
-    (-25.0, 47.0),
-    (-25.0, 43.0),
-    (-16.0, 44.0),
-    (-12.0, 49.0),
-];
+/// Azymut wiązki/kompasu: z rotatora, gdy jest aktywny (podłączony, w ruchu lub z wysłaną
+/// komendą), w przeciwnym razie kierunek na korespondenta; bez żadnego źródła — `None`
+/// (żadnego mylącego „0°” na stacji domowej).
+#[must_use]
+pub fn beam_azimuth(
+    rotor: &crate::cat::rotor::RotorState,
+    dx_bearing_deg: Option<f32>,
+) -> Option<f32> {
+    if rotor.connected || rotor.moving || rotor.azimuth_deg != 0.0 {
+        Some(rotor.azimuth_deg)
+    } else {
+        dx_bearing_deg.filter(|b| b.is_finite() && *b >= 0.0)
+    }
+}
 
-const CONTINENT_NORTH_AMERICA: &[(f64, f64)] = &[
-    (71.0, -156.0),
-    (70.0, -135.0),
-    (69.0, -100.0),
-    (60.0, -94.0),
-    (51.0, -80.0),
-    (58.0, -63.0),
-    (47.0, -53.0),
-    (44.0, -66.0),
-    (35.0, -75.0),
-    (25.0, -80.0),
-    (29.0, -89.0),
-    (26.0, -97.0),
-    (20.0, -97.0),
-    (16.0, -93.0),
-    (9.0, -83.0),
-    (7.0, -78.0),
-    (14.0, -92.0),
-    (19.0, -105.0),
-    (32.0, -117.0),
-    (37.0, -122.0),
-    (48.0, -125.0),
-    (58.0, -136.0),
-    (60.0, -148.0),
-    (55.0, -165.0),
-    (65.0, -168.0),
-    (71.0, -156.0),
-];
-
-const GREENLAND: &[(f64, f64)] = &[
-    (83.0, -30.0),
-    (81.0, -18.0),
-    (76.0, -19.0),
-    (70.0, -22.0),
-    (60.0, -43.0),
-    (65.0, -53.0),
-    (70.0, -54.0),
-    (76.0, -68.0),
-    (82.0, -60.0),
-    (83.0, -30.0),
-];
-
-const CONTINENT_SOUTH_AMERICA: &[(f64, f64)] = &[
-    (12.0, -72.0),
-    (10.0, -62.0),
-    (6.0, -55.0),
-    (-3.0, -39.0),
-    (-5.0, -35.0),
-    (-13.0, -39.0),
-    (-23.0, -43.0),
-    (-34.0, -54.0),
-    (-40.0, -62.0),
-    (-54.0, -68.0),
-    (-53.0, -74.0),
-    (-40.0, -74.0),
-    (-18.0, -70.0),
-    (-5.0, -81.0),
-    (1.0, -79.0),
-    (8.0, -77.0),
-    (12.0, -72.0),
-];
-
-const CONTINENT_AUSTRALIA: &[(f64, f64)] = &[
-    (-12.0, 132.0),
-    (-12.0, 137.0),
-    (-17.0, 139.0),
-    (-11.0, 142.0),
-    (-25.0, 153.0),
-    (-37.0, 150.0),
-    (-38.0, 145.0),
-    (-35.0, 137.0),
-    (-32.0, 133.0),
-    (-35.0, 118.0),
-    (-32.0, 115.0),
-    (-22.0, 114.0),
-    (-16.0, 123.0),
-    (-12.0, 132.0),
-];
-
-const NEW_ZEALAND: &[(f64, f64)] = &[
-    (-35.0, 174.0),
-    (-37.0, 178.0),
-    (-41.0, 175.0),
-    (-46.0, 168.0),
-    (-44.0, 168.0),
-    (-41.0, 172.0),
-    (-35.0, 174.0),
-];
-
-const CONTINENT_ANTARCTICA: &[(f64, f64)] = &[
-    (-64.0, -60.0),
-    (-65.0, -64.0),
-    (-73.0, -100.0),
-    (-78.0, -160.0),
-    (-85.0, 180.0),
-    (-72.0, 170.0),
-    (-66.0, 140.0),
-    (-66.0, 110.0),
-    (-66.0, 90.0),
-    (-69.0, 70.0),
-    (-70.0, 40.0),
-    (-70.0, 10.0),
-    (-70.0, -10.0),
-    (-75.0, -30.0),
-    (-64.0, -60.0),
-];
+/// Etykieta stacji domowej: znak (z lokatorem, jeśli jest), a przy pustym znaku — sam lokator
+/// lub nic.
+#[must_use]
+pub fn home_label(callsign: &str, gridsquare: &str) -> Option<String> {
+    match (callsign.trim(), gridsquare.trim()) {
+        ("", "") => None,
+        ("", grid) => Some(grid.to_string()),
+        (call, "") => Some(call.to_string()),
+        (call, grid) => Some(format!("{call} ({grid})")),
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 struct MapState {
@@ -419,6 +319,10 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         };
 
         let my_solar = calculate_solar_position(my_coords, day_of_year, utc_hour_f64);
+        let beam_az = beam_azimuth(
+            &app.cat.rotor_state,
+            dx_coords.map(|_| app.entry.active_bearing_deg as f32),
+        );
 
         let day_of_year_f64 = day_of_year as f64;
         let declination =
@@ -432,7 +336,9 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             subsolar_lon -= 360.0;
         }
 
-        // Pasek statusu propagacji i Grayline
+        // Pasek narzędzi mapy: Grayline, azymut DX, warstwy; po prawej przycisk odpinania
+        // (wkomponowany w pasek, bez osobnego wiersza).
+        let docked = !app.views.panel_world_map.floating;
         ui.horizontal_wrapped(|ui| {
             ui.label(
                 egui::RichText::new(format!("{}:", tr(key::GEO_GRAYLINE, lang)))
@@ -446,9 +352,14 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     format!("● {}", tr(key::MAP_MY_IN_GRAYLINE, lang)),
                 );
             } else if my_solar.elevation > 0.0 {
-                ui.colored_label(palette.warning, format!("☀ {}", tr(key::MAP_DAY, lang)));
+                icon_label(
+                    ui,
+                    MapIcon::Sun,
+                    palette.text_primary,
+                    tr(key::MAP_DAY, lang),
+                );
             } else {
-                ui.colored_label(palette.accent, format!("🌙 {}", tr(key::MAP_NIGHT, lang)));
+                icon_label(ui, MapIcon::Moon, palette.accent, tr(key::MAP_NIGHT, lang));
             }
 
             if let Some(dx_c) = dx_coords {
@@ -484,13 +395,23 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             }
 
             ui.separator();
-            ui.checkbox(
+            icon_checkbox(
+                ui,
+                MapIcon::Beam,
+                palette.text_muted,
                 &mut app.world_map.show_beam_lobe,
-                format!("📡 {}", tr(key::MAP_BEAM_LOBE, lang)),
+                tr(key::MAP_BEAM_LOBE, lang),
+            );
+            icon_checkbox(
+                ui,
+                MapIcon::Compass,
+                palette.text_muted,
+                &mut app.world_map.show_compass,
+                tr(key::MAP_COMPASS, lang),
             );
             ui.checkbox(
-                &mut app.world_map.show_compass,
-                format!("🧭 {}", tr(key::MAP_COMPASS, lang)),
+                &mut app.world_map.show_grid,
+                tr(key::MAP_LOCATOR_GRID, lang),
             );
             ui.separator();
             ui.label(
@@ -502,6 +423,15 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .size(10.0)
                 .color(palette.text_muted),
             );
+            if docked {
+                let free = ui.available_width() - 28.0;
+                if free > 0.0 {
+                    ui.add_space(free);
+                }
+                if undock_button(ui, &palette, tr(key::WINDOW_POPOUT_TOOLTIP, lang)).clicked() {
+                    app.popout_tile("world_map");
+                }
+            }
         });
 
         ui.add_space(2.0);
@@ -633,94 +563,111 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ocean_text_color,
         );
 
-        // Kolory kontynentów i linii brzegowej
-        let land_fill = map.land;
-        let land_stroke = egui::Stroke::new(1.0_f32, palette.border_subtle);
-
-        // Rysowanie realistycznych konturów kontynentów
-        let draw_poly = |coords: &[(f64, f64)]| {
-            let pts: Vec<egui::Pos2> = coords
+        // Lądy: Natural Earth 110m Land (Public Domain) — jeden `Mesh` z poligonów
+        // triangulowanych raz (`OnceLock`) + cienki obrys linii brzegowej.
+        let geometry = map_data::land();
+        let screen_vertices: Vec<egui::Pos2> = geometry
+            .vertices
+            .iter()
+            .map(|[lon, lat]| project(f64::from(*lat), f64::from(*lon)))
+            .collect();
+        let build_mesh = |indices: &[u32], color: egui::Color32| {
+            let mut mesh = egui::Mesh::default();
+            mesh.vertices = screen_vertices
                 .iter()
-                .map(|(lat, lon)| project(*lat, *lon))
+                .map(|&pos| egui::epaint::Vertex {
+                    pos,
+                    uv: egui::epaint::WHITE_UV,
+                    color,
+                })
                 .collect();
-            if pts.len() >= 3 {
-                painter.add(egui::Shape::convex_polygon(
-                    pts.clone(),
-                    land_fill,
-                    egui::Stroke::NONE,
-                ));
-                let mut line_pts = pts;
-                if let Some(p0) = line_pts.first() {
-                    line_pts.push(*p0);
-                }
-                painter.add(egui::Shape::line(line_pts, land_stroke));
-            }
+            mesh.indices = indices.to_vec();
+            mesh
         };
+        painter.add(egui::Shape::mesh(build_mesh(&geometry.land, map.land)));
+        // Dziury (np. Morze Kaspijskie) w kolorze oceanu.
+        painter.add(egui::Shape::mesh(build_mesh(&geometry.holes, map.ocean)));
+        let coast_stroke = egui::Stroke::new(1.0_f32, map.coastline);
+        for &(start, len, _hole) in &geometry.rings {
+            let mut outline: Vec<egui::Pos2> = screen_vertices[start..start + len].to_vec();
+            if let Some(first) = outline.first().copied() {
+                outline.push(first);
+            }
+            painter.add(egui::Shape::line(outline, coast_stroke));
+        }
 
-        draw_poly(CONTINENT_NORTH_AMERICA);
-        draw_poly(GREENLAND);
-        draw_poly(CONTINENT_SOUTH_AMERICA);
-        draw_poly(CONTINENT_AFRICA);
-        draw_poly(MADAGASCAR);
-        draw_poly(CONTINENT_EUROPE);
-        draw_poly(BRITISH_ISLES);
-        draw_poly(IRELAND);
-        draw_poly(CONTINENT_ASIA);
-        draw_poly(JAPAN);
-        draw_poly(CONTINENT_AUSTRALIA);
-        draw_poly(NEW_ZEALAND);
-        draw_poly(CONTINENT_ANTARCTICA);
+        // Siatka pól Maidenhead (AA..RR) z etykietami, gdy pole jest dość duże na ekranie.
+        if app.world_map.show_grid {
+            let grid_stroke = egui::Stroke::new(0.8_f32, map.locator_grid);
+            for i in 0..=18 {
+                let lon = -180.0 + f64::from(i) * 20.0;
+                painter.line_segment([project(90.0, lon), project(-90.0, lon)], grid_stroke);
+            }
+            for j in 0..=18 {
+                let lat = -90.0 + f64::from(j) * 10.0;
+                painter.line_segment([project(lat, -180.0), project(lat, 180.0)], grid_stroke);
+            }
+            let cell_px = rect.width() / 18.0 * state.zoom;
+            if cell_px >= 26.0 {
+                for lon_index in 0..18_usize {
+                    for lat_index in 0..18_usize {
+                        let lon = -180.0 + (lon_index as f64 + 0.5) * 20.0;
+                        let lat = -90.0 + (lat_index as f64 + 0.5) * 10.0;
+                        painter.text(
+                            project(lat, lon),
+                            egui::Align2::CENTER_CENTER,
+                            map_data::maidenhead_field(lon_index, lat_index),
+                            egui::FontId::proportional(10.0),
+                            map.locator_grid,
+                        );
+                    }
+                }
+            }
+        }
 
-        // Obliczenie punktów linii terminatora (krzywa zmierzchu)
-        let dec_rad = subsolar_lat.to_radians();
-        let mut term_pts = Vec::new();
+        // Cień nocy i zmierzch: jeden `Mesh` ze współdzielonymi wierzchołkami (kolumny co 4°,
+        // wiersze: krzywe zenitalne 84°/90°/96°/108° i biegun nocy). Brak osobnych
+        // wielokątów półprzezroczystych = brak szwów antyaliasingu (pionowych prążków).
         let step_deg = 4.0;
-        let num_steps = (360.0 / step_deg) as i32;
-
-        for i in 0..=num_steps {
+        let num_steps = (360.0 / step_deg) as usize;
+        let night_columns: Vec<[f64; 5]> = (0..=num_steps)
+            .map(|i| {
+                map_data::night_column(-180.0 + i as f64 * step_deg, subsolar_lat, subsolar_lon)
+            })
+            .collect();
+        let mut night_mesh = egui::Mesh::default();
+        for (i, column) in night_columns.iter().enumerate() {
             let lon = -180.0 + i as f64 * step_deg;
-            let lha = (lon - subsolar_lon).to_radians();
-            let term_lat = if dec_rad.abs() > 0.001 {
-                (-lha.cos() / dec_rad.tan()).atan().to_degrees()
-            } else {
-                0.0
-            };
-            term_pts.push((term_lat, lon));
+            for (row, lat) in column.iter().enumerate() {
+                night_mesh.colored_vertex(
+                    project(*lat, lon),
+                    map.night_overlay
+                        .gamma_multiply(map_data::NIGHT_ALPHAS[row]),
+                );
+            }
         }
-
-        // Cieniowanie nocy (półkula zacieniona)
-        let night_overlay_color = map.night_overlay;
-        for i in 0..term_pts.len().saturating_sub(1) {
-            let (lat1, lon1) = term_pts[i];
-            let (lat2, lon2) = term_pts[i + 1];
-            let pt1 = project(lat1, lon1);
-            let pt2 = project(lat2, lon2);
-
-            let (y_night1, y_night2) = if subsolar_lat >= 0.0 {
-                (project(-90.0, lon1), project(-90.0, lon2))
-            } else {
-                (project(90.0, lon1), project(90.0, lon2))
-            };
-
-            let quad = vec![pt1, pt2, y_night2, y_night1];
-            painter.add(egui::Shape::convex_polygon(
-                quad,
-                night_overlay_color,
-                egui::Stroke::NONE,
-            ));
+        for i in 0..night_columns.len().saturating_sub(1) {
+            for row in 0..4_usize {
+                let a = (i * 5 + row) as u32;
+                let b = a + 1;
+                let c = ((i + 1) * 5 + row) as u32;
+                let d = c + 1;
+                night_mesh.add_triangle(a, b, c);
+                night_mesh.add_triangle(b, d, c);
+            }
         }
+        painter.add(egui::Shape::mesh(night_mesh));
 
-        // Pas Grayline (złocista poświata zmierzchowa wokół terminatora)
+        // Pas Grayline (złocista poświata zmierzchowa wokół terminatora = krzywa zenitalna 90°)
         let grayline_stroke = egui::Stroke::new(3.0_f32, map.terminator);
         let grayline_outer = egui::Stroke::new(6.0_f32, map.terminator.alpha(60));
-
-        let screen_term_pts: Vec<egui::Pos2> = term_pts
+        let screen_term_pts: Vec<egui::Pos2> = night_columns
             .iter()
-            .map(|(lat, lon)| project(*lat, *lon))
+            .enumerate()
+            .map(|(i, column)| project(column[1], -180.0 + i as f64 * step_deg))
             .collect();
-        for i in 0..screen_term_pts.len().saturating_sub(1) {
-            let p1 = screen_term_pts[i];
-            let p2 = screen_term_pts[i + 1];
+        for pair in screen_term_pts.windows(2) {
+            let (p1, p2) = (pair[0], pair[1]);
             if (p1.x - p2.x).abs() < rect.width() * 0.5 {
                 painter.line_segment([p1, p2], grayline_outer);
                 painter.line_segment([p1, p2], grayline_stroke);
@@ -729,28 +676,14 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         // Słońce w zenicie (Subsolar point)
         let sun_pos = project(subsolar_lat, subsolar_lon);
-        painter.circle_filled(sun_pos, 7.0, map.sun);
-        painter.circle_stroke(sun_pos, 10.0, egui::Stroke::new(1.5_f32, map.sun_halo));
-        painter.text(
-            sun_pos + egui::vec2(0.0, -12.0),
-            egui::Align2::CENTER_CENTER,
-            "☀",
-            egui::FontId::proportional(13.0),
-            palette.text_primary,
-        );
+        painter.circle_stroke(sun_pos, 11.0, egui::Stroke::new(1.5_f32, map.sun_halo));
+        paint_map_icon(&painter, MapIcon::Sun, sun_pos, 18.0, map.sun);
 
         // Księżyc (punkt anty-słoneczny na mapie)
         let antisolar_lat = -subsolar_lat;
         let antisolar_lon = ((subsolar_lon + 180.0 + 180.0) % 360.0) - 180.0;
         let moon_pos = project(antisolar_lat, antisolar_lon);
-        painter.circle_filled(moon_pos, 5.0, map.moon);
-        painter.text(
-            moon_pos + egui::vec2(0.0, -10.0),
-            egui::Align2::CENTER_CENTER,
-            "🌙",
-            egui::FontId::proportional(11.0),
-            palette.text_primary,
-        );
+        paint_map_icon(&painter, MapIcon::Moon, moon_pos, 14.0, map.moon);
 
         // Interaktywne spoty DX Cluster nanoszone na żywo na mapę
         let hover_pos = ui.input(|i| i.pointer.hover_pos());
@@ -862,8 +795,9 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         let my_pos = project(my_coords.latitude, my_coords.longitude);
 
         // Rysowanie wiązki promieniowania anteny (Beam Lobe) oraz mechanicznego boomu
-        if app.world_map.show_beam_lobe {
-            let az = app.cat.rotor_state.azimuth_deg;
+        if app.world_map.show_beam_lobe
+            && let Some(az) = beam_az
+        {
             let half_beam = (app.world_map.beamwidth_deg * 0.5).clamp(10.0, 60.0);
             let lobe_len = 65.0_f32;
 
@@ -912,16 +846,17 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             9.0,
             egui::Stroke::new(1.5_f32, palette.text_primary),
         );
-        painter.text(
-            my_pos + egui::vec2(10.0, -5.0),
-            egui::Align2::LEFT_CENTER,
-            format!(
-                "{} ({})",
-                app.config.station.callsign, app.config.station.gridsquare
-            ),
-            egui::FontId::proportional(10.0),
-            palette.accent,
-        );
+        if let Some(label) =
+            home_label(&app.config.station.callsign, &app.config.station.gridsquare)
+        {
+            painter.text(
+                my_pos + egui::vec2(10.0, -5.0),
+                egui::Align2::LEFT_CENTER,
+                label,
+                egui::FontId::proportional(10.0),
+                palette.accent,
+            );
+        }
 
         // Znacznik stacji DX oraz linia ortodromy (Great Circle trajectory - sferyczna interpolacja SLERP)
         if let Some(dx_c) = dx_coords {
@@ -946,43 +881,21 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 palette.danger,
             );
 
-            // Krzywa ortodromy łącząca stację własną ze stacją DX (SLERP na sferze jednostkowej)
-            let lat1 = my_coords.latitude.to_radians();
-            let lon1 = my_coords.longitude.to_radians();
-            let lat2 = dx_c.latitude.to_radians();
-            let lon2 = dx_c.longitude.to_radians();
-            let v1 = [lat1.cos() * lon1.cos(), lat1.cos() * lon1.sin(), lat1.sin()];
-            let v2 = [lat2.cos() * lon2.cos(), lat2.cos() * lon2.sin(), lat2.sin()];
-            let dot = (v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2]).clamp(-1.0, 1.0);
-            let omega = dot.acos();
-            let sin_omega = omega.sin();
-
-            let mut prev_pt = my_pos;
-            for step in 1..=36 {
-                let interp_t = step as f64 / 36.0;
-                let (int_lat, int_lon) = if sin_omega.abs() > 1e-6 {
-                    let start_weight = ((1.0 - interp_t) * omega).sin() / sin_omega;
-                    let end_weight = (interp_t * omega).sin() / sin_omega;
-                    let x_coord = start_weight * v1[0] + end_weight * v2[0];
-                    let y_coord = start_weight * v1[1] + end_weight * v2[1];
-                    let z_coord = start_weight * v1[2] + end_weight * v2[2];
-                    let lat = z_coord
-                        .atan2((x_coord * x_coord + y_coord * y_coord).sqrt())
-                        .to_degrees();
-                    let lon = y_coord.atan2(x_coord).to_degrees();
-                    (lat, lon)
-                } else {
-                    (
-                        my_coords.latitude * (1.0 - interp_t) + dx_c.latitude * interp_t,
-                        my_coords.longitude * (1.0 - interp_t) + dx_c.longitude * interp_t,
-                    )
-                };
-                let pt = project(int_lat, int_lon);
-                if (prev_pt.x - pt.x).abs() < rect.width() * 0.5 {
-                    painter
-                        .line_segment([prev_pt, pt], egui::Stroke::new(1.5_f32, palette.success));
-                }
-                prev_pt = pt;
+            // Wielkie Koło (najkrótsza ścieżka) ze stacji własnej do DX, dzielone na
+            // antypołudniku ±180° (łuk dochodzi do krawędzi mapy i wraca po drugiej stronie).
+            for segment in map_data::great_circle_segments(
+                (my_coords.latitude, my_coords.longitude),
+                (dx_c.latitude, dx_c.longitude),
+                72,
+            ) {
+                let pts: Vec<egui::Pos2> = segment
+                    .iter()
+                    .map(|(lat, lon)| project(*lat, *lon))
+                    .collect();
+                painter.add(egui::Shape::line(
+                    pts,
+                    egui::Stroke::new(1.5_f32, palette.success),
+                ));
             }
         }
 
@@ -1035,28 +948,27 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 map.compass_text,
             );
 
-            // Wskazówka rotatora (Needle)
-            let az = app.cat.rotor_state.azimuth_deg;
-            let needle_rad = (az - 90.0).to_radians();
-            let needle_tip = compass_center
-                + egui::vec2(
-                    needle_rad.cos() * (compass_radius - 6.0),
-                    needle_rad.sin() * (compass_radius - 6.0),
+            // Wskazówka i odczyt cyfrowy tylko gdy znamy azymut (rotator lub kierunek na DX)
+            if let Some(az) = beam_az {
+                let needle_rad = (az - 90.0).to_radians();
+                let needle_tip = compass_center
+                    + egui::vec2(
+                        needle_rad.cos() * (compass_radius - 6.0),
+                        needle_rad.sin() * (compass_radius - 6.0),
+                    );
+                painter.line_segment(
+                    [compass_center, needle_tip],
+                    egui::Stroke::new(2.5_f32, palette.accent),
                 );
-            painter.line_segment(
-                [compass_center, needle_tip],
-                egui::Stroke::new(2.5_f32, palette.warning),
-            );
-            painter.circle_filled(compass_center, 4.0, palette.warning);
-
-            // Odczyt cyfrowy w środku tarczy
-            painter.text(
-                compass_center + egui::vec2(0.0, 16.0),
-                egui::Align2::CENTER_CENTER,
-                format!("{az:.0}°"),
-                egui::FontId::monospace(10.0),
-                palette.warning,
-            );
+                painter.circle_filled(compass_center, 4.0, palette.accent);
+                painter.text(
+                    compass_center + egui::vec2(0.0, 16.0),
+                    egui::Align2::CENTER_CENTER,
+                    format!("{az:.0}°"),
+                    egui::FontId::monospace(10.0),
+                    palette.accent,
+                );
+            }
 
             // Interaktywny klik na tarczy kompasu -> bezpośredni obrót rotatora na kliknięty kąt
             if clicked && let Some(pos) = hover_pos {

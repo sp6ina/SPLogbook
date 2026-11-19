@@ -58,6 +58,10 @@ pub struct MapColors {
     pub compass_text: Color32,
     pub qso_marker: Color32,
     pub qso_marker_confirmed: Color32,
+    /// Cienki obrys linii brzegowej (Natural Earth).
+    pub coastline: Color32,
+    /// Subtelna siatka pól Maidenhead (i jej etykiety).
+    pub locator_grid: Color32,
 }
 
 /// Gotowy zestaw kolorów (paleta) powiązany z motywem.
@@ -369,6 +373,8 @@ impl ThemePreset {
                     compass_text: Color32::from_rgb(56, 189, 248),
                     qso_marker: Color32::from_rgb(244, 63, 94),
                     qso_marker_confirmed: Color32::from_rgb(34, 197, 94),
+                    coastline: Color32::from_rgb(100, 116, 139),
+                    locator_grid: Color32::from_rgba_unmultiplied(148, 163, 184, 45),
                 },
             },
             ThemePreset::Daylight => Palette {
@@ -452,6 +458,8 @@ impl ThemePreset {
                     compass_text: Color32::from_rgb(37, 99, 235),
                     qso_marker: Color32::from_rgb(225, 29, 72),
                     qso_marker_confirmed: Color32::from_rgb(21, 128, 61),
+                    coastline: Color32::from_rgb(100, 116, 139),
+                    locator_grid: Color32::from_rgba_unmultiplied(71, 85, 105, 55),
                 },
             },
             ThemePreset::HighContrast => Palette {
@@ -535,6 +543,8 @@ impl ThemePreset {
                     compass_text: Color32::from_rgb(255, 191, 0),
                     qso_marker: Color32::from_rgb(255, 191, 0),
                     qso_marker_confirmed: Color32::from_rgb(0, 200, 255),
+                    coastline: Color32::from_rgb(220, 220, 220),
+                    locator_grid: Color32::from_rgba_unmultiplied(255, 255, 255, 80),
                 },
             },
         }

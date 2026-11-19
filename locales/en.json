@@ -1473,5 +1473,6 @@
   "log.selected_count": "✔ {count} QSO selected",
   "qso.gmina_preview": "🇵🇱 Municipality: {name} (county {powiat})",
   "cluster.auto_tune_status": "Auto-tune → {call} on {freq} kHz",
-  "vfo.manual_transceiver": "Manual Transceiver"
+  "vfo.manual_transceiver": "Manual Transceiver",
+  "map.locator_grid": "Locator grid"
 }

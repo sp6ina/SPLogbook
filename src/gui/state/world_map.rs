@@ -7,6 +7,8 @@ pub struct WorldMapState {
     pub show_window: bool,
     pub show_beam_lobe: bool,
     pub show_compass: bool,
+    /// Siatka pól Maidenhead.
+    pub show_grid: bool,
     pub beamwidth_deg: f32,
 }
 
@@ -16,6 +18,7 @@ impl Default for WorldMapState {
             show_window: false,
             show_beam_lobe: true,
             show_compass: true,
+            show_grid: false,
             beamwidth_deg: 50.0,
         }
     }
@@ -37,6 +40,7 @@ mod tests {
         assert!(!state.show_window);
         assert!(state.show_beam_lobe);
         assert!(state.show_compass);
+        assert!(!state.show_grid);
         assert_eq!(state.beamwidth_deg, 50.0);
 
         let new_state = WorldMapState::new();

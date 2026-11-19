@@ -634,15 +634,18 @@ impl TabViewer for SpLogApp {
         // w prawym górnym rogu — wkomponowany w wiersz z własnymi widżetami (CAT, SPLIT,
         // Szukaj, Spot) albo w kompaktowy wiersz bez ramek. ✕ zostaje natywnym przyciskiem zakładki.
         let palette = ui.palette();
-        ui.horizontal(|ui| {
-            self.render_tile_header_custom(&tile_id, ui);
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let lang = self.gui.appearance.language;
-                if undock_button(ui, &palette, tr(key::WINDOW_POPOUT_TOOLTIP, lang)).clicked() {
-                    action_popout = true;
-                }
+        // Mapa świata wkomponowuje przycisk odpinania w swój pasek narzędzi (bez osobnego wiersza).
+        if tile_id != "world_map" {
+            ui.horizontal(|ui| {
+                self.render_tile_header_custom(&tile_id, ui);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let lang = self.gui.appearance.language;
+                    if undock_button(ui, &palette, tr(key::WINDOW_POPOUT_TOOLTIP, lang)).clicked() {
+                        action_popout = true;
+                    }
+                });
             });
-        });
+        }
         self.render_tile_body(&tile_id, ui);
 
         if action_popout {

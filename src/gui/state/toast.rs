@@ -54,6 +54,19 @@ impl ToastSeverity {
     }
 }
 
+/// Usuwa wiodące symbole ważności (`⚠ ❌ ✔ ✖ ℹ 🔔` itp.) wraz ze spacjami, bo toast rysuje
+/// własną ikonę zgodną z `ToastSeverity` — inaczej ikona by się dublowała.
+#[must_use]
+pub fn strip_leading_icons(message: &str) -> &str {
+    message.trim_start_matches(|c: char| {
+        c.is_whitespace()
+            || matches!(
+                c,
+                '⚠' | '❌' | '✔' | '✓' | '✖' | '✘' | 'ℹ' | '🔔' | '\u{FE0F}' | '\u{200D}'
+            )
+    })
+}
+
 /// Pojedyncze powiadomienie.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Toast {
@@ -86,6 +99,10 @@ impl ToastQueue {
         now: Instant,
     ) -> u64 {
         let message = message.into();
+        let message = match strip_leading_icons(&message) {
+            "" => message.clone(),
+            stripped => stripped.to_string(),
+        };
         if let Some(existing) = self
             .toasts
             .iter_mut()
@@ -274,6 +291,26 @@ mod tests {
         queue.tick(t0 + Duration::from_secs(8));
         assert_eq!(queue.len(), 1);
         assert_eq!(queue.visible().len(), 1);
+    }
+
+    #[test]
+    fn leading_severity_symbols_are_stripped_from_messages() {
+        assert_eq!(strip_leading_icons("⚠ Multi-Op: błąd"), "Multi-Op: błąd");
+        assert_eq!(strip_leading_icons("❌ ⚠ Nie zapisano"), "Nie zapisano");
+        assert_eq!(strip_leading_icons("✔ Zapisano"), "Zapisano");
+        assert_eq!(strip_leading_icons("ℹ️ Info"), "Info");
+        assert_eq!(strip_leading_icons("🔔 Dzwonek"), "Dzwonek");
+        assert_eq!(
+            strip_leading_icons("⭐ ATNO"),
+            "⭐ ATNO",
+            "inne symbole zostają"
+        );
+
+        let mut queue = ToastQueue::default();
+        queue.push(ToastSeverity::Warning, "⚠ Uwaga");
+        assert_eq!(queue.latest().unwrap().message, "Uwaga");
+        queue.push(ToastSeverity::Error, "⚠");
+        assert_eq!(queue.latest().unwrap().message, "⚠", "sam symbol nie znika");
     }
 
     #[test]

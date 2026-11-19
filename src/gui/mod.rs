@@ -23,6 +23,7 @@ pub mod icons;
 pub mod iota_browser;
 pub mod journal_manager;
 pub mod logbook_table;
+pub mod map_data;
 pub mod marketplace;
 pub mod menu;
 pub mod mini_hud;

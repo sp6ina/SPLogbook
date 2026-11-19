@@ -1473,5 +1473,6 @@
   "log.selected_count": "✔ Zaznaczono {count} QSO",
   "qso.gmina_preview": "🇵🇱 Gmina: {name} (powiat {powiat})",
   "cluster.auto_tune_status": "Auto-tune → {call} na {freq} kHz",
-  "vfo.manual_transceiver": "Transceiver ręczny"
+  "vfo.manual_transceiver": "Transceiver ręczny",
+  "map.locator_grid": "Siatka lokatorów"
 }

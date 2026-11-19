@@ -1473,5 +1473,6 @@
   "log.selected_count": "✔ Выбрано QSO: {count}",
   "qso.gmina_preview": "🇵🇱 Гмина: {name} (повят {powiat})",
   "cluster.auto_tune_status": "Автонастройка → {call} на {freq} кГц",
-  "vfo.manual_transceiver": "Трансивер (ручной)"
+  "vfo.manual_transceiver": "Трансивер (ручной)",
+  "map.locator_grid": "Сетка локаторов"
 }
