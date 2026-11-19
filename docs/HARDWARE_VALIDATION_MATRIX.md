@@ -18,7 +18,7 @@ wymieniony defekt (`CAT-00x`) został naprawiony w kodzie i jest strażony testa
 
 Pozostającą blokadą walidacji sprzętowej jest **dostępność fizycznych transceiverów**.
 Otwarte znalezisko **F-14 (P0)** — panika w ścieżce HIL po załączeniu PTT — zostało
-**zamknięte programowo** 2026-11-15 (`STAGE-P0-F14-SOFTWARE`): odwrócony zakres jest odrzucany
+**rozwiązane programowo** 2026-11-15 (`ADR-72`–`ADR-74`): odwrócony zakres jest odrzucany
 przed logicznym PTT ON, a każda kontrolowana ścieżka błędu po ON podejmuje próbę PTT OFF.
 To **nie** jest walidacja sprzętowa: `HARDWARE_BEHAVIOUR_NOT_VERIFIED`, a wszystkie 10 testów
 pozostaje `#[ignore = "hardware-in-the-loop"]`, dopóki NATIVE-7B nie zostanie jawnie
@@ -70,7 +70,7 @@ Przed podłączeniem fizycznego transceivera do procedury HIL należy obowiązko
 
 ## 4. Macierz zgodności protokołów — weryfikacja programowa (P0-F14, 2026-11-15)
 
-Sekcja dodana przez `STAGE-P0-F14-SOFTWARE`. Zapisuje **programową** weryfikację ramek PTT
+Sekcja zapisuje **programową** weryfikację ramek PTT (`ADR-72`–`ADR-80`)
 wobec oficjalnej dokumentacji producentów. Nie jest dowodem zachowania sprzętu.
 
 Flagi tej sekcji:

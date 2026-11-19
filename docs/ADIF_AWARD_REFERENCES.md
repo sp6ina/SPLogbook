@@ -1,7 +1,7 @@
 # ADIF award-reference semantics (SOTA and POTA)
 
-Durable technical contract for the role-aware SOTA/POTA reference mapping introduced by the
-`STAGE-P1-F19-SOFTWARE` gate. It records what the program writes, what it reads, and why — with the
+Durable technical contract for the role-aware SOTA/POTA reference mapping (`ADR-103`–`ADR-112`).
+It records what the program writes, what it reads, and why — with the
 official source of every rule.
 
 ADIF version: **3.1.8** (`src/core/adif.rs`, `ADIF_VERSION`), the current released specification

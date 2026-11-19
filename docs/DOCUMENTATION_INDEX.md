@@ -37,11 +37,8 @@ not listed in this index.
 |---|---|---|
 | `docs/architecture/ARCHITECTURE.md` | module map, entry points, data flows, security boundaries, test map | CURRENT |
 | `docs/UPLOAD_SELECTION.md` | LoTW/eQSL journal-scoped selection, lossless batching, partial-success, persistent upload checkpoints, ADIF sent dates and credential rules | CURRENT |
-| `docs/architecture/DECISIONS.md` | binding owner decisions, architectural invariants, decision → code → guard traceability | REFERENCE |
+| `docs/architecture/DECISIONS.md` | architectural decision records (ADRs), invariants, decision → code → guard traceability | REFERENCE |
 | `docs/architecture/THEMES.md` | semantic palette and theme subsystem, theme guard contract | CURRENT |
-| `DESIGN_3_0_A_WINDOWS_UPDATE.md` | approved Windows installer and updater design | REFERENCE |
-| `DESIGN_3_0_B_LINUX_UPDATE.md` | approved Linux installer and updater design (see the errata banner at the top for superseded values) | REFERENCE |
-| `DESIGN_3_0_C_PLATFORM_INSTALLERS.md` | approved cross-platform installer contract and update state machine | REFERENCE |
 
 ## 4. Security
 
@@ -86,16 +83,10 @@ not listed in this index.
 |---|---|---|
 | `locales/README.md` | translation catalog structure, keys, and the i18n guard contract | CURRENT |
 
-## 9. Documents intentionally not in this repository
+## 9. Scope of repository documentation
 
-Working material — prompts, model handoffs, session notes, gate evidence logs, owner-local
-plans and pre-implementation reports — is kept outside the repository. It is never tracked,
-never published, and is excluded locally through `.git/info/exclude`, which is itself not
-tracked.
-
-If a document referenced from an older report is not listed in this index, it does not exist
-in this repository. Durable technical content that used to live only in such reports has been
-consolidated into the CURRENT and REFERENCE documents above.
+This repository tracks only durable project and technical documentation. Local working notes
+and temporary drafts are kept outside the repository and are never committed or published.
 
 ## 10. Maintenance rules
 

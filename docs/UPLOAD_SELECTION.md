@@ -1,6 +1,6 @@
 # LoTW / eQSL upload selection and transport contract
 
-Status: **CURRENT** (introduced by `STAGE-P1-F20-SOFTWARE`, extended by `STAGE-P1-F20R-SOFTWARE`, 2026-11-17)
+Status: **CURRENT** (`ADR-113`–`ADR-121`, updated 2026-11-17)
 Scope: how SPLogbook decides *which* QSOs are uploaded, how the batch plan is built, what evidence
 counts as acceptance, and what is deliberately **not** verified.
 
@@ -8,7 +8,7 @@ counts as acceptance, and what is deliberately **not** verified.
 
 ## 1. Problem this contract replaces
 
-Before this gate the upload path had four independent defects:
+Previously, the upload path had four independent defects:
 
 1. **Global selection.** The LoTW button used `db.get_recent_qsos(1000)` — no `journal_id`
    predicate at all — so a submission could contain QSOs from every journal in the database.
@@ -81,7 +81,7 @@ unbounded, while the *plan* still carries every record.
 
 ## 4. LoTW transport contract (TQSL)
 
-Invocation (parameters unchanged by this gate):
+Invocation (CLI parameters unchanged):
 
 ```
 tqsl -d -u -a all -x -l <StationLocation> <adif-file>
@@ -174,7 +174,7 @@ status is impossible.
 
 ## 8. Deliberate exclusions
 
-* No real LoTW or eQSL submission was performed by this gate; no real account, credential, token
+* No real LoTW or eQSL submission was performed during software verification; no real account, credential, token
   or TQSL certificate was used.
 * No service response is claimed to be empirically verified; classifiers are pinned to official
   documentation and to test doubles.
@@ -200,7 +200,7 @@ status is impossible.
 
 ---
 
-# Part II — F-20 residual hardening (`STAGE-P1-F20R-SOFTWARE`, 2026-11-17)
+# Part II — F-20 residual hardening (2026-11-17)
 
 This part closes the three risks that F-20 left open. It does **not** reopen anything F-20
 closed: selection, batching, plan identity, journal-scoped status updates, LoTW/eQSL partial-result
@@ -209,7 +209,7 @@ suites still pass unmodified.
 
 ## 10. Persistent upload checkpoints (F20-R1)
 
-Before this gate the only durable trace of an upload was `{service}_qsl_sent = 'Y'` on the QSO row.
+Previously, the only durable trace of an upload was `{service}_qsl_sent = 'Y'` on the QSO row.
 The plan, the batch split, the attempt id, the per-batch outcome and the acceptance instant existed
 only in memory, so 8 of the 10 crash windows were structurally unrecoverable.
 

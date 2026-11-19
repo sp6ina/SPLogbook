@@ -20,11 +20,12 @@
     "risk": "unpinned build runner can silently raise the required glibc symbol baseline"
   },
   "kernel_policy": {
-    "decision_id": "OWNER-M3-F-KERNEL-POLICY-OPTION-A",
+    "decision_id": "ADR-16",
     "supersedes": [
-      "OWNER-M3-F-KERNEL-POLICY-01",
-      "OWNER_APPROVED_FIXED_MINIMUM"
+      "ADR-15",
+      "fixed_minimum"
     ],
+    "policy_mode": "dynamic_distribution_derived_floor",
     "model": "dynamic-distribution-derived-floor",
     "rule": "minimum kernel line = oldest default kernel line among officially supported stable distributions; testing, rawhide, backports, experimental repositories, unstable snapshots and release candidates never define the minimum",
     "minimum_kernel": "7.0",
@@ -37,7 +38,7 @@
     "snapshot_date": "2026-11-09"
   },
   "glibc_policy": {
-    "decision_id": "OWNER-M3-F-GLIBC-POLICY-01",
+    "decision_id": "ADR-17",
     "minimum_glibc": "2.43",
     "maximum_required_glibc_symbol": "GLIBC_2.43",
     "bundled_glibc": false,

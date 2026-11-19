@@ -29,8 +29,6 @@
 > - **CURRENT PUBLIC STABLE:** `1.2.0` (immutable historical tag `v1.2.0`)
 > - **CURRENT DEVELOPMENT:** `1.3.0-alpha.1` (active development branch, unreleased)
 > - **PUBLIC RELEASE STATUS:** `NOT PUBLISHED`
-> - **STAGE M3-D STATUS:** `STAGE-M3-D-WINDOWS-USER-SETUP-INTEGRATION-GATE: COMPLETED_SOFTWARE_VERIFIED`
-> - **STAGE M3-E STATUS:** `STAGE-M3-E-WINDOWS-MSI-WIX-INTEGRATION-GATE: COMPLETED_SOFTWARE_VERIFIED`
 
 **SPLogbook** is an advanced, high-performance amateur radio logging software and station automation console engineered from the ground up in **Rust**. Built with an immediate-mode user interface powered by `egui`/`eframe`, SPLogbook delivers instant sub-millisecond responsiveness, zero-garbage-collection pauses, complete memory safety, and cross-platform native performance across both **Windows 10/11 (64-bit)** and **GNU/Linux (x86_64, X11 & Wayland)** environments.
 
@@ -961,7 +959,7 @@ SPLogbook/
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | delivered milestones, closed risks, planned work |
 | [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md) | open defects and open decisions |
 | [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md) | module map, data flows, security boundaries |
-| [`docs/architecture/DECISIONS.md`](docs/architecture/DECISIONS.md) | binding owner decisions and architectural invariants |
+| [`docs/architecture/DECISIONS.md`](docs/architecture/DECISIONS.md) | architectural decision records (ADRs) and invariants |
 | [`docs/architecture/THEMES.md`](docs/architecture/THEMES.md) | theme and semantic palette architecture |
 | [`docs/SECURITY_PROCESS.md`](docs/SECURITY_PROCESS.md) | dependency-audit policy, key handling, fail-closed rules |
 | [`docs/security/RELEASE_SECURITY.md`](docs/security/RELEASE_SECURITY.md) | release supply chain and update trust specification |
@@ -970,9 +968,6 @@ SPLogbook/
 | [`docs/HARDWARE_VALIDATION_MATRIX.md`](docs/HARDWARE_VALIDATION_MATRIX.md) | CAT protocol knowledge and hardware requirements |
 | [`Native CAT.md`](Native%20CAT.md) | native CAT architecture, PTT invariants, HIL and RF safety |
 | [`LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.md`](LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.md) | Linux kernel/glibc policy and supported distributions |
-| [`DESIGN_3_0_A_WINDOWS_UPDATE.md`](DESIGN_3_0_A_WINDOWS_UPDATE.md) | approved Windows installer and updater design |
-| [`DESIGN_3_0_B_LINUX_UPDATE.md`](DESIGN_3_0_B_LINUX_UPDATE.md) | approved Linux installer and updater design |
-| [`DESIGN_3_0_C_PLATFORM_INSTALLERS.md`](DESIGN_3_0_C_PLATFORM_INSTALLERS.md) | cross-platform installer contract and update state machine |
 | [`installer/`](installer) | per-format packaging documentation for Windows and Linux |
 
 ---

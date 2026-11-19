@@ -535,7 +535,7 @@ Program HIL został podzielony na dwie niezależne bramki jakościowe:
    - Zestaw 297 deterministycznych testów integracyjnych offline (`tests/cat_native_7.rs`),
    - 10 hermetycznie odizolowanych punktów wejścia do testów fizycznych z blokadą w CI (`#[ignore = "hardware-in-the-loop"]`),
    - Dokumentacja procedur laboratoryjnych i synchronizacja dokumentów projektu.
-   - **Bramka NATIVE-7A jest w pełni zrealizowana i niezależna od dostępności fizycznego radia.**
+   - **Etap NATIVE-7A (walidacja offline) jest w pełni zrealizowany i niezależny od dostępności fizycznego radia.**
 
 2. **NATIVE-7B (Kontrolowane wykonanie na fizycznym stanowisku laboratoryjnym)**:
    - Wykonywane wyłącznie na rzeczywistym stanowisku pomiarowym,
@@ -608,8 +608,8 @@ pub enum HilReadinessEvidenceKind {
 
 ### 18.3.1. Niezależny dowód gotowości i fail-closed autoryzacja (F-15)
 
-Gotowość HIL nie może być samocertyfikowana przez manifest (F-15, naprawione programowo
-2026-11-15, `STAGE-P1-F15-SOFTWARE`). Obowiązuje czterowarstwowy model:
+Gotowość HIL nie może być samocertyfikowana przez manifest (F-15, `ADR-81`–`ADR-87`,
+zweryfikowane programowo 2026-11-15). Obowiązuje czterowarstwowy model:
 
 1. **Konfiguracja** — `HilTestBenchManifest` opisuje wyłącznie plan testu. Każde pole
    bezpieczeństwa jest **wymagane**; brak pola jest błędem parsowania, nigdy wartością `true`.
@@ -1088,7 +1088,7 @@ NATIVE-0 -> NATIVE-1 -> NATIVE-2 -> NATIVE-3 -> NATIVE-4 -> NATIVE-5 (5A-5E) -> 
   - [x] repozytorium clean,
   - [x] gałęzie zsynchronizowane,
   - [x] pełna walidacja przechodzi (1076 baseline passed).
-- **Bramka NATIVE-7A (Harness programowy, walidacja offline i synchronizacja) — PASSED**:
+- **Etap NATIVE-7A (Harness programowy, walidacja offline i synchronizacja) — Verified**:
   - [x] Implementacja silnie typowanej domeny HIL w `src/cat/hil/` (`manifest`, `evidence`, `validator`, `session`, `error`).
   - [x] Wieloosiowy model dowodowy `HilRequirementAssessment` rozdzielający trzy niezależne konteksty wykonania (`HilExecutionContext`):
     - `OfflineModel`: ewaluacja statyczna, poprawność parsowania manifestu, reguły konfiguracyjne i niezmienniki domenowe,

@@ -82,9 +82,9 @@ These are enforced in code and by `tests/security_guard.rs`; weakening them is a
 ## 5. Dependency and supply-chain policy
 
 - `cargo audit --deny warnings --no-yanked` runs in CI and must exit 0.
-- `cargo audit --ignore` is **prohibited** without a formal owner decision; a new advisory
-  stops the work and requires a dedicated dependency-security gate.
-- Dependencies are updated only through cargo, only in a dedicated gate, and never
+- `cargo audit --ignore` is **prohibited** without an explicit ADR (`ADR-65`); a new advisory
+  stops integration and is resolved in a dedicated security update.
+- Dependencies are updated only through cargo (`ADR-67`) in dedicated security updates, never
   "on the side" of an unrelated change.
 - `rusqlite` must keep the `bundled` feature; system SQLite is forbidden.
 - GitHub Actions are pinned to full 40-character commit SHAs; the workflows request

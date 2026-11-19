@@ -10,7 +10,7 @@ behaviour with user-visible impact; **P2** — limitation with a workaround; **P
 
 ## 1. Open defects
 
-### F-14 (P0) — panic after PTT is engaged — F-14 software remediation = CLOSED
+### F-14 (P0) — panic after PTT is engaged — F-14 = Resolved (Verified)
 
 A `Duration::clamp` computation in the HIL transmit path could receive an inverted range and
 panic while PTT was keyed. The manifest accepted `max_test_duration_ms` in `1..=500`, while the
@@ -20,7 +20,7 @@ transmit path clamped against a hard-coded lower bound of 10 ms: a value in `1..
 transmitter keyed with no release path; `panic = "abort"` in the release profile removed even the
 unwinding `Drop`.
 
-Software remediation (2026-11-15, `STAGE-P0-F14-SOFTWARE`, software-only verification):
+Resolution (2026-11-15, `ADR-72`–`ADR-74`, software-only verification):
 
 - the range is now total and validated **before** PTT ON (`bounded_test_duration` returns
   `Result`; reversed/empty ranges are typed `SafetyViolation`, never a panic);
@@ -33,9 +33,9 @@ Software remediation (2026-11-15, `STAGE-P0-F14-SOFTWARE`, software-only verific
 - the old panic path is guarded by `security_guard` plus the `cat_f14_fail_safe` suite
   (range matrix, fault injection, combinatorial invariants, deterministic stress).
 
-Verification boundaries recorded by this gate:
+Verification boundaries:
 
-- F-14 software remediation = CLOSED
+- F-14 = Resolved (Verified)
 - Protocol conformance software verification = COMPLETED
 - Hardware validation = NOT_EXECUTED
 - NATIVE-7B = NOT_STARTED
@@ -49,10 +49,10 @@ Files: `src/cat/hil/session.rs`, `src/cat/hil/manifest.rs`.
 ### CAT-018 / CAT-019 — protocol conformance (software remediation 2026-11-15)
 
 Both discrepancies recorded during the F-14 closure were resolved by the dedicated gate
-`STAGE-CAT-018-019-SOFTWARE`, against the **official model-specific** documents. Software-only
+`ADR-75`–`ADR-80`, against the **official model-specific** documents. Software-only
 verification: no transceiver, serial port, real FLRig, PTT or RF was used.
 
-- **CAT-018 — CLOSED, `COMPLETED_KENWOOD_PTT_PROTOCOL_CONFORMANCE_VERIFIED`.** The official
+- **CAT-018 — Resolved (Verified).** The official
   PC CONTROL COMMAND references (`B5A-0316-20/01` TS-590S/SG, `B5A-2944-00/01` TS-890S,
   `B5A-3170-00` TS-990S) define the Answer `TX P1;` where `P1=0` is `SEND`, `P1=1` is
   `DATA SEND` and `P1=2` is `TX Tune` — **every** documented `P1` means the transceiver is
@@ -64,7 +64,7 @@ verification: no transceiver, serial port, real FLRig, PTT or RF was used.
   use only the documented Auto-Information Answer and no longer receive an undocumented `IF;`.
   The documented `ID;` command replaced `IF;` as the probe fallback. Write success is never a
   confirmed TX, and an accepted `TX;` keeps a release obligation for `disconnect()`.
-- **CAT-019 — CLOSED, `COMPLETED_FLRIG_XMLRPC_PTT_CONFORMANCE_VERIFIED`.** FLRig **2.0.00**
+- **CAT-019 — Resolved (Verified).** FLRig **2.0.00**
   (`xml_server.cxx`, tag `v2.0.00`) documents `rig.set_ptt` as `n:i` — one **integer**
   parameter, nil return — and implements it as `PTT = int(params[0])`. The client now sends
   `<int>1</int>` / `<int>0</int>`, accepts the documented nil response, rejects any `<value>`
@@ -78,8 +78,8 @@ documented in 2.0.00 but unused by SPLogbook; neither is required by the PTT pat
 Status block:
 
 ```
-CAT-018 = CLOSED / COMPLETED_KENWOOD_PTT_PROTOCOL_CONFORMANCE_VERIFIED
-CAT-019 = CLOSED / COMPLETED_FLRIG_XMLRPC_PTT_CONFORMANCE_VERIFIED
+CAT-018 = CLOSED / Verified
+CAT-019 = CLOSED / Verified
 SOFTWARE_ONLY_VERIFICATION=true
 PROTOCOL_CONFORMANCE_SOFTWARE_VERIFIED=true
 HARDWARE_BEHAVIOUR_NOT_VERIFIED=true
@@ -95,13 +95,13 @@ Kenwood wire (`tests/support/kenwood_wire.rs`) and the synthetic FLRig XML-RPC d
 (`tests/support/flrig_wire.rs`) exist only in the test scope and are not an application feature.
 
 
-### F-15 (P1) — HIL readiness is self-certifiable — F-15 software remediation = CLOSED
+### F-15 (P1) — HIL readiness is self-certifiable — F-15 = Resolved (Verified)
 
 Readiness booleans default to true, so a manifest can declare itself HIL-READY without
 independent evidence. Operator attestations (antenna disconnected, 50 Ω dummy load, PA
 inhibited) are therefore the only real barrier.
 
-Software remediation (2026-11-15, `STAGE-P1-F15-SOFTWARE`, software-only verification):
+Resolution (2026-11-15, `ADR-81`–`ADR-87`, software-only verification):
 
 - the self-certifiable model is gone: every safety field is **required** and must be written
   explicitly, so a missing field is a parse error, never `true`;
@@ -121,17 +121,17 @@ Software remediation (2026-11-15, `STAGE-P1-F15-SOFTWARE`, software-only verific
   or feature flag that can select it;
 - the ten hardware tests remain `#[ignore = "hardware-in-the-loop"]`.
 
-Verification boundaries recorded by this gate:
+Verification boundaries:
 
-- F-15 software remediation = CLOSED
+- F-15 = Resolved (Verified)
 - HIL readiness self-certification = REMOVED
 - Production default = DENIED
 - Hardware readiness = NOT_VERIFIED
 - SOFTWARE_ONLY_VERIFICATION
-- F-14 software remediation = CLOSED
+- F-14 = Resolved (Verified)
 - Hardware validation = NOT_EXECUTED
 - Protocol conformance software verification = COMPLETED
-- F-17 (P1) = still open at this measurement (closed later by `STAGE-P1-F17-SOFTWARE`, see §1 F-17)
+- F-17 (P1) = still open at this measurement (resolved subsequently, see §1 F-17)
 - NATIVE-7B = NOT_STARTED
 
 SPLogbook cannot confirm the physical preparation of a test bench from a manifest or an operator
@@ -144,7 +144,7 @@ Files: `src/cat/hil/authorization.rs`, `src/cat/hil/manifest.rs`, `src/cat/hil/s
 `src/cat/hil/validator.rs`, `tests/cat_f15_independent_evidence.rs`,
 `tests/cat_f14_fail_safe.rs`, `tests/security_guard.rs`.
 
-### F-16 (P1) — GUI panic in logbook paging — F-16 software remediation = CLOSED
+### F-16 (P1) — GUI panic in logbook paging — F-16 = Resolved (Verified)
 
 `src/gui/logbook_table.rs` computed the page start as `page * page_size` without clamping,
 and the renderer sliced `cache.sorted_indices[page_start..page_end]` directly. The page index
@@ -156,7 +156,7 @@ an advanced filter, a journal switch, a deletion, an import or a sync could ther
 for slice of length 0` and `attempt to multiply with overflow` at
 `src/gui/logbook_table.rs:442` / `:724`.
 
-Software remediation (2026-11-16, `STAGE-P1-F16-SOFTWARE`, software-only verification):
+Resolution (2026-11-16, `ADR-97`–`ADR-102`, software-only verification):
 
 - one pure, GUI-independent model (`src/gui/pagination.rs`) is the only place that computes
   the page count, the normalized page and the `start..end` window:
@@ -180,11 +180,11 @@ Software remediation (2026-11-16, `STAGE-P1-F16-SOFTWARE`, software-only verific
 - filter contraction normalizes to the last existing page, filter expansion keeps a still-valid
   page, sorting keeps the page, page-size changes and empty journals are range-safe.
 
-Verification boundaries recorded by this gate:
+Verification boundaries:
 
 ```
 F-16 = CLOSED
-COMPLETED_LOGBOOK_PAGINATION_PANIC_REMEDIATION_VERIFIED
+Status: Resolved (Verified)
 Logbook pagination = PANIC_FREE_SOFTWARE_VERIFIED
 Stale page normalization = VERIFIED
 Filter transitions = VERIFIED
@@ -208,14 +208,14 @@ F-17 remain CLOSED, hardware readiness and hardware PTT remain NOT_VERIFIED, the
 hardware-in-the-loop tests remain `#[ignore = "hardware-in-the-loop"]` and NATIVE-7B remains
 NOT_STARTED. This defect must not be reopened without a reproducible regression.
 
-### F-17 (P1) — single-key PTT toggle — F-17 software remediation = CLOSED
+### F-17 (P1) — single-key PTT toggle — F-17 = Resolved (Verified)
 
 PTT was bound to a single key (F7) with `ConflictPolicy::AllowInTextEditing`, so a stray
 keystroke — including one typed into a text field, a modal dialog, an active IME session or an
 unfocused window — could key the transmitter, and the same event toggled TX/RX in either
 direction.
 
-Software remediation (2026-11-16, `STAGE-P1-F17-SOFTWARE`, software-only verification):
+Resolution (2026-11-16, `ADR-88`–`ADR-96`, software-only verification):
 
 - the single-key toggle is gone: `F7` alone, `Shift+F7` and `Alt+F7` do nothing, and no other
   single key starts PTT;
@@ -241,9 +241,9 @@ Software remediation (2026-11-16, `STAGE-P1-F17-SOFTWARE`, software-only verific
 - losing window focus while transmitting performs exactly one controlled OFF attempt through the
   existing TxArbiter path (never a raw `SetPtt`), without retries and without a wall-clock timer.
 
-Verification boundaries recorded by this gate:
+Verification boundaries:
 
-- F-17 software remediation = CLOSED
+- F-17 = Resolved (Verified)
 - Single-key PTT = REMOVED
 - Text editing PTT = BLOCKED
 - IME PTT = BLOCKED
@@ -279,7 +279,7 @@ into the same single field per program, and the persistence step mapped that one
 the official POTA `MY_SIG`/`SIG` representation was neither read nor emitted
 (`src/core/adif.rs`). `MY_*` had effectively been read as "my contact" instead of "my station".
 
-Software remediation (2026-11-16, `STAGE-P1-F19-SOFTWARE`, software-only verification):
+Resolution (2026-11-16, `ADR-103`–`ADR-112`, software-only verification):
 
 - the entry state has an explicit local pair (`my_sota`, `my_pota` — the activation context,
   prefilled from the station profile and surviving the per-QSO reset) and an explicit correspondent
@@ -304,11 +304,11 @@ Software remediation (2026-11-16, `STAGE-P1-F19-SOFTWARE`, software-only verific
   whole file, and leaves column 3 empty for a chaser;
 - no database migration and no historical record rewrite: each role already had its own column.
 
-Verification boundaries recorded by this gate:
+Verification boundaries:
 
 ```
 F-19 = CLOSED
-COMPLETED_SOTA_POTA_REFERENCE_SEMANTICS_REMEDIATION_VERIFIED
+F-19 = Resolved (Verified)
 SOTA local/remote mapping = VERIFIED
 POTA local/remote mapping = VERIFIED
 S2S mapping = VERIFIED
@@ -327,7 +327,7 @@ NATIVE-7B = NOT_STARTED
 The verification is software-only and uses synthetic records only. It does **not** claim that any
 public system accepted a file: no upload to SOTA or POTA was performed, no account was used and no
 real log, callsign or database was read. It also does not claim that every historical user record is
-correct — rows written before this gate keep the values they were stored with, and no automatic
+correct — rows written before this change keep the values they were stored with, and no automatic
 repair or irreversible migration was performed. Hardware readiness and hardware PTT remain
 NOT_VERIFIED, the ten hardware-in-the-loop tests remain `#[ignore = "hardware-in-the-loop"]` and
 NATIVE-7B remains NOT_STARTED.
@@ -360,7 +360,7 @@ Root causes (four independent defects):
 4. no write-back of the upload result, so nothing prevented resubmitting accepted QSOs and nothing
    distinguished a completed batch from an unstarted one after a restart.
 
-Software remediation (2026-11-17, `STAGE-P1-F20-SOFTWARE`, software-only verification):
+Resolution (2026-11-17, `ADR-113`–`ADR-121`, software-only verification):
 
 - one central, pure model `src/cloud/upload_plan.rs` owns the upload **scope**: a validated
   `JournalId` taken from `journals.id` (never a journal name, never a GUI index), a materialised
@@ -389,11 +389,11 @@ Software remediation (2026-11-17, `STAGE-P1-F20-SOFTWARE`, software-only verific
 - cancellation is explicit: it stops subsequent batches, keeps already accepted batches and can
   never produce a success status.
 
-Verification boundaries recorded by this gate:
+Verification boundaries:
 
 ```
 F-20 = CLOSED
-COMPLETED_JOURNAL_SCOPED_UPLOAD_SELECTION_REMEDIATION_VERIFIED
+F-20 = Resolved (Verified)
 LoTW selection = JOURNAL_SCOPED
 eQSL selection = JOURNAL_SCOPED
 Silent truncation = REMOVED
@@ -404,7 +404,7 @@ Real eQSL upload = NOT_EXECUTED
 Real credentials = NOT_USED
 SOFTWARE_ONLY_VERIFICATION=true
 F-14 / CAT-018 / CAT-019 / F-15 / F-16 / F-17 / F-19 = remain CLOSED
-F-21 = CLOSED (closed by STAGE-P1-F21-SOFTWARE, see §1 F-21)
+F-21 = CLOSED (see §1 F-21)
 NATIVE-7B = NOT_STARTED
 ```
 
@@ -436,7 +436,7 @@ descending, truncated slice to `compute_scoreboard` to compute `CLAIMED-SCORE`. 
 padding and fell back to the wall clock (`jiff::Timestamp::now()`) when a record had a missing or
 hyphenated date or a malformed time.
 
-Software remediation (2026-11-18, `STAGE-P1-F21-SOFTWARE`, software-only verification):
+Resolution (2026-11-18, software-only verification):
 
 - `export_cabrillo`, `export_pdf_log` and `export_gpx_log` in `src/gui/app_export.rs` now query the
   full journal via `db.get_all_qsos_for_journal(&self.active_journal.id)` (`WHERE journal_id = ?1
@@ -454,11 +454,11 @@ Software remediation (2026-11-18, `STAGE-P1-F21-SOFTWARE`, software-only verific
   → `"YYYY-MM-DD"`) and `format_and_validate_cabrillo_time` (`HHMM` / `HHMMSS` / `HH:MM` /
   `HH:MM:SS` with range checks → `"HHMM"`) fail closed with `ContestError::InvalidQsoTimestamp`.
 
-Verification boundaries recorded by this gate:
+Verification boundaries:
 
 ```
 F-21 = CLOSED
-COMPLETED_CABRILLO_UNTRUNCATED_EXPORT_AND_SCORE_REMEDIATION_VERIFIED
+F-21 = Resolved (Verified)
 Cabrillo selection = JOURNAL_SCOPED_UNTRUNCATED
 Claimed score = FULL_CANONICAL_SET_VERIFIED
 Timestamp fallback to wall clock = REMOVED_FAIL_CLOSED
@@ -516,7 +516,7 @@ Original defect: a `databases/` directory next to the binary or in CWD could sil
 precedence over the canonical XDG (`$XDG_DATA_HOME/splogbook`) / `%APPDATA%\SPLogbook` data
 directory.
 
-Remediation (2026-11-18, `STAGE-R1C-R1D-LEGACY-DATA-REMOVAL-AND-CLEAN-FIRST-RUN`): `src/main.rs`
+Resolution (2026-11-18, legacy data removal and clean first run): `src/main.rs`
 and `src/gui/app_services.rs` resolve the canonical user data/config directories first and no
 longer shadow them via `exe_dir.join("databases")`, `../databases/`, `../../databases/`, or
 `Path::new("databases").is_dir()`.
@@ -557,7 +557,7 @@ with `ceil_char_boundary` / `floor_char_boundary`. Files: `src/cat/tx_arbiter.rs
 Original defect: literal callsigns were injected via `scp.insert(...)` at startup in
 `src/main.rs`.
 
-Remediation (2026-11-18, `STAGE-R1C-R1D-LEGACY-DATA-REMOVAL-AND-CLEAN-FIRST-RUN`): removed all
+Resolution (2026-11-18, legacy data removal and clean first run): removed all
 hardcoded `scp.insert(` calls from `src/main.rs`; SCP loads `MASTER.SCP` from the canonical data
 directory (`log_db_path.parent()`) and active logbook QSOs.
 
@@ -594,7 +594,7 @@ Original defect: `databases/callbook.db`, `databases/serviceLOG.db`, and `databa
 were tracked in Git, bloated the repository, and were bundled as installer/updater first-install
 seeds.
 
-Remediation (2026-11-18, `STAGE-R1C-R1D-LEGACY-DATA-REMOVAL-AND-CLEAN-FIRST-RUN`): removed
+Resolution (2026-11-18, legacy data removal and clean first run): removed
 `databases/serviceLOG.db`, `databases/callbook.db`, `databases/clubs.csv`, `src/core/service_db.rs`,
 and `UpdateFileClass::FirstInstallSeed`; removed seed bundling from Windows installers
 (`SPLogbook.iss`, `Components.wxs`), build scripts, and CI packaging.
@@ -603,10 +603,10 @@ and `UpdateFileClass::FirstInstallSeed`; removed seed bundling from Windows inst
 
 | Decision | State | Effect |
 |---|---|---|
-| `OWNER-M2-08`, `OWNER-M2-09` | **OPEN** (non-blocking) | `.rollback` retention stays on the temporary conservative policy: never auto-deleted, never contains user data |
-| `OWNER-M2-10` | **CLOSED** (moot / superseded by `R1C`) | `databases/serviceLOG.db` and `FirstInstallSeed` were removed; every `.db`/`.sqlite` in `databases/` is unconditionally `UpdateFileClass::UserData` |
-| `OWNER-M2-12` | **OPEN** | audit-log retention policy undefined |
-| `OWNER-M3-E-MSI-VERSIONING-01` | **OPEN** | blocks MSI for `1.3.0-alpha.2` and later (Windows Installer error 1638) |
+| `ADR-03` | **Open** (non-blocking) | `.rollback` retention stays on the temporary conservative policy: never auto-deleted, never contains user data |
+| `ADR-04` | **Closed** (superseded) | `databases/serviceLOG.db` and `FirstInstallSeed` were removed; every `.db`/`.sqlite` in `databases/` is unconditionally `UpdateFileClass::UserData` |
+| `ADR-06` | **Open** | audit-log retention policy undefined |
+| `ADR-12` | **Open** | blocks MSI for `1.3.0-alpha.2` and later (Windows Installer error 1638) |
 
 Recorded decision identifiers and where each one is implemented are listed in
 [`architecture/DECISIONS.md`](architecture/DECISIONS.md).
@@ -623,7 +623,7 @@ Recorded decision identifiers and where each one is implemented are listed in
 
 ## 3.1 Flatpak sandbox limitations (by design)
 
-`OWNER-M3-J-DEVICE-01` fixed the default sandbox of the Flatpak package at the
+`ADR-57` fixed the default sandbox of the Flatpak package at the
 minimal set `--share=network`, `--share=ipc`, `--socket=wayland`,
 `--socket=fallback-x11`, `--socket=pulseaudio`, `--device=dri`,
 `--talk-name=org.freedesktop.secrets`. Consequences:
@@ -698,7 +698,7 @@ of the environment-determinism gate.
 
 ---
 
-## 6. F-20 residual risks after `STAGE-P1-F20R-SOFTWARE` (2026-11-17)
+## 6. F-20 residual risks after upload checkpoint hardening (2026-11-17)
 
 ### F20-R1 — no durable checkpoint of plans and batches (CLOSED, software verified)
 
@@ -732,7 +732,7 @@ The current official documentation documents **only** query credentials for both
   token lifetime is documented. There is **no** `DownloadArchive.cfm` (HTTP 404); `Archive` is a
   parameter of `DownloadInBox.cfm`.
 
-What this gate guarantees instead:
+What the current implementation guarantees instead:
 
 ```text
 QUERY_CREDENTIALS_NOT_LOGGED=true
@@ -766,8 +766,7 @@ sends `QSL_RCVD`, `QSLRDATE` and `APP_LoTW_RXQSL` (`YYYY-MM-DD HH:MM:SS`) but ne
 `LOTW_QSLRDATE`. The ADIF import also mapped `QSLRDATE` only to the paper-QSL field. So a
 fabricated *received* date was written for practically every confirmation.
 
-Fixed in `STAGE-RUSTSEC-2026-0543-CHRONO-REPLACEMENT` (batch T3) under the owner decision for
-this gate. The received date is, in order:
+Fixed during the `chrono` → `jiff` migration (2026-11-18). The received date is, in order:
 
 1. `LOTW_QSLRDATE`,
 2. the date part of `APP_LoTW_RXQSL`,
@@ -792,7 +791,7 @@ falling back to `QSO_DATE`.
 
 ## 7. `RUSTSEC-2026-0543` — new advisory blocking CI (2026-11-17) — RESOLVED 2026-11-18
 
-**Resolution (2026-11-18, `STAGE-RUSTSEC-2026-0543-CHRONO-REPLACEMENT`):**
+**Resolution (2026-11-18, `chrono` replaced by `jiff 1.0.1`):**
 * `chrono` is removed from `Cargo.toml`, `Cargo.lock` and every source file. Time handling uses
   `jiff 1.0.1` (feature `serde`), the only jiff in the graph.
 * `env_logger` runs with `default-features = false` (`auto-color`, `regex`): its `humantime`
@@ -814,24 +813,24 @@ Facts:
 * `chrono 0.4.45` is an existing direct dependency; `Cargo.lock` is byte-identical to the F-20
   baseline (`git diff 70b91d2 HEAD -- Cargo.lock` is empty).
 * The advisory is **not** in the approved `--ignore` list in `.github/workflows/ci.yml`, and adding it
-  requires a formal owner decision (`.github/workflows/ci.yml` §audit, `AGENTS.md` §7).
+  requires an explicit ADR (`.github/workflows/ci.yml` §audit, `ADR-65`).
 * The CI advisory database contained 1527 entries at 2026-11-17T14:36Z; the local cache has 1509, so
   a local `cargo audit --no-fetch` still passes. The CI run is authoritative.
 * The previous CI run on the F-20 baseline (`44050036049`, 2026-11-17T08:49Z) was `success`, so the
   advisory entered the database during 2026-11-17.
-* There is no patched version, so the only code-level remedy is to stop depending on `chrono`
-  entirely — a dependency migration that this gate explicitly forbids.
+* There is no patched version, so the only code-level remedy was to stop depending on `chrono`
+  entirely — a dedicated dependency migration performed in a separate change.
 
-Consequences:
+Consequences (historical):
 
 | Effect | Status |
 |---|---|
-| `STAGE-P1-F20R-SOFTWARE` closure | **BLOCKED_BY_NEW_RUSTSEC_ADVISORY** |
+| F-20 residual hardening CI status | **Blocked by RustSec advisory** (until `chrono` migration) |
 | Software work (checkpoints, sent dates, credential confinement) | complete and verified locally — 3457/3457 tests, clippy clean, fmt clean |
 | CI | red on the audit step only; every other CI step is green |
-| Unblocking decision needed | owner decision: either approve `RUSTSEC-2026-0543` as an accepted `unmaintained` entry (with the same justification style as the existing seven), or authorise a dedicated dependency gate that removes `chrono` |
+| Unblocking options evaluated | either accept `RUSTSEC-2026-0543` via an explicit ADR, or remove `chrono` in a dedicated dependency update (chosen: migrated to `jiff 1.0.1`) |
 
-Do **not** add the `--ignore` entry without that decision, and do **not** treat this gate as closed.
+Adding `--ignore` without an explicit ADR is prohibited (`ADR-65`).
 
 ---
 
@@ -845,13 +844,13 @@ returned `curl: (22) … 403`.
 limit for unauthenticated requests is 60 per hour per originating IP, and exceeding it returns
 403 or 429. Rate limiting is the most likely cause; the response body was not logged.
 
-**Fix (`STAGE-CI-APPIMAGE-TOOLCHAIN-PINNING`, decision `OWNER-M3-G-10`):**
+**Fix (static toolchain pinning, `ADR-44`):**
 * The toolchain is pinned statically in `installer/linux/appimage/toolchain-pins`, with the same
-  builds as `OWNER-M3-G-03-R1` / `-04-R1`.
+  builds as `ADR-40` / `ADR-41`.
 * `scripts/install_appimage_toolchain.sh` makes no REST API call and uses no cache. It downloads
   both assets straight from their official release URLs, logs the HTTP status, and fails closed
   on size or SHA-256 mismatch before the file is moved into place or made executable.
 
 **Residual risk:** the `continuous` assets are replaced upstream on every new build. The job then
 stops with `PIN_STALE` (size or SHA-256 mismatch, or HTTP 404), and the pinned file can no longer
-be downloaded. A new pin needs a new owner decision.
+be downloaded. Updating the pin requires an explicit ADR revision.

@@ -76,7 +76,7 @@ counters anywhere else, and never update a counter without a real measurement.
   guard in `tests/security_guard.rs`.
 - If you must move an invariant's source of truth, move it to **code, a manifest, a
   configuration file, a dedicated fixture, or proper technical documentation** — never to a
-  gate report or a working note.
+  working note or temporary draft.
 
 ### Hardware-in-the-loop
 
@@ -108,7 +108,7 @@ user configuration, and never use the real `HOME`/`APPDATA` in tests.
 
 - Dependency updates happen **only** in a dedicated dependency-security change with a
   green `cargo audit` before and after.
-- Never add `cargo audit --ignore` entries without a formal owner decision.
+- Never add `cargo audit --ignore` entries without a formal architectural decision (ADR).
 - Never hand-edit `Cargo.lock`; use `cargo update -p <package> --precise <version>`.
 - `rusqlite` must keep the `bundled` feature.
 - Do not change the MSRV or the pinned CI toolchain as a side effect of another change.
@@ -122,9 +122,8 @@ user configuration, and never use the real `HOME`/`APPDATA` in tests.
   adds it.** `security_guard` enforces this.
 - A document must not link to a path that is not tracked, and must not describe a removed
   file as existing.
-- Working notes, prompts, model handoffs, gate evidence logs and owner-local plans do not
-  belong in this repository. Keep them outside the tree (for example in a local directory
-  excluded through `.git/info/exclude`, which is never tracked).
+- Keep local working notes and temporary drafts outside the repository; only durable source
+  code, tests, and technical documentation belong in the tracked tree.
 - Do not claim hardware atomicity for the updater; the correct terms are
   `JOURNALED_TRANSACTIONAL_REPLACEMENT_VERIFIED`, `CRASH_RECOVERABLE_BY_JOURNAL` and
   `NOT_POWER_LOSS_ATOMIC`.

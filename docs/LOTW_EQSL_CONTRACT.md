@@ -1,6 +1,6 @@
 # LoTW / TQSL / eQSL.cc — official contract register (current as of 2026-11-17)
 
-Status: **CURRENT** — established by `STAGE-P1-F20R-SOFTWARE` from official sources only.
+Status: **CURRENT** — established from official LoTW and eQSL documentation (`ADR-113`–`ADR-121`).
 Purpose: the single place that records *what the services actually document*, so that no code
 change ever has to rely on memory, on another logger, or on a guess.
 

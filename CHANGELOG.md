@@ -98,8 +98,8 @@ Artifacts are produced and verified by CI only.
 
 - MSI and Inno Setup installers are **not** built or published by CI; only the portable
   Windows ZIP is. Tracked as finding **F-05**.
-- MSI prerelease versioning for `1.3.0-alpha.2` and later is blocked by the open decision
-  `OWNER-M3-E-MSI-VERSIONING-01` (Windows Installer error 1638).
+- MSI prerelease versioning for `1.3.0-alpha.2` and later is tracked under open
+  decision `ADR-12` (Windows Installer error 1638).
 - Hardware-in-the-loop validation (NATIVE-7B) is **not executed**: 10 tests remain
   `#[ignore = "hardware-in-the-loop"]`. The open P0 finding **F-14** must be resolved first.
 - The Flatpak has **no Flathub submission** and is not part of any GitHub release; it is
@@ -157,6 +157,6 @@ recorded in
 
 ## Not yet released
 
-Nothing on the development line has been published. Packaging gates for the Linux formats
-and for the Windows installers are delivered as CI-verified artifacts only; publication
-requires a separate, explicitly authorized release gate.
+Nothing on the development line has been published. Linux packages and Windows installers
+are built and verified in CI; public release assets are published only when a `v*` release
+tag is pushed.

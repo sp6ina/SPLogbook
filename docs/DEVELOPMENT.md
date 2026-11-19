@@ -173,9 +173,8 @@ Four states are distinguished:
 | `IGNORED_PRESENT` | Files exist that match `.gitignore` or `.git/info/exclude` |
 | `STRICT_WORKTREE_CLEAN` | `TRACKED_CLEAN` **and** no untracked and no ignored files |
 
-`CLEAN` without a qualifier is ambiguous and must not be used. Local working directories
-such as `scratch/` and `.local-work/` are owner-local, are excluded through
-`.git/info/exclude` (which is never tracked), and never appear in the public tree.
+`CLEAN` without a qualifier is ambiguous and must not be used. Local working files and
+temporary drafts must stay outside the tracked repository tree.
 
 ## 6. Git workflow
 
@@ -189,8 +188,8 @@ such as `scratch/` and `.local-work/` are owner-local, are excluded through
   `6f7d3aaa3b6a54e87b481c142a5b690bcf8b5592`.
 - Releases are published only from a `v*` tag and only through the `publish-release` job
   in `.github/workflows/build-and-release.yml`; publishing requires a dedicated gate.
-- Do not use `git clean -x`, `git clean -X`, `git clean -fdx` or `git clean -fdX` when the
-  dry run (`git clean -n`) lists owner-local files.
+- Always inspect `git clean -n` before running any destructive `git clean` command so
+  untracked local files are not accidentally deleted.
 
 ## 7. Documentation policy
 
@@ -213,8 +212,8 @@ Rules:
 2. Counters come only from a measurement and always carry the measurement date.
 3. A document must not describe a removed file as existing, and must not link to a path
    that is not tracked.
-4. Working notes, prompts, session handoffs, gate evidence logs and owner-local plans
-   belong outside the repository, not in the public tree.
+4. Keep local working notes and temporary drafts outside the repository; only durable
+   source code, tests, and technical documentation belong in the tracked tree.
 5. Documents are written in UTF-8. Do not introduce re-encoded (mojibake) text.
 
 ## P0-F14 — PTT fail-safe invariants (software-only)

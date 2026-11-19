@@ -1,6 +1,6 @@
 # SPLogbook — Reference data inventory and functional parity
 
-Status: **R1C + R1D CLOSED (`STAGE-R1C-R1D-LEGACY-DATA-REMOVAL-AND-CLEAN-FIRST-RUN`, 2026-11-18) —
+Status: **R1C + R1D Resolved (2026-11-18) —
 `F-07`, `F-09`, `F-11` = CLOSED; `databases/serviceLOG.db`, `databases/callbook.db`,
 `databases/clubs.csv`, `src/core/service_db.rs`, SQLite `v1.2.0` legacy compatibility, and
 `UpdateFileClass::FirstInstallSeed` removed.**
@@ -262,7 +262,7 @@ computed locally; none of the publishers below publishes a checksum or signature
 | Canada | ISED | RIC-9, <https://ised-isde.canada.ca/site/spectrum-management-telecommunications/en/node/314> | Issue 2 (Provisional), October 2005; page modified 2016-04-25 | `e0961d6c6099a482acd2f245d1bc3ac3f8cf10fc842a883313aa25866c226c3a` | public | prefix = province of the address at issuance; calls are for life; VE9 = New Brunswick |
 | USA | FCC | 47 CFR 97.17(d), <https://www.ecfr.gov/current/title-47/chapter-I/subchapter-D/part-97/subpart-A> | current eCFR | — | public | "selected by the sequential call sign system"; the FCC page on that system returned HTTP 403 |
 
-### 9.2 Owner decisions
+### 9.2 Architectural decisions
 
 | ID | Decision |
 |---|---|
@@ -341,7 +341,7 @@ Effects of the changes:
 * "Special event" is a format rule (multi-digit numeral); no official register was found.
 * The corpus measures rule behaviour, not real log contents.
 
-### 9.6 Owner decision D-R1B-FINAL — closure of R1B (2026-11-18)
+### 9.6 Decision D-R1B-FINAL — closure of R1B (2026-11-18)
 
 1. **No export of unlicensed legacy data.** `databases/serviceLOG.db` has no open licence and
    no documented origin, and SPLogbook is GPL-3.0-or-later. Its 594 regional rules and its
@@ -378,7 +378,7 @@ Effects of the changes:
 5. **Result.** No row of §7 is `BLOCKED_MISSING_REPLACEMENT` or `OWNER_DECISION_REQUIRED`, which
    met the entry condition of R1C.
 
-R1C + R1D closure (2026-11-18, `STAGE-R1C-R1D-LEGACY-DATA-REMOVAL-AND-CLEAN-FIRST-RUN`):
+R1C + R1D closure (2026-11-18, legacy data removal and clean first run):
 
 * `databases/serviceLOG.db`, `databases/callbook.db`, `databases/clubs.csv`, and
   `src/core/service_db.rs` have been removed from the repository; built-in `US_STATES` and

@@ -221,7 +221,7 @@ sequenceDiagram
   `attempt_id`, wersją, commitem, platformą i typem instalacji w oknie 15 s; brak dowodu
   oznacza rollback.
 - **Zachowanie `.rollback`:** katalog nie jest automatycznie usuwany. Do czasu zamknięcia
-  decyzji `OWNER-M2-08`/`OWNER-M2-09` obowiązuje tymczasowa, konserwatywna polityka
+  `ADR-03` obowiązuje tymczasowa, konserwatywna polityka
   retencji, a jego rozmiar jest raportowany jako `backup_retained_bytes`.
 - **Wersje systemowe:** MSI, Inno Setup, DEB, RPM i Flatpak są zarządzane przez menedżer
   pakietów (`SystemManaged`); updater nie podmienia ich plików bezpośrednio i nie eskaluje
@@ -275,7 +275,7 @@ Konfiguracja potoku wydawniczego znajduje się w `.github/workflows/build-and-re
 6. **Bezpieczne usuwanie materiału klucza:**
    - Klucz prywatny dekodowany z sekretu Base64 do pliku `priv.key` przy umask `077` i prawach `600`.
    - Rejestracja powłokowej pułapki `trap 'rm -f priv.key' EXIT` zapewniającej usunięcie pliku nawet w przypadku awarii późniejszych poleceń.
-7. **Uruchomienie ręczne (`workflow_dispatch`) nie publikuje i nie podpisuje (`OWNER-CI-PUBLISH-01`, 2026-11-18):**
+7. **Uruchomienie ręczne (`workflow_dispatch`) nie publikuje i nie podpisuje (`ADR-71`, 2026-11-18):**
    - Job `Publish Release Assets` ma warunek
      `startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'`: wykonuje się
      wyłącznie po wypchnięciu tagu `v*`.
@@ -340,7 +340,7 @@ Po wdrożeniu Etapu 2 (REL-001 + CI-001):
 ## 9. Potwierdzenie weryfikacji potoku w trybie dry-run
 
 > **Zapis historyczny.** Opisuje przebieg z 2026-11-01, gdy job `Publish Release Assets`
-> wykonywał się także przy `workflow_dispatch`. Od `OWNER-CI-PUBLISH-01` (2026-11-18) ręczne
+> wykonywał się także przy `workflow_dispatch`. Od `ADR-71` (2026-11-18) ręczne
 > uruchomienie pomija ten job i nie odczytuje sekretu podpisu (§7 pkt 7).
 
 W ramach końcowej bramki weryfikacyjnej Etapu 2 przeprowadzono rzeczywisty, pełny i natywny przebieg potoku wydawniczego na GitHub Actions:

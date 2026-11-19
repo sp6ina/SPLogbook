@@ -4,7 +4,7 @@ Single source of truth for verified test counters and dependency-audit state. Co
 only here; every other document links to this file. Never update a counter without a real
 measurement, and always record the measurement date.
 
-**Data pomiaru:** 2026-11-18 (ostatni pomiar: po `STAGE-R1C-R1D-LEGACY-DATA-REMOVAL-AND-CLEAN-FIRST-RUN`)
+**Data pomiaru:** 2026-11-18 (ostatni pomiar: po usunięciu legacy baz danych i wdrożeniu czystego pierwszego uruchomienia)
 **Środowisko:** Windows 10/11 x86_64, `rustc 1.99.0`, `cargo 1.99.0`, `-j 1`
 **HEAD pomiaru:** commit zawierający ten plik (`git log -1 --format=%H`)
 
@@ -135,7 +135,7 @@ final tree.
 | Iterations with `RUST_TEST_THREADS` = 1 / 2 / 8 | 20 + 20 + 20 per binary — all passed |
 | Iterations with varied `HOME` / `XDG_*` (absolute, relative, empty, missing) | 5 variants × 20 — all passed |
 | Liczba iteracji stresowych | 670 — 0 failures |
-| Full workspace runs on the final tree | 3 consecutive runs, all EXIT 0 (see the gate report for timings) |
+| Full workspace runs on the final tree | 3 consecutive runs, all EXIT 0 |
 | New dependencies for test serialization | none (`Cargo.toml`/`Cargo.lock` unchanged) |
 | `--test-threads=1`, `#[ignore]`, filtering, retry, sleep as synchronization | none |
 
@@ -188,7 +188,7 @@ igctld, never key a transmitter and never emit RF.
 
 ## 9. CAT-018 / CAT-019 protocol conformance (2026-11-15)
 
-Measured on the `STAGE-CAT-018-019-SOFTWARE` tree with the canonical command from section 1.
+Measured on the CAT-018 / CAT-019 protocol conformance tree (`ADR-75`–`ADR-80`) with the canonical command from section 1.
 Software-only verification: no transceiver, serial port, real FLRig, PTT or RF was used.
 
 | Item | Value |
@@ -222,7 +222,7 @@ FLRig, never key a transmitter and never emit RF.
 
 ## 10. P1-F15 HIL readiness independent-evidence remediation (2026-11-15)
 
-Measured on the `STAGE-P1-F15-SOFTWARE` tree with the canonical command from section 1 and
+Measured on the F-15 HIL readiness tree (`ADR-81`–`ADR-87`) with the canonical command from section 1 and
 `cargo test --workspace --all-targets -j 1 -- --list` for the registered count. Software-only
 verification: no transceiver, serial port, dummy load, real PTT or RF was used, and no evidence
 provider exists in the production code.
@@ -265,7 +265,7 @@ available. The ten hardware-in-the-loop tests stay ignored and are never run by 
 
 ## 11. P1-F17 safe PTT interaction (2026-11-16)
 
-Measured on the `STAGE-P1-F17-SOFTWARE` tree with the canonical command from section 1 (`-j 1`,
+Measured on the F-17 PTT interaction tree (`ADR-88`–`ADR-96`) with the canonical command from section 1 (`-j 1`,
 `--skip powershell_real_execution_full_cycle_success`). Software-only verification: no
 transceiver, CAT transport, PTT line or RF was used.
 
@@ -310,7 +310,7 @@ arbiter confirms local transmission. The recording port double exists only in te
 absent from the release binary. Hardware behaviour remains **NOT_VERIFIED**.
 ## 12. P1-F16 panic-free logbook pagination (2026-11-16)
 
-Measured on the `STAGE-P1-F16-SOFTWARE` tree with the canonical command from section 1
+Measured on the F-16 logbook pagination tree (`ADR-97`–`ADR-102`) with the canonical command from section 1
 (`-j 1`, `--skip powershell_real_execution_full_cycle_success`) and
 `cargo test --workspace --all-targets -j 1 -- --list` for the registered count. Software-only
 verification: the suite uses an in-memory database and synthetic `TST…` records; no real user
@@ -335,7 +335,7 @@ log, callsign, journal, production profile, hardware, PTT or RF was used.
 | `HIL_TESTS_REMAIN_IGNORED` | true (10 `#[ignore = "hardware-in-the-loop"]`) |
 | `CARGO_TOML_UNCHANGED` / `CARGO_LOCK_UNCHANGED` | true / true |
 | `F-14` / `CAT-018` / `CAT-019` / `F-15` / `F-17` | remain CLOSED |
-| `F-16` | CLOSED — `COMPLETED_LOGBOOK_PAGINATION_PANIC_REMEDIATION_VERIFIED` |
+| `F-16` | Resolved (Verified) |
 | `NATIVE-7B` | NOT_STARTED |
 
 Logbook pagination is `PANIC_FREE_SOFTWARE_VERIFIED` under the tested synthetic conditions:
@@ -345,7 +345,7 @@ corrupted production database.
 
 ## 13. P1-F19 SOTA/POTA role-aware award references (2026-11-16)
 
-Measured on the `STAGE-P1-F19-SOFTWARE` tree with the canonical command from section 1 (`-j 1`,
+Measured on the F-19 SOTA/POTA reference tree (`ADR-103`–`ADR-112`) with the canonical command from section 1 (`-j 1`,
 `--skip powershell_real_execution_full_cycle_success`) and
 `cargo test --workspace --all-targets -j 1 -- --list` for the registered count. Software-only
 verification: the suites use in-memory databases, synthetic `TST…` callsigns and synthetic award
@@ -383,19 +383,19 @@ uploaded to SOTA or POTA.
 | `HIL_TESTS_REMAIN_IGNORED` | true (10 `#[ignore = "hardware-in-the-loop"]`) |
 | `CARGO_TOML_UNCHANGED` / `CARGO_LOCK_UNCHANGED` | true / true |
 | `F-14` / `CAT-018` / `CAT-019` / `F-15` / `F-16` / `F-17` | remain CLOSED |
-| `F-19` | CLOSED — `COMPLETED_SOTA_POTA_REFERENCE_SEMANTICS_REMEDIATION_VERIFIED` |
+| `F-19` | Resolved (Verified) |
 | `NATIVE-7B` | NOT_STARTED |
 
 The mapping is `SOFTWARE_VERIFIED` under the tested synthetic conditions: SOTA local/remote,
 POTA local/remote, S2S, P2P, import, export, round-trip, spot perspective, activation perspective
 and conflict handling. This does **not** verify any upload to SOTA or POTA, any real user database,
-or any historical record written before this gate. The contract is documented in
+or any historical record written before this change. The contract is documented in
 [`ADIF_AWARD_REFERENCES.md`](ADIF_AWARD_REFERENCES.md).
 ## 14. P1-F20 journal-scoped, lossless LoTW/eQSL upload selection (2026-11-17)
 
 | Property | Value |
 |---|---|
-| `F-20` | CLOSED — `COMPLETED_JOURNAL_SCOPED_UPLOAD_SELECTION_REMEDIATION_VERIFIED` |
+| `F-20` | Resolved (Verified) |
 | `LoTW selection` | `JOURNAL_SCOPED` |
 | `eQSL selection` | `JOURNAL_SCOPED` |
 | `Silent truncation` | `REMOVED` |
@@ -410,10 +410,10 @@ or any historical record written before this gate. The contract is documented in
 | `CARGO_TOML_UNCHANGED` / `CARGO_LOCK_UNCHANGED` | true / true |
 | `DB_SCHEMA_MIGRATION_REQUIRED` | false |
 | `F-14` / `CAT-018` / `CAT-019` / `F-15` / `F-16` / `F-17` / `F-19` | remain CLOSED |
-| `F-21` | **CLOSED** (closed subsequently in `STAGE-P1-F21-SOFTWARE`) |
+| `F-21` | **Resolved (Verified)** (closed subsequently) |
 | `NATIVE-7B` | NOT_STARTED |
 
-Measured counters for this gate (canonical command of §1, measurement 2026-11-17):
+Measured counters for F-20 (canonical command of §1, measurement 2026-11-17):
 3362 registered / 3351 executed / 3351 passed / 0 failed / 10 ignored (`#[ignore]` HIL) /
 1 host-filtered (`windows_helper_test::powershell_real_execution_full_cycle_success`) / 33 binaries.
 `security_guard` = 191 / 191 (12 new `p1_f20_*` rules). `cargo audit` = EXIT 0. `cargo tree -d` = 47.
@@ -431,7 +431,7 @@ a real service response, a real account, a real certificate or hardware behaviou
 
 ## 15. P1-F20R persistent upload checkpoints, ADIF sent dates and download-credential confinement (2026-11-17)
 
-Measured on the `STAGE-P1-F20R-SOFTWARE` tree with the canonical command of §1 (`-j 1`,
+Measured on the F-20 residual hardening tree with the canonical command of §1 (`-j 1`,
 `--skip powershell_real_execution_full_cycle_success`) and
 `cargo test --workspace --all-targets -j 1 -- --list` for the registered count. Software-only
 verification: in-memory and temporary-directory databases, synthetic `TST…` callsigns, injected
@@ -481,9 +481,9 @@ upload, download or login was used.
 | `OFFICIAL_ENDPOINT_REQUIRES_QUERY_CREDENTIALS` | true (LoTW `lotwreport.adi`, eQSL `DownloadInBox.cfm`) |
 | `QUERY_CREDENTIALS_NOT_LOGGED` / `_NOT_PERSISTED` / `_NOT_EXPOSED_IN_ERRORS` | true / true / true |
 | `CREDENTIALS_NOT_IN_QUERY` | **false** — never claimed |
-| `F-20` | remains **CLOSED** (`COMPLETED_JOURNAL_SCOPED_UPLOAD_SELECTION_REMEDIATION_VERIFIED`) |
+| `F-20` | remains **Resolved (Verified)** |
 | `F-14` / `CAT-018` / `CAT-019` / `F-15` / `F-16` / `F-17` / `F-19` | remain CLOSED |
-| `F-21` | **F-21 = CLOSED** (`STAGE-P1-F21-SOFTWARE`, 2026-11-18) |
+| `F-21` | **F-21 = Resolved (Verified)** (2026-11-18) |
 | `F20R` | **F20R = CLOSED** (unblocked by `jiff 1.0.1` migration in §16; verified on `8169c97`: `CI` `44348963039` = `success`, `Build and Release` `44348972587` = `success`) |
 | `NATIVE-7B` | remains **NOT_STARTED** |
 
@@ -502,14 +502,14 @@ gate), `cargo tree -d` = **47** duplicate dependency versions (unchanged), `git 
 | Advisory | **`RUSTSEC-2026-0543`** — "chrono is unmaintained", INFO/Unmaintained, **no patched versions** |
 | Crate | `chrono 0.4.45` — already a dependency, `Cargo.lock` byte-identical to the F-20 baseline |
 | Approved `--ignore` list | does **not** contain `RUSTSEC-2026-0543` |
-| Consequence | `STAGE-P1-F20R-SOFTWARE` cannot claim a green CI |
+| Consequence | F-20 residual hardening could not claim a green CI until `chrono` was replaced |
 
 The advisory was added to the RustSec database between the F-20 baseline CI run
-(`44050035949`, 2026-11-17T08:49Z, `success`) and this gate's CI run (`44102699075`,
+(`44050035949`, 2026-11-17T08:49Z, `success`) and the subsequent CI run (`44102699075`,
 2026-11-17T14:36Z). It is an external database change, not a code change: `Cargo.lock` is unchanged,
 and `chrono` is used across the existing code base (not introduced by F-20R).
 
-The two remedies are both forbidden by this gate: adding a RustSec exception requires a formal owner
+The two remedies were out of scope for the F-20 hardening change: adding a RustSec exception requires an explicit ADR (`ADR-65`),
 decision, and replacing or removing `chrono` is a dependency change (there is no patched version, so
 only a migration to another crate would clear it). The gate therefore stops at
 `BLOCKED_BY_NEW_RUSTSEC_ADVISORY` — see [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md) §7.
@@ -521,7 +521,7 @@ account, a real certificate, real idempotency or hardware behaviour.
 
 ## 16. RUSTSEC-2026-0543 chrono replacement and F20-R4 (2026-11-18)
 
-`STAGE-RUSTSEC-2026-0543-CHRONO-REPLACEMENT`, batches T2–T6, owner GO of 2026-11-18.
+full migration from `chrono` to `jiff 1.0.1` (`RUSTSEC-2026-0543`, completed 2026-11-18).
 
 | Item | Status |
 |---|---|
@@ -529,7 +529,7 @@ account, a real certificate, real idempotency or hardware behaviour.
 | Time crate | `jiff 1.0.1` (feature `serde`), the only jiff in the graph |
 | `env_logger` | `default-features = false`, features `auto-color`, `regex`; `humantime` (jiff 0.2) off; log header timestamp formatted by jiff |
 | F20-R4 invented LoTW / eQSL received date | **F20-R4 = CLOSED** — LoTW: `LOTW_QSLRDATE` → `APP_LoTW_RXQSL` date → `QSLRDATE` (`QSL_RCVD=Y`) → `None`; eQSL: `EQSL_QSLRDATE` → `QSLRDATE` (`EQSL_QSL_RCVD=Y` / `QSL_RCVD=Y`) → `None`; `COALESCE` keeps a stored date |
-| `F20R` / `F-21` / `F-18` | **F20R = CLOSED**, **F-21 = CLOSED** (`STAGE-P1-F21-SOFTWARE`), **F-18 = CLOSED** (UTF-8 safe `redact_sensitive_info`), `F-06` atomic reference downloads (`BoundedBuffer` + `write_file_atomic_sync`) |
+| `F20R` / `F-21` / `F-18` | **F20R = Resolved**, **F-21 = Resolved**, **F-18 = Resolved** (UTF-8 safe `redact_sensitive_info`), `F-06` atomic reference downloads (`BoundedBuffer` + `write_file_atomic_sync`) |
 | Cloud CI verification (`8169c97`) | `CI` run `44348963039` (attempt 1) = `success`, `Build and Release` run `44348972587` (attempt 1) = `success` (23/23 jobs green, `Publish Release Assets` = `skipped`) |
 | Updater JSON timestamps | RFC 3339 with `Z` (`jiff::Timestamp` serde), pinned by `updater_timestamps_serialize_as_rfc3339_zulu_and_round_trip` |
 | HIL timestamps | RFC 3339 with `Z`; inputs parsed by `cat::hil::parse_rfc3339`, which keeps the RFC 3339 shape strict |

@@ -22,10 +22,10 @@
 
 ---
 
-## 2. Polityka Kernela — `OWNER-M3-F-KERNEL-POLICY-OPTION-A`
+## 2. Polityka Kernela — `ADR-16`
 
-Obowiązuje decyzja OWNER **OPTION A** (2026-11-09), która zastępuje zarówno dynamiczny floor
-`6.12`, jak i sztywne minimum `7.2` (`OWNER_APPROVED_FIXED_MINIMUM`).
+Obowiązuje polityka dynamicznego minimum kernela (`ADR-16`, 2026-11-09), która zastępuje zarówno
+wcześniejszy floor `6.12` (`ADR-15`), jak i sztywne minimum `7.2` (`fixed_minimum`).
 
 Zasada: minimalna obsługiwana linia kernela to **najstarsza domyślna linia kernela spośród
 aktualnych stabilnych wydań dystrybucji oficjalnie wspieranych**. Kanały `testing`, `rawhide`,
@@ -55,12 +55,12 @@ Artefakt wymaga maksymalnego symbolu `GLIBC_2.43`. Debian 13.7 ma glibc `2.41`, 
 kanonicznego artefaktu i nie wchodzą do zbioru wspieranego. Są ewidencjonowane w sekcji
 `evaluated_not_supported`, a nie usuwane z analizy.
 
-Gdyby OWNER zdecydował o wsparciu Debiana, minimum kernela spadłoby do `6.12`, ale wymagałoby to
-**przebudowy artefaktu pod glibc ≤ 2.41** — poza zakresem tej bramki.
+Gdyby podjęto decyzję o wsparciu Debiana, minimum kernela spadłoby do `6.12`, ale wymagałoby to
+**przebudowy artefaktu pod glibc ≤ 2.41** — poza bieżącym zakresem wsparcia.
 
 ---
 
-## 3. Polityka glibc — `OWNER-M3-F-GLIBC-POLICY-01`
+## 3. Polityka glibc — `ADR-17`
 
 - **Minimalna glibc:** `2.43`
 - **Maksymalny wymagany symbol:** `GLIBC_2.43`

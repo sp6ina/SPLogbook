@@ -21,11 +21,11 @@
 
 | Moduł | Pliki | Linie | Zawartość | Status | Ryzyko / następna akcja |
 |---|---:|---:|---|---|---|
-| `src/cat` | 56 | 41 148 | 8 backendów CAT, 5 kodeków natywnych, HIL harness, TCI | `CURRENT` | F-14 (P0, hardware-gated), F-15 (HIL self-cert) — poza tą bramką; F-17 (PTT) naprawione programowo 2026-11-16 |
-| `src/gui` | 107 | 31 602 | `SpLogApp`, 28 modułów stanu, ~78 widoków, motywy | `CURRENT` | F-16 (panic `page_range`) naprawione programowo 2026-11-16: centralny model `gui::pagination`, `slice::get`, checked arithmetic; F-19 (SOTA/POTA) — poza tą bramką; F-17 (bramka intencji TX) naprawione programowo 2026-11-16 |
-| `src/core` | 50 | ~28 000 | domena QSO, SQLite, ADIF/Cabrillo, XDG, i18n, model stron referencji dyplomowych | `CURRENT` | F-19 (odwrócone referencje SOTA/POTA) naprawione programowo 2026-11-16: centralny model `core::award_refs`; F-20/F-21 (eksport/upload) — poza tą bramką |
+| `src/cat` | 56 | 41 148 | 8 backendów CAT, 5 kodeków natywnych, HIL harness, TCI | `CURRENT` | F-14 (P0), F-15 (HIL self-cert), F-17 (PTT) — rozwiązane programowo; HIL sprzętowe oczekuje na fizyczne radio |
+| `src/gui` | 107 | 31 602 | `SpLogApp`, 28 modułów stanu, ~78 widoków, motywy | `CURRENT` | F-16 (`gui::pagination`, `slice::get`, checked arithmetic), F-17 (bramka intencji TX), F-19 (SOTA/POTA) — rozwiązane |
+| `src/core` | 50 | ~28 000 | domena QSO, SQLite, ADIF/Cabrillo, XDG, i18n, model stron referencji dyplomowych | `CURRENT` | F-19 (`core::award_refs`), F-20/F-21 (eksport/upload) — rozwiązane |
 | `src/cloud` | 27 | 18 769 | updater (9 431), LoTW/eQSL/QRZ/CloudLog, scheduler | `CURRENT` | F-06 (integralność danych referencyjnych), F-22 (system-managed bez locka) |
-| `src/sync` | 12 | 5 661 | protokół P2P/LAN v2, handshake, szyfrowanie, catch-up | `CURRENT` | F-23 naprawione w bramce QA (testy deterministyczne) |
+| `src/sync` | 12 | 5 661 | protokół P2P/LAN v2, handshake, szyfrowanie, catch-up | `CURRENT` | F-23 rozwiązane (testy deterministyczne) |
 | `src/api` | 2 | 3 527 | Axum REST + SSE/WS | `CURRENT` | opis API w `README.md` |
 | `src/plugins` | 4 | 1 603 | sandbox Rhai, marketplace | `CURRENT` | — |
 | `src/digital` | 5 | 1 553 | WSJT-X / JS8Call / FLdigi / N1MM | `CURRENT` | — |
@@ -70,7 +70,7 @@ manifest (Ed25519, raw bytes) → select_manifest_asset (SHA-256 + size)
 1. Brak manifestu lub nieznany/odwołany klucz ⇒ brak aktualizacji (fail-closed, przed I/O sieciowym).
 2. SHA-256 i rozmiar związane z `VerifiedReleaseAsset`; podpis liczony po surowych bajtach manifestu.
 3. Ochrona przed downgrade i kanałami wydania.
-4. Brak `sudo`/`doas`/`pkexec`/`runas` w kodzie aplikacji (`OWNER-M2-07`).
+4. Brak `sudo`/`doas`/`pkexec`/`runas` w kodzie aplikacji (`ADR-02`).
 5. Brak shell injection w fallbacku PowerShell (bez wildcardów i `iex`).
 6. Instalatory nigdy nie usuwają danych użytkownika (brak preinstalowanych baz `FirstInstallSeed` po `R1C`, uninstall `dirifempty`, brak wildcardów).
 7. HIL: 10 testów `#[ignore]`; PTT wymaga niezależnego dowodu, bramek środowiskowych i zgody;
@@ -106,7 +106,7 @@ manifest (Ed25519, raw bytes) → select_manifest_asset (SHA-256 + size)
 - WinKeyer — transport szeregowy zależny od sprzętu (HIL).
 - AppImage / DEB / RPM / Flatpak — **ZREALIZOWANE** i zweryfikowane w CI (M3-G, M3-H, M3-I, M3-J).
 - MSI/Setup nie są budowane ani publikowane przez CI (F-05).
-## 8. Upload selection and batching (stan po `STAGE-P1-F20-SOFTWARE`)
+## 8. Upload selection and batching (`ADR-113`–`ADR-121`)
 
 ```
 GUI button (src/gui/online_sync.rs)

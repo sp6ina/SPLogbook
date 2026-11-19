@@ -11,7 +11,7 @@ specification see [`security/RELEASE_SECURITY.md`](security/RELEASE_SECURITY.md)
 1. **A new advisory is a stop condition.** A new `cargo audit` finding halts the current
    work, is recorded by advisory ID, and is fixed only in a dedicated dependency-security
    change. It is never absorbed into an unrelated change and never silenced.
-2. **`cargo audit --ignore` requires a formal owner decision.** Adding an entry without one
+2. **`cargo audit --ignore` requires an explicit ADR (`ADR-65`).** Adding an entry without one
    is a defect.
 3. **Never weaken a control to make a build pass.** No test is edited to become green, no
    guard is disabled, no verification step is masked with `|| true`.
@@ -132,7 +132,7 @@ The Flatpak package `io.github.sp6ina.SPLogbook` is verified by
   `SPLOG_FLATPAK_INSPECTION_ONLY=1` prints a different banner so a static-only run can never
   be mistaken for an installation proof.
 
-`OWNER-M3-J-DEVICE-01` fixes the device policy: the shipped manifest never declares
+`ADR-57` fixes the device policy: the shipped manifest never declares
 `--device=all`. Native serial CAT is unavailable in the default sandbox and fails closed;
 the documented user-side opt-in (`flatpak override --user --device=all
 io.github.sp6ina.SPLogbook`) widens access to every device visible to Flatpak and is
@@ -154,8 +154,8 @@ never proof of a distribution kernel, and `uname -r` inside a container is not n
 - Installers remove only files they registered; directory cleanup uses `dirifempty`
   semantics, never wildcards and never recursive deletion.
 - File replacement is journaled: `.rollback` holds only replaced program files, is bound to the
-  attempt ID and plan digest, and is never auto-deleted while `OWNER-M2-08`/`OWNER-M2-09`
-  remain open.
+  attempt ID and plan digest, and is never auto-deleted while `ADR-03`
+  remains open.
 
 ## 7. CI security controls
 
@@ -166,7 +166,7 @@ never proof of a distribution kernel, and `uname -r` inside a container is not n
 | Formatter and linter gates | `cargo fmt --check`, `cargo clippy -D warnings`; no `continue-on-error` |
 | Dependency audit | pinned `cargo-audit 0.22.2`, explicit advisory baseline, `--deny warnings` |
 | Secret scan | tracked key files and PEM private keys rejected before the build |
-| Release gating | `publish-release` runs only for a pushed `v*` tag (`startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'`, `OWNER-CI-PUBLISH-01`) and needs every verification job; every `workflow_dispatch` skips it and never reads the signing secret |
+| Release gating | `publish-release` runs only for a pushed `v*` tag (`startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'`, `ADR-71`) and needs every verification job; every `workflow_dispatch` skips it and never reads the signing secret |
 | Artifact set | incomplete or duplicate artifact names abort the release job (4 release artifacts: Linux `tar.gz`, Windows `zip`, `inno-exe`, `msi`) |
 | Signature checks | manifest signature, key fingerprint, and `SHA256SUMS.txt` self-verification |
 
@@ -292,7 +292,7 @@ and pinned by guards:
 
 ## 14. Download credentials in a query string (F-20R)
 
-`STAGE-P1-F20R-SOFTWARE` reviewed every download path against the current official documentation.
+The F-20R security review verified every download path against the current official documentation.
 **Both documented download interfaces require credentials in the query string** and document no
 alternative (no POST, no Basic auth, no session, no cookie, no API key). Adding one would be an
 undocumented protocol invention and is forbidden.
@@ -307,7 +307,7 @@ Therefore the rule is not "keep secrets out of the query" but:
 5. a helper that returns a credential-bearing `String` may exist only under `#[cfg(test)]`.
 
 Any future change to POST, to a session, or to a new endpoint requires a **new official document**
-from the service, cited with URL, version, date and access time, and a new owner decision. The audit
+from the service, cited with URL, version, date and access time, and a new architectural decision (ADR). The audit
 trail for the current decision is in `docs/LOTW_EQSL_CONTRACT.md`.
 
 `CREDENTIALS_NOT_IN_QUERY=true` must never be claimed while the official contract requires the
