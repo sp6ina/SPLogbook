@@ -142,6 +142,20 @@ fn inno_native_e2e_contract_is_fail_closed() {
     let canonical_name = format!("SPLogbook-Windows-x64-Setup-{version}.exe");
     let temp = tempfile::tempdir().expect("tempdir");
 
+    // 0. Marker JSON musi escapować ścieżkę Windows (`\` -> `\\`), inaczej
+    //    serde_json odrzuca plik ("invalid escape").
+    let iss = fs::read_to_string("installer/windows/inno/SPLogbook.iss").expect("read .iss");
+    assert!(
+        iss.contains("function EscapeJsonString")
+            && iss.contains(r#"StringChangeEx(Result, '\', '\\', True)"#)
+            && iss.contains(r#"StringChangeEx(Result, '"', '\"', True)"#),
+        "SPLogbook.iss musi definiować EscapeJsonString escapujący \\ i \""
+    );
+    assert!(
+        iss.contains(r#"EscapeJsonString(ExpandConstant('{app}'))"#),
+        "installation_root w markerze musi przechodzić przez EscapeJsonString"
+    );
+
     // 1. Brak opt-in -> test jawnie niewykonany (nie FAIL).
     let none = env_map(&[]);
     assert!(matches!(

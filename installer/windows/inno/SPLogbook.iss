@@ -358,6 +358,15 @@ begin
   end;
 end;
 
+// Escapes a value for use inside a JSON string literal: backslash first,
+// then double quote (Windows paths contain backslashes).
+function EscapeJsonString(const S: String): String;
+begin
+  Result := S;
+  StringChangeEx(Result, '\', '\\', True);
+  StringChangeEx(Result, '"', '\"', True);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   MarkerPath: String;
@@ -370,11 +379,11 @@ begin
       '  "marker_version": "1.0",' + #13#10 +
       '  "installation_type": "WindowsInnoSetup",' + #13#10 +
       '  "management_mode": "SystemManaged",' + #13#10 +
-      '  "package_version": "' + ExpandConstant('{#AppVersion}') + '",' + #13#10 +
+      '  "package_version": "' + EscapeJsonString(ExpandConstant('{#AppVersion}')) + '",' + #13#10 +
       '  "app_id": "{C8E28541-7B21-4A9B-8F5C-4EF298F613C1}",' + #13#10 +
       '  "installation_scope": "CurrentUser",' + #13#10 +
-      '  "installation_root": "' + ExpandConstant('{app}') + '",' + #13#10 +
-      '  "build_commit": "' + ExpandConstant('{#GitCommit}') + '",' + #13#10 +
+      '  "installation_root": "' + EscapeJsonString(ExpandConstant('{app}')) + '",' + #13#10 +
+      '  "build_commit": "' + EscapeJsonString(ExpandConstant('{#GitCommit}')) + '",' + #13#10 +
       '  "installer_engine": "InnoSetup"' + #13#10 +
       '}';
     SaveStringToFile(MarkerPath, MarkerContent, False);

@@ -169,7 +169,8 @@ try {
         installer_engine   = "WindowsInstallerWiX"
     } | ConvertTo-Json -Compress
 
-    Set-Content -Path (Join-Path $stagingDir ".splogbook-msi-marker") -Value $markerContent -Encoding UTF8
+    # UTF-8 bez BOM (Windows PowerShell 5.1 -Encoding UTF8 dopisuje BOM, którego serde_json nie akceptuje).
+    [System.IO.File]::WriteAllText((Join-Path $stagingDir ".splogbook-msi-marker"), $markerContent, (New-Object System.Text.UTF8Encoding($false)))
 
     # 6.3 Kopiowanie assets
     $destAssets = Join-Path $stagingDir "assets"
