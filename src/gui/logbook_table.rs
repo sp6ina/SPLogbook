@@ -3,7 +3,7 @@
 
 use crate::core::i18n::{Msg, key, tr};
 use crate::gui::app::SpLogApp;
-use crate::gui::theme::ThemeExt;
+use crate::gui::theme::{ThemeExt, mono_table_cell};
 use eframe::egui;
 use egui_extras::{Column, TableBuilder};
 
@@ -599,7 +599,7 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                             ui.label(&qso.qso_date);
                         }
                         "time" => {
-                            ui.label(&qso.time_on);
+                            ui.label(mono_table_cell(&qso.time_on));
                         }
                         "callsign" => {
                             let call_color = if qso.lotw_qsl_rcvd == "Y" {
@@ -607,11 +607,7 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                             } else {
                                 palette.accent
                             };
-                            ui.label(
-                                egui::RichText::new(&qso.callsign)
-                                    .strong()
-                                    .color(call_color),
-                            );
+                            ui.label(mono_table_cell(&qso.callsign).strong().color(call_color));
                         }
                         "band" => {
                             ui.label(&qso.band);
@@ -656,7 +652,7 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                                 .as_ref()
                                 .map(std::string::ToString::to_string)
                                 .unwrap_or_default();
-                            ui.label(freq_str);
+                            ui.label(mono_table_cell(freq_str));
                         }
                         "cqz" => {
                             let cqz_str = qso

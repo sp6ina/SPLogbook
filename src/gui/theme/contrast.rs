@@ -163,4 +163,140 @@ mod tests {
             "OperatorDark info failed"
         );
     }
+
+    #[test]
+    fn test_operator_dark_text_and_danger_on_window_bg() {
+        let p = ThemePreset::OperatorDark.palette();
+        for (name, fg) in [
+            ("text_primary", p.text_primary),
+            ("text_muted", p.text_muted),
+            ("text_subtle", p.text_subtle),
+            ("danger", p.danger),
+            ("tx", p.tx),
+            ("dupe", p.dupe),
+            ("sync_error", p.sync_error),
+        ] {
+            for (bg_name, bg) in [("panel_bg", p.panel_bg), ("window_bg", p.window_bg)] {
+                assert!(
+                    contrast_ratio(fg, bg) >= 4.5,
+                    "OperatorDark {name} na {bg_name} < 4.5:1"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_daylight_warning_on_cards_and_subtle_bg() {
+        let p = ThemePreset::Daylight.palette();
+        for (name, fg) in [
+            ("warning", p.warning),
+            ("split", p.split),
+            ("multiplier", p.multiplier),
+            ("qsl_queued", p.qsl_queued),
+            ("sync_syncing", p.sync_syncing),
+        ] {
+            for (bg_name, bg) in [
+                ("panel_bg", p.panel_bg),
+                ("window_bg", p.window_bg),
+                ("surface_bg", p.surface_bg),
+                ("subtle_bg", p.subtle_bg),
+            ] {
+                assert!(
+                    contrast_ratio(fg, bg) >= 4.5,
+                    "Daylight {name} na {bg_name} < 4.5:1"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_high_contrast_window_bg_pairs() {
+        let p = ThemePreset::HighContrast.palette();
+        for (name, fg) in [
+            ("text_primary", p.text_primary),
+            ("text_muted", p.text_muted),
+            ("text_subtle", p.text_subtle),
+        ] {
+            for (bg_name, bg) in [("panel_bg", p.panel_bg), ("window_bg", p.window_bg)] {
+                assert!(
+                    contrast_ratio(fg, bg) >= 7.0,
+                    "HighContrast {name} na {bg_name} < 7:1"
+                );
+            }
+        }
+        for (name, fg) in [
+            ("accent", p.accent),
+            ("accent_alt", p.accent_alt),
+            ("success", p.success),
+            ("warning", p.warning),
+            ("danger", p.danger),
+            ("info", p.info),
+            ("tx", p.tx),
+            ("dupe", p.dupe),
+            ("sync_error", p.sync_error),
+        ] {
+            for (bg_name, bg) in [
+                ("panel_bg", p.panel_bg),
+                ("window_bg", p.window_bg),
+                ("subtle_bg", p.subtle_bg),
+            ] {
+                assert!(
+                    contrast_ratio(fg, bg) >= 4.5,
+                    "HighContrast {name} na {bg_name} < 4.5:1"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_high_contrast_semantic_states_are_distinct() {
+        let p = ThemePreset::HighContrast.palette();
+        assert_ne!(p.danger, p.text_primary, "danger == text_primary");
+        assert_ne!(p.dupe, p.text_primary, "dupe == text_primary");
+        assert_ne!(p.sync_error, p.text_primary, "sync_error == text_primary");
+        assert_ne!(p.tx, p.accent, "tx == accent");
+        assert_ne!(p.tx, p.warning, "tx == warning");
+        assert_ne!(p.tx, p.selection_bg, "tx == selection_bg");
+        assert_ne!(p.tx, p.rx, "tx == rx");
+    }
+
+    #[test]
+    fn test_text_on_accent_buttons_all_themes() {
+        // Przycisk „Zapisz QSO” (tło accent, tekst selection_text) oraz zaznaczenie.
+        for preset in ThemePreset::ALL {
+            let p = preset.palette();
+            let min = if preset == ThemePreset::HighContrast {
+                7.0
+            } else {
+                4.5
+            };
+            assert!(
+                contrast_ratio(p.selection_text, p.accent) >= min,
+                "{preset:?}: selection_text na accent < {min}:1"
+            );
+            assert!(
+                contrast_ratio(p.selection_text, p.selection_bg) >= min,
+                "{preset:?}: selection_text na selection_bg < {min}:1"
+            );
+        }
+    }
+
+    #[test]
+    fn test_all_themes_primary_text_on_window_bg() {
+        for preset in ThemePreset::ALL {
+            let p = preset.palette();
+            assert!(
+                contrast_ratio(p.text_primary, p.window_bg) >= 4.5,
+                "{preset:?}: text_primary na window_bg < 4.5:1"
+            );
+            assert!(
+                contrast_ratio(p.text_muted, p.window_bg) >= 4.5,
+                "{preset:?}: text_muted na window_bg < 4.5:1"
+            );
+            assert!(
+                contrast_ratio(p.text_subtle, p.window_bg) >= 4.5,
+                "{preset:?}: text_subtle na window_bg < 4.5:1"
+            );
+        }
+    }
 }

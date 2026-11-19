@@ -6,6 +6,7 @@
 pub mod contrast;
 pub mod ext;
 pub mod palette;
+pub mod tokens;
 
 use eframe::egui;
 use egui::Color32;
@@ -13,6 +14,11 @@ use egui::Color32;
 pub use contrast::{contrast_ratio, relative_luminance};
 pub use ext::{ColorExt, ThemeExt};
 pub use palette::{BandColors, MapColors, Palette, SegmentColors, ThemePreset, waterfall_color};
+pub use tokens::{
+    RADIUS_MD, RADIUS_SM, SPACE_LG, SPACE_MD, SPACE_SM, SPACE_XL, SPACE_XS, TEXT_BODY,
+    TEXT_CALLSIGN, TEXT_CAPTION, TEXT_FREQ, TEXT_SUBHEADING, callsign_font, mono_callsign,
+    mono_font, mono_freq, mono_table_cell,
+};
 
 /// Klucz tekstowy aktywnej palety w pamięci podręcznej `egui::Context`.
 pub const PALETTE_ID_STR: &str = "splogbook_theme_palette";
@@ -97,7 +103,7 @@ pub fn ensure_applied(ctx: &egui::Context, preset: ThemePreset, font_scale: f32)
     let theme = ctx.theme();
     ctx.style_mut_of(theme, |s| {
         s.spacing.window_margin = egui::Margin::symmetric(6, 4);
-        s.spacing.button_padding = egui::vec2(4.0, 2.0);
+        s.spacing.button_padding = egui::vec2(SPACE_SM, SPACE_XS);
     });
 
     ctx.data_mut(|d| {

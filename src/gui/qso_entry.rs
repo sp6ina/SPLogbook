@@ -3,7 +3,7 @@
 
 use crate::core::i18n::{Msg, key, tr};
 use crate::gui::app::SpLogApp;
-use crate::gui::theme::ThemeExt;
+use crate::gui::theme::{RADIUS_MD, SPACE_MD, TEXT_BODY, TEXT_CAPTION, ThemeExt, callsign_font};
 use eframe::egui;
 
 pub fn render_qso_entry_window(app: &mut SpLogApp, ctx: &egui::Context) {
@@ -150,7 +150,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.label(
             egui::RichText::new(tr(key::QSO_CALLSIGN, lang))
                 .strong()
-                .size(13.0),
+                .size(TEXT_BODY),
         );
         if is_dupe {
             ui.colored_label(palette.dupe, egui::RichText::new("⚠ DUPE!").strong());
@@ -161,7 +161,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         let call_response = ui.add(
             egui::TextEdit::singleline(&mut app.entry.callsign)
                 .id(egui::Id::new("qso_entry_callsign"))
-                .font(egui::TextStyle::Heading)
+                .font(callsign_font())
                 .hint_text("W1AW, SP6INA, DL1ABC")
                 .desired_width(ui.available_width() - 85.0),
         );
@@ -191,7 +191,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.horizontal_wrapped(|ui| {
             ui.label(
                 egui::RichText::new("SCP:")
-                    .size(11.0)
+                    .size(TEXT_CAPTION)
                     .color(palette.text_muted),
             );
             for call in app.entry.scp_suggestions.clone() {
@@ -199,7 +199,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     .button(
                         egui::RichText::new(&call)
                             .color(palette.accent)
-                            .size(11.0)
+                            .size(TEXT_CAPTION)
                             .monospace(),
                     )
                     .clicked()
@@ -706,7 +706,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         entry_field_ids.push(comment_resp.id);
     });
 
-    ui.add_space(6.0);
+    ui.add_space(SPACE_MD);
 
     // 7. Przyciski Zapisz (Enter) / Wyczyść (Esc)
     ui.horizontal(|ui| {
@@ -717,7 +717,8 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     .strong()
                     .color(palette.selection_text),
             )
-            .fill(palette.accent),
+            .fill(palette.accent)
+            .corner_radius(RADIUS_MD),
         );
         // Skrót Enter=Zapisz działa tylko, gdy fokus klawiatury jest na jednym z pól
         // tego panelu QSO Entry (a nie np. w Logbooku, DX Clusterze czy innym oknie),
