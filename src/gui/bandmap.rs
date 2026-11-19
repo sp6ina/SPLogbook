@@ -432,5 +432,6 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         app.set_vfo_frequency(freq_hz);
         app.entry.callsign = call;
         app.on_callsign_changed();
+        app.focus_qso_entry();
     }
 }

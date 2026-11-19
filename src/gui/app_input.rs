@@ -6,6 +6,31 @@ use crate::gui::shortcuts::{ActiveFocusContext, AppAction, ShortcutRegistry};
 use eframe::egui;
 
 impl SpLogApp {
+    /// Czy otwarte jest okno modalne / dialog / paleta poleceń (kontekst `ModalDialog`).
+    #[must_use]
+    pub fn is_modal_context_open(&self, ctx: &egui::Context) -> bool {
+        self.gui.chrome.show_command_palette
+            || self.gui.dialogs.advanced_filter_dialog.is_open
+            || self.gui.dialogs.send_spot_dialog.is_open
+            || self.gui.chrome.show_shortcuts_window
+            || self.gui.chrome.show_user_manual
+            || self.gui.chrome.show_welcome_wizard
+            || self.gui.dialogs.csv_export_dialog.is_open
+            || ctx.memory(|m| m.has_focus(egui::Id::new("modal_dialog_focus")))
+    }
+
+    /// Czy `Esc` w głównym formularzu QSO może wyczyścić formularz: nie przy otwartym
+    /// oknie modalnym/palecie, nie przy otwartym oknie Contest i nie przy jawnym
+    /// nadpisaniu kontekstu innym niż formularz QSO.
+    #[must_use]
+    pub fn main_qso_escape_allowed(&self, ctx: &egui::Context) -> bool {
+        !self.is_modal_context_open(ctx)
+            && !self.contest.show_window
+            && self
+                .active_focus_context_override
+                .is_none_or(|c| c == ActiveFocusContext::MainQsoEntry)
+    }
+
     /// Deterministycznie wyznacza aktywny kontekst fokusu użytkownika (GUI-001).
     ///
     /// Hierarchia priorytetów:
@@ -16,7 +41,6 @@ impl SpLogApp {
             "qso_entry_callsign",
             "qso_entry_rst_sent",
             "qso_entry_rst_rcvd",
-            "qso_entry_exchange",
             "qso_entry_name",
             "qso_entry_grid",
             "qso_entry_qth",
@@ -24,6 +48,8 @@ impl SpLogApp {
             "qso_entry_iota",
             "qso_entry_state",
             "qso_entry_sota",
+            "qso_entry_my_sota",
+            "qso_entry_my_pota",
             "qso_entry_qsl_via",
             "qso_entry_comment",
         ];
@@ -33,15 +59,7 @@ impl SpLogApp {
         }
 
         // 1. Priorytet: ModalDialog
-        if self.gui.chrome.show_command_palette
-            || self.gui.dialogs.advanced_filter_dialog.is_open
-            || self.gui.dialogs.send_spot_dialog.is_open
-            || self.gui.chrome.show_shortcuts_window
-            || self.gui.chrome.show_user_manual
-            || self.gui.chrome.show_welcome_wizard
-            || self.gui.dialogs.csv_export_dialog.is_open
-            || ctx.memory(|m| m.has_focus(egui::Id::new("modal_dialog_focus")))
-        {
+        if self.is_modal_context_open(ctx) {
             return ActiveFocusContext::ModalDialog;
         }
 
@@ -235,7 +253,7 @@ impl SpLogApp {
                 AppAction::ImportAdif => self.trigger_import_adif(),
                 AppAction::CycleTheme => self.cycle_theme(),
                 AppAction::FocusLog => self.views.panel_log.visible = true,
-                AppAction::ContestSaveQso => {}
+                AppAction::ContestSaveQso => self.contest.save_requested = true,
                 AppAction::ContestWipeQso => {
                     self.entry.callsign.clear();
                     self.entry.rst_rcvd.clear();

@@ -493,6 +493,22 @@ impl SpLogApp {
         }
     }
 
+    /// Prosi o fokus pola znaku i aktywuje kartę panelu QSO, jeśli jest zadokowana
+    /// w zakładkach (inaczej znak trafiłby do ukrytego formularza). Gdy otwarte jest
+    /// okno Contest, ustawia tylko flagę fokusu (pole znaku Contest ją odbiera).
+    pub fn focus_qso_entry(&mut self) {
+        self.entry.focus_callsign_requested = true;
+        if self.contest.show_window {
+            return;
+        }
+        let dock = &mut self.gui.workspace.dock_state;
+        if let Some(path) = dock.find_tab(&"qso".to_string()) {
+            let node_path = path.node_path();
+            let _ = dock.set_active_tab(path);
+            dock.set_focused_node_and_surface(node_path);
+        }
+    }
+
     /// Czyści formularz QSO i natychmiast przenosi kursor/fokus na pole znaku (Wipe).
     pub fn wipe_qso_form(&mut self) {
         self.clear_qso_form();

@@ -363,6 +363,7 @@ impl SpLogApp {
         let freq_hz = (freq_khz * 1000.0) as u64;
         self.set_vfo_frequency(freq_hz);
         self.on_callsign_changed();
+        self.focus_qso_entry();
         self.gui.chrome.status_message =
             Some(format!("Auto-tune → {dx_call} na {freq_khz:.1} kHz"));
     }

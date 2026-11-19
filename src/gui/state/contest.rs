@@ -36,6 +36,8 @@ pub struct ContestState {
     pub custom_edit_idx: Option<usize>,
     pub custom_draft: CustomContest,
     pub cache: ContestCache,
+    /// Skrót `Enter` (`AppAction::ContestSaveQso`) prosi okno Contest o zapis QSO.
+    pub save_requested: bool,
 }
 
 impl Default for ContestState {
@@ -48,6 +50,7 @@ impl Default for ContestState {
             custom_edit_idx: None,
             custom_draft: CustomContest::default(),
             cache: ContestCache::default(),
+            save_requested: false,
         }
     }
 }

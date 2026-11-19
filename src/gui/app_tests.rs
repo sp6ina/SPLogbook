@@ -1059,7 +1059,7 @@ fn ctrl_w_in_qso_callsign_follows_explicit_qso_contract() {
 }
 
 #[test]
-fn ctrl_w_in_qso_exchange_follows_explicit_qso_contract() {
+fn ctrl_w_in_main_qso_field_follows_explicit_qso_contract() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
@@ -1073,7 +1073,7 @@ fn ctrl_w_in_qso_exchange_follows_explicit_qso_contract() {
     app.entry.exchange = "001".to_string();
 
     let ctx = egui::Context::default();
-    ctx.memory_mut(|m| m.request_focus(egui::Id::new("qso_entry_exchange")));
+    ctx.memory_mut(|m| m.request_focus(egui::Id::new("qso_entry_name")));
     let mut raw_input = egui::RawInput::default();
     raw_input.events.push(egui::Event::Key {
         key: egui::Key::W,
@@ -1091,7 +1091,7 @@ fn ctrl_w_in_qso_exchange_follows_explicit_qso_contract() {
 
     assert_eq!(
         app.entry.callsign, "",
-        "Ctrl+W in exchange field must wipe the QSO form"
+        "Ctrl+W in a main QSO form field must wipe the QSO form"
     );
     assert_eq!(app.entry.exchange, "");
 }
@@ -1410,46 +1410,6 @@ fn successful_qso_save_moves_focus_by_contract() {
         app.entry.callsign, "",
         "Form callsign must be cleared on successful save"
     );
-}
-
-#[test]
-fn escape_does_not_silently_discard_qso() {
-    let deps = test_deps();
-    let init = AppInit {
-        config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
-        active_db_path: std::path::PathBuf::from("db.sqlite"),
-        shutdown_policy: ShutdownPolicy::None,
-    };
-    let mut app = SpLogApp::for_tests(init, deps);
-    app.entry.callsign = "SP6INA".to_string();
-    app.entry.name = "Mariusz".to_string();
-    app.entry.grid = "JO81".to_string();
-
-    let ctx = egui::Context::default();
-    let call_id = egui::Id::new("qso_entry_callsign");
-    ctx.memory_mut(|m| m.request_focus(call_id));
-
-    let mut raw_input = egui::RawInput::default();
-    raw_input.events.push(egui::Event::Key {
-        key: egui::Key::Escape,
-        physical_key: None,
-        pressed: true,
-        repeat: false,
-        modifiers: egui::Modifiers::NONE,
-    });
-
-    let mut output = ctx.run_ui(raw_input, |ui| {
-        crate::gui::qso_entry::render_qso_entry_body(&mut app, ui);
-    });
-    output.textures_delta.clear();
-
-    assert_eq!(
-        app.entry.callsign, "SP6INA",
-        "Escape must not wipe callsign"
-    );
-    assert_eq!(app.entry.name, "Mariusz", "Escape must not wipe name");
-    assert_eq!(app.entry.grid, "JO81", "Escape must not wipe grid");
 }
 
 #[test]
@@ -2818,4 +2778,416 @@ fn f17_gui_state_never_shows_tx_after_a_denied_or_failed_request() {
         harness.app.ptt_transmit_state(),
         crate::gui::ptt_input::PttTransmitState::Idle
     ));
+}
+
+// ======================================================================================
+// Etap 2 — ścieżka klawiaturowa formularza QSO i okna Contest (Enter / Esc / Tab / spoty)
+// ======================================================================================
+
+fn qso_form_test_app() -> SpLogApp {
+    let init = AppInit {
+        config: AppConfig::default(),
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let mut app = SpLogApp::for_tests(init, test_deps());
+    app.gui.chrome.show_welcome_wizard = false;
+    app
+}
+
+fn key_press(key: egui::Key, modifiers: egui::Modifiers) -> egui::Event {
+    egui::Event::Key {
+        key,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers,
+    }
+}
+
+/// Jedna klatka renderująca formularz QSO z zadanymi zdarzeniami wejściowymi.
+fn run_qso_form_frame(ctx: &egui::Context, app: &mut SpLogApp, events: Vec<egui::Event>) {
+    let raw_input = egui::RawInput {
+        events,
+        ..Default::default()
+    };
+    let mut output = ctx.run_ui(raw_input, |ui| {
+        crate::gui::qso_entry::render_qso_entry_body(app, ui);
+    });
+    output.textures_delta.clear();
+}
+
+/// Ustawia fokus na polu i „rozgrzewa” egui jedną klatką bez zdarzeń, tak aby
+/// `lost_focus()` w następnej klatce był wiarygodny.
+fn focus_qso_field(ctx: &egui::Context, app: &mut SpLogApp, id: &str) {
+    ctx.memory_mut(|m| m.request_focus(egui::Id::new(id)));
+    run_qso_form_frame(ctx, app, Vec::new());
+    assert!(
+        ctx.memory(|m| m.has_focus(egui::Id::new(id))),
+        "pole {id} powinno mieć fokus po rozgrzewce"
+    );
+}
+
+fn ready_to_save(app: &mut SpLogApp, call: &str) {
+    app.entry.callsign = call.to_string();
+    app.entry.band = "20m".to_string();
+    app.entry.mode = "CW".to_string();
+    app.entry.focus_callsign_requested = false;
+}
+
+#[test]
+fn enter_in_callsign_field_saves_qso_and_refocuses_callsign() {
+    let mut app = qso_form_test_app();
+    ready_to_save(&mut app, "SP9TEST");
+    let ctx = egui::Context::default();
+    focus_qso_field(&ctx, &mut app, "qso_entry_callsign");
+
+    run_qso_form_frame(
+        &ctx,
+        &mut app,
+        vec![key_press(egui::Key::Enter, egui::Modifiers::NONE)],
+    );
+
+    assert_eq!(
+        app.entry.callsign, "",
+        "Enter w polu znaku musi zapisać QSO"
+    );
+    assert!(app.entry.focus_callsign_requested);
+}
+
+#[test]
+fn enter_in_rst_fields_saves_qso() {
+    for field in ["qso_entry_rst_sent", "qso_entry_rst_rcvd"] {
+        let mut app = qso_form_test_app();
+        ready_to_save(&mut app, "SP9RST");
+        let ctx = egui::Context::default();
+        focus_qso_field(&ctx, &mut app, field);
+
+        run_qso_form_frame(
+            &ctx,
+            &mut app,
+            vec![key_press(egui::Key::Enter, egui::Modifiers::NONE)],
+        );
+
+        assert_eq!(app.entry.callsign, "", "Enter w {field} musi zapisać QSO");
+        assert!(app.entry.focus_callsign_requested);
+    }
+}
+
+#[test]
+fn enter_in_my_pota_and_comment_saves_qso() {
+    for field in [
+        "qso_entry_my_pota",
+        "qso_entry_my_sota",
+        "qso_entry_comment",
+    ] {
+        let mut app = qso_form_test_app();
+        ready_to_save(&mut app, "SP9REF");
+        let ctx = egui::Context::default();
+        focus_qso_field(&ctx, &mut app, field);
+
+        run_qso_form_frame(
+            &ctx,
+            &mut app,
+            vec![key_press(egui::Key::Enter, egui::Modifiers::NONE)],
+        );
+
+        assert_eq!(app.entry.callsign, "", "Enter w {field} musi zapisać QSO");
+    }
+}
+
+#[test]
+fn enter_with_invalid_form_keeps_data_and_field_focus() {
+    let mut app = qso_form_test_app();
+    app.entry.callsign = String::new();
+    app.entry.name = "Preserved Operator".to_string();
+    app.entry.comment = "Do not clear me".to_string();
+    app.entry.focus_callsign_requested = false;
+    let ctx = egui::Context::default();
+    focus_qso_field(&ctx, &mut app, "qso_entry_rst_sent");
+
+    run_qso_form_frame(
+        &ctx,
+        &mut app,
+        vec![key_press(egui::Key::Enter, egui::Modifiers::NONE)],
+    );
+
+    assert_eq!(app.entry.name, "Preserved Operator");
+    assert_eq!(app.entry.comment, "Do not clear me");
+    assert!(
+        ctx.memory(|m| m.has_focus(egui::Id::new("qso_entry_rst_sent"))),
+        "przy błędzie walidacji fokus zostaje w polu, w którym wciśnięto Enter"
+    );
+}
+
+#[test]
+fn enter_without_form_focus_does_not_save() {
+    let mut app = qso_form_test_app();
+    ready_to_save(&mut app, "SP9NOFOCUS");
+    let ctx = egui::Context::default();
+    run_qso_form_frame(&ctx, &mut app, Vec::new());
+
+    run_qso_form_frame(
+        &ctx,
+        &mut app,
+        vec![key_press(egui::Key::Enter, egui::Modifiers::NONE)],
+    );
+
+    assert_eq!(
+        app.entry.callsign, "SP9NOFOCUS",
+        "Enter poza polami formularza nie może zapisywać QSO"
+    );
+}
+
+#[test]
+fn escape_in_qso_form_clears_form_and_refocuses_callsign() {
+    let mut app = qso_form_test_app();
+    app.entry.callsign = "SP6INA".to_string();
+    app.entry.name = "Mariusz".to_string();
+    app.entry.grid = "JO81".to_string();
+    app.entry.focus_callsign_requested = false;
+    let ctx = egui::Context::default();
+    focus_qso_field(&ctx, &mut app, "qso_entry_name");
+
+    run_qso_form_frame(
+        &ctx,
+        &mut app,
+        vec![key_press(egui::Key::Escape, egui::Modifiers::NONE)],
+    );
+
+    assert_eq!(app.entry.callsign, "", "Esc czyści znak");
+    assert_eq!(app.entry.name, "", "Esc czyści imię");
+    assert_eq!(app.entry.grid, "", "Esc czyści lokator");
+    assert!(
+        app.entry.focus_callsign_requested,
+        "po Esc fokus wraca do pola znaku"
+    );
+}
+
+#[test]
+fn escape_does_not_clear_form_when_command_palette_is_open() {
+    let mut app = qso_form_test_app();
+    app.entry.callsign = "SP6INA".to_string();
+    app.entry.name = "Mariusz".to_string();
+    let ctx = egui::Context::default();
+    focus_qso_field(&ctx, &mut app, "qso_entry_callsign");
+    app.gui.chrome.show_command_palette = true;
+
+    run_qso_form_frame(
+        &ctx,
+        &mut app,
+        vec![key_press(egui::Key::Escape, egui::Modifiers::NONE)],
+    );
+
+    assert_eq!(app.entry.callsign, "SP6INA");
+    assert_eq!(app.entry.name, "Mariusz");
+}
+
+#[test]
+fn escape_does_not_clear_form_when_dialog_or_contest_is_open() {
+    for variant in 0..3 {
+        let mut app = qso_form_test_app();
+        app.entry.callsign = "SP6INA".to_string();
+        app.entry.name = "Mariusz".to_string();
+        let ctx = egui::Context::default();
+        focus_qso_field(&ctx, &mut app, "qso_entry_callsign");
+        match variant {
+            0 => app.gui.dialogs.send_spot_dialog.is_open = true,
+            1 => app.gui.chrome.show_shortcuts_window = true,
+            _ => app.contest.show_window = true,
+        }
+
+        run_qso_form_frame(
+            &ctx,
+            &mut app,
+            vec![key_press(egui::Key::Escape, egui::Modifiers::NONE)],
+        );
+
+        assert_eq!(app.entry.callsign, "SP6INA", "wariant {variant}");
+        assert_eq!(app.entry.name, "Mariusz", "wariant {variant}");
+    }
+}
+
+#[test]
+fn escape_closing_open_popup_does_not_clear_form() {
+    let mut app = qso_form_test_app();
+    app.entry.callsign = "SP6INA".to_string();
+    let ctx = egui::Context::default();
+    focus_qso_field(&ctx, &mut app, "qso_entry_callsign");
+    egui::Popup::open_id(&ctx, egui::Id::new("qso_band_popup_probe"));
+
+    run_qso_form_frame(
+        &ctx,
+        &mut app,
+        vec![key_press(egui::Key::Escape, egui::Modifiers::NONE)],
+    );
+
+    assert_eq!(
+        app.entry.callsign, "SP6INA",
+        "Esc zamykający popup nie czyści formularza"
+    );
+}
+
+#[test]
+fn contest_enter_goes_through_contest_save_qso_action_and_saves() {
+    let mut app = qso_form_test_app();
+    app.contest.show_window = true;
+    // Nieznany kontest => tryb „sam RST” bez wymaganej wymiany.
+    app.contest.name = "Etap2 Test Contest".to_string();
+    ready_to_save(&mut app, "SP9CON");
+    let stx_before = app.contest.stx;
+
+    let ctx = egui::Context::default();
+    // Rozgrzewka: okno Contest tworzy pola i dostaje fokus.
+    ctx.memory_mut(|m| m.request_focus(egui::Id::new("contest_entry_callsign")));
+    let mut warm = ctx.run_ui(egui::RawInput::default(), |ui| {
+        app.handle_input_and_shortcuts(ui.ctx());
+        crate::gui::contest::render_contest_window(&mut app, ui.ctx());
+    });
+    warm.textures_delta.clear();
+    ctx.memory_mut(|m| m.request_focus(egui::Id::new("contest_entry_callsign")));
+
+    let raw_input = egui::RawInput {
+        events: vec![key_press(egui::Key::Enter, egui::Modifiers::NONE)],
+        ..Default::default()
+    };
+    let mut output = ctx.run_ui(raw_input, |ui| {
+        app.handle_input_and_shortcuts(ui.ctx());
+        crate::gui::contest::render_contest_window(&mut app, ui.ctx());
+    });
+    output.textures_delta.clear();
+
+    assert_eq!(
+        app.contest.stx,
+        stx_before + 1,
+        "Enter w oknie Contest musi zapisać QSO przez ContestSaveQso"
+    );
+    assert_eq!(app.entry.callsign, "");
+    assert!(!app.contest.save_requested, "flaga jest jednorazowa");
+}
+
+#[test]
+fn ctrl_w_in_my_sota_and_my_pota_wipes_qso_form() {
+    for field in ["qso_entry_my_sota", "qso_entry_my_pota"] {
+        let mut app = qso_form_test_app();
+        app.entry.callsign = "SP6INA".to_string();
+        app.entry.my_refs.sota = "SP/BZ-001".to_string();
+        let ctx = egui::Context::default();
+        ctx.memory_mut(|m| m.request_focus(egui::Id::new(field)));
+
+        let raw_input = egui::RawInput {
+            events: vec![key_press(egui::Key::W, egui::Modifiers::COMMAND)],
+            ..Default::default()
+        };
+        let mut output = ctx.run_ui(raw_input, |ui| {
+            crate::gui::qso_entry::render_qso_entry_body(&mut app, ui);
+            app.handle_input_and_shortcuts(ui.ctx());
+        });
+        output.textures_delta.clear();
+
+        assert_eq!(
+            app.entry.callsign, "",
+            "Ctrl+W w {field} musi czyścić formularz"
+        );
+    }
+}
+
+/// Liczba naciśnięć `Tab` od pola znaku do pola docelowego (None, jeśli nie dotarto).
+fn tabs_from_callsign_to(app: &mut SpLogApp, target: &str) -> Option<usize> {
+    let ctx = egui::Context::default();
+    focus_qso_field(&ctx, app, "qso_entry_callsign");
+    for presses in 1..=30 {
+        run_qso_form_frame(
+            &ctx,
+            app,
+            vec![key_press(egui::Key::Tab, egui::Modifiers::NONE)],
+        );
+        if ctx.memory(|m| m.has_focus(egui::Id::new(target))) {
+            return Some(presses);
+        }
+    }
+    None
+}
+
+#[test]
+fn tab_count_from_callsign_to_rst_is_constant_despite_dynamic_hints() {
+    let mut plain = qso_form_test_app();
+    let baseline = tabs_from_callsign_to(&mut plain, "qso_entry_rst_sent")
+        .expect("Tab ze znaku musi dojść do RST Sent");
+
+    let mut busy = qso_form_test_app();
+    busy.entry.scp_suggestions = vec!["SP6INA".to_string(), "SP6INB".to_string()];
+    busy.entry.callsign_corrections = vec![("SP6INC".to_string(), 1)];
+    busy.entry.active_bearing_deg = 270.0;
+    busy.entry.active_distance_km = 850.0;
+    let with_hints = tabs_from_callsign_to(&mut busy, "qso_entry_rst_sent")
+        .expect("Tab ze znaku musi dojść do RST Sent także z podpowiedziami");
+
+    assert_eq!(
+        baseline, with_hints,
+        "podpowiedzi SCP / Did you mean / rotor nie mogą dodawać stopów Tab"
+    );
+    // Znak -> Pasmo -> Tryb -> RST Sent.
+    assert_eq!(baseline, 3);
+}
+
+#[test]
+fn entry_fields_do_not_jump_when_hints_appear() {
+    let rst_y = |app: &mut SpLogApp| {
+        let ctx = egui::Context::default();
+        run_qso_form_frame(&ctx, app, Vec::new());
+        run_qso_form_frame(&ctx, app, Vec::new());
+        ctx.read_response(egui::Id::new("qso_entry_rst_sent"))
+            .expect("pole RST Sent musi istnieć")
+            .rect
+            .min
+            .y
+    };
+
+    let mut plain = qso_form_test_app();
+    let y_plain = rst_y(&mut plain);
+
+    let mut busy = qso_form_test_app();
+    busy.entry.callsign = "DL1ABC".to_string();
+    busy.entry.scp_suggestions = vec!["DL1ABC".to_string()];
+    busy.entry.callsign_corrections = vec![("DL1ABD".to_string(), 1)];
+    busy.entry.active_bearing_deg = 270.0;
+    busy.entry.active_distance_km = 850.0;
+    busy.entry.pga = "0101".to_string();
+    let y_busy = rst_y(&mut busy);
+
+    assert!(
+        (y_plain - y_busy).abs() < 0.5,
+        "pola wpisu nie mogą się przesuwać: {y_plain} vs {y_busy}"
+    );
+}
+
+#[tokio::test]
+async fn spot_click_requests_callsign_focus_and_activates_qso_tab() {
+    let mut app = qso_form_test_app();
+    app.gui.workspace.dock_state =
+        egui_dock::DockState::new(vec!["qso".to_string(), "cluster".to_string()]);
+    // Aktywna karta: cluster (indeks 1) — qso jest ukryta w zakładkach.
+    if let Some(path) = app
+        .gui
+        .workspace
+        .dock_state
+        .find_tab(&"cluster".to_string())
+    {
+        let _ = app.gui.workspace.dock_state.set_active_tab(path);
+    }
+    app.entry.focus_callsign_requested = false;
+
+    app.tune_to_spot("DL1ABC", 14074.0, "20m");
+
+    assert!(app.entry.focus_callsign_requested);
+    assert_eq!(app.entry.callsign, "DL1ABC");
+    let active = app
+        .gui
+        .workspace
+        .dock_state
+        .find_active_focused()
+        .map(|(_, tab)| tab.clone());
+    assert_eq!(active.as_deref(), Some("qso"), "karta QSO musi być aktywna");
 }

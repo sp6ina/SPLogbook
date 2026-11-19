@@ -487,8 +487,13 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 .desired_width(200.0),
                         );
 
+                        // `Enter` zwykle trafia tu przez `AppAction::ContestSaveQso`; jednowierszowe
+                        // `TextEdit` oddaje fokus przy Enter, więc zapasowo sprawdzamy `lost_focus()`.
                         let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter));
-                        if (call_resp.has_focus() || exch_resp.has_focus()) && enter_pressed {
+                        if (call_resp.lost_focus() || exch_resp.lost_focus()) && enter_pressed {
+                            save_clicked = true;
+                        }
+                        if std::mem::take(&mut app.contest.save_requested) {
                             save_clicked = true;
                         }
 
