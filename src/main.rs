@@ -269,12 +269,24 @@ fn main() -> Result<(), eframe::Error> {
     // Dziennik główny (SQLite WAL) — kanoniczny katalog danych użytkownika (z fallbackiem
     // do katalogu roboczego wyłącznie gdy nie można rozwiązać app_data_dir).
     let log_db_path = app_data_dir.as_ref().map_or_else(
-        || std::path::PathBuf::from("databases/default_log.db"),
-        |dir| dir.join("databases/default_log.db"),
+        || {
+            std::path::PathBuf::from(splogbook::core::database::DATABASES_SUBDIR)
+                .join(splogbook::core::database::DEFAULT_LOG_DB_FILE)
+        },
+        |dir| splogbook::core::database::default_log_db_path(dir),
     );
 
-    if let Some(parent) = log_db_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+    // Czysty profil: katalog `databases` nie istnieje. Błąd tworzenia nie jest już połykany —
+    // `LogDatabase::open` powtórzy próbę i zwróci czytelny komunikat z przyczyną.
+    if let Err(e) = splogbook::core::database::ensure_parent_dir(&log_db_path) {
+        log::error!(
+            "Nie można utworzyć katalogu bazy danych dla {}: {e}",
+            log_db_path.display()
+        );
+        eprintln!(
+            "Nie można utworzyć katalogu bazy danych dla {}: {e}",
+            log_db_path.display()
+        );
     }
 
     // Dane referencyjne: pliki krajów, reguły regionalne i nadpisania użytkownika
@@ -333,7 +345,9 @@ fn main() -> Result<(), eframe::Error> {
 
     let config_file_path = match app_config_dir.as_ref() {
         Some(dir) => {
-            let nested = dir.join("databases/station_config.json");
+            let nested = dir
+                .join(splogbook::core::database::DATABASES_SUBDIR)
+                .join("station_config.json");
             let flat = dir.join("station_config.json");
             if !nested.exists() && flat.exists() {
                 flat
@@ -341,11 +355,15 @@ fn main() -> Result<(), eframe::Error> {
                 nested
             }
         }
-        None => std::path::PathBuf::from("databases/station_config.json"),
+        None => std::path::PathBuf::from(splogbook::core::database::DATABASES_SUBDIR)
+            .join("station_config.json"),
     };
 
-    if let Some(parent) = config_file_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+    if let Err(e) = splogbook::core::database::ensure_parent_dir(&config_file_path) {
+        log::warn!(
+            "Nie można utworzyć katalogu konfiguracji dla {}: {e}",
+            config_file_path.display()
+        );
     }
 
     let app_config = match AppConfig::load_from_file(&config_file_path) {

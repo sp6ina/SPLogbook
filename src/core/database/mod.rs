@@ -38,9 +38,46 @@ pub struct LogDatabase {
     conn: Connection,
 }
 
+/// Nazwa podkatalogu danych użytkownika z bazami.
+pub const DATABASES_SUBDIR: &str = "databases";
+/// Nazwa pliku domyślnego dziennika.
+pub const DEFAULT_LOG_DB_FILE: &str = "default_log.db";
+
+/// Ścieżka domyślnego dziennika w katalogu danych użytkownika, budowana wyłącznie przez
+/// `join` (bez mieszania `\` i `/` w jednym łańcuchu na Windowsie).
+#[must_use]
+pub fn default_log_db_path(app_data_dir: &Path) -> std::path::PathBuf {
+    app_data_dir
+        .join(DATABASES_SUBDIR)
+        .join(DEFAULT_LOG_DB_FILE)
+}
+
+/// Tworzy katalog nadrzędny pliku (rekurencyjnie). Na czystym profilu katalog `databases`
+/// nie istnieje — instalatory nie dostarczają już gotowych baz.
+pub fn ensure_parent_dir(path: &Path) -> std::io::Result<()> {
+    match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => std::fs::create_dir_all(parent),
+        _ => Ok(()),
+    }
+}
+
 impl LogDatabase {
-    /// Otwiera bazę danych SQLite (lub tworzy nową) i inicjalizuje schemat tabel
+    /// Otwiera bazę danych SQLite (lub tworzy nową) i inicjalizuje schemat tabel.
+    ///
+    /// Katalog nadrzędny jest tworzony, jeśli nie istnieje (czysty profil); niepowodzenie
+    /// tworzenia katalogu zwraca czytelny błąd `CANTOPEN` z przyczyną, a nie ciche „unable
+    /// to open database file”.
     pub fn open(db_path: impl AsRef<Path>) -> Result<Self> {
+        let db_path = db_path.as_ref();
+        ensure_parent_dir(db_path).map_err(|e| {
+            rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CANTOPEN),
+                Some(format!(
+                    "cannot create directory for {}: {e}",
+                    db_path.display()
+                )),
+            )
+        })?;
         let conn = Connection::open(db_path)?;
 
         // Włącz tryb WAL (Write-Ahead Logging) dla najwyższej współbieżności i wydajności

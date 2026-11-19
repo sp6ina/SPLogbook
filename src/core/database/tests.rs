@@ -4119,3 +4119,53 @@ fn f20r_sent_date_column_is_text_and_nullable() {
     }
     assert_eq!(found, 2);
 }
+
+#[test]
+fn open_creates_missing_databases_directory_on_clean_profile() {
+    // Całkowicie pusty katalog tymczasowy: bez ręcznego tworzenia `SPLogbook/databases`.
+    let profile = tempfile::tempdir().expect("tempdir");
+    let app_data = profile.path().join("Roaming").join("SPLogbook");
+    assert!(!app_data.exists());
+
+    let db_path = default_log_db_path(&app_data);
+    assert!(db_path.ends_with(std::path::Path::new("databases").join("default_log.db")));
+    #[cfg(windows)]
+    assert!(
+        !db_path.to_string_lossy().contains('/'),
+        "ścieżka na Windowsie nie może mieszać separatorów: {}",
+        db_path.display()
+    );
+
+    let db = LogDatabase::open(&db_path).expect("open na czystym profilu");
+    assert!(db_path.is_file(), "plik bazy został utworzony");
+    assert!(db_path.parent().unwrap().is_dir());
+    assert_eq!(db.current_schema_version().unwrap(), 9);
+}
+
+#[test]
+fn open_handles_mixed_separator_path_on_clean_profile() {
+    // Regresja: `dir.join("databases/default_log.db")` (mieszane separatory na Windowsie).
+    let profile = tempfile::tempdir().expect("tempdir");
+    let db_path = profile
+        .path()
+        .join("SPLogbook")
+        .join("databases/default_log.db");
+    let db = LogDatabase::open(&db_path).expect("open ze ścieżką o mieszanych separatorach");
+    drop(db);
+    assert!(db_path.is_file());
+}
+
+#[test]
+fn open_reports_readable_error_when_directory_cannot_be_created() {
+    // Rodzic jest plikiem, więc katalogu nie da się utworzyć.
+    let profile = tempfile::tempdir().expect("tempdir");
+    let blocker = profile.path().join("SPLogbook");
+    std::fs::write(&blocker, b"plik, nie katalog").unwrap();
+    let err = LogDatabase::open(blocker.join("databases").join("default_log.db"))
+        .err()
+        .expect("musi się nie udać");
+    assert!(
+        err.to_string().contains("cannot create directory"),
+        "błąd ma wskazywać przyczynę: {err}"
+    );
+}
