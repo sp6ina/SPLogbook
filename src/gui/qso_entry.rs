@@ -546,7 +546,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             }
             if app.entry.active_distance_km > 0.0 {
                 ui.colored_label(
-                    palette.warning,
+                    palette.text_primary,
                     format!(
                         "🧭 {} | {:.0}°",
                         app.active_distance_display(),

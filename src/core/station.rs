@@ -94,12 +94,6 @@ impl EquipmentCategory {
     }
 }
 
-fn default_left_col_width() -> f32 {
-    350.0
-}
-fn default_right_col_width() -> f32 {
-    360.0
-}
 fn default_rotor_host() -> String {
     "127.0.0.1".to_string()
 }
@@ -531,11 +525,6 @@ pub struct AppConfig {
     pub quick_access: QuickAccessConfig,
 
     // Konfiguracja kafelków i okien widoku
-    #[serde(default = "default_left_col_width")]
-    pub left_column_width: f32,
-    #[serde(default = "default_right_col_width")]
-    pub right_column_width: f32,
-
     pub panel_vfo: ViewPanelConfig,
     pub panel_qso: ViewPanelConfig,
     pub panel_log: ViewPanelConfig,
@@ -671,8 +660,6 @@ impl std::fmt::Debug for AppConfig {
             .field("cluster_hide_skimmers", &self.cluster_hide_skimmers)
             .field("custom_clusters", &self.custom_clusters)
             .field("quick_access", &self.quick_access)
-            .field("left_column_width", &self.left_column_width)
-            .field("right_column_width", &self.right_column_width)
             .field("panel_vfo", &self.panel_vfo)
             .field("panel_qso", &self.panel_qso)
             .field("panel_log", &self.panel_log)
@@ -1209,10 +1196,7 @@ impl Default for AppConfig {
             custom_clusters: Vec::new(),
             quick_access: QuickAccessConfig::default(),
 
-            left_column_width: 350.0,
-            right_column_width: 360.0,
-
-            // Kolumna 0 (Lewa): VFO -> QSO Entry -> Band Map
+            // Kolumna 0 (lewa): VFO nad formularzem QSO — oba widoczne jednocześnie
             panel_vfo: ViewPanelConfig {
                 visible: true,
                 floating: false,
@@ -1229,16 +1213,8 @@ impl Default for AppConfig {
                 saved_pos: None,
                 saved_size: None,
             },
-            panel_bandmap: ViewPanelConfig {
-                visible: true,
-                floating: false,
-                column: 0,
-                order: 2,
-                saved_pos: None,
-                saved_size: None,
-            },
 
-            // Kolumna 1 (Srodek): Tabela Dziennika -> DX Cluster
+            // Kolumna 1 (środkowa, najszersza): Logbook we własnym liściu
             panel_log: ViewPanelConfig {
                 visible: true,
                 floating: false,
@@ -1247,17 +1223,9 @@ impl Default for AppConfig {
                 saved_pos: None,
                 saved_size: None,
             },
-            panel_cluster: ViewPanelConfig {
-                visible: true,
-                floating: false,
-                column: 1,
-                order: 1,
-                saved_pos: None,
-                saved_size: None,
-            },
 
-            // Kolumna 2 (Prawa): Mapa Swiata -> Pogoda Solarna -> Satelity
-            panel_world_map: ViewPanelConfig {
+            // Kolumna 2 (prawa): Klaster nad zakładkami narzędzi (Bandmapa, Solar, ...)
+            panel_cluster: ViewPanelConfig {
                 visible: true,
                 floating: false,
                 column: 2,
@@ -1265,7 +1233,7 @@ impl Default for AppConfig {
                 saved_pos: None,
                 saved_size: None,
             },
-            panel_solar: ViewPanelConfig {
+            panel_bandmap: ViewPanelConfig {
                 visible: true,
                 floating: false,
                 column: 2,
@@ -1273,7 +1241,7 @@ impl Default for AppConfig {
                 saved_pos: None,
                 saved_size: None,
             },
-            panel_satellites: ViewPanelConfig {
+            panel_solar: ViewPanelConfig {
                 visible: true,
                 floating: false,
                 column: 2,
@@ -1281,7 +1249,7 @@ impl Default for AppConfig {
                 saved_pos: None,
                 saved_size: None,
             },
-            panel_waterfall: ViewPanelConfig {
+            panel_world_map: ViewPanelConfig {
                 visible: false,
                 floating: false,
                 column: 2,
@@ -1289,6 +1257,23 @@ impl Default for AppConfig {
                 saved_pos: None,
                 saved_size: None,
             },
+            panel_satellites: ViewPanelConfig {
+                visible: false,
+                floating: false,
+                column: 2,
+                order: 4,
+                saved_pos: None,
+                saved_size: None,
+            },
+            panel_waterfall: ViewPanelConfig {
+                visible: false,
+                floating: false,
+                column: 2,
+                order: 5,
+                saved_pos: None,
+                saved_size: None,
+            },
+
             schema_version: default_schema_version(),
             tabbed_columns: false,
             dock_layout: None,
@@ -1466,6 +1451,26 @@ mod tests {
             serde_json::from_str(empty_json).expect("Empty JSON must load defaults");
         assert_ne!(cfg.lan_sync_server_ip, "127.0.0.1");
         assert_eq!(cfg.lan_sync_server_ip, "");
+    }
+
+    #[test]
+    fn legacy_config_with_removed_column_width_fields_still_loads() {
+        // Stare pliki ustawień zawierały martwe pola szerokości kolumn — muszą się wczytać.
+        let legacy = r#"{"left_column_width": 350.0, "right_column_width": 360.0}"#;
+        let cfg: AppConfig = serde_json::from_str(legacy).expect("legacy JSON must load");
+        assert_eq!(cfg.panel_log.column, 1);
+        assert!(cfg.panel_vfo.visible && cfg.panel_qso.visible);
+    }
+
+    #[test]
+    fn default_panels_match_new_dock_layout_contract() {
+        let cfg = AppConfig::default();
+        assert_eq!((cfg.panel_vfo.column, cfg.panel_vfo.order), (0, 0));
+        assert_eq!((cfg.panel_qso.column, cfg.panel_qso.order), (0, 1));
+        assert_eq!(cfg.panel_log.column, 1);
+        assert_eq!(cfg.panel_cluster.column, 2);
+        assert!(cfg.panel_bandmap.visible && cfg.panel_bandmap.column == 2);
+        assert!(!cfg.panel_world_map.visible && !cfg.panel_satellites.visible);
     }
 
     #[test]

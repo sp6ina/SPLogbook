@@ -114,82 +114,9 @@ impl SpLogApp {
     }
 
     pub fn reset_panel_layout(&mut self) {
-        use crate::core::station::ViewPanelConfig;
-        self.config.left_column_width = 350.0;
-        self.config.right_column_width = 360.0;
-
-        self.views.panel_vfo = ViewPanelConfig {
-            visible: true,
-            floating: false,
-            column: 0,
-            order: 0,
-            saved_pos: None,
-            saved_size: None,
-        };
-        self.views.panel_qso = ViewPanelConfig {
-            visible: true,
-            floating: false,
-            column: 0,
-            order: 1,
-            saved_pos: None,
-            saved_size: None,
-        };
-        self.views.panel_log = ViewPanelConfig {
-            visible: true,
-            floating: false,
-            column: 1,
-            order: 0,
-            saved_pos: None,
-            saved_size: None,
-        };
-        self.views.panel_cluster = ViewPanelConfig {
-            visible: true,
-            floating: false,
-            column: 1,
-            order: 1,
-            saved_pos: None,
-            saved_size: None,
-        };
-        self.views.panel_bandmap = ViewPanelConfig {
-            visible: true,
-            floating: false,
-            column: 0,
-            order: 2,
-            saved_pos: None,
-            saved_size: None,
-        };
-        self.views.panel_solar = ViewPanelConfig {
-            visible: true,
-            floating: false,
-            column: 2,
-            order: 1,
-            saved_pos: None,
-            saved_size: None,
-        };
-        self.views.panel_satellites = ViewPanelConfig {
-            visible: false,
-            floating: false,
-            column: 2,
-            order: 2,
-            saved_pos: None,
-            saved_size: None,
-        };
-        self.views.panel_world_map = ViewPanelConfig {
-            visible: false,
-            floating: false,
-            column: 2,
-            order: 0,
-            saved_pos: None,
-            saved_size: None,
-        };
-        self.views.panel_waterfall = ViewPanelConfig {
-            visible: false,
-            floating: false,
-            column: 2,
-            order: 3,
-            saved_pos: None,
-            saved_size: None,
-        };
+        // Jedno źródło prawdy: reset buduje dokładnie ten sam układ co pierwsze uruchomienie.
+        let defaults = crate::core::station::AppConfig::default();
+        self.views = crate::gui::state::views::ViewsState::from_config(&defaults);
 
         self.gui.windows.show_bandmap_window = false;
         self.satellites.show_window = false;
@@ -266,6 +193,12 @@ impl SpLogApp {
             "waterfall" => icons::SIGNAL_UP.label(tr(key::VIEW_PANEL_WATERFALL, lang)),
             _ => tile_id.to_string(),
         }
+    }
+
+    /// Czy kafelek ma własne widżety nagłówka (wiersz nagłówka jest rysowany tylko wtedy).
+    #[must_use]
+    pub fn tile_has_custom_header(tile_id: &str) -> bool {
+        matches!(tile_id, "vfo" | "qso" | "log" | "cluster")
     }
 
     pub fn render_tile_header_custom(&mut self, tile_id: &str, ui: &mut egui::Ui) {
@@ -393,8 +326,7 @@ impl SpLogApp {
     pub fn track_window_geometry(&mut self, ctx: &egui::Context) {
         let (win_pos, win_size, win_max) = ctx.input(|i| {
             let vp = i.viewport();
-            let pos = vp.outer_rect.map(|r| [r.min.x, r.min.y]);
-            let size = vp.outer_rect.map(|r| [r.width(), r.height()]);
+            let (pos, size) = window_geometry_from_rects(vp.outer_rect, vp.inner_rect);
             (pos, size, vp.maximized.unwrap_or(false))
         });
         if let Some(pos) = win_pos {
@@ -485,7 +417,7 @@ impl SpLogApp {
                         .style(Style::from_egui(ui.style().as_ref()))
                         .show_add_buttons(false)
                         .show_add_popup(false)
-                        .show_close_buttons(false)
+                        .show_close_buttons(true)
                         .show_inside(ui, self);
                     self.gui.workspace.dock_state = dock_state;
 
@@ -780,5 +712,48 @@ impl SpLogApp {
                 .text(self.gui.appearance.language);
             self.gui.chrome.status_toast = Some((toast_msg, std::time::Instant::now()));
         }
+    }
+}
+
+/// Geometria okna do zapisu w konfiguracji: pozycja z `outer_rect` (lewy górny róg okna
+/// z dekoracjami, tak jak `with_position`), rozmiar z `inner_rect` (obszar roboczy, tak jak
+/// `with_inner_size`). Dzięki temu niezmaksymalizowane okno nie rośnie o wysokość paska
+/// tytułu przy każdym restarcie. Gdy brak `inner_rect`, rozmiaru nie zapisujemy.
+#[must_use]
+pub fn window_geometry_from_rects(
+    outer: Option<egui::Rect>,
+    inner: Option<egui::Rect>,
+) -> (Option<[f32; 2]>, Option<[f32; 2]>) {
+    let pos = outer.or(inner).map(|r| [r.min.x, r.min.y]);
+    let size = inner.map(|r| [r.width(), r.height()]);
+    (pos, size)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn window_geometry_saves_inner_size_without_decoration_growth() {
+        let outer = egui::Rect::from_min_size(egui::pos2(100.0, 50.0), egui::vec2(1400.0, 931.0));
+        let inner = egui::Rect::from_min_size(egui::pos2(100.0, 81.0), egui::vec2(1400.0, 900.0));
+
+        let (pos, size) = window_geometry_from_rects(Some(outer), Some(inner));
+        // Pozycja = zewnętrzny lewy górny róg; rozmiar = wewnętrzny (bez dekoracji).
+        assert_eq!(pos, Some([100.0, 50.0]));
+        assert_eq!(size, Some([1400.0, 900.0]));
+
+        // Odtworzenie (`with_inner_size(size)`) i ponowny zapis dają identyczny rozmiar.
+        let restored_inner = egui::Rect::from_min_size(inner.min, egui::vec2(1400.0, 900.0));
+        let (_, size_again) = window_geometry_from_rects(Some(outer), Some(restored_inner));
+        assert_eq!(size_again, size, "rozmiar nie rośnie o wysokość dekoracji");
+    }
+
+    #[test]
+    fn window_geometry_without_inner_rect_keeps_previous_size() {
+        let outer = egui::Rect::from_min_size(egui::pos2(10.0, 20.0), egui::vec2(800.0, 600.0));
+        let (pos, size) = window_geometry_from_rects(Some(outer), None);
+        assert_eq!(pos, Some([10.0, 20.0]));
+        assert_eq!(size, None);
     }
 }

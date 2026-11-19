@@ -3,7 +3,12 @@
 
 use super::*;
 use crate::core::i18n::{key, tr};
-use crate::gui::theme::ThemeExt;
+use crate::gui::theme::{TEXT_BODY, TEXT_CAPTION, ThemeExt};
+
+/// Szerokość okna, powyżej której pasek statusu pokazuje napis wersji.
+const STATUS_BAR_VERSION_MIN_WIDTH: f32 = 1600.0;
+/// Minimalna szerokość, od której komunikat statusu jest w ogóle pokazywany (skracany wielokropkiem).
+const STATUS_MESSAGE_MIN_WIDTH: f32 = 80.0;
 use eframe::egui;
 
 impl SpLogApp {
@@ -16,101 +21,36 @@ impl SpLogApp {
         });
 
         // Dolny pasek statusu stacji
+        self.render_status_bar(ui);
+    }
+
+    /// Dolny pasek statusu. Lewa i prawa strona nigdy na siebie nie nachodzą:
+    ///
+    /// * **prawa (krytyczna, zawsze w całości):** TX/RX, CAT, Klaster, UTC (oraz napis
+    ///   wersji tylko przy bardzo szerokim oknie),
+    /// * **lewa:** częstotliwość/pasmo/tryb zawsze; elementy drugorzędne (komunikat
+    ///   statusu, dziennik, SFI, RST, profil) dobierane wg priorytetu do pozostałej
+    ///   szerokości — komunikat skraca się wielokropkiem, reszta chowa się w całości.
+    ///
+    /// Stan TX jest wyłącznie odczytem telemetrii (`cat.ptt_active`), tak jak w panelu VFO.
+    pub fn render_status_bar(&mut self, ui: &mut egui::Ui) {
         egui::Panel::bottom("bottom_status_bar").show(ui, |ui| {
             let lang = self.gui.appearance.language;
             let palette = ui.palette();
+            let show_version = ui.ctx().content_rect().width() > STATUS_BAR_VERSION_MIN_WIDTH;
             ui.horizontal(|ui| {
-                let fallback_status = tr(key::STATUS_READY_ALL_ACTIVE, lang);
-                let status_txt = self
-                    .gui
-                    .chrome
-                    .status_message
-                    .as_deref()
-                    .unwrap_or(fallback_status);
-                ui.label(
-                    egui::RichText::new(status_txt)
-                        .size(11.0)
-                        .color(palette.text_muted),
-                );
-
-                ui.separator();
-
-                // Pasek operacyjny: częstotliwość, pasmo, tryb, split i RST
-                let freq_mhz = self.cat.rig_state.frequency_hz as f64 / 1_000_000.0;
-                let mut op_txt = format!(
-                    "📻 {:.3} MHz | {} | {}",
-                    freq_mhz, self.entry.band, self.entry.mode
-                );
-                if self.cat.vfo_split {
-                    op_txt.push_str(" | SPLIT");
-                }
-                ui.label(
-                    egui::RichText::new(op_txt)
-                        .size(11.0)
-                        .monospace()
-                        .color(palette.accent),
-                );
-
-                ui.separator();
-
-                let rst_txt = format!("RST {} / {}", self.entry.rst_sent, self.entry.rst_rcvd);
-                ui.label(
-                    egui::RichText::new(rst_txt)
-                        .size(11.0)
-                        .monospace()
-                        .color(palette.warning),
-                );
-
-                ui.separator();
-
-                let prop_txt = format!(
-                    "🌞 SFI {} | K {}",
-                    self.solar.space_weather.sfi, self.solar.space_weather.k_index
-                );
-                ui.label(
-                    egui::RichText::new(prop_txt)
-                        .size(11.0)
-                        .color(palette.success),
-                );
-
-                ui.separator();
-
-                let journal_str = format!(
-                    "📁 {}: {} ({} QSO)",
-                    tr(key::STATUSBAR_LOG, lang),
-                    self.active_journal.name,
-                    self.log_view.recent_qsos.len()
-                );
-                ui.label(
-                    egui::RichText::new(journal_str)
-                        .size(11.0)
-                        .color(palette.success),
-                );
-
-                ui.separator();
-
-                let prof_name = if self.config.station.name.is_empty() {
-                    &self.config.station.callsign
-                } else {
-                    &self.config.station.name
-                };
-                let profile_str = format!("🏷 {}: {}", tr(key::STATUSBAR_PROFILE, lang), prof_name);
-                ui.label(
-                    egui::RichText::new(profile_str)
-                        .size(11.0)
-                        .color(palette.warning),
-                );
-
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "SPLogbook v{} | SP6INA | GPLv3",
-                            env!("CARGO_PKG_VERSION")
-                        ))
-                        .size(10.0)
-                        .color(palette.text_subtle),
-                    );
-                    ui.separator();
+                    if show_version {
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "SPLogbook v{} | SP6INA | GPLv3",
+                                env!("CARGO_PKG_VERSION")
+                            ))
+                            .size(TEXT_CAPTION)
+                            .color(palette.text_subtle),
+                        );
+                        ui.separator();
+                    }
 
                     let utc_str = format!(
                         "⏱ {}: {}",
@@ -119,7 +59,7 @@ impl SpLogApp {
                     );
                     ui.label(
                         egui::RichText::new(utc_str)
-                            .size(11.0)
+                            .size(TEXT_CAPTION)
                             .monospace()
                             .color(palette.accent),
                     );
@@ -128,14 +68,14 @@ impl SpLogApp {
                     if self.cat.connected {
                         ui.label(
                             egui::RichText::new("● CAT")
-                                .size(11.0)
+                                .size(TEXT_CAPTION)
                                 .strong()
                                 .color(palette.success),
                         );
                     } else {
                         ui.label(
                             egui::RichText::new("○ CAT")
-                                .size(11.0)
+                                .size(TEXT_CAPTION)
                                 .color(palette.text_muted),
                         );
                     }
@@ -144,26 +84,177 @@ impl SpLogApp {
                     if self.cluster.connected {
                         ui.label(
                             egui::RichText::new("● CLUSTER")
-                                .size(11.0)
+                                .size(TEXT_CAPTION)
                                 .strong()
                                 .color(palette.success),
                         );
                     } else if self.cluster.connecting {
                         ui.label(
                             egui::RichText::new("● CLUSTER")
-                                .size(11.0)
+                                .size(TEXT_CAPTION)
                                 .color(palette.warning),
                         );
                     } else {
                         ui.label(
                             egui::RichText::new("○ CLUSTER")
-                                .size(11.0)
+                                .size(TEXT_CAPTION)
                                 .color(palette.text_muted),
                         );
                     }
+                    ui.separator();
+
+                    // Globalny wskaźnik nadawania: tekst + kolor (nie tylko kolorem).
+                    let (tx_label, tx_color) = if self.cat.ptt_active {
+                        ("🔴 TX ON", palette.tx)
+                    } else {
+                        ("⚫ RX", palette.text_muted)
+                    };
+                    ui.label(
+                        egui::RichText::new(tx_label)
+                            .size(TEXT_BODY)
+                            .strong()
+                            .color(tx_color),
+                    )
+                    .on_hover_text(tr(key::VFO_PTT_TOOLTIP, lang));
+                    ui.separator();
+
+                    // Reszta szerokości należy do lewej strony.
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        self.render_status_bar_left(ui);
+                    });
                 });
             });
         });
+    }
+
+    /// Lewa strona paska statusu z priorytetami (patrz [`Self::render_status_bar`]).
+    fn render_status_bar_left(&mut self, ui: &mut egui::Ui) {
+        let lang = self.gui.appearance.language;
+        let palette = ui.palette();
+        let sep_w = ui.spacing().item_spacing.x * 2.0 + 8.0;
+        let measure = |ui: &egui::Ui, text: &str, mono: bool| -> f32 {
+            let font = if mono {
+                egui::FontId::monospace(TEXT_CAPTION)
+            } else {
+                egui::FontId::proportional(TEXT_CAPTION)
+            };
+            ui.painter()
+                .layout_no_wrap(text.to_owned(), font, palette.text_muted)
+                .size()
+                .x
+        };
+
+        // Treść elementów.
+        let freq_mhz = self.cat.rig_state.frequency_hz as f64 / 1_000_000.0;
+        let mut op_txt = format!(
+            "📻 {:.3} MHz | {} | {}",
+            freq_mhz, self.entry.band, self.entry.mode
+        );
+        if self.cat.vfo_split {
+            op_txt.push_str(" | SPLIT");
+        }
+        let status_txt = self
+            .gui
+            .chrome
+            .status_message
+            .clone()
+            .unwrap_or_else(|| tr(key::STATUS_READY_ALL_ACTIVE, lang).to_string());
+        let rst_txt = format!("RST {} / {}", self.entry.rst_sent, self.entry.rst_rcvd);
+        let prop_txt = format!(
+            "🌞 SFI {} | K {}",
+            self.solar.space_weather.sfi, self.solar.space_weather.k_index
+        );
+        let journal_txt = format!(
+            "📁 {}: {} ({} QSO)",
+            tr(key::STATUSBAR_LOG, lang),
+            self.active_journal.name,
+            self.log_view.recent_qsos.len()
+        );
+        let prof_name = if self.config.station.name.is_empty() {
+            &self.config.station.callsign
+        } else {
+            &self.config.station.name
+        };
+        let profile_txt = format!("🏷 {}: {}", tr(key::STATUSBAR_PROFILE, lang), prof_name);
+
+        // Dobór wg priorytetu: częstotliwość (zawsze) → komunikat (skracany) →
+        // dziennik → SFI → RST → profil. Wyświetlanie zachowuje naturalną kolejność.
+        let mut budget = ui.available_width() - measure(ui, &op_txt, true) - sep_w;
+        let msg_cap = (budget * 0.4).max(0.0);
+        let msg_width = if msg_cap >= STATUS_MESSAGE_MIN_WIDTH {
+            let w = measure(ui, &status_txt, false).min(msg_cap);
+            budget -= w + sep_w;
+            Some(w)
+        } else {
+            None
+        };
+        let mut fits = |text: &str| -> bool {
+            let need = measure(ui, text, false) + sep_w;
+            if need <= budget {
+                budget -= need;
+                true
+            } else {
+                false
+            }
+        };
+        let show_journal = fits(&journal_txt);
+        let show_prop = fits(&prop_txt);
+        let show_rst = fits(&rst_txt);
+        let show_profile = fits(&profile_txt);
+
+        ui.label(
+            egui::RichText::new(op_txt)
+                .size(TEXT_CAPTION)
+                .monospace()
+                .color(palette.accent),
+        );
+        if let Some(width) = msg_width {
+            ui.separator();
+            ui.scope(|ui| {
+                ui.set_max_width(width);
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(status_txt)
+                            .size(TEXT_CAPTION)
+                            .color(palette.text_muted),
+                    )
+                    .truncate(),
+                );
+            });
+        }
+        if show_rst {
+            ui.separator();
+            ui.label(
+                egui::RichText::new(rst_txt)
+                    .size(TEXT_CAPTION)
+                    .monospace()
+                    .color(palette.text_primary),
+            );
+        }
+        if show_prop {
+            ui.separator();
+            ui.label(
+                egui::RichText::new(prop_txt)
+                    .size(TEXT_CAPTION)
+                    .color(palette.text_muted),
+            );
+        }
+        if show_journal {
+            ui.separator();
+            ui.label(
+                egui::RichText::new(journal_txt)
+                    .size(TEXT_CAPTION)
+                    .color(palette.text_primary),
+            );
+        }
+        if show_profile {
+            ui.separator();
+            ui.label(
+                egui::RichText::new(profile_txt)
+                    .size(TEXT_CAPTION)
+                    .color(palette.text_muted),
+            );
+        }
     }
 
     pub fn render_chrome_overlays(&mut self, ctx: &egui::Context) {

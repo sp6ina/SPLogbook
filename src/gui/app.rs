@@ -33,7 +33,7 @@ use crate::gui::voice_keyer::render_voice_keyer_window;
 use crate::gui::welcome_wizard::render_welcome_wizard;
 use crate::gui::world_map::render_world_map_window;
 use eframe::egui;
-use egui_dock::{DockArea, DockState, Style, TabViewer};
+use egui_dock::{DockArea, DockState, NodePath, Style, TabViewer, tab_viewer::OnCloseResponse};
 use std::sync::{Arc, Mutex};
 
 pub use crate::gui::drill_filter::{DrillFilter, QslDrillStatus};
@@ -628,44 +628,54 @@ impl TabViewer for SpLogApp {
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
         let tile_id = tab.clone();
         let mut action_popout = false;
-        let mut action_close = false;
 
-        egui::Frame::group(ui.style())
-            .corner_radius(4.0)
-            .inner_margin(egui::Margin::same(6))
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    // Własne widżety nagłówka (CAT, SPLIT, Szukaj, Spot)
-                    self.render_tile_header_custom(&tile_id, ui);
-
-                    // Przyciski odpinania i ukrywania (wyrównane do prawej)
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let lang = self.gui.appearance.language;
-                        if ui
-                            .button("✕")
-                            .on_hover_text(tr(key::WINDOW_HIDE_TOOLTIP, lang))
-                            .clicked()
-                        {
-                            action_close = true;
-                        }
-                        if ui
-                            .button("🗗")
-                            .on_hover_text(tr(key::WINDOW_POPOUT_TOOLTIP, lang))
-                            .clicked()
-                        {
-                            action_popout = true;
-                        }
-                    });
+        // Pasek zakładki `egui_dock` dostarcza tytuł i przycisk ✕ (zamknięcie, `on_close`).
+        // Dodatkowy wiersz nagłówka istnieje wyłącznie dla kafelków z własnymi widżetami
+        // (CAT, SPLIT, Szukaj, Spot) i zawiera też kompaktowy przycisk odpięcia 🗗.
+        // Pozostałe kafelki odpinane są z menu kontekstowego zakładki.
+        if Self::tile_has_custom_header(&tile_id) {
+            ui.horizontal(|ui| {
+                self.render_tile_header_custom(&tile_id, ui);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let lang = self.gui.appearance.language;
+                    if ui
+                        .small_button("🗗")
+                        .on_hover_text(tr(key::WINDOW_POPOUT_TOOLTIP, lang))
+                        .clicked()
+                    {
+                        action_popout = true;
+                    }
                 });
-                ui.separator();
-                self.render_tile_body(&tile_id, ui);
             });
+        }
+        self.render_tile_body(&tile_id, ui);
 
         if action_popout {
             self.popout_tile(&tile_id);
         }
-        if action_close {
-            self.close_tile(&tile_id);
+    }
+
+    fn on_close(&mut self, tab: &mut Self::Tab) -> OnCloseResponse {
+        // Kafelek jest ukrywany przez konfigurację paneli; `sync_dock_state` usuwa kartę.
+        self.close_tile(tab);
+        OnCloseResponse::Ignore
+    }
+
+    fn context_menu(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab, _path: NodePath) {
+        let lang = self.gui.appearance.language;
+        if ui
+            .button(format!("🗗 {}", tr(key::WINDOW_POPOUT_TOOLTIP, lang)))
+            .clicked()
+        {
+            self.popout_tile(tab);
+            ui.close();
+        }
+        if ui
+            .button(format!("✕ {}", tr(key::WINDOW_HIDE_TOOLTIP, lang)))
+            .clicked()
+        {
+            self.close_tile(tab);
+            ui.close();
         }
     }
 

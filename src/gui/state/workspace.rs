@@ -77,6 +77,34 @@ impl DockWorkspace {
         self.last_saved_dock_layout = self.serialize_layout();
     }
 
+    /// Udziały szerokości kolumn 0/1/2 (lewa: VFO + QSO, środkowa: Logbook, prawa: Klaster/narzędzia).
+    pub const COLUMN_WEIGHTS: [f32; 3] = [0.29, 0.47, 0.24];
+
+    /// Udział wysokości górnego kafelka w kolumnie, w której kafelki są ułożone pionowo
+    /// (lewa: VFO nad wyższym formularzem QSO; pozostałe: główny widok nad zakładkami).
+    pub const STACK_TOP_FRACTION: [f32; 3] = [0.28, 0.62, 0.62];
+
+    /// Ułamki kolejnych podziałów poziomych dla zajętych kolumn (`present` rosnąco).
+    ///
+    /// Każdy podział dzieli „resztę” po prawej stronie, więc ułamek k-tego podziału
+    /// to waga k-tej kolumny podzielona przez sumę wag kolumn od k-tej w prawo.
+    /// Dzięki temu przy 3 kolumnach powstaje ok. 29% / 47% / 24%, a przy 2 kolumnach
+    /// proporcje są normalizowane analogicznie (środkowa/Logbook zawsze najszersza).
+    pub fn split_fractions(present: &[usize]) -> Vec<f32> {
+        (0..present.len().saturating_sub(1))
+            .map(|k| {
+                let remaining: f32 = present[k..]
+                    .iter()
+                    .map(|c| Self::COLUMN_WEIGHTS[(*c).min(2)])
+                    .sum();
+                (Self::COLUMN_WEIGHTS[present[k].min(2)] / remaining).clamp(0.1, 0.9)
+            })
+            .collect()
+    }
+
+    /// Buduje czysty układ domyślny: każda zajęta kolumna dostaje własny liść z pierwszym
+    /// kafelkiem, a pozostałe kafelki kolumny trafiają do liścia pod nim (jako zakładki),
+    /// więc kluczowe widoki (VFO + formularz QSO, Logbook) są widoczne jednocześnie.
     pub fn rebuild_from_views(&mut self, views: &ViewsState) {
         let mut columns: [Vec<String>; 3] = [Vec::new(), Vec::new(), Vec::new()];
         for id in Self::all_tile_ids() {
@@ -89,26 +117,39 @@ impl DockWorkspace {
             col.sort_by_key(|id| Self::panel_config(views, id).order);
         }
 
-        let first = if !columns[0].is_empty() {
-            0
-        } else if !columns[1].is_empty() {
-            1
-        } else {
-            2
+        let present: Vec<usize> = (0..3).filter(|c| !columns[*c].is_empty()).collect();
+        let Some(&first) = present.first() else {
+            self.dock_state = DockState::new(vec![]);
+            return;
         };
 
-        self.dock_state = DockState::new(columns[first].clone());
+        self.dock_state = DockState::new(vec![columns[first][0].clone()]);
 
+        let fractions = Self::split_fractions(&present);
+        let mut col_nodes: Vec<(usize, NodeIndex)> = vec![(first, NodeIndex::root())];
         let mut rightmost = NodeIndex::root();
-        for col_items in columns.iter().skip(first + 1) {
-            if col_items.is_empty() {
-                continue;
+        for (pos, &col) in present.iter().enumerate().skip(1) {
+            let [old, new] = self.dock_state.main_surface_mut().split_right(
+                rightmost,
+                fractions[pos - 1],
+                vec![columns[col][0].clone()],
+            );
+            // Poprzednia skrajna kolumna przeniosła się do `old`.
+            if let Some(last) = col_nodes.last_mut() {
+                last.1 = old;
             }
-            let [_, new_node] =
-                self.dock_state
-                    .main_surface_mut()
-                    .split_right(rightmost, 0.5, col_items.clone());
-            rightmost = new_node;
+            col_nodes.push((col, new));
+            rightmost = new;
+        }
+
+        for (col, node) in col_nodes {
+            if columns[col].len() > 1 {
+                self.dock_state.main_surface_mut().split_below(
+                    node,
+                    Self::STACK_TOP_FRACTION[col.min(2)],
+                    columns[col][1..].to_vec(),
+                );
+            }
         }
     }
 
@@ -137,6 +178,137 @@ impl DockWorkspace {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::station::AppConfig;
+    use egui_dock::{Node, TabPath};
+
+    fn default_views() -> ViewsState {
+        ViewsState::from_config(&AppConfig::default())
+    }
+
+    fn path_of(ws: &DockWorkspace, id: &str) -> TabPath {
+        ws.dock_state
+            .find_tab(&id.to_string())
+            .unwrap_or_else(|| panic!("kafelek {id} musi być w układzie"))
+    }
+
+    /// Czy kafelek jest aktywną (widoczną) kartą swojego liścia.
+    fn is_active_tab(ws: &DockWorkspace, id: &str) -> bool {
+        let path = path_of(ws, id);
+        ws.dock_state
+            .leaf(path.node_path())
+            .is_ok_and(|leaf| leaf.active == path.tab)
+    }
+
+    /// Udział szerokości liścia kafelka w całym obszarze (po drzewie podziałów poziomych).
+    fn width_share(ws: &DockWorkspace, id: &str) -> f32 {
+        let tree = &ws.dock_state.main_surface();
+        let mut n = path_of(ws, id).node.0;
+        let mut share = 1.0_f32;
+        while n > 0 {
+            let parent = (n - 1) / 2;
+            if let Node::Horizontal(split) = &tree[NodeIndex(parent)] {
+                share *= if n == 2 * parent + 1 {
+                    split.fraction
+                } else {
+                    1.0 - split.fraction
+                };
+            }
+            n = parent;
+        }
+        share
+    }
+
+    #[test]
+    fn default_layout_shows_vfo_and_qso_simultaneously() {
+        let mut ws = DockWorkspace::new();
+        ws.rebuild_from_views(&default_views());
+
+        let vfo = path_of(&ws, "vfo");
+        let qso = path_of(&ws, "qso");
+        assert_ne!(
+            vfo.node, qso.node,
+            "VFO i QSO muszą być w osobnych liściach (stos pionowy), nie w zakładkach"
+        );
+        assert!(is_active_tab(&ws, "vfo"), "VFO widoczne od razu");
+        assert!(is_active_tab(&ws, "qso"), "QSO widoczne od razu");
+        // VFO nad QSO: w układzie binarnym górny liść ma mniejszy indeks.
+        assert!(vfo.node.0 < qso.node.0);
+    }
+
+    #[test]
+    fn default_layout_logbook_has_own_leaf_and_widest_column() {
+        let mut ws = DockWorkspace::new();
+        ws.rebuild_from_views(&default_views());
+
+        let log = path_of(&ws, "log");
+        assert!(is_active_tab(&ws, "log"), "Logbook aktywny przy starcie");
+        let leaf = ws.dock_state.leaf(log.node_path()).unwrap();
+        assert_eq!(leaf.tabs.len(), 1, "Logbook nie dzieli liścia z zakładkami");
+
+        let log_w = width_share(&ws, "log");
+        assert!(
+            (0.45..=0.48).contains(&log_w),
+            "środkowa kolumna ~45-48%, jest {log_w}"
+        );
+        for other in ["vfo", "qso", "cluster"] {
+            assert!(
+                width_share(&ws, other) < log_w,
+                "{other} nie może być szerszy niż Logbook"
+            );
+        }
+        let left = width_share(&ws, "vfo");
+        let right = width_share(&ws, "cluster");
+        assert!((0.28..=0.30).contains(&left), "lewa ~28-30%, jest {left}");
+        assert!(
+            (0.22..=0.25).contains(&right),
+            "prawa ~22-25%, jest {right}"
+        );
+    }
+
+    #[test]
+    fn default_layout_keeps_bandmap_off_the_qso_form() {
+        let mut ws = DockWorkspace::new();
+        ws.rebuild_from_views(&default_views());
+        assert_ne!(
+            path_of(&ws, "bandmap").node,
+            path_of(&ws, "qso").node,
+            "Bandmapa nie może przykrywać formularza QSO"
+        );
+        assert!(is_active_tab(&ws, "cluster"));
+    }
+
+    #[test]
+    fn split_fractions_normalize_for_two_and_three_columns() {
+        let three = DockWorkspace::split_fractions(&[0, 1, 2]);
+        assert_eq!(three.len(), 2);
+        assert!((three[0] - 0.29).abs() < 1e-3);
+        let two = DockWorkspace::split_fractions(&[0, 1]);
+        assert_eq!(two.len(), 1);
+        assert!(two[0] < 0.5, "lewa węższa niż środkowa (Logbook)");
+        let mid_right = DockWorkspace::split_fractions(&[1, 2]);
+        assert!(mid_right[0] > 0.5, "Logbook szerszy niż prawa kolumna");
+        assert_eq!(DockWorkspace::split_fractions(&[1]).len(), 0);
+    }
+
+    #[test]
+    fn default_logbook_callsign_column_fits_at_1280px() {
+        let cfg = AppConfig::default();
+        let mut x = 72.0 + 24.0; // kolumny akcji i zaznaczania
+        let mut found = false;
+        for col in cfg.logbook_columns.iter().filter(|c| c.visible) {
+            x += col.width;
+            if col.id == "callsign" {
+                found = true;
+                break;
+            }
+        }
+        assert!(found, "kolumna Znak musi być domyślnie widoczna");
+        let log_width = 1280.0 * DockWorkspace::COLUMN_WEIGHTS[1];
+        assert!(
+            x < log_width,
+            "kolumna Znak ({x}px od lewej) musi mieścić się w kolumnie Logbooka ({log_width}px)"
+        );
+    }
 
     #[test]
     fn default_matches_initial_values() {

@@ -387,7 +387,7 @@ fn main() -> Result<(), eframe::Error> {
     let mut viewport_builder = eframe::egui::ViewportBuilder::default()
         .with_title("SPLogbook")
         .with_inner_size(app_config.main_window_size.unwrap_or([1400.0, 900.0]))
-        .with_min_inner_size([1024.0, 700.0])
+        .with_min_inner_size([960.0, 600.0])
         .with_icon(std::sync::Arc::new(icon_data))
         .with_active(true);
     if let Some([x, y]) = app_config.main_window_pos {

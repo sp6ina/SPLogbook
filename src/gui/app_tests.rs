@@ -3191,3 +3191,107 @@ async fn spot_click_requests_callsign_focus_and_activates_qso_tab() {
         .map(|(_, tab)| tab.clone());
     assert_eq!(active.as_deref(), Some("qso"), "karta QSO musi być aktywna");
 }
+
+// ======================================================================================
+// Etap 3 — pasek statusu: globalny wskaźnik TX i brak nakładania się elementów
+// ======================================================================================
+
+/// Zbiera teksty i ich prostokąty ze wszystkich kształtów klatki.
+fn collect_text_shapes(shape: &egui::Shape, out: &mut Vec<(String, egui::Rect)>) {
+    match shape {
+        egui::Shape::Text(text) => {
+            let rect = egui::Rect::from_min_size(
+                text.pos + text.galley.rect.min.to_vec2(),
+                text.galley.rect.size(),
+            );
+            out.push((text.galley.text().to_string(), rect));
+        }
+        egui::Shape::Vec(shapes) => {
+            for inner in shapes {
+                collect_text_shapes(inner, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Renderuje pasek statusu w oknie o zadanej szerokości i zwraca teksty z prostokątami.
+fn render_status_bar_texts(app: &mut SpLogApp, width: f32) -> Vec<(String, egui::Rect)> {
+    let ctx = egui::Context::default();
+    let mut texts = Vec::new();
+    // Dwie klatki: pierwsza ustala rozmiary, druga jest stabilna.
+    for _ in 0..2 {
+        let raw_input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(width, 720.0),
+            )),
+            ..Default::default()
+        };
+        let mut output = ctx.run_ui(raw_input, |ui| {
+            app.render_status_bar(ui);
+        });
+        output.textures_delta.clear();
+        texts.clear();
+        for clipped in &output.shapes {
+            collect_text_shapes(&clipped.shape, &mut texts);
+        }
+    }
+    texts
+}
+
+#[test]
+fn status_bar_shows_global_tx_indicator_from_telemetry() {
+    let mut app = qso_form_test_app();
+    // Stan TX wyłącznie z telemetrii (jedyna dozwolona ścieżka zapisu flagi).
+    app.update_cat_state_from_telemetry(crate::cat::hamlib::RigState::default(), true);
+    let texts = render_status_bar_texts(&mut app, 1280.0);
+    assert!(
+        texts.iter().any(|(t, _)| t.contains("TX ON")),
+        "TX ON musi być widoczny na pasku statusu (kafelek VFO nie jest renderowany): {texts:?}"
+    );
+
+    app.update_cat_state_from_telemetry(crate::cat::hamlib::RigState::default(), false);
+    let texts = render_status_bar_texts(&mut app, 1280.0);
+    assert!(texts.iter().any(|(t, _)| t.contains("RX")));
+    assert!(!texts.iter().any(|(t, _)| t.contains("TX ON")));
+}
+
+#[test]
+fn status_bar_items_fit_without_overlap_on_narrow_windows() {
+    for width in [1280.0_f32, 1024.0, 960.0] {
+        let mut app = qso_form_test_app();
+        app.update_cat_state_from_telemetry(crate::cat::hamlib::RigState::default(), true);
+        app.cat.connected = true;
+        app.gui.chrome.status_message = Some(
+            "Bardzo długi komunikat statusu, który nie może wypchnąć wskaźników krytycznych poza okno"
+                .repeat(3),
+        );
+        let texts = render_status_bar_texts(&mut app, width);
+        assert_ne!(texts.len(), 0);
+
+        for (text, rect) in &texts {
+            assert!(
+                rect.max.x <= width + 0.5,
+                "element «{text}» wychodzi poza okno {width}px: {rect:?}"
+            );
+        }
+        for (i, (ta, ra)) in texts.iter().enumerate() {
+            for (tb, rb) in texts.iter().skip(i + 1) {
+                assert!(
+                    !ra.shrink(0.5).intersects(rb.shrink(0.5)),
+                    "elementy «{ta}» i «{tb}» nachodzą na siebie przy {width}px"
+                );
+            }
+        }
+        // Wskaźniki krytyczne zawsze obecne w całości.
+        for needle in ["TX ON", "CAT", "CLUSTER", "MHz"] {
+            assert!(
+                texts.iter().any(|(t, _)| t.contains(needle)),
+                "brakuje wskaźnika krytycznego {needle} przy {width}px"
+            );
+        }
+        // Napis wersji nie zjada miejsca w oknach <= 1600 px.
+        assert!(!texts.iter().any(|(t, _)| t.contains("GPLv3")));
+    }
+}

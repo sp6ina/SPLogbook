@@ -613,7 +613,7 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                             ui.label(&qso.band);
                         }
                         "mode" => {
-                            ui.label(egui::RichText::new(&qso.mode).color(palette.warning));
+                            ui.label(egui::RichText::new(&qso.mode).color(palette.text_primary));
                         }
                         "rst_s" => {
                             ui.label(&qso.rst_sent);
