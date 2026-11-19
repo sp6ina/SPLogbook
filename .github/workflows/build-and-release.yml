@@ -415,11 +415,119 @@ jobs:
 
           Compress-Archive -Path "$pkgDir\*" -DestinationPath "SPLogbook-Windows-x64.zip" -Force
 
+      - name: Install and verify pinned Inno Setup 7.1.1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $isccPath = "C:\Program Files\Inno Setup 7\ISCC.exe"
+          $expectedIsccSha = "E0F9F1DC32032650C6629F6DEE41EB6D20BA140E4E3C07C25D8A24F9BA781644"
+          $installerUrl = "https://github.com/jrsoftware/issrc/releases/download/is-7_1_1/innosetup-7.1.1-x64.exe"
+          $expectedInstallerSha = "8A5A6711C3766A6E5FB74F280BA0E3551E719CE94538D901FDBD1F8F9920B3F0"
+
+          $needsInstall = $true
+          if (Test-Path $isccPath) {
+            $existingSha = (Get-FileHash -Path $isccPath -Algorithm SHA256).Hash
+            if ($existingSha -eq $expectedIsccSha) {
+              $needsInstall = $false
+            }
+          }
+
+          if ($needsInstall) {
+            $tmpSetup = Join-Path $env:RUNNER_TEMP "innosetup-7.1.1-x64.exe"
+            Invoke-WebRequest -Uri $installerUrl -OutFile $tmpSetup
+            $actualInstallerSha = (Get-FileHash -Path $tmpSetup -Algorithm SHA256).Hash
+            if ($actualInstallerSha -ne $expectedInstallerSha) {
+              Remove-Item -Path $tmpSetup -Force -ErrorAction SilentlyContinue
+              throw "SHA-256 mismatch for innosetup-7.1.1-x64.exe: expected $expectedInstallerSha, got $actualInstallerSha"
+            }
+            $proc = Start-Process -FilePath $tmpSetup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/ALLUSERS', '/DIR=C:\Program Files\Inno Setup 7') -Wait -PassThru -NoNewWindow
+            Remove-Item -Path $tmpSetup -Force -ErrorAction SilentlyContinue
+            if ($proc.ExitCode -ne 0) {
+              throw "Inno Setup 7.1.1 installer exited with code $($proc.ExitCode)"
+            }
+          }
+
+          if (-not (Test-Path $isccPath)) {
+            throw "ISCC.exe not found at $isccPath after installation"
+          }
+          $actualIsccSha = (Get-FileHash -Path $isccPath -Algorithm SHA256).Hash
+          if ($actualIsccSha -ne $expectedIsccSha) {
+            throw "SHA-256 mismatch for ISCC.exe: expected $expectedIsccSha, got $actualIsccSha"
+          }
+          $isccVer = (& $isccPath --version 2>&1 | Out-String).Trim()
+          if ($isccVer -ne "7.1.1") {
+            throw "ISCC.exe version mismatch: expected 7.1.1, got $isccVer"
+          }
+          Write-Host "[OK] Inno Setup $isccVer verified ($actualIsccSha)"
+
+      - name: Build Windows User Setup (Inno Setup 7.1.1)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          ./scripts/build_windows_user_setup.ps1 -OutputDir dist
+          $meta = (cargo metadata --no-deps --format-version 1 | ConvertFrom-Json)
+          $version = ($meta.packages | Where-Object { $_.name -eq "splogbook" }).version
+          $exeName = "SPLogbook-Windows-x64-Setup-$version.exe"
+          $exePath = "dist/$exeName"
+          if (-not (Test-Path $exePath)) {
+            throw "Missing built Inno Setup artifact: $exePath"
+          }
+          $exeHash = (Get-FileHash -Path $exePath -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content -Path "$exePath.sha256" -Value "$exeHash  $exeName" -Encoding Ascii
+
+      - name: Build Windows System Setup (MSI / WiX 7.0.1)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          ./scripts/build_windows_msi.ps1 -OutputDir dist -SkipCargoBuild
+          $meta = (cargo metadata --no-deps --format-version 1 | ConvertFrom-Json)
+          $version = ($meta.packages | Where-Object { $_.name -eq "splogbook" }).version
+          $msiName = "SPLogbook-Windows-x64-MSI-$version.msi"
+          $msiPath = "dist/$msiName"
+          if (-not (Test-Path $msiPath)) {
+            throw "Missing built MSI artifact: $msiPath"
+          }
+          $msiHash = (Get-FileHash -Path $msiPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content -Path "$msiPath.sha256" -Value "$msiHash  $msiName" -Encoding Ascii
+
+      - name: Verify built Windows Inno Setup and MSI installers (opt-in E2E)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $meta = (cargo metadata --no-deps --format-version 1 | ConvertFrom-Json)
+          $version = ($meta.packages | Where-Object { $_.name -eq "splogbook" }).version
+
+          $innoPath = (Resolve-Path "dist/SPLogbook-Windows-x64-Setup-$version.exe").Path
+          $innoSha = (Get-FileHash -Path $innoPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          $msiPath = (Resolve-Path "dist/SPLogbook-Windows-x64-MSI-$version.msi").Path
+          $msiSha = (Get-FileHash -Path $msiPath -Algorithm SHA256).Hash.ToLowerInvariant()
+
+          $env:SPLOG_RUN_INNO_E2E = "1"
+          $env:SPLOG_INNO_INSTALLER_PATH = $innoPath
+          $env:SPLOG_INNO_INSTALLER_SHA256 = $innoSha
+          cargo test --test inno_user_data_safety_test inno_native_install_and_uninstall_lifecycle_e2e -- --exact --nocapture
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup native E2E failed with exit code $LASTEXITCODE"
+          }
+
+          $env:SPLOG_RUN_MSI_E2E = "1"
+          $env:SPLOG_MSI_INSTALLER_PATH = $msiPath
+          $env:SPLOG_MSI_INSTALLER_SHA256 = $msiSha
+          cargo test --test msi_user_data_safety_test msi_built_artifact_verification_if_present -- --exact --nocapture
+          if ($LASTEXITCODE -ne 0) {
+            throw "MSI native E2E verification failed with exit code $LASTEXITCODE"
+          }
+
       - name: Upload Windows artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: SPLogbook-Windows-x64
-          path: SPLogbook-Windows-x64.zip
+          path: |
+            SPLogbook-Windows-x64.zip
+            dist/SPLogbook-Windows-x64-Setup-*.exe
+            dist/SPLogbook-Windows-x64-Setup-*.exe.sha256
+            dist/SPLogbook-Windows-x64-MSI-*.msi
+            dist/SPLogbook-Windows-x64-MSI-*.msi.sha256
           if-no-files-found: error
 
   verify-linux-matrix:
@@ -1668,14 +1776,28 @@ jobs:
           set -euo pipefail
           mkdir -p release-staging
 
+          if [[ "${GITHUB_REF}" =~ ^refs/tags/v ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+          else
+            VERSION=$(grep '^version = ' Cargo.toml | head -1 | cut -d'"' -f2)
+          fi
+          echo "RELEASE_VERSION=${VERSION}" >> "$GITHUB_ENV"
+
+          INNO_EXE="SPLogbook-Windows-x64-Setup-${VERSION}.exe"
+          MSI_PKG="SPLogbook-Windows-x64-MSI-${VERSION}.msi"
+
           cp SPLogbook-Linux-x86_64/SPLogbook-Linux-x86_64.tar.gz release-staging/
           cp SPLogbook-Windows-x64/SPLogbook-Windows-x64.zip release-staging/
+          cp "SPLogbook-Windows-x64/dist/${INNO_EXE}" release-staging/
+          cp "SPLogbook-Windows-x64/dist/${MSI_PKG}" release-staging/
 
           [ -s release-staging/SPLogbook-Linux-x86_64.tar.gz ] || { echo "::error::Missing or empty Linux artifact"; exit 1; }
-          [ -s release-staging/SPLogbook-Windows-x64.zip ] || { echo "::error::Missing or empty Windows artifact"; exit 1; }
+          [ -s release-staging/SPLogbook-Windows-x64.zip ] || { echo "::error::Missing or empty Windows ZIP artifact"; exit 1; }
+          [ -s "release-staging/${INNO_EXE}" ] || { echo "::error::Missing or empty Windows Inno Setup artifact"; exit 1; }
+          [ -s "release-staging/${MSI_PKG}" ] || { echo "::error::Missing or empty Windows MSI artifact"; exit 1; }
 
           COUNT=$(find release-staging -maxdepth 1 -type f | wc -l)
-          [ "$COUNT" -eq 2 ] || { echo "::error::Unexpected artifact count in staging: $COUNT"; exit 1; }
+          [ "$COUNT" -eq 4 ] || { echo "::error::Unexpected artifact count in staging: $COUNT"; exit 1; }
 
           # STAGE-M3-H: the DEB is a CI artifact only. It must never be staged
           # for a public release, even if a future download step drops it here.
@@ -1702,7 +1824,9 @@ jobs:
         run: |
           set -euo pipefail
           cd release-staging
-          sha256sum SPLogbook-Linux-x86_64.tar.gz SPLogbook-Windows-x64.zip > SHA256SUMS.txt
+          INNO_EXE="SPLogbook-Windows-x64-Setup-${RELEASE_VERSION}.exe"
+          MSI_PKG="SPLogbook-Windows-x64-MSI-${RELEASE_VERSION}.msi"
+          sha256sum SPLogbook-Linux-x86_64.tar.gz SPLogbook-Windows-x64.zip "${INNO_EXE}" "${MSI_PKG}" > SHA256SUMS.txt
           cat SHA256SUMS.txt
           sha256sum -c SHA256SUMS.txt
 
@@ -1754,16 +1878,18 @@ jobs:
 
           cd release-staging
 
+          VERSION="${RELEASE_VERSION}"
+          INNO_EXE="SPLogbook-Windows-x64-Setup-${VERSION}.exe"
+          MSI_PKG="SPLogbook-Windows-x64-MSI-${VERSION}.msi"
+
           SHA_LINUX=$(sha256sum SPLogbook-Linux-x86_64.tar.gz | awk '{print $1}')
           SIZE_LINUX=$(stat -c%s SPLogbook-Linux-x86_64.tar.gz)
           SHA_WIN=$(sha256sum SPLogbook-Windows-x64.zip | awk '{print $1}')
           SIZE_WIN=$(stat -c%s SPLogbook-Windows-x64.zip)
-
-          if [[ "${GITHUB_REF}" =~ ^refs/tags/v ]]; then
-            VERSION=${GITHUB_REF#refs/tags/v}
-          else
-            VERSION=$(grep '^version = ' ../Cargo.toml | head -1 | cut -d'"' -f2)
-          fi
+          SHA_WIN_INNO=$(sha256sum "${INNO_EXE}" | awk '{print $1}')
+          SIZE_WIN_INNO=$(stat -c%s "${INNO_EXE}")
+          SHA_WIN_MSI=$(sha256sum "${MSI_PKG}" | awk '{print $1}')
+          SIZE_WIN_MSI=$(stat -c%s "${MSI_PKG}")
 
           COMMIT_SHA=$(git rev-parse HEAD)
           [ ${#COMMIT_SHA} -eq 40 ] || { echo "::error::Invalid commit SHA length: ${#COMMIT_SHA}"; exit 1; }
@@ -1793,6 +1919,22 @@ jobs:
                 "filename": "SPLogbook-Windows-x64.zip",
                 "size": $SIZE_WIN,
                 "sha256": "$SHA_WIN"
+              },
+              {
+                "platform": "windows",
+                "arch": "x86_64",
+                "package_type": "inno-exe",
+                "filename": "$INNO_EXE",
+                "size": $SIZE_WIN_INNO,
+                "sha256": "$SHA_WIN_INNO"
+              },
+              {
+                "platform": "windows",
+                "arch": "x86_64",
+                "package_type": "msi",
+                "filename": "$MSI_PKG",
+                "size": $SIZE_WIN_MSI,
+                "sha256": "$SHA_WIN_MSI"
               }
             ]
           }
@@ -1830,6 +1972,8 @@ jobs:
           files: |
             release-staging/SPLogbook-Linux-x86_64.tar.gz
             release-staging/SPLogbook-Windows-x64.zip
+            release-staging/SPLogbook-Windows-x64-Setup-${{ env.RELEASE_VERSION }}.exe
+            release-staging/SPLogbook-Windows-x64-MSI-${{ env.RELEASE_VERSION }}.msi
             release-staging/SHA256SUMS.txt
             release-staging/release-manifest.json
             release-staging/release-manifest.json.sig

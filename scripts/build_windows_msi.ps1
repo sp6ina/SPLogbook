@@ -35,10 +35,47 @@ if ([string]::IsNullOrWhiteSpace($OutputDir)) {
     $OutputDir = Join-Path $repoRoot $OutputDir
 }
 
-# 1. Weryfikacja zatwierdzonego silnika budowania MSBuild 2022
-$approvedMsbuildPath = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe"
-if (-not (Test-Path $approvedMsbuildPath)) {
-    throw "BLOKER: Zatwierdzony kompilator MSBuild nie istnieje pod sciezka: $approvedMsbuildPath"
+# 1. Weryfikacja zatwierdzonego silnika budowania MSBuild 2022 (vswhere + fallback VS 2022)
+$approvedMsbuildPath = $null
+$vswherePath = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+if (-not (Test-Path $vswherePath)) {
+    $vswhereCmd = Get-Command vswhere.exe -ErrorAction SilentlyContinue
+    if ($vswhereCmd) {
+        $vswherePath = $vswhereCmd.Source
+    }
+}
+if ($vswherePath -and (Test-Path $vswherePath)) {
+    $foundPaths = & $vswherePath -latest -products * -requires Microsoft.Component.MSBuild -find "MSBuild\**\Bin\MSBuild.exe" 2>$null
+    if ($foundPaths) {
+        $approvedMsbuildPath = ($foundPaths | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1)
+    }
+}
+if (-not $approvedMsbuildPath) {
+    $candidateMsbuildPaths = @(
+        "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe",
+        "C:\Program Files\Microsoft Visual Studio\2022\Professional\MSBuild\Current\Bin\MSBuild.exe",
+        "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe",
+        "C:\Program Files\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe",
+        "C:\Program Files (x86)\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe",
+        "C:\Program Files (x86)\Microsoft Visual Studio\2022\Professional\MSBuild\Current\Bin\MSBuild.exe",
+        "C:\Program Files (x86)\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe",
+        "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe"
+    )
+    foreach ($candidate in $candidateMsbuildPaths) {
+        if (Test-Path $candidate) {
+            $approvedMsbuildPath = $candidate
+            break
+        }
+    }
+}
+if (-not $approvedMsbuildPath) {
+    $msbuildCmd = Get-Command msbuild.exe -ErrorAction SilentlyContinue
+    if ($msbuildCmd -and (Test-Path $msbuildCmd.Source)) {
+        $approvedMsbuildPath = $msbuildCmd.Source
+    }
+}
+if (-not $approvedMsbuildPath -or -not (Test-Path $approvedMsbuildPath)) {
+    throw "BLOKER: Zatwierdzony kompilator MSBuild nie zostal odnaleziony (vswhere.exe oraz standardowe sciezki VS 2022 Enterprise/Professional/Community/BuildTools)."
 }
 Write-Host "[OK] MSBuild 2022 zweryfikowany: $approvedMsbuildPath"
 
@@ -49,11 +86,16 @@ if (-not (Test-Path $wixEulaFile)) {
     $localWix = Join-Path $env:USERPROFILE ".nuget\packages\wixtoolset.sdk\7.0.1\tools\net472\x86\wix.exe"
     if (Test-Path $localWix) {
         & $localWix eula accept wix7
+        if ($LASTEXITCODE -ne 0) {
+            throw "BLOKER: Nie udalo sie zaakceptowac licencji EULA WiX 7 przez $localWix (kod $LASTEXITCODE)"
+        }
+        Write-Host "[OK] EULA WiX 7 zaakceptowana ($wixEulaFile)"
     } else {
-        throw "BLOKER: Brak zaakceptowanej licencji EULA WiX 7 ($wixEulaFile)"
+        Write-Host "[INFO] Brak pliku $wixEulaFile przed restore; akceptacja EULA WiX 7 zostanie przekazana przez -p:AcceptEula=true oraz <AcceptEula>true</AcceptEula>."
     }
+} else {
+    Write-Host "[OK] EULA WiX 7 zweryfikowana ($wixEulaFile)"
 }
-Write-Host "[OK] EULA WiX 7 zweryfikowana ($wixEulaFile)"
 
 # 3. Weryfikacja wersji w Cargo.toml
 $metadataRaw = cargo metadata --no-deps --format-version 1
