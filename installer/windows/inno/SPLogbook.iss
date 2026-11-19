@@ -1,7 +1,7 @@
 ; ==============================================================================
 ; SPLogbook Windows User Setup Script (Inno Setup 7.1.1)
-; Canonically defined for STAGE-M3-D-WINDOWS-USER-SETUP-INTEGRATION-GATE
-; Conforms to OWNER-M3-D-TOOLCHAIN-01 (APPROVED 2026-11-08)
+; Canonical per-user Windows installer definition
+; Conforms to ADR-10 (pinned Inno Setup 7.1.1 toolchain)
 ; ==============================================================================
 
 #ifndef AppVersion
@@ -386,6 +386,6 @@ begin
       '  "build_commit": "' + EscapeJsonString(ExpandConstant('{#GitCommit}')) + '",' + #13#10 +
       '  "installer_engine": "InnoSetup"' + #13#10 +
       '}';
-    SaveStringToFile(MarkerPath, MarkerContent, False);
+    SaveStringToUTF8FileWithoutBOM(MarkerPath, MarkerContent, False);
   end;
 end;
