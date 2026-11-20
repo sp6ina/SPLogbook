@@ -3740,6 +3740,125 @@ async fn world_map_renders_in_all_themes_with_single_night_mesh() {
     }
 }
 
+#[tokio::test]
+async fn world_map_fills_tile_keeps_two_to_one_and_clips_at_extreme_sizes() {
+    for (width, height) in [
+        (300.0_f32, 600.0_f32),
+        (1200.0, 260.0),
+        (320.0, 200.0),
+        (1920.0, 1080.0),
+    ] {
+        let mut app = qso_form_test_app();
+        let ctx = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, height));
+        let mut content_width = 0.0_f32;
+        let mut shapes = Vec::new();
+        for _ in 0..2 {
+            let raw_input = egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            };
+            let mut output = ctx.run_ui(raw_input, |ui| {
+                crate::gui::world_map::render_world_map_content(&mut app, ui);
+                content_width = ui.min_rect().width();
+            });
+            output.textures_delta.clear();
+            shapes = std::mem::take(&mut output.shapes);
+        }
+        let label = format!("{width}x{height}");
+        let canvas = app.world_map.last_canvas.expect("płótno mapy");
+        let map = app.world_map.last_map_rect.expect("prostokąt rzutu");
+
+        // Panel nie rozpycha się na boki, a płótno wypełnia dostępny obszar do dołu i boków.
+        assert!(
+            content_width <= width + 0.5,
+            "{label}: szerokość {content_width}"
+        );
+        assert!(canvas.width() > 0.0 && canvas.height() > 0.0, "{label}");
+        assert!(
+            screen.expand(0.5).contains_rect(canvas),
+            "{label}: {canvas:?}"
+        );
+        assert!((canvas.width() - width).abs() < 1.5, "{label}: {canvas:?}");
+        assert!(
+            (canvas.bottom() - height).abs() < 1.5,
+            "{label}: {canvas:?}"
+        );
+
+        // Rzut 2:1 mieści się w płótnie i jest wyśrodkowany.
+        assert!(canvas.expand(0.01).contains_rect(map), "{label}");
+        assert!((map.width() / map.height() - 2.0).abs() < 1e-3, "{label}");
+        assert!((map.center() - canvas.center()).length() < 0.01, "{label}");
+        assert!(
+            (map.width() - canvas.width()).abs() < 0.01
+                || (map.height() - canvas.height()).abs() < 0.01,
+            "{label}: mapa wypełnia płótno w jednym wymiarze"
+        );
+
+        // Mesh lądów jest przycięty ścisłym clip_rect do płótna mapy.
+        let land_vertices = crate::gui::map_data::land().vertices.len();
+        let land_clip = shapes.iter().find_map(|clipped| match &clipped.shape {
+            egui::Shape::Mesh(mesh) if mesh.vertices.len() == land_vertices => {
+                Some(clipped.clip_rect)
+            }
+            _ => None,
+        });
+        let land_clip = land_clip.unwrap_or_else(|| panic!("{label}: brak meshu lądów"));
+        assert!(
+            canvas.expand(0.01).contains_rect(land_clip),
+            "{label}: clip {land_clip:?} poza płótnem {canvas:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn world_map_rects_stay_valid_after_zoom_clicks_and_resizes() {
+    let mut app = qso_form_test_app();
+    let ctx = egui::Context::default();
+    let render = |app: &mut SpLogApp, width: f32, height: f32, events: Vec<egui::Event>| {
+        let raw_input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(width, height),
+            )),
+            events,
+            ..Default::default()
+        };
+        let mut output = ctx.run_ui(raw_input, |ui| {
+            crate::gui::world_map::render_world_map_content(app, ui);
+        });
+        output.textures_delta.clear();
+    };
+    // Kliknięcie "+" trzykrotnie (zoom 2.5) w dużym oknie, potem zmniejszenie kafelka.
+    render(&mut app, 1200.0, 700.0, Vec::new());
+    render(&mut app, 1200.0, 700.0, Vec::new());
+    let canvas = app.world_map.last_canvas.expect("płótno");
+    let plus = canvas.left_bottom() + egui::vec2(25.0, -55.0);
+    for _ in 0..3 {
+        for pressed in [true, false] {
+            render(
+                &mut app,
+                1200.0,
+                700.0,
+                vec![egui::Event::PointerButton {
+                    pos: plus,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+            );
+        }
+    }
+    for (width, height) in [(320.0, 200.0), (300.0, 600.0), (1920.0, 1080.0)] {
+        render(&mut app, width, height, Vec::new());
+        render(&mut app, width, height, Vec::new());
+        let canvas = app.world_map.last_canvas.expect("płótno");
+        let map = app.world_map.last_map_rect.expect("rzut");
+        assert!(canvas.expand(0.01).contains_rect(map), "{width}x{height}");
+        assert!((map.width() / map.height() - 2.0).abs() < 1e-3);
+    }
+}
+
 #[test]
 fn world_map_home_label_and_beam_azimuth_avoid_misleading_zero() {
     use crate::cat::rotor::RotorState;

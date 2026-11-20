@@ -91,12 +91,13 @@ fn crescent_points(center: egui::Pos2, r: f32) -> Vec<egui::Pos2> {
 }
 
 /// Etykieta z ikoną wektorową.
+///
+/// Bez zagnieżdżonego `ui.horizontal`: w pasku z zawijaniem zagnieżdżony układ nie zawija
+/// się i rozpychałby panel poza szerokość kafelka.
 fn icon_label(ui: &mut egui::Ui, icon: MapIcon, color: egui::Color32, text: &str) {
-    ui.horizontal(|ui| {
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
-        paint_map_icon(ui.painter(), icon, rect.center(), 14.0, color);
-        ui.label(egui::RichText::new(text).color(color));
-    });
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
+    paint_map_icon(ui.painter(), icon, rect.center(), 14.0, color);
+    ui.label(egui::RichText::new(text).color(color));
 }
 
 /// Checkbox z ikoną wektorową przed etykietą.
@@ -107,11 +108,9 @@ fn icon_checkbox(
     value: &mut bool,
     text: &str,
 ) {
-    ui.horizontal(|ui| {
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
-        paint_map_icon(ui.painter(), icon, rect.center(), 14.0, color);
-        ui.checkbox(value, text);
-    });
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
+    paint_map_icon(ui.painter(), icon, rect.center(), 14.0, color);
+    ui.checkbox(value, text);
 }
 
 /// Azymut wiązki/kompasu: z rotatora, gdy jest aktywny (podłączony, w ruchu lub z wysłaną
@@ -141,6 +140,8 @@ pub fn home_label(callsign: &str, gridsquare: &str) -> Option<String> {
     }
 }
 
+/// Stan widoku mapy. `pan` jest znormalizowany względem rozmiaru prostokąta rzutu
+/// (1.0 = szerokość/wysokość mapy), więc zmiana rozmiaru kafelka nie wyrzuca mapy z kadru.
 #[derive(Clone, Copy, Debug)]
 struct MapState {
     zoom: f32,
@@ -153,6 +154,63 @@ impl Default for MapState {
             pan: egui::Vec2::ZERO,
         }
     }
+}
+
+const MIN_ZOOM: f32 = 1.0;
+const MAX_ZOOM: f32 = 5.0;
+/// Najmniejszy bok płótna, przy którym rysowany jest kompas (poniżej zasłaniałby mapę).
+const COMPASS_MIN_CANVAS: f32 = 150.0;
+/// Najmniejszy bok płótna, przy którym pokazywane są przyciski przybliżania.
+const ZOOM_BUTTONS_MIN_CANVAS: f32 = 110.0;
+
+/// Największy prostokąt o proporcji `2:1` (360° x 180°) mieszczący się w `canvas`,
+/// wyśrodkowany (letterbox). Pozostała część płótna jest wypełniana kolorem oceanu.
+fn fit_map_rect(canvas: egui::Rect) -> egui::Rect {
+    let width = canvas.width().max(0.0);
+    let height = canvas.height().max(0.0);
+    let (map_w, map_h) = if width >= height * 2.0 {
+        (height * 2.0, height)
+    } else {
+        (width, width / 2.0)
+    };
+    let inset = egui::vec2((width - map_w) / 2.0, (height - map_h) / 2.0);
+    egui::Rect::from_min_max(canvas.min + inset, canvas.max - inset)
+}
+
+/// Ogranicza znormalizowane przesunięcie tak, aby przybliżona mapa zawsze pokrywała
+/// płótno (brak pustych pasów); przy `zoom <= 1` mapa wraca idealnie na środek.
+fn clamp_pan(pan: egui::Vec2, zoom: f32, canvas: egui::Rect, map: egui::Rect) -> egui::Vec2 {
+    if zoom.is_nan() || zoom <= MIN_ZOOM || !pan.x.is_finite() || !pan.y.is_finite() {
+        return egui::Vec2::ZERO;
+    }
+    let axis = |value: f32, map_size: f32, canvas_size: f32| -> f32 {
+        if map_size <= 0.0 {
+            return 0.0;
+        }
+        let limit = ((map_size * zoom - canvas_size) / 2.0).max(0.0);
+        (value * map_size).clamp(-limit, limit) / map_size
+    };
+    egui::vec2(
+        axis(pan.x, map.width(), canvas.width()),
+        axis(pan.y, map.height(), canvas.height()),
+    )
+}
+
+/// Promień tarczy kompasu proporcjonalny do mniejszego boku płótna; `None`, gdy płótno
+/// jest tak małe, że kompas zasłaniałby mapę.
+fn compass_radius(canvas: egui::Rect) -> Option<f32> {
+    let side = canvas.width().min(canvas.height());
+    (side >= COMPASS_MIN_CANVAS).then(|| (side * 0.14).clamp(26.0, 48.0))
+}
+
+/// Środek tarczy kompasu w prawym górnym rogu płótna (zawsze w całości wewnątrz).
+fn compass_center(canvas: egui::Rect, radius: f32) -> egui::Pos2 {
+    canvas.right_top() + egui::vec2(-(radius + 8.0), radius + 8.0)
+}
+
+/// Współczynnik skali nakładek (wiązka, bum) względem mniejszego boku płótna.
+fn overlay_scale(canvas: egui::Rect) -> f32 {
+    (canvas.width().min(canvas.height()) / 400.0).clamp(0.5, 1.0)
 }
 
 pub fn render_world_map_window(app: &mut SpLogApp, ctx: &egui::Context) {
@@ -336,152 +394,211 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             subsolar_lon -= 360.0;
         }
 
-        // Pasek narzędzi mapy: Grayline, azymut DX, warstwy; po prawej przycisk odpinania
-        // (wkomponowany w pasek, bez osobnego wiersza).
+        // Pasek narzędzi mapy: Grayline, azymut DX, warstwy (z zawijaniem, więc nie wymusza
+        // szerokości większej niż kafelek); przycisk odpinania jest przypięty w prawym górnym
+        // rogu paska w zarezerwowanym pasie (bez osobnego wiersza).
         let docked = !app.views.panel_world_map.floating;
-        ui.horizontal_wrapped(|ui| {
-            ui.label(
-                egui::RichText::new(format!("{}:", tr(key::GEO_GRAYLINE, lang)))
-                    .strong()
-                    .size(11.0)
-                    .color(palette.accent),
+        let toolbar_area = ui.available_rect_before_wrap();
+        let undock_reserve = if docked { 28.0 } else { 0.0 };
+        let toolbar_rect = egui::Rect::from_min_max(
+            toolbar_area.min,
+            egui::pos2(
+                (toolbar_area.max.x - undock_reserve).max(toolbar_area.min.x + 1.0),
+                toolbar_area.max.y,
+            ),
+        );
+        if docked {
+            let button_rect = egui::Rect::from_min_size(
+                egui::pos2(toolbar_area.max.x - 26.0, toolbar_area.min.y),
+                egui::vec2(24.0, 24.0),
             );
-            if my_solar.is_grayline {
-                ui.colored_label(
-                    palette.success,
-                    format!("● {}", tr(key::MAP_MY_IN_GRAYLINE, lang)),
-                );
-            } else if my_solar.elevation > 0.0 {
-                icon_label(
-                    ui,
-                    MapIcon::Sun,
-                    palette.text_primary,
-                    tr(key::MAP_DAY, lang),
-                );
-            } else {
-                icon_label(ui, MapIcon::Moon, palette.accent, tr(key::MAP_NIGHT, lang));
+            let clicked = ui
+                .scope_builder(egui::UiBuilder::new().max_rect(button_rect), |ui| {
+                    undock_button(ui, &palette, tr(key::WINDOW_POPOUT_TOOLTIP, lang)).clicked()
+                })
+                .inner;
+            if clicked {
+                app.popout_tile("world_map");
             }
-
-            if let Some(dx_c) = dx_coords {
-                let dx_solar = calculate_solar_position(dx_c, day_of_year, utc_hour_f64);
-                ui.separator();
+        }
+        let toolbar = ui.scope_builder(egui::UiBuilder::new().max_rect(toolbar_rect), |ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.label(
-                    egui::RichText::new(
-                        Msg::new(key::MAP_DX_AZIMUTH)
-                            .arg("dist", app.active_distance_display())
-                            .arg("bearing", format!("{:.0}", app.entry.active_bearing_deg))
-                            .text(lang),
-                    )
-                    .strong()
-                    .size(11.0),
+                    egui::RichText::new(format!("{}:", tr(key::GEO_GRAYLINE, lang)))
+                        .strong()
+                        .size(11.0)
+                        .color(palette.accent),
                 );
-                if ui
-                    .small_button(
-                        Msg::new(key::QSO_ROTATE_BEARING)
-                            .arg("bearing", format!("{:.0}", app.entry.active_bearing_deg))
-                            .text(lang),
-                    )
-                    .on_hover_text(tr(key::MAP_ROTOR_TOOLTIP, lang))
-                    .clicked()
-                {
-                    app.rotate_antenna_to(app.entry.active_bearing_deg as f32);
-                }
-                if dx_solar.is_grayline {
+                if my_solar.is_grayline {
                     ui.colored_label(
                         palette.success,
-                        format!("● {}", tr(key::MAP_DX_IN_GRAYLINE, lang)),
+                        format!("● {}", tr(key::MAP_MY_IN_GRAYLINE, lang)),
                     );
+                } else if my_solar.elevation > 0.0 {
+                    icon_label(
+                        ui,
+                        MapIcon::Sun,
+                        palette.text_primary,
+                        tr(key::MAP_DAY, lang),
+                    );
+                } else {
+                    icon_label(ui, MapIcon::Moon, palette.accent, tr(key::MAP_NIGHT, lang));
                 }
-            }
 
-            ui.separator();
-            icon_checkbox(
-                ui,
-                MapIcon::Beam,
-                palette.text_muted,
-                &mut app.world_map.show_beam_lobe,
-                tr(key::MAP_BEAM_LOBE, lang),
-            );
-            icon_checkbox(
-                ui,
-                MapIcon::Compass,
-                palette.text_muted,
-                &mut app.world_map.show_compass,
-                tr(key::MAP_COMPASS, lang),
-            );
-            ui.checkbox(
-                &mut app.world_map.show_grid,
-                tr(key::MAP_LOCATOR_GRID, lang),
-            );
-            ui.separator();
-            ui.label(
-                egui::RichText::new(format!(
-                    "{}: {}",
-                    tr(key::MAP_SPOTS_ON_MAP, lang),
-                    app.cluster.spots.len()
-                ))
-                .size(10.0)
-                .color(palette.text_muted),
-            );
-            if docked {
-                let free = ui.available_width() - 28.0;
-                if free > 0.0 {
-                    ui.add_space(free);
+                if let Some(dx_c) = dx_coords {
+                    let dx_solar = calculate_solar_position(dx_c, day_of_year, utc_hour_f64);
+                    ui.separator();
+                    ui.label(
+                        egui::RichText::new(
+                            Msg::new(key::MAP_DX_AZIMUTH)
+                                .arg("dist", app.active_distance_display())
+                                .arg("bearing", format!("{:.0}", app.entry.active_bearing_deg))
+                                .text(lang),
+                        )
+                        .strong()
+                        .size(11.0),
+                    );
+                    if ui
+                        .small_button(
+                            Msg::new(key::QSO_ROTATE_BEARING)
+                                .arg("bearing", format!("{:.0}", app.entry.active_bearing_deg))
+                                .text(lang),
+                        )
+                        .on_hover_text(tr(key::MAP_ROTOR_TOOLTIP, lang))
+                        .clicked()
+                    {
+                        app.rotate_antenna_to(app.entry.active_bearing_deg as f32);
+                    }
+                    if dx_solar.is_grayline {
+                        ui.colored_label(
+                            palette.success,
+                            format!("● {}", tr(key::MAP_DX_IN_GRAYLINE, lang)),
+                        );
+                    }
                 }
-                if undock_button(ui, &palette, tr(key::WINDOW_POPOUT_TOOLTIP, lang)).clicked() {
-                    app.popout_tile("world_map");
-                }
-            }
+
+                ui.separator();
+                icon_checkbox(
+                    ui,
+                    MapIcon::Beam,
+                    palette.text_muted,
+                    &mut app.world_map.show_beam_lobe,
+                    tr(key::MAP_BEAM_LOBE, lang),
+                );
+                icon_checkbox(
+                    ui,
+                    MapIcon::Compass,
+                    palette.text_muted,
+                    &mut app.world_map.show_compass,
+                    tr(key::MAP_COMPASS, lang),
+                );
+                ui.checkbox(
+                    &mut app.world_map.show_grid,
+                    tr(key::MAP_LOCATOR_GRID, lang),
+                );
+                ui.separator();
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{}: {}",
+                        tr(key::MAP_SPOTS_ON_MAP, lang),
+                        app.cluster.spots.len()
+                    ))
+                    .size(10.0)
+                    .color(palette.text_muted),
+                );
+            });
         });
+        // Płótno zaczyna się pod paskiem (także gdy przycisk odpinania jest wyższy od paska).
+        let toolbar_bottom = toolbar
+            .response
+            .rect
+            .bottom()
+            .max(toolbar_area.min.y + if docked { 24.0 } else { 0.0 });
+        ui.advance_cursor_after_rect(egui::Rect::from_min_max(
+            toolbar_area.min,
+            egui::pos2(toolbar_area.max.x, toolbar_bottom),
+        ));
 
         ui.add_space(2.0);
 
         // Płótno Canvas Mapy Świata (Equirectangular projection)
+        // Płótno wypełnia całą dostępną przestrzeń pod paskiem narzędzi (bez sztywnych
+        // limitów); rzut `2:1` jest dopasowywany do niego i wyśrodkowany (letterbox).
         let avail = ui.available_size();
-        let width = avail.x.clamp(240.0, 1600.0);
-        let height = (width * 0.50)
-            .min((avail.y - 4.0).max(180.0))
-            .clamp(180.0, 900.0);
+        let canvas_size = egui::vec2(
+            if avail.x.is_finite() { avail.x } else { 640.0 },
+            if avail.y.is_finite() { avail.y } else { 320.0 },
+        )
+        .max(egui::vec2(1.0, 1.0));
 
         let id = ui.id().with("world_map_state");
         let mut state = ui.data_mut(|d| d.get_temp::<MapState>(id).unwrap_or_default());
 
-        let (response, raw_painter) =
-            ui.allocate_painter(egui::vec2(width, height), egui::Sense::click_and_drag());
-        let rect = response.rect;
-        let painter = raw_painter.with_clip_rect(rect);
+        let (response, _) = ui.allocate_painter(canvas_size, egui::Sense::click_and_drag());
+        let canvas_rect = response.rect;
+        // Ścisły `clip_rect`: nic z mapy nie wystaje poza kafelek.
+        let painter = ui.painter_at(canvas_rect);
+        // Prostokąt rzutu (proporcja 2:1) wewnątrz płótna.
+        let rect = fit_map_rect(canvas_rect);
+        app.world_map.last_canvas = Some(canvas_rect);
+        app.world_map.last_map_rect = Some(rect);
 
-        if response.dragged() {
-            state.pan += response.drag_delta();
+        state.zoom = if state.zoom.is_finite() {
+            state.zoom.clamp(MIN_ZOOM, MAX_ZOOM)
+        } else {
+            MIN_ZOOM
+        };
+        if response.dragged() && rect.width() > 0.0 && rect.height() > 0.0 {
+            let delta = response.drag_delta();
+            state.pan += egui::vec2(delta.x / rect.width(), delta.y / rect.height());
         }
         if response.hovered() {
             let scroll = ui.input(|i| i.smooth_scroll_delta.y);
             if scroll != 0.0 {
-                state.zoom = (state.zoom + scroll * 0.001).clamp(1.0, 5.0);
+                state.zoom = (state.zoom + scroll * 0.001).clamp(MIN_ZOOM, MAX_ZOOM);
             }
         }
 
-        // Tło oceanu
-        let ocean_color = map.ocean;
-        painter.rect_filled(rect, 4.0, ocean_color);
+        // Tło oceanu wypełnia całe płótno (także pasy letterboxu).
+        painter.rect_filled(canvas_rect, 4.0, map.ocean);
 
-        // Zoom +/- buttons
-        let zoom_rect = egui::Rect::from_min_size(
-            rect.left_bottom() + egui::vec2(10.0, -70.0),
-            egui::vec2(30.0, 60.0),
-        );
-        ui.scope_builder(egui::UiBuilder::new().max_rect(zoom_rect), |ui| {
-            ui.vertical(|ui| {
-                if ui.button("+").clicked() {
-                    state.zoom = (state.zoom + 0.5).clamp(1.0, 5.0);
-                }
-                if ui.button("-").clicked() {
-                    state.zoom = (state.zoom - 0.5).clamp(1.0, 5.0);
+        // Przyciski przybliżania: w pionie przy dolnej krawędzi; na niskim płótnie w poziomie;
+        // na bardzo małym kafelku ukryte (kółko myszy nadal działa).
+        let canvas_side = canvas_rect.width().min(canvas_rect.height());
+        if canvas_side >= ZOOM_BUTTONS_MIN_CANVAS {
+            let vertical = canvas_rect.height() >= 150.0;
+            let zoom_rect = if vertical {
+                egui::Rect::from_min_size(
+                    canvas_rect.left_bottom() + egui::vec2(10.0, -70.0),
+                    egui::vec2(30.0, 60.0),
+                )
+            } else {
+                egui::Rect::from_min_size(
+                    canvas_rect.left_bottom() + egui::vec2(10.0, -30.0),
+                    egui::vec2(66.0, 24.0),
+                )
+            };
+            ui.scope_builder(egui::UiBuilder::new().max_rect(zoom_rect), |ui| {
+                let mut buttons = |ui: &mut egui::Ui| {
+                    if ui.button("+").clicked() {
+                        state.zoom = (state.zoom + 0.5).clamp(MIN_ZOOM, MAX_ZOOM);
+                    }
+                    if ui.button("-").clicked() {
+                        state.zoom = (state.zoom - 0.5).clamp(MIN_ZOOM, MAX_ZOOM);
+                    }
+                };
+                if vertical {
+                    ui.vertical(&mut buttons);
+                } else {
+                    ui.horizontal(&mut buttons);
                 }
             });
-        });
+        }
 
+        // Przesunięcie zawsze mieści się w aktualnym płótnie; przy zoom 1.0 mapa jest na środku.
+        state.pan = clamp_pan(state.pan, state.zoom, canvas_rect, rect);
         ui.data_mut(|d| d.insert_temp(id, state));
+        let pan_px = egui::vec2(state.pan.x * rect.width(), state.pan.y * rect.height());
 
         // Pomocnik projekcji: (lat, lon) -> Pos2
         let project = |lat: f64, lon: f64| -> egui::Pos2 {
@@ -489,10 +606,11 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             let base_y = ((90.0 - lat) / 180.0) as f32 * rect.height();
             let center_x = rect.width() / 2.0;
             let center_y = rect.height() / 2.0;
-            let zoomed_x = (base_x - center_x) * state.zoom + center_x + state.pan.x;
-            let zoomed_y = (base_y - center_y) * state.zoom + center_y + state.pan.y;
+            let zoomed_x = (base_x - center_x) * state.zoom + center_x + pan_px.x;
+            let zoomed_y = (base_y - center_y) * state.zoom + center_y + pan_px.y;
             egui::pos2(rect.min.x + zoomed_x, rect.min.y + zoomed_y)
         };
+        let overlay = overlay_scale(canvas_rect);
 
         // Siatka geograficzna: Równik, Zwrotniki, Koła podbiegunowe, Południki
         let grid_color = map.graticule;
@@ -799,7 +917,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             && let Some(az) = beam_az
         {
             let half_beam = (app.world_map.beamwidth_deg * 0.5).clamp(10.0, 60.0);
-            let lobe_len = 65.0_f32;
+            let lobe_len = 65.0_f32 * overlay;
 
             // Rysowanie wachlarza wiązki (Polygon)
             let mut lobe_pts = vec![my_pos];
@@ -832,7 +950,9 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
             // Oś mechaniczna (Boom anteny / tył 180° - subtelny szary)
             let boom_rad = (az + 90.0).to_radians();
-            let boom_tip = my_pos + egui::vec2(boom_rad.cos() * 32.0, boom_rad.sin() * 32.0);
+            let boom_len = 32.0 * overlay;
+            let boom_tip =
+                my_pos + egui::vec2(boom_rad.cos() * boom_len, boom_rad.sin() * boom_len);
             painter.line_segment(
                 [my_pos, boom_tip],
                 egui::Stroke::new(1.5_f32, palette.text_muted),
@@ -900,9 +1020,12 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
 
         // Widżet Róży Kompasu Azymutalnego (Azimuthal Compass Rose Overlay)
-        if app.world_map.show_compass {
-            let compass_center = rect.right_top() + egui::vec2(-65.0, 65.0);
-            let compass_radius = 48.0_f32;
+        // Promień zależy od rozmiaru płótna; na bardzo małym kafelku kompas jest ukryty.
+        if app.world_map.show_compass
+            && let Some(compass_radius) = compass_radius(canvas_rect)
+        {
+            let compass_center = compass_center(canvas_rect, compass_radius);
+            let cardinal_inset = compass_radius * 0.2;
 
             // Tarcza kompasu
             painter.circle_filled(compass_center, compass_radius, map.ocean.alpha(220));
@@ -920,28 +1043,28 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             // Główne punkty kardynalne: N, E, S, W
             let font_card = egui::FontId::proportional(10.0);
             painter.text(
-                compass_center + egui::vec2(0.0, -compass_radius + 10.0),
+                compass_center + egui::vec2(0.0, -compass_radius + cardinal_inset),
                 egui::Align2::CENTER_CENTER,
                 "N",
                 font_card.clone(),
                 palette.danger,
             );
             painter.text(
-                compass_center + egui::vec2(compass_radius - 10.0, 0.0),
+                compass_center + egui::vec2(compass_radius - cardinal_inset, 0.0),
                 egui::Align2::CENTER_CENTER,
                 "E",
                 font_card.clone(),
                 map.compass_text,
             );
             painter.text(
-                compass_center + egui::vec2(0.0, compass_radius - 10.0),
+                compass_center + egui::vec2(0.0, compass_radius - cardinal_inset),
                 egui::Align2::CENTER_CENTER,
                 "S",
                 font_card.clone(),
                 map.compass_text,
             );
             painter.text(
-                compass_center + egui::vec2(-compass_radius + 10.0, 0.0),
+                compass_center + egui::vec2(-compass_radius + cardinal_inset, 0.0),
                 egui::Align2::CENTER_CENTER,
                 "W",
                 font_card,
@@ -962,7 +1085,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 );
                 painter.circle_filled(compass_center, 4.0, palette.accent);
                 painter.text(
-                    compass_center + egui::vec2(0.0, 16.0),
+                    compass_center + egui::vec2(0.0, compass_radius * 0.33),
                     egui::Align2::CENTER_CENTER,
                     format!("{az:.0}°"),
                     egui::FontId::monospace(10.0),
@@ -982,9 +1105,118 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         click_az += 360.0;
                     }
                     click_az %= 360.0;
-                    app.rotate_antenna_to(click_az as f32);
+                    app.rotate_antenna_to(click_az);
                 }
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn canvas(width: f32, height: f32) -> egui::Rect {
+        egui::Rect::from_min_size(egui::pos2(13.0, 27.0), egui::vec2(width, height))
+    }
+
+    fn contains(outer: egui::Rect, inner: egui::Rect) -> bool {
+        outer.expand(1e-3).contains_rect(inner)
+    }
+
+    #[test]
+    fn projection_rect_is_two_to_one_centered_and_inside_every_canvas() {
+        for (w, h) in [
+            (300.0, 600.0),
+            (1200.0, 260.0),
+            (320.0, 200.0),
+            (1920.0, 1080.0),
+            (400.0, 200.0),
+            (1.0, 1.0),
+            (0.0, 0.0),
+        ] {
+            let c = canvas(w, h);
+            let map = fit_map_rect(c);
+            assert!(contains(c, map), "{w}x{h}: mapa w płótnie");
+            if w > 1.0 {
+                assert!((map.width() / map.height() - 2.0).abs() < 1e-3, "{w}x{h}");
+            }
+            assert!((map.center().x - c.center().x).abs() < 1e-3);
+            assert!((map.center().y - c.center().y).abs() < 1e-3);
+            // Wypełnia płótno w jednym z wymiarów (brak niepotrzebnych pustych pasów).
+            assert!(
+                (map.width() - c.width()).abs() < 1e-3 || (map.height() - c.height()).abs() < 1e-3,
+                "{w}x{h}"
+            );
+        }
+    }
+
+    #[test]
+    fn pan_is_clamped_and_resets_to_center_at_zoom_one() {
+        let c = canvas(800.0, 400.0);
+        let map = fit_map_rect(c);
+        let wild = egui::vec2(9.0, -9.0);
+        assert_eq!(clamp_pan(wild, 1.0, c, map), egui::Vec2::ZERO);
+        assert_eq!(clamp_pan(wild, f32::NAN, c, map), egui::Vec2::ZERO);
+        assert_eq!(
+            clamp_pan(egui::vec2(f32::NAN, 0.2), 3.0, c, map),
+            egui::Vec2::ZERO
+        );
+        // Przy zoom 3 przybliżona mapa (2400x1200) pokrywa płótno: pan <= (2400-800)/2/800 = 1.0.
+        let limited = clamp_pan(wild, 3.0, c, map);
+        assert!((limited.x - 1.0).abs() < 1e-4, "{limited:?}");
+        assert!((limited.y + 1.0).abs() < 1e-4, "{limited:?}");
+        let ok = egui::vec2(0.3, -0.2);
+        assert_eq!(clamp_pan(ok, 3.0, c, map), ok);
+    }
+
+    #[test]
+    fn pan_stays_in_frame_after_the_tile_is_resized() {
+        let big = canvas(1600.0, 800.0);
+        let small = canvas(320.0, 200.0);
+        let mut pan = egui::vec2(1.2, 0.7);
+        pan = clamp_pan(pan, 3.0, big, fit_map_rect(big));
+        let map = fit_map_rect(small);
+        let after = clamp_pan(pan, 3.0, small, map);
+        // Przesunięta mapa nadal pokrywa płótno w obu osiach.
+        let left = map.center().x + after.x * map.width() - map.width() * 3.0 / 2.0;
+        let right = map.center().x + after.x * map.width() + map.width() * 3.0 / 2.0;
+        assert!(left <= small.left() + 1e-2 && right >= small.right() - 1e-2);
+        let top = map.center().y + after.y * map.height() - map.height() * 3.0 / 2.0;
+        let bottom = map.center().y + after.y * map.height() + map.height() * 3.0 / 2.0;
+        assert!(top <= small.top() + 1e-2 && bottom >= small.bottom() - 1e-2);
+        // Powrót do zoom 1.0 = idealnie na środku.
+        assert_eq!(
+            clamp_pan(after, 1.0, small, map),
+            egui::Vec2::ZERO,
+            "zoom 1.0 centruje mapę"
+        );
+    }
+
+    #[test]
+    fn compass_scales_with_canvas_and_stays_inside() {
+        assert_eq!(compass_radius(canvas(320.0, 120.0)), None);
+        assert_eq!(compass_radius(canvas(149.0, 900.0)), None);
+        let mut previous = 0.0;
+        for side in [150.0_f32, 250.0, 330.0, 600.0, 2000.0] {
+            let c = canvas(side * 2.0, side);
+            let radius = compass_radius(c).expect("kompas widoczny");
+            assert!((26.0..=48.0).contains(&radius), "{side}: {radius}");
+            assert!(radius >= previous);
+            previous = radius;
+            let center = compass_center(c, radius);
+            let disc = egui::Rect::from_center_size(center, egui::Vec2::splat(radius * 2.0));
+            assert!(contains(c, disc), "{side}: tarcza w płótnie");
+            // Tarcza nie zasłania więcej niż ułamek mniejszego boku.
+            assert!(radius * 2.0 <= side * 0.5, "{side}");
+        }
+    }
+
+    #[test]
+    fn overlay_scale_is_bounded() {
+        assert_eq!(overlay_scale(canvas(100.0, 80.0)), 0.5);
+        assert_eq!(overlay_scale(canvas(3000.0, 2000.0)), 1.0);
+        let mid = overlay_scale(canvas(600.0, 300.0));
+        assert!((0.5..=1.0).contains(&mid));
+    }
 }

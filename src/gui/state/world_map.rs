@@ -10,6 +10,10 @@ pub struct WorldMapState {
     /// Siatka pól Maidenhead.
     pub show_grid: bool,
     pub beamwidth_deg: f32,
+    /// Płótno mapy z ostatniej klatki (cały obszar pod paskiem narzędzi).
+    pub last_canvas: Option<eframe::egui::Rect>,
+    /// Prostokąt rzutu `2:1` z ostatniej klatki (wewnątrz płótna).
+    pub last_map_rect: Option<eframe::egui::Rect>,
 }
 
 impl Default for WorldMapState {
@@ -20,6 +24,8 @@ impl Default for WorldMapState {
             show_compass: true,
             show_grid: false,
             beamwidth_deg: 50.0,
+            last_canvas: None,
+            last_map_rect: None,
         }
     }
 }
