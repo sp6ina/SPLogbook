@@ -4,7 +4,7 @@ Single source of truth for verified test counters and dependency-audit state. Co
 only here; every other document links to this file. Never update a counter without a real
 measurement, and always record the measurement date.
 
-**Data pomiaru:** 2026-11-18 (ostatni pomiar: po usunięciu legacy baz danych i wdrożeniu czystego pierwszego uruchomienia)
+**Data pomiaru:** 2026-11-20 (ostatni pomiar: po przebudowie UI/UX, mapy świata i waterfalla na gałęzi `feat/ui-ux-polish`)
 **Środowisko:** Windows 10/11 x86_64, `rustc 1.99.0`, `cargo 1.99.0`, `-j 1`
 **HEAD pomiaru:** commit zawierający ten plik (`git log -1 --format=%H`)
 
@@ -26,9 +26,9 @@ cargo test --workspace --all-targets -j 1 -- --skip powershell_real_execution_fu
 
 | Metric | Value |
 |---|---|
-| TOTAL REGISTERED TESTS: | 3621 |
-| TOTAL EXECUTED TESTS: | 3610 |
-| TOTAL PASSED TESTS: | 3610 |
+| TOTAL REGISTERED TESTS: | 3716 |
+| TOTAL EXECUTED TESTS: | 3705 |
+| TOTAL PASSED TESTS: | 3705 |
 | TOTAL FAILED TESTS: | 0 |
 | TOTAL IGNORED TESTS: | 10 |
 | HIL IGNORED TESTS: | 10 |
@@ -48,7 +48,7 @@ a product defect.
 | `security_guard` (incl. `chrono_replacement_*`, `f20r4_*`, `p1_f21_*`, F-18/eQSL/F-06 rules) | 214 / 214 |
 | `p1_f20_upload_selection` | 29 / 29 |
 | `p1_f20r_recovery` / `p1_f20r_sent_dates` / `p1_f20r_credential_safety` | 31 / 31, 21 / 21, 13 / 13 |
-| library unit tests (`--lib`) | 2291 / 2291 |
+| library unit tests (`--lib`) | 2386 / 2386 |
 | `p1_f21_cabrillo_export` | 4 / 4 |
 | `p1_f19_award_references` | 51 / 51 |
 | `p1_f16_logbook_pagination` | 55 / 55 |
@@ -550,3 +550,18 @@ Measurements (Windows, `rustc 1.99.0`, `-j 1`, `TEMP`/`TMP` inside `target\test-
 | `scripts/generate_flatpak_cargo_sources.sh --check` | PASS, 662 crates |
 
 The verification is software-only: no real LoTW report was downloaded and no hardware was used.
+
+## 17. UI/UX, world map and waterfall upgrade (2026-11-20)
+
+Measured on branch `feat/ui-ux-polish` (HEAD `6d1648e` before this documentation commit). The counters in
+section 2 and the `--lib` line in section 3 reflect this measurement; all other suites are unchanged.
+
+| Check | Result |
+|---|---|
+| `cargo test -j 1 --workspace --no-fail-fast -- --skip powershell_real_execution_full_cycle_success` | EXIT 0 — 37 binaries, 3716 registered, 3705 passed, 0 failed, 10 ignored (HIL), 1 filtered, 0 doc-tests |
+| `cargo fmt --all -- --check` | EXIT 0 |
+| `cargo clippy -j 1 --workspace --all-targets --all-features -- -D warnings` | EXIT 0 |
+| `security_guard` / `i18n_guard` / `theme_guard` | 214 / 214, 15 / 15, 1 / 1 |
+| Library unit tests (`--lib`) | 2386 / 2386 (was 2291; new GUI, theme, DSP and map tests) |
+
+Measured with `TEMP`/`TMP`/`TMPDIR` inside `target\test-tmp`. The verification is software-only: no HIL, PTT or RF.
