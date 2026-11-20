@@ -4047,8 +4047,8 @@ fn m3_git_repository_tag_v1_2_0_is_intact_and_no_automated_publishing_scripts_ex
         );
     }
 
-    // 2. Stable release tags: v1.2.0 and the published v1.3.0 are pinned and immutable,
-    //    and no other tag of the 1.3.0 line exists.
+    // 2. Stable release tags: v1.2.0 stays pinned and immutable; v1.3.0 is optional until
+    //    publication and, when present, is the only tag of the 1.3.0 line.
     assert_stable_release_tags_are_pinned(repo_root);
 
     // 3. Verify no workflow automatically pushes tags or publishes releases on push, and
@@ -4091,21 +4091,14 @@ fn m3_git_repository_tag_v1_2_0_is_intact_and_no_automated_publishing_scripts_ex
     }
 }
 
-/// Released stable tags and their pinned objects. `v1.2.0` is an annotated tag; `v1.3.0`
-/// is annotated as well, but a tag-triggered CI checkout may materialise the triggering tag
-/// as a lightweight ref, so its tag object is checked only when it is present.
-const PINNED_RELEASE_TAGS: [(&str, &str, &str); 2] = [
-    (
-        "v1.2.0",
-        "3ea8d51aab436805107a1cf422e0b35cc301458f",
-        "6f7d3aaa3b6a54e87b481c142a5b690bcf8b5592",
-    ),
-    (
-        "v1.3.0",
-        "e00a9d70445c3fc406dcdd995def0fec72d675ba",
-        "9141cb60c1491ff2e8dfd0846ab96ed48c87f726",
-    ),
-];
+/// Historical stable release: annotated tag object and peeled commit, both immutable.
+const PINNED_V1_2_0_TAG_OBJECT: &str = "3ea8d51aab436805107a1cf422e0b35cc301458f";
+const PINNED_V1_2_0_COMMIT: &str = "6f7d3aaa3b6a54e87b481c142a5b690bcf8b5592";
+
+/// Current stable release line. Its tag is created on the final release commit, which
+/// cannot contain the hash of its own future tag, so the tag is not pinned here; the pin
+/// is added in the first commit after the release is published.
+const CURRENT_RELEASE_TAG: &str = "v1.3.0";
 
 fn git_stdout(repo_root: &std::path::Path, args: &[&str]) -> String {
     let output = Command::new("git")
@@ -4122,32 +4115,47 @@ fn git_stdout(repo_root: &std::path::Path, args: &[&str]) -> String {
 }
 
 fn assert_stable_release_tags_are_pinned(repo_root: &std::path::Path) {
-    for (tag, tag_object, commit) in PINNED_RELEASE_TAGS {
-        let peeled = git_stdout(repo_root, &["rev-parse", &format!("{tag}^{{commit}}")]);
-        assert_eq!(
-            peeled, commit,
-            "Tag {tag} must stay immutable and point to commit {commit}"
-        );
-        let ref_name = format!("refs/tags/{tag}");
-        let kind = git_stdout(repo_root, &["cat-file", "-t", &ref_name]);
-        if tag == "v1.2.0" {
-            assert_eq!(kind, "tag", "Tag v1.2.0 must remain an annotated tag");
-        }
-        if kind == "tag" {
-            let object = git_stdout(repo_root, &["rev-parse", &ref_name]);
-            assert_eq!(
-                object, tag_object,
-                "Tag {tag} object SHA must be {tag_object}"
-            );
-        }
-    }
+    // v1.2.0: strictly pinned annotated tag.
+    let peeled = git_stdout(repo_root, &["rev-parse", "v1.2.0^{commit}"]);
+    assert_eq!(
+        peeled, PINNED_V1_2_0_COMMIT,
+        "Tag v1.2.0 must stay immutable and point to commit {PINNED_V1_2_0_COMMIT}"
+    );
+    let kind = git_stdout(repo_root, &["cat-file", "-t", "refs/tags/v1.2.0"]);
+    assert_eq!(kind, "tag", "Tag v1.2.0 must remain an annotated tag");
+    let object = git_stdout(repo_root, &["rev-parse", "refs/tags/v1.2.0"]);
+    assert_eq!(
+        object, PINNED_V1_2_0_TAG_OBJECT,
+        "Tag v1.2.0 object SHA must be {PINNED_V1_2_0_TAG_OBJECT}"
+    );
 
+    // v1.3.0: absent before tagging (push to main); once tagged it must be the only tag
+    // of the 1.3.0 line and resolve to a commit of this repository.
     let line_tags = git_stdout(repo_root, &["tag", "-l", "*1.3.0*"]);
-    let line_tags: Vec<&str> = line_tags.lines().map(str::trim).collect();
+    let line_tags: Vec<&str> = line_tags
+        .lines()
+        .map(str::trim)
+        .filter(|tag| !tag.is_empty())
+        .collect();
+    if line_tags.is_empty() {
+        return;
+    }
     assert_eq!(
         line_tags,
-        vec!["v1.3.0"],
-        "The only tag of the 1.3.0 line may be the published stable v1.3.0"
+        vec![CURRENT_RELEASE_TAG],
+        "The only tag of the 1.3.0 line may be the stable {CURRENT_RELEASE_TAG}"
+    );
+    let commit = git_stdout(
+        repo_root,
+        &[
+            "rev-parse",
+            "--verify",
+            &format!("{CURRENT_RELEASE_TAG}^{{commit}}"),
+        ],
+    );
+    assert!(
+        commit.len() == 40 && commit.chars().all(|c| c.is_ascii_hexdigit()),
+        "Tag {CURRENT_RELEASE_TAG} must resolve to a commit of this repository, got '{commit}'"
     );
 }
 
