@@ -9,7 +9,10 @@ fn print_usage() {
     println!("Komendy:");
     println!("  keygen <out_priv.key>             - Generuje nową parę kluczy Ed25519");
     println!("  sign <priv.key> <manifest.json>   - Podpisuje manifest i tworzy manifest.json.sig");
-    println!("  verify <manifest.json> <sig_file> [key_file] - Weryfikuje podpis manifestu");
+    println!(
+        "  verify <manifest.json> <sig_file> [key_file] - Weryfikuje podpis manifestu \
+         (bez key_file: wyłącznie wbudowany klucz wydawniczy)"
+    );
     println!(
         "  fingerprint <priv.key>            - Oblicza fingerprint SHA-256 klucza publicznego"
     );
@@ -266,20 +269,9 @@ fn verify_manifest(
             );
             Ok(())
         }
-        Err(e) => {
-            for candidate in &["dry_run.key", "../dry_run.key", "priv.key", "../priv.key"] {
-                if let Ok(key_bytes) = fs::read(candidate)
-                    && let Some(vk) = try_key_bytes(&key_bytes)
-                {
-                    println!(
-                        "Podpis zweryfikowany pomyślnie kluczem roboczym: {} (fingerprint: {})",
-                        candidate,
-                        sha256_hex(&vk.to_bytes())
-                    );
-                    return Ok(());
-                }
-            }
-            Err(format!("Weryfikacja podpisu nie powiodła się: {e}"))
-        }
+        // Bez jawnego `key_file` ufamy wyłącznie wbudowanym kluczom wydawniczym. Klucz
+        // testowy (np. dry-run w CI) trzeba wskazać jawnie czwartym argumentem; pliki
+        // `dry_run.key` / `priv.key` z katalogu bieżącego nigdy nie są odczytywane.
+        Err(e) => Err(format!("Weryfikacja podpisu nie powiodła się: {e}")),
     }
 }

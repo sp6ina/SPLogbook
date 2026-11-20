@@ -1408,6 +1408,42 @@ fn signer_verify_accepts_valid_signature_with_explicit_key() {
         "Uszkodzony podpis musi zostać odrzucony błędem"
     );
 
+    // 4. Regresja: domyślne `verify` (bez jawnego klucza) ufa wyłącznie wbudowanemu
+    //    kluczowi wydawniczemu. Podpis złożony kluczem testowym nie może zostać przyjęty
+    //    tylko dlatego, że ten sam klucz leży jako `dry_run.key` / `priv.key` w katalogu
+    //    bieżącym lub nadrzędnym.
+    let work_dir = temp_dir.join("work");
+    fs::create_dir_all(&work_dir).unwrap();
+    let test_key_bytes = fs::read(&priv_key_path).unwrap();
+    for planted in [
+        work_dir.join("dry_run.key"),
+        work_dir.join("priv.key"),
+        temp_dir.join("dry_run.key"),
+        temp_dir.join("priv.key"),
+    ] {
+        fs::write(&planted, &test_key_bytes).unwrap();
+    }
+    fs::copy(&manifest_path, work_dir.join("release-manifest.json")).unwrap();
+    fs::copy(&sig_path, work_dir.join("release-manifest.json.sig")).unwrap();
+    let default_out = Command::new(signer_bin)
+        .current_dir(&work_dir)
+        .args([
+            "verify",
+            "release-manifest.json",
+            "release-manifest.json.sig",
+        ])
+        .output()
+        .unwrap();
+    let default_stdout = String::from_utf8_lossy(&default_out.stdout);
+    assert!(
+        !default_out.status.success(),
+        "Domyślne verify nie może przyjąć podpisu kluczem z lokalnego dry_run.key/priv.key: {default_stdout}"
+    );
+    assert!(
+        !default_stdout.contains("zweryfikowany pomyślnie"),
+        "Domyślne verify nie może zgłaszać sukcesu dla klucza spoza listy zaufanych: {default_stdout}"
+    );
+
     let _ = fs::remove_dir_all(&temp_dir);
 }
 

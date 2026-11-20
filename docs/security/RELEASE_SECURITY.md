@@ -272,6 +272,11 @@ Konfiguracja potoku wydawniczego znajduje się w `.github/workflows/build-and-re
    - Podpis jest generowany przez `splogbook-signer sign <key> release-manifest.json` do pliku `release-manifest.json.sig`.
    - Bezpośrednio po wygenerowaniu sygnatury uruchamiana jest weryfikacja:
      `splogbook-signer verify release-manifest.json release-manifest.json.sig`.
+   - Bez argumentu `key_file` polecenie `verify` ufa wyłącznie wbudowanym kluczom
+     wydawniczym (`TRUSTED_KEYS`) i kończy się błędem, gdy podpis do nich nie pasuje.
+     Tryb dry-run weryfikuje podpis kluczem efemerycznym wyłącznie przez jawny czwarty
+     argument (`verify … "../$KEY_FILE"`); pliki `dry_run.key` / `priv.key` z katalogu
+     bieżącego nie są nigdy odczytywane niejawnie.
 6. **Bezpieczne usuwanie materiału klucza:**
    - Klucz prywatny dekodowany z sekretu Base64 do pliku `priv.key` przy umask `077` i prawach `600`.
    - Rejestracja powłokowej pułapki `trap 'rm -f priv.key' EXIT` zapewniającej usunięcie pliku nawet w przypadku awarii późniejszych poleceń.
