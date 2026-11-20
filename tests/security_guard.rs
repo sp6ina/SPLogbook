@@ -4047,22 +4047,12 @@ fn m3_git_repository_tag_v1_2_0_is_intact_and_no_automated_publishing_scripts_ex
         );
     }
 
-    // 2. Verify no tags matching 1.3.0 have been created or published
-    let git_list_tags = Command::new("git")
-        .current_dir(repo_root)
-        .args(["tag", "-l", "*1.3.0*"])
-        .output();
+    // 2. Stable release tags: v1.2.0 and the published v1.3.0 are pinned and immutable,
+    //    and no other tag of the 1.3.0 line exists.
+    assert_stable_release_tags_are_pinned(repo_root);
 
-    if let Ok(output) = git_list_tags {
-        assert!(output.status.success(), "git tag -l failed");
-        let tags = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        assert!(
-            tags.is_empty(),
-            "No git tag matching *1.3.0* may exist on the unreleased development line: found '{tags}'"
-        );
-    }
-
-    // 3. Verify no workflow automatically pushes tags or publishes releases on push
+    // 3. Verify no workflow automatically pushes tags or publishes releases on push, and
+    //    every checkout fetches full history (with tags) so the tag guards run in CI.
     let workflows_dir = repo_root.join(".github").join("workflows");
     if workflows_dir.exists() {
         for entry in fs::read_dir(&workflows_dir).expect("read workflows") {
@@ -4078,9 +4068,87 @@ fn m3_git_repository_tag_v1_2_0_is_intact_and_no_automated_publishing_scripts_ex
                     "Workflow {} contains automated tag push which violates release discipline",
                     entry.path().display()
                 );
+                let lines: Vec<&str> = content.lines().collect();
+                for (index, line) in lines.iter().enumerate() {
+                    if !line.contains("uses: actions/checkout@") {
+                        continue;
+                    }
+                    let step: Vec<&str> = lines
+                        .iter()
+                        .skip(index + 1)
+                        .take_while(|next| !next.trim_start().starts_with("- "))
+                        .copied()
+                        .collect();
+                    assert!(
+                        step.iter().any(|next| next.trim() == "fetch-depth: 0"),
+                        "{}:{}: actions/checkout must use fetch-depth: 0 so release tags are present",
+                        entry.path().display(),
+                        index + 1
+                    );
+                }
             }
         }
     }
+}
+
+/// Released stable tags and their pinned objects. `v1.2.0` is an annotated tag; `v1.3.0`
+/// is annotated as well, but a tag-triggered CI checkout may materialise the triggering tag
+/// as a lightweight ref, so its tag object is checked only when it is present.
+const PINNED_RELEASE_TAGS: [(&str, &str, &str); 2] = [
+    (
+        "v1.2.0",
+        "3ea8d51aab436805107a1cf422e0b35cc301458f",
+        "6f7d3aaa3b6a54e87b481c142a5b690bcf8b5592",
+    ),
+    (
+        "v1.3.0",
+        "e00a9d70445c3fc406dcdd995def0fec72d675ba",
+        "9141cb60c1491ff2e8dfd0846ab96ed48c87f726",
+    ),
+];
+
+fn git_stdout(repo_root: &std::path::Path, args: &[&str]) -> String {
+    let output = Command::new("git")
+        .current_dir(repo_root)
+        .args(args)
+        .output()
+        .unwrap_or_else(|e| panic!("git {args:?} could not be executed: {e}"));
+    assert!(
+        output.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
+fn assert_stable_release_tags_are_pinned(repo_root: &std::path::Path) {
+    for (tag, tag_object, commit) in PINNED_RELEASE_TAGS {
+        let peeled = git_stdout(repo_root, &["rev-parse", &format!("{tag}^{{commit}}")]);
+        assert_eq!(
+            peeled, commit,
+            "Tag {tag} must stay immutable and point to commit {commit}"
+        );
+        let ref_name = format!("refs/tags/{tag}");
+        let kind = git_stdout(repo_root, &["cat-file", "-t", &ref_name]);
+        if tag == "v1.2.0" {
+            assert_eq!(kind, "tag", "Tag v1.2.0 must remain an annotated tag");
+        }
+        if kind == "tag" {
+            let object = git_stdout(repo_root, &["rev-parse", &ref_name]);
+            assert_eq!(
+                object, tag_object,
+                "Tag {tag} object SHA must be {tag_object}"
+            );
+        }
+    }
+
+    let line_tags = git_stdout(repo_root, &["tag", "-l", "*1.3.0*"]);
+    let line_tags: Vec<&str> = line_tags.lines().map(str::trim).collect();
+    assert_eq!(
+        line_tags,
+        vec!["v1.3.0"],
+        "The only tag of the 1.3.0 line may be the published stable v1.3.0"
+    );
 }
 
 #[test]
@@ -4584,16 +4652,8 @@ fn m3_d_inno_setup_build_artifact_safety_guard() {
         "W repozytorium git nie może być śledzony żaden plik .exe: {tracked_exe}"
     );
 
-    let tag_output = Command::new("git")
-        .args(["tag", "-l"])
-        .output()
-        .expect("git tag -l");
-    let tags = String::from_utf8_lossy(&tag_output.stdout);
-    assert!(tags.contains("v1.2.0"), "Tag v1.2.0 musi istnieć");
-    assert!(
-        !tags.contains("v1.3.0"),
-        "Nie wolno tworzyć tagu v1.3.0 przed formalnym zatwierdzeniem wydania"
-    );
+    // Nienaruszalność tagów wydań stabilnych v1.2.0 i v1.3.0.
+    assert_stable_release_tags_are_pinned(std::path::Path::new(env!("CARGO_MANIFEST_DIR")));
 }
 
 #[test]
@@ -5303,17 +5363,8 @@ fn m3_f_owner_decisions_and_support_policy_guard() {
         "W repozytorium git nie może być śledzone żadne archiwum .tar.gz: {tracked_tar_gz}"
     );
 
-    // Nienaruszalność taga v1.2.0 i zakaz przedwczesnego tagu v1.3.0
-    let tag_output = Command::new("git")
-        .args(["tag", "-l"])
-        .output()
-        .expect("git tag -l");
-    let tags = String::from_utf8_lossy(&tag_output.stdout);
-    assert!(tags.contains("v1.2.0"), "Tag v1.2.0 musi istnieć");
-    assert!(
-        !tags.contains("v1.3.0"),
-        "Nie wolno tworzyć tagu v1.3.0 przed formalnym zatwierdzeniem wydania"
-    );
+    // Nienaruszalność tagów wydań stabilnych v1.2.0 i v1.3.0.
+    assert_stable_release_tags_are_pinned(std::path::Path::new(env!("CARGO_MANIFEST_DIR")));
 
     // Walidacja skryptu budowania archiwum Linux portable
     let build_script = fs::read_to_string("scripts/build_linux_portable_tar_gz.sh")
