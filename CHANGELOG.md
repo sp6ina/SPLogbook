@@ -46,7 +46,7 @@ packages are built and verified by CI but are not release assets.
   installs.
 
 - **Linux portable `tar.gz`** — deterministic single-root archive
-  (`SPLogbook-Linux-x86_64-<version>.tar.gz`), two-phase safe extraction with entry/size
+  (`SPLogbook-Linux-x86_64.tar.gz`), two-phase safe extraction with entry/size
   bounds, rejection of links and device nodes, and XDG Base Directory data placement.
 - **Linux AppImage** — `SPLogbook-Linux-x86_64.AppImage`, built with a pinned official
   `appimagetool` and a pinned type-2 runtime, with verified FUSE mounting and 12 negative

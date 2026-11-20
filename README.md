@@ -1,1017 +1,476 @@
-# 📻 SPLogbook
+# SPLogbook
 
 <p align="center">
-  <strong>Next-Generation Amateur Radio Logging & Station Control Suite</strong><br>
-  <em>Engineered in Rust with Immediate-Mode GUI for Speed, Precision, and Reliability</em>
+  <strong>Amateur radio logbook and station operating console</strong><br>
+  <em>Written in Rust with an immediate-mode <code>egui</code> interface</em>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Language-Rust_2024-orange.svg" alt="Rust">
-  <img src="https://img.shields.io/badge/GUI-egui_%2F_eframe-blueviolet.svg" alt="egui">
-  <img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License">
+  <img src="https://img.shields.io/badge/Version-1.3.0-brightgreen.svg" alt="Version 1.3.0">
+  <img src="https://img.shields.io/badge/Language-Rust_2024-orange.svg" alt="Rust 2024">
+  <img src="https://img.shields.io/badge/GUI-egui_%2F_eframe-blueviolet.svg" alt="egui / eframe">
+  <img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License GPLv3">
   <img src="https://img.shields.io/badge/Platform-Windows_%7C_GNU%2FLinux-blue.svg" alt="Platform">
-  <img src="https://img.shields.io/badge/Public_Stable-1.3.0-emerald.svg" alt="Public Stable Version">
-  <img src="https://img.shields.io/badge/Development-1.3.0--alpha.1-orange.svg" alt="Development Version">
-  <img src="https://img.shields.io/badge/Release_Status-Not_Published-yellow.svg" alt="Release Status">
-  <a href="https://github.com/sp6ina/SPLogbook/actions"><img src="https://github.com/sp6ina/SPLogbook/actions/workflows/build-and-release.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/sp6ina/SPLogbook/actions"><img src="https://github.com/sp6ina/SPLogbook/actions/workflows/build-and-release.yml/badge.svg" alt="Build and Release"></a>
   <img src="https://img.shields.io/badge/Tests-3705%2F3705_Passed-brightgreen.svg" alt="Tests">
-  <img src="https://img.shields.io/badge/i18n-7_Languages-cyan.svg" alt="i18n">
-  <a href="https://buycoffee.to/sp6ina"><img src="https://img.shields.io/badge/☕_Buy_Me_a_Coffee-buycoffee.to%2Fsp6ina-FFDD00?style=flat&logoColor=black" alt="Buy Me a Coffee"></a>
+  <img src="https://img.shields.io/badge/i18n-7_Languages-cyan.svg" alt="7 languages">
 </p>
 
-<img width="1917" height="991" alt="image" src="https://github.com/user-attachments/assets/465c5eda-739d-4191-ad17-c6cc89a39347" />
+<img width="1917" height="991" alt="SPLogbook main window" src="https://github.com/user-attachments/assets/465c5eda-739d-4191-ad17-c6cc89a39347" />
+
+SPLogbook is a cross-platform amateur radio logbook and station operating console for
+Windows and GNU/Linux. It combines QSO logging with transceiver and rotator control (CAT),
+digital-mode bridges, DX cluster, propagation, satellites, contests, award tracking and
+online QSL services in one dockable workspace.
+
+- **Licence:** GNU General Public License v3.0 or later
+- **Website:** [splogbook.org](https://splogbook.org)
+- **Languages:** English, Polish, German, Spanish, French, Italian, Russian
+- **Current stable release:** `1.3.0` (2026-11-20). See [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 
-## 🌟 Executive Summary
+## Contents
 
-> [!NOTE]
-> - **CURRENT PUBLIC STABLE:** `1.3.0` (release date 2026-11-20, tag `v1.3.0`)
-> - **PREVIOUS STABLE:** `1.2.0` (immutable historical tag `v1.2.0`)
-
-**SPLogbook** is an advanced, high-performance amateur radio logging software and station automation console engineered from the ground up in **Rust**. Built with an immediate-mode user interface powered by `egui`/`eframe`, SPLogbook delivers instant sub-millisecond responsiveness, zero-garbage-collection pauses, complete memory safety, and cross-platform native performance across both **Windows 10/11 (64-bit)** and **GNU/Linux (x86_64, X11 & Wayland)** environments.
-
-From deep ionospheric modeling (VOACAP-lite HF propagation), automated antenna rotator steering (`rotctld`), and real-time DX Cluster intelligence with acoustic All-Time New One (ATNO) alarms, to bi-directional digital modes bridging (WSJT-X, JS8Call, FLDigi), orbital satellite Doppler tracking, multi-award tracking, contest logging with live scoring, and professional A4 Avery QSL label vector PDF generation, SPLogbook provides the modern radio amateur with a unified, state-of-the-art operating environment. A dockable `egui_dock` workspace with floating multi-monitor windows, a sandboxed **Rhai** plugin system, a central event bus with live WebSocket streaming, a multi-backend CAT abstraction layer, and encrypted peer-to-peer log synchronization make it equally suited to the casual DXer, the serious contester, and the multi-station operator.
-
----
-
-## 📑 Table of Contents
-
-1. [Key Features Overview](#-key-features-overview)
-2. [Deep Architectural & Functional Breakdown](#-deep-architectural--functional-breakdown)
-   - [Core Logging Engine & Database Architecture](#1-core-logging-engine--database-architecture)
-   - [VOACAP-lite HF Propagation Modeling](#2-voacap-lite-hf-propagation-modeling)
-   - [Antenna Rotator Integration (rotctld)](#3-antenna-rotator-integration-rotctld)
-   - [DX Cluster Intelligence & Acoustic Alerts](#4-dx-cluster-intelligence--acoustic-alerts)
-   - [Specialty Ham Radio Clubs Integration](#5-specialty-ham-radio-clubs-integration)
-   - [QSL Card Designer & Avery Label Sheet PDF Exporter](#6-qsl-card-designer--avery-label-sheet-pdf-exporter)
-   - [Transceiver CAT & Hardware Supervision](#7-transceiver-cat--hardware-supervision)
-   - [Orbital Satellite Tracking & Doppler Compensation](#8-orbital-satellite-tracking--doppler-compensation)
-   - [Digital Modes Bridging (WSJT-X, JS8Call, FLDigi)](#9-digital-modes-bridging-wsjt-x-js8call-fldigi)
-   - [Contest Engine & Cabrillo Exporter](#10-contest-engine--cabrillo-exporter)
-   - [Award Programs Tracking Matrix](#11-award-programs-tracking-matrix)
-   - [Cloud Services & Online QSL Synchronization](#12-cloud-services--online-qsl-synchronization)
-   - [Interactive World Map & Real-Time Grey Line](#13-interactive-world-map--real-time-grey-line)
-   - [Visual Analytics & Station Statistics](#14-visual-analytics--station-statistics)
-   - [Embedded Local REST API Server](#15-embedded-local-rest-api-server)
-   - [Internationalization (i18n)](#16-internationalization-i18n)
-   - [Dockable Workspace & Operator Layout Profiles](#17-dockable-workspace--operator-layout-profiles)
-   - [User Plugin System (Rhai) + Plugin Marketplace](#18-user-plugin-system-rhai--plugin-marketplace)
-   - [CAT Abstraction Layer (Multi-Backend)](#19-cat-abstraction-layer-multi-backend)
-   - [Central Event Bus & Live WebSocket](#20-central-event-bus--live-websocket)
-   - [Callbook Aggregation & Offline Cache](#21-callbook-aggregation--offline-cache)
-   - [Operator Assistant & Voice Keyer](#22-operator-assistant--voice-keyer)
-   - [Encrypted Multi-Op LAN/P2P Synchronization (Protocol v2)](#23-encrypted-multi-op-lanp2p-synchronization-protocol-v2)
-   - [N1MM Logger+ Compatibility](#24-n1mm-logger-compatibility)
-3. [Keyboard Shortcuts Reference](#-keyboard-shortcuts-reference)
-4. [REST API Documentation](#-rest-api-documentation)
-5. [System Requirements](#-system-requirements)
-6. [Installation & Quick Start](#-installation--quick-start)
-7. [Building from Source](#-building-from-source)
-8. [Codebase Architecture & Directory Structure](#-codebase-architecture--directory-structure)
-9. [Configuration & Data Safety](#-configuration--data-safety)
-10. [Documentation](#-documentation)
-11. [Contributing & Bug Reports](#-contributing--bug-reports)
-12. [Support & Donations](#-support--donations)
-13. [License & Credits](#-license--credits)
+1. [What is new in 1.3.0](#what-is-new-in-130)
+2. [Operating features](#operating-features)
+3. [Keyboard shortcuts](#keyboard-shortcuts)
+4. [Download and install](#download-and-install)
+5. [Upgrading from v1.2.0](#upgrading-from-v120)
+6. [Data, configuration and credentials](#data-configuration-and-credentials)
+7. [Local REST API](#local-rest-api)
+8. [Building from source and running the tests](#building-from-source-and-running-the-tests)
+9. [Documentation](#documentation)
+10. [Contributing](#contributing)
+11. [Licence, data attribution and security](#licence-data-attribution-and-security)
+12. [Author and support](#author-and-support)
 
 ---
 
-## 🚀 Key Features Overview
+## What is new in 1.3.0
 
-| Feature Area | Capabilities |
+The full list is in [`CHANGELOG.md`](CHANGELOG.md). The main user-visible changes:
+
+### Interface and ergonomics
+
+- Shared design tokens (spacing, radii, type scale, monospace callsigns and frequencies)
+  used by every panel.
+- Three themes, **Operator Dark** (default), **Daylight** and **High Contrast**
+  (colour-blind safe), with a palette checked against WCAG contrast ratios. `Ctrl+T`
+  cycles through them.
+- A typed notification queue: info, success, warning and error toasts with severity icons,
+  time-to-live, de-duplication and dismiss.
+- A status bar with a clear **TX/RX** indicator, plus CAT, cluster and UTC status.
+- Keyboard workflow in the QSO form: `Enter` saves, `Esc` clears, a stable `Tab` order,
+  and a contest mode with its own save and wipe keys. Clicking a spot focuses the QSO form.
+- Every panel can be undocked into its own window, for example on a second monitor, and
+  docked back, using consistent vector icons.
+
+### World map
+
+- Land outlines from **Natural Earth 110m Land** (public domain), embedded at build time.
+- A smooth day/night shadow with a twilight band (grayline), and sun and moon markers.
+- An optional Maidenhead field grid.
+- A great-circle short path to the DX station, split correctly at the antimeridian.
+- Pan and zoom stay within the map. The map keeps a 2:1 aspect ratio with letterboxing in
+  docked tiles and in floating windows.
+
+### Audio (AF) waterfall
+
+- Built on `cpal` (audio capture) and `rustfft` (FFT sizes 512 to 4096).
+- A spectrum plot above the waterfall, sharing one Hz axis, with a dB grid.
+- Peak Hold, five colour palettes and Auto-Level.
+- A crosshair that reads out AF frequency, level and the resulting RF frequency derived
+  from the VFO and the mode, plus passband and target-tone markers.
+- **Click-to-QSY:** clicking a signal retunes the VFO through the existing CAT path. Without
+  CAT, the click only moves the marker.
+
+### Reference data and packaging
+
+- Country files, DXCC entity attributes, regional rules and club memberships are loaded from
+  the user data directory and managed from the application, with atomic installs and
+  rollback. This data is not bundled with the application.
+- Time handling moved from `chrono` to `jiff`. LoTW and eQSL received dates are never
+  invented.
+- Windows Inno Setup and MSI installers are built, verified and published by the release
+  pipeline. DEB, RPM, AppImage and Flatpak packaging scripts are verified in CI (see
+  [Download and install](#download-and-install)).
+
+---
+
+## Operating features
+
+| Area | What SPLogbook does |
 |---|---|
-| **Database & Engine** | SQLite with WAL mode, 10 specialized indexes, auto-VACUUM, persistent window geometry, rolling 10-revision backup, fail-safe mutex poison recovery. |
-| **HF Propagation** | VOACAP-lite ionospheric engine: Great-Circle midpoint, solar zenith, $foF2$, MUF/LUF/FOT, D-layer absorption, reliability index ($0\text{--}100\%$), S-meter estimation, dynamic band opening matrix, and forecast accuracy tracking. |
-| **Antenna Steering** | Hamlib `rotctld` TCP client (port 4533) with one-click short-path beam rotation in QSO Entry, World Map, and EME/Solar ephemeris tracking. |
-| **DX Cluster** | Built-in Telnet client, 2 kHz / 30-spot sliding deduplication, visual highlights (⭐ Magenta for ATNO, ✨ Emerald for new band/mode), acoustic fanfare alerts, click-to-tune CAT integration. |
-| **Ham Clubs Directory** | Dynamic reference database (`databases/clubs.csv`) recognition and color-coded badge display for SP-OTC, SPCWC, SKCC, CWOPS, FOC, HSC, and EPC with verified unique member numbers. |
-| **QSL Vector PDF** | Full A4 vector PDF label sheet exporter for Avery 3x8, 3x7, 2x8, 2x7 formats, plus standalone QSL card visual designer. |
-| **Station Profiles** | Multi-profile workstation management (Home QTH, Field /P, SOTA/POTA, Contest) with instant 1-click preset switching. |
-| **Transceiver CAT & Sharing** | Asynchronous **NATIVE-CAT** subsystem (`RigHub` multi-radio core, `TxArbiter` single-TX interlock, `CatRuntime`) supporting 8 dedicated backends: **Hamlib `rigctld`**, **Icom CI-V**, **Kenwood**, **Yaesu**, **Elecraft**, **FlexRadio (SmartSDR)**, **FLRig (XML-RPC)**, and **TCI (WebSocket)**; VFO A/B, split, RIT/XIT, mode, PTT, power, WinKeyer. Safe read-only probe, laboratory HIL harness with mandatory dummy load, integrated **Hamlib CAT TCP Proxy Server** (port 4534) for multi-app rig sharing. |
-| **Digital Modes** | WSJT-X / JTDX bi-directional UDP bridge (port 2237), JS8Call TCP JSON API integration, FLDigi XML-RPC bridge. |
-| **Satellites** | SGP4/SDP4 Keplerian orbital propagation from TLE, real-time Doppler shift frequency correction via CAT, antenna elevation/azimuth steering. |
-| **SDR Waterfall & Spectrum** | Real-time FFT spectrum/waterfall panel capturing the radio's audio output (or any audio input) via `cpal`; selectable FFT sizes (512–4096), gain/floor/color-scale controls, input-device selection, and full docking support (dockable tile or floating multi-monitor window). |
-| **Contests & Dupe Engine** | Rules for SP DX, CQ WW, ARRL DX, CQ WPX, IARU HF; structured **exchange parser** (`599 001 EU-115` → validated fields), live **rate meter (QSO/h)** + rate history, **multiplier matrix** per band, real-time inline `[DUPE!]` warning, N1MM-style keyboard-first auto-refocus, Duplicate Manager with batch cleaning, and **Cabrillo 3.0 / ADX (XML ADIF)** export. |
-| **Awards Tracking** | DXCC (Mixed, Band, Mode, Challenge, ATNO), WAZ, WAS, SP DX Award, WAE, WWFF, RDA, PGA (2477 Polish municipalities), IOTA, SOTA, POTA. |
-| **Cloud Sync** | LoTW (TQSL), eQSL.cc, Club Log, QRZ.com, HamQTH, HRDLog, Cloudlog, PSK Reporter, WSPR monitor, NOAA space weather, with a shared **upload scheduler** (offline queue, exponential-backoff retry, per-service rate limiting). |
-| **Mapping** | Equirectangular world map with real-time day/night terminator (Grey Line), zoom/pan, confirmed/unconfirmed QSO markers, live spot pins. |
-| **REST API & WebSocket** | Embedded asynchronous Axum HTTP server on loopback `127.0.0.1:8420` with JSON endpoints plus a live **WebSocket** stream (`/api/v1/ws`) broadcasting application events in real time for external integration and station automation. |
-| **Logbook Table** | Virtualized, resizable-column data grid with multi-row selection, bulk delete, per-column sorting, live filtering, and saveable column presets. Pagination is range-safe: one pure model normalizes a stale page before slicing, the empty result and the "all rows" mode are explicit safe states, arithmetic is checked and slice access is bounds-checked. |
-| **CSV Export** | Configurable logbook CSV exporter with the full `QsoRecord` field catalog, delimiter selection (comma/semicolon/tab), optional header row, and correct quoting/escaping of special characters. |
-| **Dockable Workspace** | Full `egui_dock` docking system: panels can be detached into **floating native windows** (move to a second monitor), re-arranged into tabs/columns, and saved/restored via **operator layout profiles** with built-in presets. |
-| **User Plugins (Rhai)** | Sandboxed embedded **Rhai** scripting engine: users write `.rhai` plugins with safe getters/actions and lifecycle hooks (`on_startup`, `on_qso_logged`, `on_dx_spot`, `on_rig_state`, …) — no filesystem/network access by default. |
-| **Plugin Marketplace** | One-click-install add-on catalog (POTA/SOTA helpers, CW macros, contest assistant, rotor assistant, award tracker, DX spot alerts, and more) with SHA256 verification, offline fallback, and update/uninstall support. |
-| **Event Bus** | Central `tokio::sync::broadcast` event bus decoupling modules; the same JSON events drive UI toasts, the WebSocket stream, and Rhai plugins. |
-| **Operator Assistant & Voice Keyer** | Always-on decision bar recommending "what to do now" from propagation/CAT/DX/award goals, plus an SSB **voice keyer** (WAV playback, F1–F8 slots, CQ loop). |
-| **Encrypted Multi-Op Sync** | Unified Host/Peer multi-station synchronization (protocol v2) over LAN/VPN encrypted with **XChaCha20-Poly1305** (Argon2id key derivation), echo-free relay, and bidirectional catch-up. |
-| **N1MM Compatibility** | Emits **N1MM Logger+ UDP broadcast** XML frames so GridTracker, overlay tools, and the N1MM ecosystem integrate out of the box. |
-| **Callbook Aggregation** | Configurable callbook **source priority** (QRZ.com, HamQTH, offline cache) with automatic result merging and a persistent offline **cache** (TTL-based). |
-| **Theming & Accessibility** | Central `theme.rs` palette with presets — **Operator Dark**, **Daylight**, **High-Contrast / colorblind-safe (Okabe-Ito)** — user font scaling and family selection, and a status legend window. |
-| **Command Palette** | Searchable command launcher (`Ctrl+Shift+P`) for instant keyboard-first navigation to any function. |
-| **Built-in Help** | In-app user manual (Help → Instrukcja obsługi), contextual "?" hints in complex panels, full changelog window, and GitHub update checker. |
-| **Languages** | 7 complete native translations: English, Polish, German, French, Spanish, Italian, Russian (100% verified test coverage) with compile-time embedded JSON architecture in `locales/`. |
+| **Logbook** | SQLite in WAL mode (bundled SQLite, never the system library), multiple journals, a virtualised and paginated log table with sorting, filtering and column presets, undo/redo of deletions, duplicate finder, ADIF 3.1.8 import/export, ADX and CSV export. |
+| **CAT and rotators** | Native CAT for Icom CI-V, Kenwood, Yaesu, Elecraft and FlexRadio (SmartSDR), plus Hamlib `rigctld`, FLRig (XML-RPC) and TCI (WebSocket). Multi-radio core with a single-TX interlock. Hamlib `rotctld` rotator control. A Hamlib-compatible CAT sharing server for other applications. WinKeyer CW keying. |
+| **PTT safety** | PTT is never bound to a single key. `Ctrl+Shift+F7` requests PTT ON and `Ctrl+F7` requests PTT OFF. Both are blocked during text editing, IME composition, in modal windows and without window focus; key repeat and key release never create a TX intent. |
+| **Digital modes** | WSJT-X / JTDX UDP bridge (port 2237), JS8Call TCP API (port 2442), FLDigi XML-RPC, N1MM Logger+ UDP broadcast (port 12060). |
+| **DX cluster** | Telnet cluster client with spot de-duplication, ATNO / new-band / new-mode highlighting, audible alerts, a band map and click-to-tune via CAT. |
+| **Propagation and solar** | Built-in VOACAP-lite HF model (MUF, LUF, FOT, reliability and band-opening matrix) fed by NOAA SWPC space weather data; grayline status. |
+| **Satellites** | SGP4 orbit propagation from TLE data, pass tracking, Doppler correction through CAT and az/el rotator steering. |
+| **Contests** | Contest rules with exchange parsing, live score, rate meter, multiplier matrix and dupe warnings; Cabrillo 3.0 export whose claimed score matches the on-screen score. |
+| **Awards** | DXCC, WAZ, WAS, WAE, IOTA, SOTA, POTA, WWFF, RDA, PGA and SP award tracking in an awards matrix. |
+| **Online services** | LoTW (via TQSL), eQSL, Club Log, QRZ.com, HamQTH, HRDLog, Cloudlog, PSK Reporter and WSPR, with a shared upload scheduler (offline queue, backoff, rate limits) and a callbook cache. |
+| **Multi-Op LAN sync** | Host/peer QSO replication over LAN or VPN (TCP port 7373), encrypted with XChaCha20-Poly1305 using an Argon2id-derived key, with replay protection and bidirectional catch-up of the active journal. New QSOs only; edits and deletions are not propagated. |
+| **QSL** | QSL manager, QSL card designer and A4 vector PDF label sheets (Avery layouts). |
+| **Extensibility** | Sandboxed Rhai plugins (no filesystem, network or process access) with lifecycle hooks, a plugin catalogue with SHA-256-verified installs, an embedded REST API and a WebSocket event stream. |
+| **Workspace** | `egui_dock` workspace with floating windows, saved layout profiles, built-in presets and `.spws` layout export/import; command palette (`Ctrl+Shift+P`); built-in manual in all seven languages. |
+
+Native CAT architecture, PTT invariants and RF safety rules are described in
+[`Native CAT.md`](Native%20CAT.md).
 
 ---
 
-## 🔍 Deep Architectural & Functional Breakdown
+## Keyboard shortcuts
 
-### 1. Core Logging Engine & Database Architecture
-- **SQLite with WAL Mode:** The database backend operates in `WAL` (Write-Ahead Logging) mode with `PRAGMA synchronous=NORMAL;`, `PRAGMA cache_size=10000;`, and `PRAGMA temp_store=MEMORY;`. This architecture ensures concurrent non-blocking reads and writes, protecting against corruptions even during sudden power losses.
-- **10 Performance-Optimized Indexes:** Rapid querying across multi-hundred-thousand QSO logs:
-  - `idx_qso_callsign` (Callsign lookup)
-  - `idx_qso_date` (Chronological ordering)
-  - `idx_qso_band` & `idx_qso_mode` (Filtering)
-  - `idx_qso_journal` (Multi-journal separation)
-  - `idx_qso_dxcc` (Award calculation)
-  - `idx_qso_lotw` & `idx_qso_eqsl` (Confirmation tracking)
-  - `idx_qso_cqz` (CQ zone statistics)
-  - `idx_qso_composite` (`callsign, band, mode` composite index for instant duplicate checking)
-- **Automatic Health & Housekeeping:**
-  - **Fail-Safe Mutexes:** Mutex locks (`log_db`, `awards_engine`, `scp_engine`) utilize poison-recovery patterns (`unwrap_or_else(|p| p.into_inner())`), preventing entire application crashes if an asynchronous worker encounters an error.
-  - **Rolling Backups:** Automatic timestamped SQLite backup created on shutdown into `%APPDATA%/SPLogbook/backups/`, with automated pruning keeping the 10 most recent backups.
-  - **Upload Retry Queue:** Failed cloud uploads are queued in a persistent JSON file managed by `cloud/scheduler.rs` with exponential backoff and rate limiting. The SQLite `upload_queue` table is retained strictly for schema stability and is not used by active runtime code.
-- **Persistent Window Geometry:** All 8 major dockable panels (`VFO`, `QSO Entry`, `Logbook Table`, `DX Cluster`, `BandMap`, `Solar Weather`, `Satellites`, `World Map`) persistently record their coordinates and dimensions across sessions in `station_config.json`.
-- **Centralized QSO Ingest Pipeline (`core::ingest`):** All incoming single QSO records (`Form`, `Contest`, `WsjtX`, `Js8Call`, `LanPeer`, `RestApi`) and bulk imports converge into a unified pipeline orchestrated by `QsoIngestor`:
-  - `QsoIngestor::ingest()`: Single-entry point enforcing typed validation (`Reject` for interactive form and REST API input vs. `Advisory` for automated decoders), non-fabricating domain normalization, atomic SQLite insertion, `EventBus` publication (`AppEvent::QsoLogged`), and synchronized `AwardsEngine` / `ScpEngine` updates without nested mutex locks.
-  - `QsoIngestor::import_batch()`: High-throughput batch import engine performing deduplication via minute-resolution `QsoIdentity` and bulk awards/SCP indexing.
-  - **Decoupled Side Effects:** Post-ingest actions (`PostEffects` including cloud upload queueing, LAN multi-op broadcast, N1MM UDP frames, plugin hooks, and acoustic alerts) are dispatched strictly by the GUI adapter based on origin policy; `UPDATE` and `DELETE` bypass the ingest pipeline.
-
----
-
-### 2. VOACAP-lite HF Propagation Modeling
-SPLogbook features a self-contained ionospheric HF propagation engine (`src/core/propagation.rs`) that models radio wave refraction through the ionosphere without requiring external Python or web dependencies:
-- **Great-Circle Trigonometry:** Computes the shortest distance and bearing between the home station and the remote DX Maidenhead locator using spherical trigonometry.
-- **Path Midpoint & Solar Zenith:** Pinpoints the exact geographic coordinates of the path midpoint and determines the solar zenith angle ($\chi$) to establish whether the midpoint is in daylight, darkness, or traversing the grey line.
-- **Critical Frequencies & Limits:**
-  - Calculates the ordinary ray critical frequency $foF2$ dynamically based on the Solar Flux Index (SFI) and sun angle:
-    $$\text{foF2} = 3.5 + 4.5 \cdot \sqrt{\frac{\text{SFI}}{100}} \cdot \max(0.1, \cos\chi)$$
-  - Derives the Maximum Usable Frequency (**MUF**), Frequency of Optimum Traffic (**FOT** = $0.85 \times \text{MUF}$), and Lowest Usable Frequency (**LUF**).
-- **D-Layer Absorption:** Models daytime signal attenuation based on the geomagnetic $K$-index and solar elevation.
-- **Propagation Mode Identification:**
-  - **Groundwave:** For short paths ($< 120\text{ km}$).
-  - **Ionospheric $F_2$ Layer:** For long-distance single/multi-hop propagation.
-  - **Sporadic-E ($E_s$):** Estimated during elevated summer solar conditions on 10m/6m.
-- **Live User Feedback:**
-  - Formularz QSO renders a real-time badge: `📡 Propagacja: XX% REL · SX (F2) · MUF XX.X MHz` with detailed hover tooltips.
-  - Solar Panel provides a dynamic HF band opening matrix (160m to 10m) classifying current conditions as *Closed*, *Marginal*, *Good*, or *Excellent*.
-
----
-
-### 3. Antenna Rotator Integration (`rotctld`)
-- **Hamlib Rotator Protocol Client:** Built-in network client connecting to Hamlib's `rotctld` daemon on TCP port `4533`.
-- **One-Click Beam Steering:**
-  - **QSO Entry Panel:** Displays the calculated great-circle bearing and features an interactive **`🔄 Obróć ({azimuth}°)`** button that commands the rotor to swing to the target heading.
-  - **World Map Panel:** A dedicated rotation control appears next to selected DX coordinates, allowing instantaneous antenna pointing directly from the map.
-- **Dual-Path Capability:** Computes both Short Path (SP) and Long Path (LP) bearings ($180^\circ$ inversion).
-
----
-
-### 4. DX Cluster Intelligence & Acoustic Alerts
-- **High-Resilience Telnet Client:** Multi-threaded asynchronous Telnet client handling automated reconnects, terminal keep-alive, ANSI escape code filtering, and non-blocking teardown upon application close.
-- **Sliding Deduplication Buffer:** Automatically filters out redundant cluster spots within a 30-spot / $2\text{ kHz}$ window, preventing cluster spam from obscuring rare DX.
-- **Visual Entity Highlighting:**
-  - ⭐ **Magenta / Fuchsia:** **ATNO (All-Time New One)** — An entity never worked on any band or mode in the entire station history.
-  - ✨ **Emerald Green:** New band or new mode for a previously confirmed DXCC country.
-- **Acoustic Synthesizer:** Multi-threaded sound engine powered by `rodio` that plays a triumphant musical fanfare (440 Hz + 660 Hz dual-tone sequence) when an ATNO spot arrives.
-- **Transceiver Click-to-Tune:** Clicking any spot in the cluster list or band map commands Hamlib CAT to immediately tune the transceiver VFO to the spot frequency.
-- **Reverse Beacon Network (RBN):** Dedicated filter to toggle between human spotters and automated CW/FT8 skimmer spots.
-
----
-
-### 5. Specialty Ham Radio Clubs Integration
-- **Reference Directory Lookup:** As you type a callsign in the QSO entry field, SPLogbook queries `ClubRegistry` backed by the external `databases/clubs.csv` reference database (or custom user roster) with strict uniqueness validation per `(club, member_number)`:
-  - **SP-OTC** (SP Old Timers Club)
-  - **SPCWC** (SP CW Club)
-  - **SKCC** (Straight Key Century Club)
-  - **CWOPS** (CW Operators' Club)
-  - **FOC** (First Class CW Operators' Club)
-  - **HSC** (High Speed Club)
-  - **EPC** (European PSK Club)
-- **Visual Badging:** Displays styled badges (e.g. `🎖 SP-OTC #248`, `🎖 SKCC #18942`) indicating verified club membership and member numbers, essential for club award endorsements and specialty on-air operating.
-
----
-
-### 6. QSL Card Designer & Avery Label Sheet PDF Exporter
-- **Vector PDF Generation Engine:** High-precision PDF rendering powered by `printpdf`.
-- **Avery Standard Label Sheets (A4):** Built-in geometry templates for industry-standard self-adhesive printable sticker sheets:
-  - **3 × 8** (24 labels per A4 sheet, $70.0 \times 37.0\text{ mm}$)
-  - **3 × 7** (21 labels per A4 sheet, $70.0 \times 42.4\text{ mm}$)
-  - **2 × 8** (16 labels per A4 sheet, $105.0 \times 37.0\text{ mm}$)
-  - **2 × 7** (14 labels per A4 sheet, $105.0 \times 42.4\text{ mm}$)
-- **Automated QSO Population:** Automatically formats and paginates selected QSOs with Callsign, Date, Time UTC, Band, Mode, RST Sent/Received, and QSL confirmation text onto sticker grids with exact printer margins.
-- **Print Preview & Printer Calibration:** Live A4 sheet preview with adjustable left/top margins (in mm) so labels align precisely with physical sticker fields before export.
-- **Batch Card-Selection Rules:** Queue cards by QSL-sent status (unconfirmed only), band, mode, date range, and a configurable count limit.
-- **Pre-Export Validation:** The designer validates a non-empty print queue and station callsign before generating the PDF.
-- **Interactive QSL Card Designer:** Visual editor for previewing custom QSL layouts, positioning elements, and preparing cards for print.
-
----
-
-### 7. Transceiver CAT & Hardware Supervision
-- **Hamlib `rigctld` Client & Lifecycle Supervisor:**
-  - **Bundled vs System Hamlib Source Selection:** Operators can choose between the pre-packaged **Bundled Hamlib 4.7.2** (included out-of-the-box with both Windows `.zip` and Linux `.tar.gz` releases) or a **System-Installed** Hamlib binary (`/usr/bin/rigctld` or system `PATH`).
-  - **Live Auto-Detection & Path Verification:** The settings window dynamically verifies the presence and exact path of the selected binary with visual status badges (`✔ Detected` or `⚠ Not Found`), and offers an optional custom binary path field.
-  - **Self-Contained Linux Portability:** Linux runtime automatically manages dynamic library paths (`LD_LIBRARY_PATH` and RPATH `$ORIGIN/hamlib/lib`), guaranteeing that bundled shared libraries (`libhamlib.so`) load seamlessly without requiring external packages or system root privileges.
-  - **Smooth Lifecycle Management:** Background supervisor launches `rigctld` with concealed console flags (`CREATE_NO_WINDOW` on Windows), checks PID liveness non-blockingly, and performs graceful termination on application exit.
-  - Supports bidirectional polling of VFO frequency, mode, passband, and split status.
-- **PTT & On-Air Control:** Two explicit, disjoint on-screen actions (`TX ON` / `TX OFF`) plus explicit modifier shortcuts (`Ctrl+Shift+F7` / `Ctrl+F7`) transmitting Hamlib `T 1` / `T 0` commands with a telemetry-derived TX/RX indication. A single key never keys the transmitter: both directions are blocked during text editing, IME composition, modal windows and without window focus, key repeat and release never create an intent, and PTT ON requires the F-15 authorization outcome.
-- **CW Keyer & Macro Terminal:**
-  - 12 fully customizable CW macros mapped to function keys `F1`–`F12` with speed control (WPM) and live transmit buffer.
-  - Hardware support for K1EL WinKeyer protocol over serial interfaces.
-  - Expert Electronics TCI protocol client support.
-
----
-
-### 8. Orbital Satellite Tracking & Doppler Compensation
-- **SGP4/SDP4 Keplerian Propagator:** High-precision orbital tracker utilizing NORAD Two-Line Element (TLE) datasets with automated online updating.
-- **Real-Time Orbit Calculations:** Instantaneous computation of Satellite Azimuth, Elevation, Range, Slant Rate, Footprint, and Sub-Satellite Point.
-- **Automated Doppler CAT Control:** Compensates for the Doppler effect on transponder uplinks and downlinks by computing real-time frequency shifts:
-  $$\Delta f = - f_0 \frac{v_{\text{slant}}}{c}$$
-  and adjusting transceiver frequencies dynamically via CAT.
-- **Antenna Elevation/Azimuth Rotator Steering:** Sends real-time azimuth and elevation tracking coordinates to dual-axis satellite rotators via `rotctld`.
-
----
-
-### 9. Digital Modes Bridging (WSJT-X, JS8Call, FLDigi)
-- **WSJT-X & JTDX (UDP Port 2237):**
-  - Decodes binary UDP frames: Heartbeat, Status, Decode, Clear, QSO Logged, Close, and WSPR.
-  - Automatically logs completed FT8/FT4 QSOs into SPLogbook with precise signal reports.
-  - Queries the SPLogbook database in real-time to highlight whether a calling station is an unworked country, unworked band, or unworked mode.
-- **JS8Call (TCP Port 2237):**
-  - Connects to JS8Call's JSON API socket.
-  - Ingests `RX.ACTIVITY`, `RX.DIRECTED`, and `RIG.FREQ` packets to log keyboard-to-keyboard contacts seamlessly.
-- **FLDigi (XML-RPC):**
-  - Direct integration for PSK31, RTTY, Olivia, and CW decoding.
-
----
-
-### 10. Contest Engine & Cabrillo Exporter
-- **Built-in Contest Rules & Multiplier Tracking:**
-  - **SP DX Contest:** 3 points per QSO with non-SP stations; multipliers per Polish voivodeship / foreign country.
-  - **CQ World Wide DX (CQ WW):** 1/2/3 points depending on station continent; CQ Zone and DXCC country multipliers.
-  - **ARRL International DX:** 3 points per QSO; multipliers per US State and Canadian Province.
-  - **CQ WPX Contest:** Points based on band and continent; prefix multipliers.
-  - **VHF/UHF Polish National Contests:** 1 point per kilometer of great-circle distance; gridsquare multipliers.
-- **Structured Exchange Parser:** Each contest rule declares an ordered list of exchange fields (RST, serial, CQ/ITU zone, US/VE state, grid, power, IOTA, name, QTH, etc.); the parser (`src/core/exchange.rs`) converts a typed string such as `599 001 EU-115` into validated, structured fields ready to store in the QSO record.
-- **Live Scoring, Rate Meter & Multiplier Matrix:** Displays current score, multiplier breakdown, band-by-band QSO counts, a rolling operating rate (QSO/h) with rate history, and a **per-band multiplier matrix** highlighting needed multipliers.
-- **Dupe Checking:** Immediate visual warning (red highlight and bold "DUPE!" tag) when entering an already-worked station on the current band/mode.
-- **Cabrillo 3.0 & ADX Export:** Generates fully compliant Cabrillo log files formatted according to official contest sponsor specifications, plus **ADX (XML ADIF 3.1.5)** export.
-- **Deterministic Scoreboard & Cabrillo Alignment (FC-APP-1):** In Wave 8, mutable counters were replaced with a pure derived `compute_scoreboard()` over active journal QSOs. Cabrillo 3.0 export (`core::cabrillo::build`) automatically computes claimed score directly from this scoreboard, guaranteeing that `CLAIMED-SCORE` is strictly equal to the on-screen contest score regardless of whether the contest window is open.
-
----
-
-### 11. Award Programs Tracking Matrix
-SPLogbook features an integrated awards matrix (`src/core/awards.rs`) tracking confirmed and worked status across multiple international award programs:
-- **DXCC:** Mixed, Band (160m–10m), Mode (CW, Phone, Digital), and DXCC Challenge.
-- **WAZ (Worked All Zones):** Tracking across all 40 CQ Zones.
-- **WAS (Worked All States):** Tracking across all 50 US States.
-- **SP DX Award:** Polish districts (SP1 through SP9, SO, SN).
-- **WAE (Worked All Europe):** Tracking across all 50+ European DXCC entities.
-- **WWFF (World Wide Flora & Fauna):** Protected natural site references.
-- **RDA (Russian Districts Award):** Regional district tracking.
-- **PGA (Polska Gmina Award):** Comprehensive database of all 2,477 Polish municipalities.
-- **IOTA (Islands On The Air):** Island reference tracking.
-- **SOTA & POTA:** Summits and Parks on the air tracking with specialized SOTA CSV exports.
-
----
-
-### 12. Cloud Services & Online QSL Synchronization
-- **ARRL LoTW (Logbook of the World):** Direct TQSL command-line invocation for digital certificate signing, automated ADIF export, and inbound `.adi` download and reconciliation.
-- **eQSL.cc:** Real-time upload of logged QSOs and inbound verification synchronization.
-- **Club Log:** Instantaneous real-time QSO upload via API and Online QSL Request System (OQRS) tracking.
-- **Callbook XML Lookups:** Automated XML lookup via **QRZ.com** (XML subscription) and **HamQTH** (free XML API) retrieving operator name, QTH address, Maidenhead grid, country, and biography photo, aggregated by a configurable **source priority** and backed by a persistent **offline cache**.
-- **HRDLog & Cloudlog:** Automated cloud log synchronization with an embedded SQLite retry queue ensuring reliable delivery during internet drops.
-- **Shared Upload Scheduler:** A deterministic scheduler (`src/cloud/scheduler.rs`) centralizes the offline queue, exponential-backoff retry, and per-service rate limiting for Club Log, QRZ.com, and eQSL.cc.
-- **PSK Reporter & WSPR Monitor:** Submits live reception reports to `pskreporter.info` and queries `wspr.live` for real-time propagation probes.
-- **Space Weather (NOAA SWPC):** Fetches real-time Solar Flux Index (SFI), Sunspot Number (SSN), geomagnetic $A$-index, $K$-index, X-ray flux, and solar wind velocity.
-
----
-
-### 13. Interactive World Map & Real-Time Grey Line
-- **High-Precision Equirectangular Projection:** Accurately renders continental outlines, country borders, and geographic latitude/longitude grids.
-- **Dynamic Grey Line Terminator:** Computes the solar sub-solar point in real-time from the Earth's axial tilt and current UTC timestamp, drawing the day/night boundary.
-- **Interactive Navigation:** Smooth mouse-wheel zooming ($1.0\times$ to $5.0\times$) and drag-to-pan exploration.
-- **QSO & Cluster Spot Pins:**
-  - Color-coded QSO pins: Green for LoTW/eQSL confirmed, Blue for standard logged QSOs.
-  - Live DX cluster spot markers displaying callsign, frequency, band, and time on hover.
-  - Short-path and long-path great-circle propagation tracks drawn between home station and remote stations.
-  - Interactive beam heading steering directly from the map.
-
----
-
-### 14. Visual Analytics & Station Statistics
-SPLogbook includes a visual analytics dashboard providing comprehensive insights into your amateur radio activity:
-- **QSO per Month:** 24-month historical trend chart.
-- **Band Distribution:** Percentage breakdown of activity across all amateur bands ($160\text{m}$ to $70\text{cm}$).
-- **Mode Breakdown:** Distribution across CW, SSB, FT8, FT4, RTTY, and FM.
-- **Hourly UTC Activity:** 24-hour histogram identifying peak operating hours.
-- **Top 10 Countries:** Ranking of most frequently contacted DXCC entities.
-- **QSL Confirmation Ratios:** Comparative analysis between paper QSL, LoTW, and eQSL confirmations.
-- **Interactive Drill-Down:** Every chart is clickable — click a month, band, mode, hour, country, or QSL-status segment to instantly open the logbook filtered to that subset, then return with one click.
-
----
-
-### 15. Embedded Local REST API Server (v1 — 15 Endpoints)
-SPLogbook features a built-in asynchronous HTTP & WebSocket server powered by **Axum** running on `127.0.0.1:8420`. All endpoints except `/api/v1/status` and `/api/v1/endpoints` require the station's `X-Api-Key` header (viewable and regenerable under **Narzędzia → Serwer REST API**):
-
-| Method | Endpoint | Auth | Description |
-|---|---|---|---|
-| `GET` | `/api/v1/status` | Public | Application health, version, ADIF 3.1.7 version, station callsign, total QSOs, uptime, and live CAT summary. |
-| `GET` | `/api/v1/endpoints` | Public | Self-describing JSON catalog of all available REST & WebSocket endpoints. |
-| `GET` | `/api/v1/qsos` | `X-Api-Key` | Paginated & multi-criteria filtered QSO list (`limit`, `offset`, `callsign`, `band`, `mode`, `date_from`, `date_to`, `journal_id`, `lotw_confirmed`, `eqsl_confirmed`, `qsl_rcvd`). |
-| `POST` | `/api/v1/qsos` | `X-Api-Key` | Logs a new QSO record with automatic ADIF 3.1.7 mode/submode normalization, DXCC/CQZ/ITUZ prefix enrichment, AwardsEngine update, and real-time `QsoLogged` WebSocket event. |
-| `GET` | `/api/v1/qsos/{id}` | `X-Api-Key` | Returns complete details for a single QSO record by database ID. |
-| `PUT` | `/api/v1/qsos/{id}` | `X-Api-Key` | Updates an existing QSO record by ID and triggers GUI logbook refresh. |
-| `DELETE` | `/api/v1/qsos/{id}` | `X-Api-Key` | Deletes a QSO record by ID and triggers GUI logbook refresh. |
-| `GET` | `/api/v1/qsos/callsign/{call}` | `X-Api-Key` | Returns Worked-Before history and instant contest duplicate status (`?band=20m&mode=CW&same_day=true`). |
-| `GET` | `/api/v1/lookup/{call}` | `X-Api-Key` | Full callsign intelligence: DXCC entity, continent, CQ/ITU zones, award need status (`is_new_dxcc`, `is_new_band`, `is_new_mode`, etc.), and Ham Club memberships (SP-OTC, SPCWC, CWOPS, FOC, SKCC, HSC). |
-| `GET` | `/api/v1/adif/export` | `X-Api-Key` | Exports the logbook (or filtered subset via query parameters) in **ADIF 3.1.7** (`.adi`) format. |
-| `POST` | `/api/v1/adif/import` | `X-Api-Key` | Batch-imports raw ADIF 3.1.7 text in a single SQLite transaction with DXCC enrichment and import report. |
-| `GET` | `/api/v1/rig` | `X-Api-Key` | Returns current transceiver CAT state (frequency Hz/MHz, band, mode, passband, VFO, SPLIT, S-meter, power, PTT). |
-| `POST` | `/api/v1/rig` | `X-Api-Key` | Updates transceiver CAT state (`frequency_hz`, `mode`, `passband_hz`, `vfo`, `split_enabled`, `ptt`) and broadcasts `RigState`. |
-| `GET` | `/api/v1/awards` | `X-Api-Key` | Returns worked/confirmed counts across DXCC, WAZ, WAS, WAC, IOTA, SOTA, POTA, PGA, and SP districts. |
-| `GET` | `/api/v1/journals` | `X-Api-Key` | Lists all station journals/profiles and the active journal ID. |
-| `GET` | `/api/v1/stats` | `X-Api-Key` | Comprehensive station statistics (totals, unique callsigns/countries/grids, by band, mode, continent, top DXCC, monthly & hourly UTC activity, QSL confirmation breakdown). |
-| `GET` | `/api/v1/cluster/spots` | `X-Api-Key` | Returns active DX cluster spots with optional filtering (`?limit=50&band=20m&ft8=false&call=SP`). |
-| `WS` | `/api/v1/ws` | `X-Api-Key` | Live WebSocket stream broadcasting `QsoLogged`, `DxSpot`, `RigState`, `ClusterStatus`, `CloudSync`, and `Toast` events in real time. |
-
----
-
-### 16. Internationalization (i18n)
-SPLogbook provides full multi-language support across all menus, toolbars, settings dialogs, and error notifications. Languages can be switched on the fly without restarting the application:
-- 🇬🇧 **English** (EN)
-- 🇵🇱 **Polski** (PL)
-- 🇩🇪 **Deutsch** (DE)
-- 🇫🇷 **Français** (FR)
-- 🇪🇸 **Español** (ES)
-- 🇮🇹 **Italiano** (IT)
-- 🇷🇺 **Русский** (RU)
-
-All localization dictionaries are organized as clean JSON files inside `locales/` (`pl.json`, `en.json`, `de.json`, `fr.json`, `es.json`, `it.json`, `ru.json`) and `locales/manual/` (localized user manual chapters). The system uses an advanced compile-time architecture:
-- **Zero-Allocation Typed Catalog:** Built at compile time via `build.rs` into type-safe `Key` constants and static string lookup tables with guaranteed $O(1)$ constant-time lookup without runtime JSON parsing or string allocation.
-- **Parametric Messages (`Msg`):** Safe `{parameter}` placeholder substitution via `Msg::new(key::...).arg("name", value).text(lang)`, with compile-time and test-time validation enforcing identical parameter sets across all 7 languages.
-- **Typed Domain Errors:** Domain services (Core, CAT, Cloud, Sync, Digital, API) return typed error enums implementing `.msg() -> Msg` for structured, localized presentation.
-- **Localized User Manual:** Complete 17-section built-in operator manual in all 7 languages loaded via typed `manual(lang: Language) -> &'static [ManualSection]`.
-- **REST API Contract:** The local REST API returns domain validation error messages in Polish (`Language::Pl`) as its stable reference language.
-- **Automated Guard Suite:** Continuous integration enforcement via `tests/i18n_guard.rs` (15 automated guards verifying key parity, parameter parity, dead key elimination, no English copy-pastes, zero hardcoded UI strings, and zero untyped `String` errors in domain logic).
-
----
-
-### 17. Dockable Workspace & Operator Layout Profiles
-SPLogbook replaces the fixed panel grid with a fully **dockable workspace** powered by `egui_dock`:
-- **Floating Native Windows:** Any panel (`VFO`, `QSO Entry`, `Logbook Table`, `DX Cluster`, `BandMap`, `World Map`, etc.) can be **undocked** from the main window into its own floating window — drag it to a second monitor for a multi-screen contest or field setup.
-- **Flexible Arrangement:** Panels snap into tabs, side-by-side columns, and resizable split panes; the layout is serialized and restored across sessions.
-- **Operator Layout Profiles:** Save, name, rename, and instantly recall complete workspace layouts (panel visibility, position, size, docking, and floating-window geometry) from a dedicated **Workspace** menu or the profile manager. Each profile can also bind a **color theme**, optional CAT/CW profile names, and an enabled-plugin list (`workspace_profiles.rs`).
-- **Built-in Presets:** Seven one-click layouts — **Normalny DX**, **Kontest**, **Cyfrowe (FT8/WSJT-X)**, **POTA**, **SOTA**, **Satelity**, and **EME (Księżyc)** — each preconfigured for its operating scenario (e.g. daylight theme for field ops, high-contrast for contesting).
-- **Shareable `.spws` Files:** Export any workspace to a versioned `.spws` JSON file and import it on another installation — ideal for sharing field, contest, or club setups.
-
----
-
-### 18. User Plugin System (Rhai) + Plugin Marketplace
-SPLogbook embeds the **Rhai** scripting language as a safe extension mechanism, letting operators automate and personalize the station without touching Rust:
-- **Sandboxed by default:** scripts have no filesystem, network, or process access; engine limits (max string size, max expression depth) guard against runaway scripts.
-- **Safe API (getters):** `qso_count()`, `my_call()`, `rig_freq_mhz()`, `rig_mode()`, `rig_connected()`, `rotor_azimuth()`, `rotor_elevation()`, `dxcc_worked()`, `dxcc_confirmed()`, `waz_worked()`, `was_worked()`, `wac_worked()`, `iota_worked()`, `pota_worked()`, `sota_worked()`, `pga_worked()`, and `qso_field(name)` (reads `callsign`, `band`, `mode`, `freq_mhz`, `name`, `qth`, `gridsquare`, `country`, `dxcc`, `sota_ref`, `pota_ref`, `pga_ref`, `iota`, `state`, `rst_sent`, `rst_rcvd`, `comment`).
-- **Safe API (actions):** `log(msg)`, `notify(msg)`, `send_cw(text)`, `send_voice(text)`, `rotate(azimuth_deg[, elevation_deg])`, `spot(dx_call, freq_khz, comment)`, `set_qso_field(name, value)`, `play_sound(name)` (`new_dxcc`, `duplicate`, `new_iota`, `qso_saved`, `band_opened`), `pota_lookup(reference)`, and `sota_lookup(reference)`.
-- **Lifecycle hooks:** `on_startup()`, `on_qso_logged(call_sign, band, mode, freq_mhz, is_atno)`, `on_band_opened(band)`, `on_workspace_changed(name)`, `on_dx_spot(spotter, dx_call, freq_khz, band, comment, is_ft8)`, `on_rig_state(freq_mhz, mode, connected)`, `on_pota_info(reference, name, active)`, and `on_sota_info(reference, name, points)` fire automatically on matching events.
-- **Command bridge:** plugin actions are queued (`PluginCommand`) and executed by the app each frame, so sandboxed scripts can safely drive the CW keyer, voice keyer, rotor, local spots, form fields, sounds, and POTA/SOTA lookups without touching hardware directly (`plugins/bridge.rs`).
-- **Hot reload:** `.rhai` files are loaded from the plugins directory; malformed scripts are reported (never crash) and can be enabled/disabled at runtime (`plugin_manager.rs`).
-- **Plugin Marketplace:** a one-click-install catalog (`plugins/marketplace.rs`) with a built-in offline fallback of add-ons — **POTA Helper**, **SOTA Helper**, **CW Macros**, **Contest Assistant**, **Rotor Assistant**, **Award Tracker**, **DX Spot Alerts (ATNO)**, **Propagation Watchdog**, **Band Activity Logger**, **QSL Reminder**, **Voice Keyer Trigger**, and **FT8/WSJT-X Bridge**. Remote catalogs are fetched from GitHub Releases, installs are SHA256-verified, and sidecar manifests enable status detection (installed / update available) with one-click install, update, and uninstall (`gui/marketplace.rs`).
-
----
-
-### 19. NATIVE-CAT Rig Control Architecture (Multi-Backend & Multi-Radio Core)
-A modern, asynchronous rig control subsystem powered by the `RigHub` multi-radio core (`Radio1` / `Radio2`), the `TxArbiter` single-TX interlock, and the `CatRuntime` non-blocking lifecycle manager. It abstracts hardware protocols into unified `RigState` streaming while supporting 8 dedicated backends:
-- **Hamlib `rigctld`** — persistent TCP network session (default port 4532) and supervisor for background execution.
-- **Icom CI-V** — direct native binary CI-V protocol with auto-address discovery, collision backoff, and serial COM / TCP transport.
-- **Kenwood** — direct native asynchronous ASCII serial CAT (`FA`, `FB`, `MD`, `TX`, `RX`, `IF`) with streaming buffered parser.
-- **Yaesu** — multi-generational protocol support: CAT-V (5-byte binary for FT-817/857/897), ASCII (FT-dx10, FT-991A, FT-710), CAT-III, CAT-IV, and CAT-IX.
-- **Elecraft** — native support for K2, K3, K3S, KX2, KX3, and K4 transceivers (serial COM and direct K4 TCP network transport).
-- **FlexRadio** — native SmartSDR TCP API (v2.0–3.x) with slice/meter subscriptions and automatic UDP discovery (port 4992).
-- **FLRig (XML-RPC)** — cross-platform rig control via FLDigi's companion server.
-- **TCI (WebSocket)** — high-speed Transceiver Control Interface for SDR platforms (SunSDR2, Thetis, ExpertSDR3).
-- **RF Safety & HIL Harness** — `TxArbiter` enforcing single-TX lockout and zero retry on `SetPtt(true)`, safe read-only probe (`ProbeState`), and laboratory Hardware-in-the-Loop harness (`src/cat/hil/`) requiring mandatory 50 Ω dummy load termination. Features a multi-axis evidence model separating `OfflineModel`, `SimulatedRuntime`, and `PhysicalRuntime` contexts with strict 8-variant evidence origin classification (`RepositoryMeasurement`, `SoftwareBaselineArtifact`, `ConfigurationArtifact`, `SyntheticOfflineFixture`, `MockRuntime`, `OperatorDeclaration`, `InstrumentInterface`, `PhysicalMeasurement`). Evaluates the 30 immutable canonical HIL-READY conditions plus 22 extended `HIL-X01`..`HIL-X22` requirements. Software baseline is fully verified and **PASSED** (297 deterministic offline HIL tests passed, 3705 active software tests across the suite), while physical runtime execution (NATIVE-7B) remains formally **BLOCKED** pending physical test bench connection.
-
----
-
-### 20. Central Event Bus & Live WebSocket
-A central **event bus** (`src/core/events.rs`, built on `tokio::sync::broadcast`) publishes typed domain events — `QsoLogged`, `DxSpot`, `RigState`, `ClusterStatus`, `CloudSync`, `Toast` — consumed by multiple subscribers without coupling:
-- **UI:** toasts, status bar, and notifications.
-- **WebSocket:** `GET /api/v1/ws` streams the same JSON-serialized events live to external dashboards and automation.
-- **Plugins:** Rhai hooks are driven by the same lifecycle events.
-
----
-
-### 21. Callbook Aggregation & Offline Cache
-Callbook lookups merge results from multiple sources according to a user-configurable **priority order** (`QRZ.com` → `HamQTH` → offline cache), so the richest available data wins:
-- **Source priority** is reorderable in the Online Synchronization settings.
-- **Offline cache:** successful online lookups are persisted to a local SQLite `CallbookCache` table with a configurable TTL, enabling instant lookups without internet and reduced API quota usage.
-- **Local callbook** (bundled `databases/`) remains the zero-latency first line of resolution.
-
----
-
-### 22. Operator Assistant & Voice Keyer
-- **Operator Assistant:** a pure, unit-tested `recommend()` function produces an always-available decision bar that answers "what should I do now?" using live propagation forecasts, current band status, CAT state, DX cluster activity, and award goals.
-- **SSB Voice Keyer:** plays pre-recorded WAV announcements (CQ calls, replies) through `rodio`, mapped to F1–F8 slots with loop and stop controls for hands-free contest operation.
-
----
-
-### 23. Encrypted Multi-Op LAN/P2P Synchronization (Protocol v2)
-SPLogbook provides a unified, secure real-time log synchronization engine (`src/sync/`) designed for multi-operator contest stations and field operations across local LAN or private VPN tunnels:
-- **Host/Peer Topology & Echo-Free Relay:** One station acts as the Host listening on TCP port 7373, while peer stations connect using the Host's IP address/hostname. When a station logs a new QSO, the Host relays it to all other peers without echoing back to the originating station. Ingested `LanPeer` records are never rebroadcast.
-- **Protocol v2 Binary Framing:** Operates on protocol v2 (`MAGIC_V2` = `b"SP2"`). Strict protocol version negotiation ensures only compatible nodes participate. Frames are bounded to 64 KiB with 4-byte length prefixes to protect against memory exhaustion.
-- **Authenticated Encryption (AEAD):** Every payload is encrypted and authenticated using **XChaCha20-Poly1305**. Session keys are derived via **Argon2id** (16-byte random salt, 24-byte nonce) from a shared station secret. Passwords and secrets are never transmitted in plaintext across the network.
-- **Replay & Reorder Defense:** Each frame incorporates a 64-bit monotonic counter, random message UUID, and authenticated additional data (AAD). Frames with duplicate, out-of-order, or invalid counters are strictly rejected.
-- **Bidirectional Inventory Catch-Up:** Upon handshake completion, stations exchange SHA-256 journal inventories and checksums. Missing QSOs are automatically replicated in both directions, ensuring all stations are in sync even after network interruptions. Catch-up operations are strictly idempotent.
-- **Resilient Lifecycle & Reconnect:** Client peers automatically attempt reconnection every 5 seconds if a connection drops. Slow or unresponsive peers are cleanly disconnected to maintain real-time responsiveness on active nodes.
-- **Firewall & Network Configuration:** Uses TCP port `7373` by default. Ensure incoming TCP traffic on this port is allowed in your OS firewall (Windows Defender Firewall, `ufw`, or `iptables`).
-- **Operational Boundaries:**
-  - Sync operates exclusively on the station's **active journal**.
-  - Synchronizes new QSO additions only; QSO edits and deletions are not propagated across peers to avoid silent data overwrites.
-  - Engineered for trusted LAN environments and private VPN tunnels; direct exposure to the public Internet without VPN is not recommended.
-
----
-
-### 24. N1MM Logger+ Compatibility
-SPLogbook emits **N1MM Logger+ UDP broadcast** XML frames (loopback port `12060`), making it a drop-in data source for the wide ecosystem of N1MM companion tools — GridTracker, overlay utilities, and contest peripheral software — with no additional plugins.
-
----
-
-## ⌨️ Keyboard Shortcuts Reference
+Press `F1` in the application for the full list. Main bindings:
 
 | Shortcut | Context | Action |
 |---|---|---|
-| `Return` / `Enter` | QSO Entry | Save entered QSO to active journal |
-| `F2` | Global / QSO | Save entered QSO to log (contest standard) |
-| `Esc` / `F3` | QSO Entry | Clear all input fields in QSO Entry panel (Wipe) |
-| `Ctrl + N` | Global | New QSO: clear form and focus callsign field |
-| `Ctrl + W` | Global / QSO | Wipe QSO input fields |
-| `F4` | QSO Entry | Trigger manual Callbook / QRZ.com lookup for active callsign |
-| `Ctrl + S` | Global | Save station configuration and active log |
-| `F5` | Logbook | Refresh logbook table from SQLite database |
-| `F6` | Global | Open Send DX Cluster Spot dialog |
-| `Ctrl + Shift + F7` | Global | Request PTT ON (transmit) via CAT — explicit TX-intent gate; blocked during text editing, IME composition, modal windows and without window focus; requires F-15 authorization |
-| `Ctrl + F7` | Global | Request PTT OFF (receive) via CAT — always available while transmitting; never authorization-gated |
-| `F7` (alone) | — | Does nothing: PTT is never bound to a single key |
-| `F8` | Global | Open SSB Voice Keyer panel (CQ loop, F1–F8 WAV slots) |
-| `F11` | Global | Toggle Fullscreen mode |
-| `F12` / `Ctrl + H` | Global | Open built-in User Manual |
-| `F1` | Global | Open Keyboard Shortcuts Reference dialog |
-| `Ctrl + F` | Logbook | Open Advanced Multi-Criteria Filter dialog |
-| `Ctrl + L` | Global | Toggle and focus Logbook data table |
-| `Ctrl + D` | Global | Open / toggle DX Cluster panel |
-| `Ctrl + B` | Global | Open / toggle Band Map window |
-| `Ctrl + M` | Global | Open / toggle Interactive World Map & Greyline |
-| `Ctrl + K` | Global | Open CW Keyer & Macro Terminal |
-| `Ctrl + P` | Global | Open Station Workstation Profiles manager |
-| `Ctrl + E` | Global | Open Configurable CSV Logbook Exporter |
-| `Ctrl + I` | Global | Open ADIF Log Import dialog |
-| `Ctrl + T` | Global | Cycle Color Theme (Operator Dark $\to$ Daylight $\to$ High-Contrast) |
-| `Ctrl + Z` | Global | Undo last deleted QSO operation |
-| `Ctrl + Y` / `Ctrl + Shift + Z` | Global | Redo last undone operation |
-| `Ctrl + Shift + P` | Global | Command Palette (instant searchable action launcher) |
-| `Ctrl + Shift + S` | Global | Open Station Statistics & Visual Analytics Dashboard |
-| `Ctrl + Q` | Global | Safe application exit |
+| `Enter` | QSO form | Save the QSO |
+| `Esc` | QSO form | Clear the QSO form |
+| `F2` / `Ctrl+L` | Global | Save the QSO |
+| `F3` / `Ctrl+W` | Global / QSO form | Clear the QSO form |
+| `Ctrl+N` | Global | New QSO (clear the form) |
+| `F4` | Global | Callbook lookup for the entered callsign |
+| `F5` | Global | Reload the log table |
+| `F6` | Global | Send a DX cluster spot |
+| `Ctrl+Shift+F7` | Global | Request PTT ON through CAT (TX intent gate, see above) |
+| `Ctrl+F7` | Global | Request PTT OFF through CAT (always available while transmitting) |
+| `F8` | Global | Voice keyer |
+| `F11` | Global | Toggle full screen |
+| `F12` / `Ctrl+H` | Global | User manual |
+| `F1` | Global | Keyboard shortcut reference |
+| `Ctrl+F` | Global | Advanced log filter |
+| `Ctrl+D` / `Ctrl+B` / `Ctrl+M` | Global | DX cluster / band map / world map |
+| `Ctrl+K` | Global | CW keyer terminal |
+| `Ctrl+P` | Global | Station profiles |
+| `Ctrl+E` / `Ctrl+I` | Global | CSV export / ADIF import |
+| `Ctrl+T` | Global | Cycle the colour theme |
+| `Ctrl+Z` / `Ctrl+Y` | Global | Undo / redo deleting QSOs |
+| `Ctrl+S` | Global | Save the station configuration |
+| `Ctrl+Shift+P` | Global | Command palette |
+| `Ctrl+Shift+S` | Global | Statistics |
+| `Ctrl+Q` | Global | Quit |
+
+`F7` on its own does nothing. In contest mode, `Enter` and `Esc` save and clear the contest
+entry.
 
 ---
 
-## 📡 REST API Documentation
+## Download and install
 
-The embedded Axum server exposes RESTful endpoints for logbook operations and station automation. All QSO creation and import operations run through the shared `QsoIngestor` pipeline:
-- `POST /api/v1/qsos`: Ingests a new single QSO through `QsoIngestor::ingest(QsoOrigin::RestApi)` using `tokio::task::spawn_blocking`, updating the SQLite database, `EventBus`, awards, and `ScpEngine`. GUI-specific post-effects (alerts, LAN broadcast) are bypassed.
-- `POST /api/v1/import/adif`: Bulk ADIF log import via `QsoIngestor::import_batch()` with minute-resolution `QsoIdentity` deduplication, updating database, awards, and SCP.
-- `PUT /api/v1/qsos/:id`: Retained strictly as an `UPDATE` operation (`db.update_qso`), performing typed validation without triggering new QSO ingest pipeline effects.
-- `DELETE /api/v1/qsos/:id`: Direct database removal (`db.delete_qso`) bypassing the ingest pipeline.
+### Release assets
 
-### Example 1: Querying Station Status (Public)
-```bash
-curl -X GET http://127.0.0.1:8420/api/v1/status
-```
-**Response:**
-```json
-{
-  "version": "1.2.0",
-  "adif_version": "3.1.7",
-  "callsign": "SP6INA",
-  "total_qsos": 14250,
-  "uptime_secs": 3600,
-  "rig_connected": true,
-  "frequency_hz": 14025000,
-  "mode": "CW"
-}
-```
+Each GitHub release is produced by CI from its version tag. The
+[Releases](https://github.com/sp6ina/SPLogbook/releases) page carries exactly these files:
 
-### Example 2: Ingesting a New QSO (Auto-DXCC & ADIF 3.1.7 Normalization)
-```bash
-curl -X POST http://127.0.0.1:8420/api/v1/qsos \
-  -H "X-Api-Key: <YOUR_API_KEY>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "callsign": "W1AW",
-    "qso_date": "20260928",
-    "time_on": "183000",
-    "band": "20m",
-    "mode": "FT4",
-    "rst_sent": "-08",
-    "rst_rcvd": "-10"
-  }'
-```
+| File | Platform | Description |
+|---|---|---|
+| `SPLogbook-Windows-x64-Setup-1.3.0.exe` | Windows x64 | Inno Setup per-user installer (no administrator rights) |
+| `SPLogbook-Windows-x64-MSI-1.3.0.msi` | Windows x64 | WiX MSI per-machine installer |
+| `SPLogbook-Windows-x64.zip` | Windows x64 | Portable archive |
+| `SPLogbook-Linux-x86_64.tar.gz` | Linux x86_64 | Portable archive |
+| `SHA256SUMS.txt` | all | SHA-256 checksums of the four packages |
+| `release-manifest.json` | all | Release manifest: version, commit, size and SHA-256 of each package |
+| `release-manifest.json.sig` | all | Ed25519 signature of the manifest |
 
-### Example 3: Callsign DXCC, Club & Award Need Lookup
-```bash
-curl -X GET "http://127.0.0.1:8420/api/v1/lookup/DL1ABC?band=20m&mode=CW" \
-  -H "X-Api-Key: <YOUR_API_KEY>"
-```
+DEB, RPM, AppImage and Flatpak packages are **not** release assets. Their packaging
+scripts are verified in CI; you can build them from source (see
+[Linux distribution packages](#linux-distribution-packages)).
 
----
+### Verifying a download
 
-### 💻 System Requirements
-
-- **Operating Systems:**
-  - **Windows:** Windows 10 (64-bit) or Windows 11 (64-bit).
-  - **GNU/Linux (officially supported):** Ubuntu 26.04 LTS, Fedora Linux 45, Arch Linux, openSUSE Tumbleweed — **Linux kernel 7.0+**, **glibc 2.43+**, x86_64. Full native support for both **X11** and **Wayland** display servers. Debian 13 and older (glibc < 2.43) are **not** supported. Details: `LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.md`.
-- **Architecture:** x86_64.
-- **Processor:** Any modern dual-core CPU ($\ge 1.6\text{ GHz}$).
-- **Memory (RAM):** 2 GB minimum (4 GB recommended).
-- **Disk Space:** ~50 MB for the binary, configuration, and reference databases.
-
----
-
-## 🚀 Installation & Quick Start
-
-Pre-compiled release packages are available directly from the [Releases](https://github.com/sp6ina/SPLogbook/releases) page:
-
-### 🪟 Windows (x64)
-
-#### Option A: Windows User Setup (Recommended)
-1. Download **`SPLogbook-Windows-x64-Setup-*.exe`** from the latest release.
-2. Run the installer. It installs per-user into `%LOCALAPPDATA%\Programs\SPLogbook` without requiring administrator privileges or UAC elevation.
-3. Fully preserves user databases (`default_log.db`, `serviceLOG.db`), WAL journals, configuration, and notes during updates and uninstallation. Updates are handled seamlessly in `SystemManaged` mode.
-
-#### Option B: Portable ZIP
-1. Download **`SPLogbook-Windows-x64.zip`** from the latest release.
-2. Extract the archive to any desired directory (e.g. `C:\Radio\SPLogbook\`).
-3. Double-click **`SPLogbook.exe`** to launch.
-
-### 🐧 GNU/Linux (x86_64 Portable tar.gz)
-1. Download **`SPLogbook-Linux-x86_64-1.3.0.tar.gz`** from the latest release.
-2. Extract the archive and enter the directory:
-   ```bash
-   tar -xzf SPLogbook-Linux-x86_64-1.3.0.tar.gz
-   cd SPLogbook
-   ```
-3. Grant access to your serial ports (for CAT & Winkeyer interfaces):
-   ```bash
-   sudo usermod -aG dialout $USER   # Ubuntu / Debian / Mint
-   # or
-   sudo usermod -aG uucp $USER      # Arch Linux / openSUSE
-   ```
-4. Run the standalone binary:
-   ```bash
-   ./SPLogbook
-   ```
-   *(Optional)* Copy `share/applications/splogbook.desktop` to `~/.local/share/applications/` to integrate with your FreeDesktop application launcher without root privileges. User data is strictly preserved in standard XDG Base Directories (`$XDG_DATA_HOME/splogbook` and `$XDG_CONFIG_HOME/splogbook`).
-
-### 🐧 GNU/Linux distribution packages
-
-The DEB, RPM, AppImage and Flatpak packages are implemented and verified by CI. They are
-**not attached to the `v1.3.0` release**, which publishes the portable `tar.gz`, the Windows
-`zip`, the Inno Setup installer and the MSI. Build them locally with the scripts listed in
-[`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
-
-**Debian / Ubuntu (`.deb`)**
+Check the SHA-256 checksum of the file you downloaded:
 
 ```bash
-sudo apt install ./SPLogbook-Linux-amd64-1.3.0.deb
-splogbook
+sha256sum -c --ignore-missing SHA256SUMS.txt
 ```
 
-Installs under `/opt/SPLogbook` with the launcher `/usr/bin/splogbook`. Installation, upgrade
-and removal never touch user data. Details:
-[`installer/linux/deb/README.md`](installer/linux/deb/README.md).
-
-**Fedora / openSUSE (`.rpm`)**
-
-```bash
-sudo dnf install --nogpgcheck ./SPLogbook-Linux-x86_64-1.3.0.rpm          # Fedora
-sudo zypper --no-gpg-checks install ./SPLogbook-Linux-x86_64-1.3.0.rpm    # openSUSE
-splogbook
-```
-
-Same `/opt/SPLogbook` layout; the bundled `libhamlib.so.4` is private to the package, and the
-package requires glibc 2.43 or newer. Details:
-[`installer/linux/rpm/README.md`](installer/linux/rpm/README.md).
-
-**AppImage**
-
-```bash
-chmod +x SPLogbook-Linux-x86_64.AppImage
-./SPLogbook-Linux-x86_64.AppImage
-```
-
-Requires a working FUSE mount. Details:
-[`installer/linux/appimage/README.md`](installer/linux/appimage/README.md).
-
-**Flatpak (`io.github.sp6ina.SPLogbook`)**
-
-```bash
-flatpak install ./SPLogbook-Linux-x86_64-1.3.0.flatpak
-flatpak run io.github.sp6ina.SPLogbook
-flatpak update io.github.sp6ina.SPLogbook     # updates are delivered by Flatpak only
-flatpak uninstall io.github.sp6ina.SPLogbook  # user data in ~/.var/app/io.github.sp6ina.SPLogbook is kept
-```
-
-Built on the pinned `org.freedesktop.Platform` 26.08 runtime with a minimal sandbox:
-network, Wayland/X11, audio, OpenGL and the Secret Service credential store, and no
-filesystem, home or device-wide access. Network CAT (`rigctld`, `rotctld`, TCI, FlexRadio,
-Kenwood LAN, Elecraft K4 TCP, `flrig`, WinKeyer), logging, ADIF/Cabrillo, portals and audio
-work in the sandbox. **Native serial CAT** (`/dev/ttyUSB*`, `/dev/ttyACM*`) is not available
-in the default sandbox and fails closed; a documented opt-in override exists and widens
-access to **all** devices visible to Flatpak — read
-[`installer/linux/flatpak/README.md`](installer/linux/flatpak/README.md) §6 before using it.
-The package is **not submitted to Flathub** and is **not** part of any GitHub release.
-
----
-
-## 🛠️ Building from Source
-
-Ensure you have the Rust toolchain (version $\ge 1.99.0$) installed.
-
-### On Windows
 ```powershell
-# 1. Clone the repository
+Get-FileHash .\SPLogbook-Windows-x64-Setup-1.3.0.exe -Algorithm SHA256
+```
+
+On Windows, compare the printed hash with the matching line in `SHA256SUMS.txt`.
+
+To check the signed manifest, build the verifier from the source tree of the same release:
+
+```bash
+cargo build --release --bin splogbook-signer
+./target/release/splogbook-signer verify release-manifest.json release-manifest.json.sig
+```
+
+Without a key argument, `verify` trusts only the release key built into SPLogbook,
+`splogbook-release-2026-02` (public-key fingerprint
+`2a6277b72d2a97236f344f1542a1c2868a74f71c9626a22dc1735919efeb2a4a`), and exits with an
+error when the signature does not match it. The key `splogbook-release-2026-01` is revoked
+and is always rejected. The built-in updater applies
+the same checks (manifest first, then platform, package type, file name, size and SHA-256)
+before it installs anything. The full specification is in
+[`docs/security/RELEASE_SECURITY.md`](docs/security/RELEASE_SECURITY.md).
+
+### Windows
+
+Requirements: Windows 10 or Windows 11, 64-bit.
+
+Install **one** of the following:
+
+- **Inno Setup installer (recommended):** run `SPLogbook-Windows-x64-Setup-1.3.0.exe`. It
+  installs per user into `%LOCALAPPDATA%\Programs\SPLogbook` without administrator rights.
+  Updating or uninstalling keeps your data.
+- **MSI:** `SPLogbook-Windows-x64-MSI-1.3.0.msi` installs per machine into
+  `C:\Program Files\SPLogbook` and needs elevation. It refuses to install when the per-user
+  Inno Setup installation is present.
+- **Portable ZIP:** extract `SPLogbook-Windows-x64.zip` into a folder and run
+  `SPLogbook.exe`.
+
+The ZIP bundles Hamlib 4.7.2 (`rigctld`, `rotctld`). Details:
+[`installer/windows/inno/README.md`](installer/windows/inno/README.md),
+[`installer/windows/msi/README.md`](installer/windows/msi/README.md).
+
+### Linux
+
+Requirements:
+
+- x86_64, **Linux kernel 7.0 or newer** and **glibc 2.43 or newer**.
+- Supported distributions: **Ubuntu 26.04 LTS**, **Fedora 45**, **Arch Linux** and
+  **openSUSE Tumbleweed**. Debian 13 (glibc 2.41) and openSUSE Leap 16.1 (glibc 2.40) are
+  not supported.
+- X11 or Wayland.
+- For Linux credential storage, a running and unlocked Secret Service provider (for example
+  GNOME Keyring or KWallet).
+
+The policy is recorded in
+[`LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.md`](LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.md), a
+point-in-time record made during the `1.3.0-alpha.1` measurement.
+
+Portable archive:
+
+```bash
+tar -xzf SPLogbook-Linux-x86_64.tar.gz
+cd SPLogbook
+./SPLogbook
+```
+
+The archive contains the application, the updater, Hamlib 4.7.2 (`rigctld`, `rotctld` and
+`libhamlib`) and a desktop entry template in `assets/`. It needs no root privileges. For
+serial CAT and WinKeyer, add your user to the group that owns serial devices (`dialout` on
+Ubuntu, Fedora and openSUSE; `uucp` on Arch Linux), then log in again. Details:
+[`installer/linux/portable/README.md`](installer/linux/portable/README.md).
+
+### Linux distribution packages
+
+These packages are built from the portable archive by the scripts in `scripts/` and are
+verified in CI on the pinned distribution images. They are not attached to GitHub releases.
+Build commands are in [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
+
+| Format | Script | Notes |
+|---|---|---|
+| DEB (Ubuntu 26.04 LTS) | `scripts/build_linux_deb.sh` | `/opt/SPLogbook` and the launcher `/usr/bin/splogbook`; [`installer/linux/deb/README.md`](installer/linux/deb/README.md) |
+| RPM (Fedora 45, openSUSE Tumbleweed) | `scripts/build_linux_rpm.sh` | same layout, private `libhamlib.so.4`; [`installer/linux/rpm/README.md`](installer/linux/rpm/README.md) |
+| AppImage | `scripts/build_linux_appimage.sh` | needs a working FUSE mount; [`installer/linux/appimage/README.md`](installer/linux/appimage/README.md) |
+| Flatpak (`io.github.sp6ina.SPLogbook`) | `scripts/build_linux_flatpak.sh` | sandboxed, not on Flathub; native serial CAT is unavailable by default; [`installer/linux/flatpak/README.md`](installer/linux/flatpak/README.md) |
+
+Installing, upgrading or removing any of these packages does not touch user data.
+
+---
+
+## Upgrading from v1.2.0
+
+`v1.2.0` is no longer supported, and 1.3.0 contains no compatibility code for its data:
+
+- Nothing is migrated automatically. A clean 1.3.0 profile starts with an empty logbook.
+- To carry your log over, export it to ADIF in v1.2.0 and import the file in 1.3.0
+  (`Ctrl+I`).
+- Reference data (country files, DXCC attributes, regional rules, club memberships) is not
+  bundled any more. Download or import it from the application; it is stored under
+  `reference/` in the user data directory.
+- Re-enter service credentials if the application asks for them (see below).
+
+---
+
+## Data, configuration and credentials
+
+| | Windows | Linux |
+|---|---|---|
+| Configuration | `%APPDATA%\SPLogbook\` | `$XDG_CONFIG_HOME/splogbook` (default `~/.config/splogbook`) |
+| Logbook database | `%APPDATA%\SPLogbook\databases\default_log.db` | `$XDG_DATA_HOME/splogbook/databases/default_log.db` (default `~/.local/share/splogbook`) |
+| Reference data | `%APPDATA%\SPLogbook\reference\` | `$XDG_DATA_HOME/splogbook/reference/` |
+
+- User data is kept outside the program directory. Installers, the updater and
+  uninstallers leave it in place.
+- Service passwords, API keys, the LAN sync secret and the local REST API key are kept in the
+  operating system credential store (Windows Credential Manager or a Linux Secret Service
+  provider), not in `station_config.json`. Existing plaintext credentials move into the store
+  on first launch. If the move or access fails, startup stops with an error and the original
+  configuration is left unchanged.
+- Copying a configuration to another computer does not copy its credentials. Clear the
+  `secret_store_id` value in the copied JSON file and enter the credentials again. Older
+  plaintext copies or backups of `station_config.json` stay sensitive until you delete them.
+- Backup and recovery of the SQLite database are described in
+  [`docs/DATABASE_BACKUP_RECOVERY.md`](docs/DATABASE_BACKUP_RECOVERY.md).
+
+---
+
+## Local REST API
+
+The embedded Axum server listens on the loopback address `127.0.0.1:8420` by default and
+accepts browser requests only from loopback origins. Every endpoint except
+`/api/v1/status` and `/api/v1/endpoints` requires the API key, sent as the `X-Api-Key`
+header or as `Authorization: Bearer`; the key is shown and can be regenerated in the
+application settings. `GET /api/v1/endpoints` returns the
+full catalogue. Main groups:
+
+| Endpoints | Purpose |
+|---|---|
+| `GET /api/v1/status`, `GET /api/v1/endpoints` | health, version and endpoint catalogue (public) |
+| `GET/POST /api/v1/qsos`, `GET/PUT/DELETE /api/v1/qsos/{id}`, `GET /api/v1/qsos/callsign/{call}` | QSO list, create, read, update, delete, worked-before and dupe check |
+| `GET /api/v1/lookup/{call}` | DXCC entity, zones, award needs and club memberships |
+| `GET /api/v1/adif/export`, `POST /api/v1/adif/import` | ADIF export and batch import |
+| `GET/POST /api/v1/rig`, `/api/v1/rigs/...` | CAT state and control for one or more radios |
+| `GET /api/v1/awards`, `/api/v1/journals`, `/api/v1/stats`, `/api/v1/cluster/spots` | awards, journals, statistics and cluster spots |
+| `GET /api/v1/ws` | WebSocket stream of application events |
+
+QSOs created through the API go through the same ingest pipeline as the QSO form.
+
+```bash
+curl http://127.0.0.1:8420/api/v1/status
+curl -H "X-Api-Key: <YOUR_API_KEY>" "http://127.0.0.1:8420/api/v1/lookup/DL1ABC"
+```
+
+---
+
+## Building from source and running the tests
+
+Requirements: Rust **1.99.0** or newer (edition 2024). `rusqlite` is always built with the
+bundled SQLite.
+
+### Windows
+
+```powershell
 git clone https://github.com/sp6ina/SPLogbook.git
 cd SPLogbook
-
-# 2. Run the automated test suite (3705 active tests passed, 3716 registered, 10 HIL skipped)
-cargo test --workspace --all-targets
-
-# 3. Build optimized release binary with Link-Time Optimization (LTO)
 cargo build --release
 ```
 
-### On GNU/Linux (apt-based distributions — building from source)
+### Linux (Ubuntu 26.04 LTS)
+
 ```bash
-# 1. Install development dependencies
 sudo apt update && sudo apt install -y \
   pkg-config libasound2-dev libx11-dev libxcursor-dev libxrandr-dev \
   libxi-dev libxkbcommon-dev libxkbcommon-x11-dev libgl1-mesa-dev \
-  libfontconfig1-dev libwayland-dev libgtk-3-dev
-
-# 2. Clone and build
+  libfontconfig1-dev libwayland-dev libgtk-3-dev libusb-1.0-0-dev libudev-dev
 git clone https://github.com/sp6ina/SPLogbook.git
 cd SPLogbook
-cargo test
 cargo build --release
 ```
 
-The compiled standalone binary will be located at:
-- Windows: `target/release/SPLogbook.exe`
-- Linux: `target/release/SPLogbook`
+The binaries are `target/release/SPLogbook.exe` on Windows and `target/release/SPLogbook`
+on Linux. Toolchain pins, packaging commands and the git workflow are in
+[`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
 
-### 🧪 Automated Quality & Test Suite Verification
+### Tests
+
+The canonical baseline command is:
+
+```bash
+cargo test --workspace --all-targets -j 1 -- --skip powershell_real_execution_full_cycle_success
+```
+
+The `--skip` filter applies only to local interactive Windows hosts, where that one test can
+block on a security prompt; CI runs it unfiltered. Last measured baseline (counters are kept
+in [`docs/VERIFICATION_BASELINE.md`](docs/VERIFICATION_BASELINE.md)):
+
 - **Total Registered Tests**: 3716
 - **Total Executed Tests**: 3705
 - **Total Passed Tests**: 3705
 - **Total Failed Tests**: 0
-- **Total Ignored Tests**: 10 (Hardware-in-the-Loop lab harness, isolated in `tests/cat_native_7.rs`)
-- **HIL Ignored Tests**: 10
-- **Doc Tests**: 0
+- **Total Ignored Tests**: 10 (all hardware-in-the-loop)
+- **Total Filtered Tests**: 1 (local host only)
 
----
+Static checks used before every change:
 
-## 📁 Codebase Architecture & Directory Structure
-
-```
-SPLogbook/
-├── .github/
-│   └── workflows/
-│       └── build-and-release.yml # Multi-platform CI/CD (Ubuntu + Windows)
-├── Cargo.toml               # Project manifest, dependencies, release profile (LTO, strip)
-├── build.rs                 # i18n typed catalog code generator & Windows resource compiler
-├── Bin/
-│   └── Windows/
-│       └── SPLogbook.exe    # Deployed 64-bit standalone release binary
-├── databases/               # Reference databases (CTY.DAT, callbooks, PGA, clubs)
-├── locales/                 # JSON translation dictionaries (pl, en, de, fr, es, it, ru)
-│   └── manual/              # Localized user manual chapters (7 languages)
-├── assets/                  # Graphical icons, desktop shortcut, and portable launcher
-│   ├── icon.ico / icon.png  # Application branding icons
-│   ├── splogbook.desktop    # Freedesktop Linux application launcher
-│   └── run.sh               # Linux portable environment launcher
-└── src/
-    ├── main.rs              # Application entry point, XDG/AppData path resolution, crash guard
-    ├── lib.rs               # Library root exposing core modules
-    ├── api/                 # Local REST API server (Axum, port 8420)
-    │   ├── mod.rs
-    │   └── server.rs
-    ├── cat/                 # Hardware control, multi-radio core & HIL harness
-    │   ├── mod.rs           # Module exports & re-exports
-    │   ├── backend.rs       # CatBackendKind (8 backends), RigBackend trait, AnyBackend
-    │   ├── config.rs        # CatStationConfig (v0->v1 migration & rollback)
-    │   ├── factory.rs       # RigBackendFactory: profile and transport instantiation
-    │   ├── flrig.rs         # FLRig XML-RPC backend
-    │   ├── hamlib.rs        # Persistent TCP client for rigctld
-    │   ├── hil/             # Hardware-in-the-Loop test harness & RF safety validator
-    │   │   ├── error.rs     # HilError typed error domain
-    │   │   ├── evidence.rs  # ImplementationCoverage, EvidenceOrigin, 30 canonical conditions & HIL-X
-    │   │   ├── manifest.rs  # HilTestBenchManifest, matrix entry, RF safety specs
-    │   │   ├── session.rs   # HilHardwareSession, HilTxGuard (explicit release, drop safety), dispatcher
-    │   │   └── validator.rs # HilReadinessValidator (RF safety, canonical conditions 1..30 & HIL-X)
-    │   ├── hub.rs           # RigHub: multi-radio routing (Radio1/Radio2), JoinHandles
-    │   ├── native/          # Direct asynchronous protocol implementations
-    │   │   ├── elecraft/    # Elecraft K2/K3/KX2/KX3/K4 direct protocol & K4 TCP
-    │   │   ├── flexradio/   # FlexRadio SmartSDR TCP API v2.0-v3.x & UDP discovery
-    │   │   ├── icom/        # Icom CI-V serial & TCP protocol with auto-addressing
-    │   │   ├── kenwood/     # Kenwood serial ASCII CAT streaming protocol
-    │   │   ├── yaesu/       # Yaesu multi-generation CAT (CAT-V/ASCII/III/IV/IX)
-    │   │   ├── profile.rs   # Native radio profile definitions
-    │   │   ├── registry.rs  # ProfileRegistry & model capability lookup
-    │   │   └── transport.rs # Serial and TCP async transport wrappers
-    │   ├── probe.rs         # Safe read-only probe (zero mutations, zero TX)
-    │   ├── rig.rs           # RigState, RigCommand, RigCapabilities, RigError, RigStatus
-    │   ├── rig_models.rs    # Database of transceiver models & legacy tables
-    │   ├── rotor.rs         # Hamlib rotctld client (TCP port 4533)
-    │   ├── routing.rs       # RigId, RigRoute multi-radio routing primitives
-    │   ├── runtime.rs       # CatRuntime: lifecycle management & graceful shutdown
-    │   ├── server.rs        # Hamlib TCP proxy server (CAT sharing on port 4534)
-    │   ├── service.rs       # RigService actor task
-    │   ├── so2r.rs          # SO2R coordination types
-    │   ├── supervisor.rs    # Non-blocking rigctld subprocess supervisor
-    │   ├── tci.rs           # Expert Electronics TCI WebSocket protocol client
-    │   ├── tcp.rs           # Shared TCP transport for rigctld/rotctld
-    │   ├── tx_arbiter.rs    # TxArbiter: single-TX interlock, zero retry on SetPtt(true)
-    │   └── winkeyer.rs      # K1EL WinKeyer serial keyer protocol
-    ├── cloud/               # Online services & cloud synchronization
-    │   ├── cloudlog.rs      # Cloudlog REST API sync
-    │   ├── clublog.rs       # Club Log real-time upload & OQRS
-    │   ├── eqsl.rs          # eQSL.cc submission & confirmation
-    │   ├── hamqth.rs        # HamQTH XML callbook lookup
-    │   ├── hrdlog.rs        # HRDLog.net synchronization
-    │   ├── lotw.rs          # ARRL LoTW TQSL integration
-    │   ├── psk_reporter.rs  # PSK Reporter HTTP XML spotting
-    │   ├── qrz.rs           # QRZ.com XML Logbook subscription client
-    │   ├── scheduler.rs     # Shared upload scheduler (offline queue, retry, rate-limit)
-    │   ├── solar.rs         # NOAA SWPC space weather data parser
-    │   ├── updater.rs       # Automatic GitHub releases updater
-    │   └── wspr.rs          # wspr.live REST API monitor
-    ├── cluster/             # Spotting networks
-    │   └── telnet.rs        # Multi-threaded Telnet client for DX Cluster
-    ├── core/                # Core business logic & database
-    │   ├── adif.rs          # ADIF 3.1.7 parser & exporter (+ ADX XML export)
-    │   ├── astronomy.rs     # Solar & lunar ephemeris, solar zenith calculation
-    │   ├── awards.rs        # Awards tracking engine (DXCC, WAZ, WAS, PGA, etc.)
-    │   ├── backup.rs        # Database rolling backup manager (10 revisions)
-    │   ├── bandplan.rs      # IARU Region 1/2/3 band plans
-    │   ├── cabrillo.rs      # Pure Cabrillo 3.0 contest log builder
-    │   ├── callbook.rs      # Callbook aggregation (source priority + offline cache)
-    │   ├── callsign_correction.rs # Callsign typo correction & suggestions
-    │   ├── clubs.rs         # Specialty ham radio clubs directory (SP-OTC, SKCC, etc.)
-    │   ├── contest_rules.rs # Contest scoring engine & Cabrillo exporter
-    │   ├── contest_stats.rs # Contest rate meter & multiplier matrix
-    │   ├── credentials.rs   # OS credential store (keyring) integration
-    │   ├── csv_export.rs    # Configurable logbook CSV export formatter
-    │   ├── database/        # Modular SQLite WAL backend (ARCH-SQL-NORMALIZE)
-    │   │   ├── journals.rs  # Journal profile management & CRUD
-    │   │   ├── migrations.rs# Versioned schema migrations (1-4) & schema verification
-    │   │   ├── mod.rs       # Connection lifecycle, initialization & re-exports
-    │   │   ├── qsl.rs       # LoTW & eQSL confirmation operations
-    │   │   ├── qso_store.rs # QSO record persistence, paging & retrieval
-    │   │   ├── schema.rs    # Central column macros, SQL builders & chronological order
-    │   │   ├── search.rs    # Advanced filtering & duplicate detection
-    │   │   ├── stats.rs     # Aggregated statistics queries
-    │   │   └── tests.rs     # Database characterization & regression test suite
-    │   ├── events.rs        # Central event bus (tokio::sync::broadcast)
-    │   ├── exchange.rs      # Contest exchange parser & validation
-    │   ├── geo.rs           # Maidenhead grid converter, spherical trigonometry
-    │   ├── http.rs          # Shared reqwest HTTP client (timeouts/retry)
-    │   ├── i18n.rs          # Translation dictionary & lookup (7 languages: PL, EN, DE, FR, ES, IT, RU)
-    │   ├── ingest/          # Centralized QSO ingest pipeline (ARCH-QSO-PIPELINE)
-    │   │   ├── enrich.rs    # Safe domain normalization & DXCC enrichment
-    │   │   ├── import.rs    # Batch ADIF import & QsoIdentity deduplication
-    │   │   ├── mod.rs       # QsoIngestor engine, IngestOutcome & error contracts
-    │   │   └── origin.rs    # QsoOrigin policies (Reject/Advisory) & PostEffects
-    │   ├── pga.rs           # Polska Gmina Award logic
-    │   ├── pga_data.rs      # PGA gmina database (2477 gminas, data)
-    │   ├── prefix.rs        # ITU prefix allocations & DXCC country mapping
-    │   ├── propagation.rs   # VOACAP-lite HF ionospheric propagation modeling
-    │   ├── propagation_history.rs # Propagation forecast history
-    │   ├── qsl_print.rs     # QSL card geometry & Avery label calculations
-    │   ├── qso.rs           # QSO record data structures & validation
-    │   ├── satellite.rs     # SGP4/SDP4 satellite orbital propagation
-    │   ├── scp.rs           # Super Check Partial database lookup
-    │   ├── service_db.rs    # Equipment ledger & station inventory
-    │   ├── sota_export.rs   # SOTA CSV export formatter
-    │   └── station.rs       # Station profile & workspace/dock profiles
-    ├── digital/             # Digital mode bridges
-    │   ├── fldigi.rs        # FLDigi XML-RPC client
-    │   ├── js8call.rs       # JS8Call TCP JSON API integration
-    │   ├── n1mm.rs          # N1MM Logger+ UDP broadcast emitter
-    │   └── wsjtx.rs         # WSJT-X / JTDX binary UDP frame decoder
-    ├── gui/                 # Immediate-mode egui user interface
-    │   ├── app.rs           # SpLogApp orchestrator: decoupled lifecycle (build, start_background, for_tests)
-    │   ├── app_async.rs     # Async event loops and background poll dispatchers
-    │   ├── app_cat.rs       # Transceiver CAT & rotator commands dispatch
-    │   ├── app_chrome.rs    # Menus, toolbars, status bar, and chrome overlays
-    │   ├── app_config.rs    # AppConfig Single Source of Truth (SSOT), snapshot_config, save_station_config
-    │   ├── app_export.rs    # ADIF, ADX, Cabrillo, and CSV export builders
-    │   ├── app_files.rs     # Dialog helpers, file path resolution, and exports
-    │   ├── app_input.rs     # Keyboard shortcuts, input routing, and command palette
-    │   ├── app_layout.rs    # egui_dock central workspace, docking, floating viewports & module window orchestration
-    │   ├── app_lookup.rs    # Debounced callbook and cloud QRZ lookup
-    │   ├── app_plugins.rs   # Rhai user plugin engine integration & event handlers
-    │   ├── app_qso.rs       # QSO form handling, edit, deletion, reload, and ingest dispatch
-    │   ├── app_services.rs  # Background services initialization and supervision
-    │   ├── app_solar.rs     # Solar propagation and band opening calculations
-    │   ├── app_tests.rs     # Architectural invariants guard and GUI test suite
-    │   ├── state/           # Decoupled state domain structures (no SpLogApp knowledge, zero I/O)
-    │   │   ├── appearance.rs# Theme preset, language, and font settings
-    │   │   ├── cat.rs       # CatState (30 fields), VfoState, CatConnection
-    │   │   ├── chrome.rs    # ChromeState: toolbar and modal visibility flags
-    │   │   ├── cluster.rs   # ClusterState (19 fields): spots, filters, telnet state
-    │   │   ├── contest.rs   # ContestState (6 fields): active rule, serial, custom drafts
-    │   │   ├── cw.rs        # CwMacroState: macro definitions and window visibility
-    │   │   ├── dialogs.rs   # DialogState: modal dialog containers
-    │   │   ├── digital.rs   # DigitalModesState: WSJT-X, JS8Call, FLDigi channels
-    │   │   ├── duplicates.rs# DuplicatesState: dupe detector settings
-    │   │   ├── entry.rs     # QsoEntryState (29 fields): primary form fields and validation
-    │   │   ├── gui.rs       # GuiState: aggregate composition of chrome, dialogs, workspace, windows
-    │   │   ├── ledger.rs    # EquipmentLedgerState: equipment inventory CRUD
-    │   │   ├── log_view.rs  # LogViewState: recent QSOs, search filter, column configuration
-    │   │   ├── marketplace.rs # MarketplaceState: catalog and package metadata
-    │   │   ├── online_sync.rs# OnlineSyncUiState: LotW, eQSL, QRZ sync state
-    │   │   ├── paths.rs     # AppPaths: config, database, and secrets storage paths
-    │   │   ├── plugins_ui.rs# PluginUiState: plugin manager UI state
-    │   │   ├── runtime.rs   # AppRuntime: runtime flags, QRZ channels, and shutdown policies
-    │   │   ├── satellite.rs # SatelliteState: pass tracking and Doppler state
-    │   │   ├── services.rs  # AppServices: shared thread-safe database and engine handles
-    │   │   ├── solar.rs     # SolarState: space weather history and forecast cache
-    │   │   ├── sync_ui.rs   # SyncUiState: Multi-Op LAN UI status and log
-    │   │   ├── updates.rs   # UpdateState: updater state machine and check timestamps
-    │   │   ├── views.rs     # ViewsState: panel visibility, floating flags, dock layout
-    │   │   ├── voice_keyer.rs # VoiceKeyerState: WAV slot playback state
-    │   │   ├── windows.rs   # WindowState (17 fields): floating module window visibility flags
-    │   │   ├── workspace.rs # DockWorkspace: egui_dock tree state and layout persistence
-    │   │   ├── world_map.rs # WorldMapState: map projection and grey line flags
-    │   │   └── wspr.rs      # WsprState: WSPR spots and monitor parameters
-    │   ├── astronomy_dialog.rs # Celestial ephemeris modal
-    │   ├── awards_matrix.rs # Interactive award matrix viewer
-    │   ├── bandmap.rs       # Visual graphical band map with fading spots
-    │   ├── cat_settings.rs  # CAT & rotator configuration dialog
-    │   ├── changelog.rs     # Built-in changelog & update-check windows
-    │   ├── command_palette.rs # Searchable command launcher (Ctrl+Shift+P)
-    │   ├── cluster_panel.rs # DX Cluster spot table with ATNO highlighting
-    │   ├── contest.rs       # Contest operating window with live score
-    │   ├── csv_export_dialog.rs # Configurable CSV export dialog
-    │   ├── cw_macros.rs     # CW macro configuration modal
-    │   ├── cw_terminal.rs   # CW keyer terminal window
-    │   ├── find_duplicates.rs# Smart duplicate QSO detection and batch cleanup
-    │   ├── icons.rs         # Centralized icon set
-    │   ├── iota_browser.rs  # IOTA directory browser
-    │   ├── journal_manager.rs # Multi-journal profile manager
-    │   ├── logbook_table.rs # Paginated QSO log table with sorting
-    │   ├── menu/            # Reorganized top menu (File/Edit/View/Operation/References/Tools/Settings/Help)
-    │   ├── mini_hud.rs      # Compact desktop VFO HUD
-    │   ├── multi_op_window.rs # Unified Multi-Op LAN synchronization window
-    │   ├── online_sync.rs   # Cloud synchronization manager dialog
-    │   ├── operator_assistant.rs # Live "what to do now" recommendation bar
-    │   ├── photo_viewer.rs  # QSL and station photo viewer
-    │   ├── plugin_manager.rs# Rhai user plugin manager window
-    │   ├── marketplace.rs   # Plugin marketplace (one-click install catalog)
-    │   ├── prefix_manager.rs# Country & prefix lookup browser
-    │   ├── qsl_designer.rs  # QSL designer & Avery A4 PDF label exporter
-    │   ├── qsl_manager.rs   # Paper & electronic QSL manager
-    │   ├── qso_entry.rs     # Primary QSO logging panel with propagation badge & dupe check
-    │   ├── satellites.rs    # Satellite tracker & Doppler CAT compensator
-    │   ├── send_spot.rs     # Cluster spotting dialog
-    │   ├── solar_panel.rs   # Space weather & HF band opening conditions table
-    │   ├── sota_dialog.rs   # SOTA reference lookup dialog
-    │   ├── states_browser.rs# US states & WAS browser
-    │   ├── station_ledger.rs# Station maintenance logbook
-    │   ├── user_manual.rs   # In-app user manual with contextual help links
-    │   ├── station_profiles.rs# Workstation multi-profiles (Home, /P, SOTA, Contest)
-    │   ├── statistics.rs    # Visual analytics & charts dashboard (click-to-drill-down)
-    │   ├── theme/           # Semantic color palette & WCAG AA presets (OperatorDark, Daylight, HighContrast)
-    │   ├── vfo_panel.rs     # Primary transceiver VFO & PTT panel
-    │   ├── voice_keyer.rs   # SSB voice keyer window (WAV, F1–F8)
-    │   ├── waterfall_panel.rs # SDR waterfall & FFT spectrum panel (dockable tile)
-    │   ├── welcome_wizard.rs# First-time station setup wizard
-    │   ├── wol_dialog.rs    # Wake-on-LAN remote rig trigger
-    │   ├── workspace_profiles.rs # Operator layout (workspace) profile manager
-    │   ├── world_map.rs     # Interactive world map with Grey Line & rotator
-    │   └── wspr_panel.rs    # Real-time WSPR monitor
-    ├── plugins/             # User plugin system (embedded Rhai) + marketplace
-    │   ├── mod.rs           # PluginEngine: sandboxed .rhai scripts, getters/actions & hooks
-    │   ├── bridge.rs        # PluginCommand queue + PluginSnapshot state bridge
-    │   ├── lookups.rs       # POTA/SOTA REST lookups for plugin actions
-    │   └── marketplace.rs   # Plugin catalog, fetch, SHA256-verified install/uninstall
-    ├── sync/                # Unified Multi-Op LAN/P2P sync (Protocol v2)
-    │   ├── catchup.rs       # Active journal inventory and bidirectional catch-up
-    │   ├── crypto.rs        # Argon2id key derivation & XChaCha20-Poly1305 AEAD
-    │   ├── frame.rs         # Binary framing, monotonic counters, replay defense
-    │   ├── host.rs          # TCP Host server, peer supervision, echo-free relay
-    │   ├── peer.rs          # TCP Peer client with automatic reconnect
-    │   ├── protocol.rs      # Protocol v2 message types and serialization
-    │   ├── service.rs       # SyncService: Tokio background runtime adapter for GUI
-    │   └── session.rs       # Authenticated encrypted session state machine
-    ├── network/             # Network utilities
-    │   └── wol.rs           # Wake-on-LAN magic packet sender
-    └── media/               # Audio alerts & assets
-        ├── audio_recorder.rs# On-air QSO audio recording engine
-        ├── sounds.rs        # Synthesized audio alerts (rodio)
-        └── voice_keyer.rs   # SSB voice keyer audio playback engine
+```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 ```
 
----
+### Hardware-in-the-loop tests
 
-## 🔒 Configuration & Data Safety
-
-- **Storage Location:** All user databases, journal files, and configuration files are stored safely in:
-  ```
-  %APPDATA%\SPLogbook\
-  ```
-- **Portable Mode:** If a `station_config.json` file is present in the application's local directory, SPLogbook automatically switches to **Portable Mode**, storing all databases in the program folder (ideal for USB sticks and contest field operations).
-- **Credentials:** Service passwords, API keys, LAN sync secret and the local REST API token
-  are stored in the operating system's credential store (Windows Credential Manager,
-  macOS Keychain or a Linux Secret Service provider), not in `station_config.json`.
-  Existing plaintext credentials are moved into the store on first launch; startup
-  stops with an error if migration or access fails, without overwriting the original
-  configuration. On Linux, a running, unlocked Secret Service is required. Copying
-  a configuration or portable folder to another computer does **not** copy its
-  credentials: clear the `secret_store_id` value in the copied JSON file, then enter
-  the credentials again on the destination computer. The same step is needed to
-  restore an older protected config whose keychain entry no longer exists. Older
-  plaintext copies or backups of `station_config.json` remain sensitive until removed.
-- **Crash Prevention:** Mutexes protect shared data structures against thread poisoning; background tasks communicate over thread-safe mpsc channels, ensuring that long-running Telnet or CAT operations never block the 60 FPS graphical interface.
+The 10 tests in `tests/cat_native_7.rs` marked `#[ignore = "hardware-in-the-loop"]` key a
+real transmitter. They never run in CI or in the baseline, and hardware validation
+(NATIVE-7B) has not been executed. Run them only on a laboratory bench with a 50 Ω dummy
+load, never on a station connected to an antenna. Requirements and RF safety rules are in
+[`Native CAT.md`](Native%20CAT.md) and
+[`docs/HARDWARE_VALIDATION_MATRIX.md`](docs/HARDWARE_VALIDATION_MATRIX.md).
 
 ---
 
-## 📚 Documentation
+## Documentation
 
 | Document | Contents |
 |---|---|
-| [`CHANGELOG.md`](CHANGELOG.md) | public release history and the unreleased development line |
+| [`CHANGELOG.md`](CHANGELOG.md) | release history |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | contribution workflow, required checks, test and code rules |
-| [`SECURITY.md`](SECURITY.md) | security policy, reporting, and the guarantees the updater enforces |
+| [`SECURITY.md`](SECURITY.md) | security policy, vulnerability reporting and updater guarantees |
 | [`docs/DOCUMENTATION_INDEX.md`](docs/DOCUMENTATION_INDEX.md) | index of every tracked document |
-| [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | toolchain pins, build/test/package commands, git workflow |
+| [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | toolchain pins, build, test and packaging commands, git workflow |
 | [`docs/VERIFICATION_BASELINE.md`](docs/VERIFICATION_BASELINE.md) | verified test counters and dependency-audit state |
-| [`docs/ROADMAP.md`](docs/ROADMAP.md) | delivered milestones, closed risks, planned work |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | delivered milestones and planned work |
 | [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md) | open defects and open decisions |
 | [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md) | module map, data flows, security boundaries |
-| [`docs/architecture/DECISIONS.md`](docs/architecture/DECISIONS.md) | architectural decision records (ADRs) and invariants |
+| [`docs/architecture/DECISIONS.md`](docs/architecture/DECISIONS.md) | architectural decision records |
 | [`docs/architecture/THEMES.md`](docs/architecture/THEMES.md) | theme and semantic palette architecture |
 | [`docs/SECURITY_PROCESS.md`](docs/SECURITY_PROCESS.md) | dependency-audit policy, key handling, fail-closed rules |
 | [`docs/security/RELEASE_SECURITY.md`](docs/security/RELEASE_SECURITY.md) | release supply chain and update trust specification |
-| [`docs/security/SECURITY_KEY_ROTATION.md`](docs/security/SECURITY_KEY_ROTATION.md) | key rotation runbook and incident record |
-| [`docs/DATABASE_BACKUP_RECOVERY.md`](docs/DATABASE_BACKUP_RECOVERY.md) | SQLite backup, restore and recovery runbook |
+| [`docs/security/SECURITY_KEY_ROTATION.md`](docs/security/SECURITY_KEY_ROTATION.md) | key rotation runbook |
+| [`docs/DATABASE_BACKUP_RECOVERY.md`](docs/DATABASE_BACKUP_RECOVERY.md) | SQLite backup, restore and recovery |
 | [`docs/HARDWARE_VALIDATION_MATRIX.md`](docs/HARDWARE_VALIDATION_MATRIX.md) | CAT protocol knowledge and hardware requirements |
 | [`Native CAT.md`](Native%20CAT.md) | native CAT architecture, PTT invariants, HIL and RF safety |
 | [`LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.md`](LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.md) | Linux kernel/glibc policy and supported distributions |
+| [`locales/README.md`](locales/README.md) | translation catalogue and how to add strings |
 | [`installer/`](installer) | per-format packaging documentation for Windows and Linux |
 
 ---
-## 🤝 Contributing & Bug Reports
 
-Contributions, issue reports, and suggestions are warmly welcome!
-1. Fork the repository.
-2. Create your feature branch (`git checkout -b feature/amazing-feature`).
-3. Verify that all automated tests pass (`cargo test --workspace --all-targets`).
-4. Ensure clean code formatting and zero Clippy warnings (`cargo fmt --all -- --check` and `cargo clippy --workspace --all-targets --all-features -- -D warnings`).
-5. Commit your changes (`git commit -m 'Add amazing feature'`).
-6. Push to the branch (`git push origin feature/amazing-feature`).
-7. Open a Pull Request.
+## Contributing
 
----
+Issue reports and pull requests are welcome. Before opening a pull request:
 
-## ☕ Support & Donations
-
-**SPLogbook** is a 100% free, libre, and open-source amateur radio workstation console built with deep passion for the global amateur radio community. The software contains no advertisements, locked tiers, telemetry tracking, or subscriptions. It is actively maintained and evolved solely through dedication, on-air field testing, and hundreds of engineering hours invested into high-performance Rust systems programming, real-time ionospheric modeling, and seamless hardware CAT automation.
-
-If **SPLogbook** enhances your daily logging experience, DX chasing, contest operations, SOTA/POTA field activations, or QSL printing, and you would like to appreciate the work or help support ongoing development, hardware testing, and project infrastructure — **feel free to buy me a coffee!** ☕
-
-Every contribution is a huge motivation to continue adding new features, optimizing performance, and delivering the highest quality software to radio amateurs around the world.
-
-<p align="center">
-  <a href="https://buycoffee.to/sp6ina" target="_blank">
-    <img src="https://img.shields.io/badge/☕_Buy_a_Coffee_for_SP6INA-buycoffee.to%2Fsp6ina-FFDD00?style=for-the-badge&logoColor=black" alt="Buy a Coffee for SP6INA on buycoffee.to">
-  </a>
-  <br><br>
-  👉 <strong><a href="https://buycoffee.to/sp6ina">https://buycoffee.to/sp6ina</a></strong> 👈
-</p>
-
-*Thank you for your generous support, and see you on the air! Vy 73 de SP6INA* 🎙️📻
+1. Read [`CONTRIBUTING.md`](CONTRIBUTING.md).
+2. Run the test baseline and the static checks listed above; all must pass.
+3. Do not change dependencies or `Cargo.lock` as a side effect of another change.
+4. Report security problems privately as described in [`SECURITY.md`](SECURITY.md), not in a
+   public issue.
 
 ---
 
-## 📄 License & Credits
+## Licence, data attribution and security
 
-SPLogbook is licensed under the **GNU General Public License v3.0 (GPLv3)**. See the [LICENSE](LICENSE) file for details.
+- SPLogbook is licensed under the **GNU General Public License v3.0 or later**. See
+  [`LICENSE`](LICENSE).
+- World map land outlines: **Natural Earth 110m Land**, public domain,
+  [naturalearthdata.com](https://www.naturalearthdata.com/). The data is embedded as
+  `assets/maps/ne_110m_land.bin`.
+- The Windows ZIP and the Linux archive bundle Hamlib 4.7.2, distributed under its own
+  licence (LGPL/GPL).
+- Security policy and reporting: [`SECURITY.md`](SECURITY.md). Release signing and update
+  trust: [`docs/security/RELEASE_SECURITY.md`](docs/security/RELEASE_SECURITY.md).
 
-### Author & Maintainer
-**Mariusz Woźniak (SP6INA)**<br>
+---
+
+## Author and support
+
+**Mariusz Woźniak (SP6INA)**
+
 - E-mail: [contact@splogbook.org](mailto:contact@splogbook.org)
-- QRZ Profile: [SP6INA on QRZ.com](https://www.qrz.com/db/SP6INA)
+- Website: [splogbook.org](https://splogbook.org)
+- QRZ: [SP6INA on QRZ.com](https://www.qrz.com/db/SP6INA)
 - GitHub: [@sp6ina](https://github.com/sp6ina)
-- ☕ Support & Donate: [buycoffee.to/sp6ina](https://buycoffee.to/sp6ina)
 
-*Vy 73 & Good DX!* 📻
+SPLogbook is free software with no advertising, telemetry or paid tiers. If you want to
+support its development, you can
+[buy the author a coffee at buycoffee.to/sp6ina](https://buycoffee.to/sp6ina).
+
+73 de SP6INA

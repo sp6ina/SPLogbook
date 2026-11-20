@@ -15,7 +15,7 @@ per-format documentation under [`installer/`](../installer); for security rules 
 | MSRV (minimum supported Rust version) | **1.99.0** | `Cargo.toml` (`rust-version`) |
 | Pinned toolchain used by CI | **1.99.0** (components `rustfmt`, `clippy`) | `.github/workflows/ci.yml` |
 | Package version | `1.3.0` | `Cargo.toml` |
-| Public stable version | `1.2.0` (annotated tag `v1.2.0`, immutable) | `git tag` / [`CHANGELOG.md`](../CHANGELOG.md) |
+| Public stable version | `1.3.0` (annotated tag `v1.3.0`, immutable; previous stable `v1.2.0`, immutable) | `git tag` / [`CHANGELOG.md`](../CHANGELOG.md) |
 | Targets | Windows 10/11 x86_64, Linux x86_64 | [`LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.md`](../LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.md) |
 
 `Cargo.toml` and `Cargo.lock` change **only** through a dedicated, justified change
@@ -185,7 +185,9 @@ temporary drafts must stay outside the tracked repository tree.
   `git filter-repo`, no BFG.
 - Tags are immutable: never create, move or delete a tag. `v1.2.0` is a protected
   annotated tag — tag object `3ea8d51aab436805107a1cf422e0b35cc301458f`, peeled commit
-  `6f7d3aaa3b6a54e87b481c142a5b690bcf8b5592`.
+  `6f7d3aaa3b6a54e87b481c142a5b690bcf8b5592`. `v1.3.0` is the protected stable release
+  tag — tag object `e00a9d70445c3fc406dcdd995def0fec72d675ba`, peeled commit
+  `9141cb60c1491ff2e8dfd0846ab96ed48c87f726`.
 - Releases are published only from a `v*` tag and only through the `publish-release` job
   in `.github/workflows/build-and-release.yml`; publishing requires a dedicated gate.
 - Always inspect `git clean -n` before running any destructive `git clean` command so
