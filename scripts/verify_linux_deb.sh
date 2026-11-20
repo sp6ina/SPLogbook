@@ -174,10 +174,27 @@ pass "control identity fields are correct"
 
 dpkg --validate-version "${EXPECTED_DEBIAN_VERSION}" \
     || fail "dpkg rejects the expected Debian version"
-dpkg --compare-versions "${EXPECTED_DEBIAN_VERSION}" lt "1.3.0-1" \
-    || fail "prerelease must sort before 1.3.0-1"
-dpkg --compare-versions "${EXPECTED_DEBIAN_VERSION}" gt "1.3.0~alpha.0-1" \
-    || fail "prerelease must sort after 1.3.0~alpha.0-1"
+case "${EXPECTED_DEBIAN_VERSION}" in
+    *"~"*)
+        # Prerelease (for example 1.3.0~alpha.1-1): sorts before the stable version.
+        STABLE_DEBIAN_VERSION="${EXPECTED_DEBIAN_VERSION%%~*}-${EXPECTED_DEBIAN_VERSION##*-}"
+        dpkg --compare-versions "${EXPECTED_DEBIAN_VERSION}" lt "${STABLE_DEBIAN_VERSION}" \
+            || fail "prerelease must sort before ${STABLE_DEBIAN_VERSION}"
+        dpkg --compare-versions "${EXPECTED_DEBIAN_VERSION}" gt "1.3.0~alpha.0-1" \
+            || fail "prerelease must sort after 1.3.0~alpha.0-1"
+        ;;
+    *)
+        # Stable version (for example 1.3.0-1): every prerelease of the same base sorts
+        # strictly before it (upgrade from alpha works) and the next revision sorts after.
+        STABLE_BASE="${EXPECTED_DEBIAN_VERSION%-*}"
+        dpkg --compare-versions "${STABLE_BASE}~alpha.1-1" lt "${EXPECTED_DEBIAN_VERSION}" \
+            || fail "${STABLE_BASE}~alpha.1-1 must sort before ${EXPECTED_DEBIAN_VERSION}"
+        dpkg --compare-versions "1.3.0~alpha.0-1" lt "${EXPECTED_DEBIAN_VERSION}" \
+            || fail "1.3.0~alpha.0-1 must sort before ${EXPECTED_DEBIAN_VERSION}"
+        dpkg --compare-versions "${EXPECTED_DEBIAN_VERSION}" lt "${STABLE_BASE}-2" \
+            || fail "${EXPECTED_DEBIAN_VERSION} must sort before ${STABLE_BASE}-2"
+        ;;
+esac
 pass "Debian version ordering verified with dpkg --compare-versions"
 
 # ------------------------------------------------------------------

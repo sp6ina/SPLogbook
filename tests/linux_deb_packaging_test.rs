@@ -482,3 +482,29 @@ fn readme_documents_the_deb_contract() {
         assert!(lower.contains(required), "README must document {required}");
     }
 }
+
+#[test]
+fn deb_stable_version_ordering_is_asserted_by_builder_and_verifier() {
+    let builder = read(BUILDER);
+    // Stabilna wersja (bez części prerelease) tłumaczy się na `1.3.0-1`, bez `~`.
+    assert!(builder.contains("DEBIAN_VERSION=\"${BASE_VERSION}-${DEB_REVISION}\""));
+    assert!(builder.contains("[0-9]*.[0-9]*.[0-9]*) ;;"));
+    assert!(builder.contains(
+        "dpkg --compare-versions \"${DEBIAN_VERSION}\" gt \"${BASE_VERSION}~alpha.2-${DEB_REVISION}\""
+    ));
+
+    let verifier = read(VERIFIER);
+    // Prerelease: porównanie z odpowiadającą wersją stabilną, nigdy z samym sobą.
+    assert!(!verifier.contains("lt \"1.3.0-1\""));
+    assert!(verifier.contains("*\"~\"*)"));
+    assert!(verifier.contains(
+        "dpkg --compare-versions \"${EXPECTED_DEBIAN_VERSION}\" lt \"${STABLE_DEBIAN_VERSION}\""
+    ));
+    // Stabilna: alpha.1 -> 1.3.0 to poprawny upgrade, a następna rewizja sortuje się wyżej.
+    assert!(verifier.contains(
+        "dpkg --compare-versions \"${STABLE_BASE}~alpha.1-1\" lt \"${EXPECTED_DEBIAN_VERSION}\""
+    ));
+    assert!(verifier.contains(
+        "dpkg --compare-versions \"${EXPECTED_DEBIAN_VERSION}\" lt \"${STABLE_BASE}-2\""
+    ));
+}
