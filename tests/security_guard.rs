@@ -3873,13 +3873,13 @@ fn m3_c_stability_20_iterations_result_consumption_and_rollback_measurement() {
 fn m3_dev_version_identity_and_constants_guard() {
     use splogbook::core::build_info::{BuildIdentity, DistributionStatus, UpdateChannel};
 
-    assert_eq!(env!("CARGO_PKG_VERSION"), "1.3.0-alpha.1");
+    assert_eq!(env!("CARGO_PKG_VERSION"), "1.3.0");
 
     let id = BuildIdentity::current();
     assert_eq!(id.package_name, "splogbook");
-    assert_eq!(id.package_version, "1.3.0-alpha.1");
-    assert_eq!(id.channel, UpdateChannel::Alpha);
-    assert_eq!(id.distribution_status, DistributionStatus::Development);
+    assert_eq!(id.package_version, "1.3.0");
+    assert_eq!(id.channel, UpdateChannel::Stable);
+    assert_eq!(id.distribution_status, DistributionStatus::PublishedStable);
     assert!(
         !id.git_commit_hash.is_empty(),
         "commit hash must be present"
@@ -3891,11 +3891,11 @@ fn m3_dev_version_identity_and_constants_guard() {
     assert_eq!(id.semver.major, 1);
     assert_eq!(id.semver.minor, 3);
     assert_eq!(id.semver.patch, 0);
-    assert_eq!(id.semver.pre.as_str(), "alpha.1");
-    assert!(id.channel.as_str().contains("alpha"));
-    assert!(id.is_prerelease());
-    assert!(!id.is_stable());
-    assert!(id.format_diagnostic().contains("1.3.0-alpha.1"));
+    assert_eq!(id.semver.pre.as_str(), "");
+    assert_eq!(id.channel.as_str(), "stable");
+    assert!(!id.is_prerelease());
+    assert!(id.is_stable());
+    assert!(id.format_diagnostic().contains("1.3.0"));
 }
 
 #[test]
@@ -4059,10 +4059,10 @@ fn m3_stability_100_iterations_semver_evaluation_and_build_identity() {
     for _ in 0..100 {
         // BuildIdentity consistency
         assert_eq!(id.package_name, "splogbook");
-        assert_eq!(id.package_version, "1.3.0-alpha.1");
-        assert_eq!(id.channel, UpdateChannel::Alpha);
-        assert_eq!(id.distribution_status, DistributionStatus::Development);
-        assert_eq!(id.semver.to_string(), "1.3.0-alpha.1");
+        assert_eq!(id.package_version, "1.3.0");
+        assert_eq!(id.channel, UpdateChannel::Stable);
+        assert_eq!(id.distribution_status, DistributionStatus::PublishedStable);
+        assert_eq!(id.semver.to_string(), "1.3.0");
 
         // Transition matrix checks
         assert_eq!(
@@ -4351,13 +4351,13 @@ fn m3_d_inno_setup_stable_identity_guard() {
     );
 
     assert!(
-        cargo_toml.contains(r#"version = "1.3.0-alpha.1""#),
-        "Cargo.toml musi definiować bieżącą wersję roboczą 1.3.0-alpha.1"
+        cargo_toml.contains(r#"version = "1.3.0""#),
+        "Cargo.toml musi definiować bieżącą wersję stabilną 1.3.0"
     );
 
     assert!(
-        cargo_toml.contains("-alpha.1"),
-        "Bieżąca wersja robocza musi mieć oznaczenie pre-release alpha"
+        !cargo_toml.contains(r#"version = "1.3.0-"#),
+        "Wersja stabilna 1.3.0 nie może mieć oznaczenia pre-release"
     );
 }
 
@@ -6852,7 +6852,7 @@ fn m3_h_deb_integration_guard() {
     );
     assert!(
         workflow.contains("SPLogbook-Linux-x86_64-appimage")
-            && workflow.contains("SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz"),
+            && workflow.contains("SPLogbook-Linux-x86_64-1.3.0.tar.gz"),
         "portable tar.gz i AppImage muszą pozostać w workflow"
     );
 }
@@ -7086,7 +7086,7 @@ fn m3_i_rpm_integration_guard() {
         "fedora linux 45",
         "opensuse tumbleweed",
         "glibc_2.43",
-        "1.3.0-0.1.alpha.1",
+        "1.3.0-1",
         "/opt/splogbook",
         "libhamlib.so.4",
         "linuxrpm",
@@ -7115,7 +7115,7 @@ fn m3_i_rpm_integration_guard() {
     );
     assert!(
         workflow.contains("SPLogbook-Linux-x86_64-appimage")
-            && workflow.contains("SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz"),
+            && workflow.contains("SPLogbook-Linux-x86_64-1.3.0.tar.gz"),
         "portable tar.gz i AppImage muszą pozostać w workflow"
     );
 

@@ -109,24 +109,38 @@ PRODUCT_VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
 [ -n "${PRODUCT_VERSION}" ] || fail "cannot read package version from Cargo.toml"
 case "${PRODUCT_VERSION}" in
     [0-9]*.[0-9]*.[0-9]*-[0-9A-Za-z.-]*) ;;
+    [0-9]*.[0-9]*.[0-9]*) ;;
     *) fail "unsupported development version format: ${PRODUCT_VERSION}" ;;
 esac
 
 BASE_VERSION="${PRODUCT_VERSION%%-*}"
 PRERELEASE="${PRODUCT_VERSION#*-}"
+if [ "${PRERELEASE}" = "${PRODUCT_VERSION}" ]; then
+    # Stable release (no SemVer pre-release part): plain upstream version.
+    PRERELEASE=""
+fi
+if [ -n "${PRERELEASE}" ]; then
 DEBIAN_VERSION="${BASE_VERSION}~${PRERELEASE}-${DEB_REVISION}"
+else
+DEBIAN_VERSION="${BASE_VERSION}-${DEB_REVISION}"
+fi
 log "Application version: ${PRODUCT_VERSION}"
 log "Debian version: ${DEBIAN_VERSION}"
 
 dpkg --validate-version "${DEBIAN_VERSION}" \
     || fail "dpkg rejects the generated Debian version: ${DEBIAN_VERSION}"
 [ "${DEBIAN_VERSION#*:}" = "${DEBIAN_VERSION}" ] || fail "an epoch is not allowed"
+if [ -n "${PRERELEASE}" ]; then
 dpkg --compare-versions "${DEBIAN_VERSION}" lt "${BASE_VERSION}-${DEB_REVISION}" \
     || fail "prerelease must sort before the stable version"
 dpkg --compare-versions "${DEBIAN_VERSION}" gt "${BASE_VERSION}~alpha.0-${DEB_REVISION}" \
     || fail "prerelease must sort after alpha.0"
 dpkg --compare-versions "${DEBIAN_VERSION}" lt "${BASE_VERSION}~alpha.2-${DEB_REVISION}" \
     || fail "prerelease must sort before alpha.2"
+else
+dpkg --compare-versions "${DEBIAN_VERSION}" gt "${BASE_VERSION}~alpha.2-${DEB_REVISION}" \
+    || fail "stable release must sort after every prerelease"
+fi
 dpkg --compare-versions "${DEBIAN_VERSION}" eq "${DEBIAN_VERSION}" \
     || fail "version self-comparison failed"
 log "PASS: Debian version ordering verified with dpkg --compare-versions"

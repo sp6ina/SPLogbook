@@ -280,24 +280,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn build_identity_reports_alpha_development_version() {
+    fn build_identity_reports_stable_release_version() {
         let id = BuildIdentity::current();
         assert_eq!(id.package_name, "splogbook");
-        assert_eq!(id.package_version, "1.3.0-alpha.1");
+        assert_eq!(id.package_version, "1.3.0");
         assert_eq!(id.semver.major, 1);
         assert_eq!(id.semver.minor, 3);
         assert_eq!(id.semver.patch, 0);
-        assert_eq!(id.semver.pre.as_str(), "alpha.1");
-        assert!(id.is_prerelease());
-        assert!(!id.is_stable());
-        assert_eq!(id.channel, UpdateChannel::Alpha);
-        assert_eq!(id.distribution_status, DistributionStatus::Development);
+        assert_eq!(id.semver.pre.as_str(), "");
+        assert!(!id.is_prerelease());
+        assert!(id.is_stable());
+        assert_eq!(id.channel, UpdateChannel::Stable);
+        assert_eq!(id.distribution_status, DistributionStatus::PublishedStable);
     }
 
     #[test]
     fn build_profile_release_does_not_imply_stable() {
         let mut id = BuildIdentity::current().clone();
         id.profile = BuildProfile::Release;
+        // Modeluje wersję alpha (bieżąca kompilacja jest stabilna 1.3.0).
+        id.semver = semver::Version::parse("1.3.0-alpha.1").expect("semver");
+        id.channel = UpdateChannel::Alpha;
+        id.distribution_status = DistributionStatus::Development;
         assert_eq!(id.channel, UpdateChannel::Alpha);
         // Profil release dla wersji alpha pozostaje niestabilny
         assert!(!id.is_stable());
@@ -342,13 +346,13 @@ mod tests {
     fn diagnostic_strings_contain_version_and_channel() {
         let id = BuildIdentity::current();
         let diag = id.format_diagnostic();
-        assert!(diag.contains("SPLogbook 1.3.0-alpha.1"));
-        assert!(diag.contains("Version: 1.3.0-alpha.1"));
-        assert!(diag.contains("Channel: alpha"));
-        assert!(diag.contains("Distribution Status: development"));
+        assert!(diag.contains("SPLogbook 1.3.0"));
+        assert!(diag.contains("Version: 1.3.0"));
+        assert!(diag.contains("Channel: stable"));
+        assert!(diag.contains("Distribution Status: published_stable"));
 
         let updater_diag = id.format_updater_diagnostic();
-        assert!(updater_diag.starts_with("1.3.0-alpha.1"));
-        assert!(updater_diag.contains("channel: alpha"));
+        assert!(updater_diag.starts_with("1.3.0"));
+        assert!(updater_diag.contains("channel: stable"));
     }
 }

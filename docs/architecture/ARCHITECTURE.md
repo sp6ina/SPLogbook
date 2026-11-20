@@ -15,7 +15,7 @@
 | Aplikacja GUI | `src/main.rs` (`SPLogbook`) | start eframe/egui, inicjalizacja stanu, CLI `--version` / `--build-info` / `--diagnostic-version` |
 | Aktualizator | `src/bin/splogbook-updater.rs` | natywny helper Windows: IPC, plan update, rollback, HealthProof |
 | Signer | `src/bin/signer.rs` | offline podpisywanie manifestu Ed25519 |
-| Build identity | `build.rs` | `BuildIdentity` + generowanie katalogów i18n; wersja `1.3.0-alpha.1` |
+| Build identity | `build.rs` | `BuildIdentity` + generowanie katalogów i18n; wersja `1.3.0` |
 
 ## 2. Mapa modułów (stan `f73a703`)
 

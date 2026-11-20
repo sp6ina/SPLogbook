@@ -126,16 +126,23 @@ PRODUCT_VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
 [ -n "${PRODUCT_VERSION}" ] || fail "cannot read package version from Cargo.toml"
 case "${PRODUCT_VERSION}" in
     [0-9]*.[0-9]*.[0-9]*-[0-9A-Za-z.-]*) ;;
+    [0-9]*.[0-9]*.[0-9]*) ;;
     *) fail "unsupported development version format: ${PRODUCT_VERSION}" ;;
 esac
 
 BASE_VERSION="${PRODUCT_VERSION%%-*}"
 PRERELEASE="${PRODUCT_VERSION#*-}"
+if [ "${PRERELEASE}" = "${PRODUCT_VERSION}" ]; then
+    # Stable release (no SemVer pre-release part).
+    PRERELEASE=""
+fi
 RPM_VERSION="${BASE_VERSION}"
 if [ -n "${RPM_RELEASE_OVERRIDE}" ]; then
     RPM_RELEASE="${RPM_RELEASE_OVERRIDE}"
-else
+elif [ -n "${PRERELEASE}" ]; then
     RPM_RELEASE="0.1.${PRERELEASE}"
+else
+    RPM_RELEASE="1"
 fi
 RPM_RELEASE="${RPM_RELEASE//-/.}"
 printf '%s\n' "${RPM_VERSION}" | grep -Eq '^[0-9][0-9A-Za-z.+~_]*$' \
@@ -148,9 +155,13 @@ log "Application version: ${PRODUCT_VERSION}"
 log "RPM version: ${RPM_VERSION}-${RPM_RELEASE}"
 
 CURRENT_EVR="${RPM_VERSION}-${RPM_RELEASE}"
+if [ -n "${PRERELEASE}" ]; then
 vercmp_is "${CURRENT_EVR}" "1.3.0-1" 12
 vercmp_is "${CURRENT_EVR}" "1.3.0-0.1.alpha.0" 11
 vercmp_is "${CURRENT_EVR}" "1.3.0-0.1.alpha.2" 12
+else
+vercmp_is "${CURRENT_EVR}" "1.3.0-0.1.alpha.2" 11
+fi
 vercmp_is "${CURRENT_EVR}" "${CURRENT_EVR}" 0
 log "PASS: RPM version ordering verified with rpmdev-vercmp"
 

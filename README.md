@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/GUI-egui_%2F_eframe-blueviolet.svg" alt="egui">
   <img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License">
   <img src="https://img.shields.io/badge/Platform-Windows_%7C_GNU%2FLinux-blue.svg" alt="Platform">
-  <img src="https://img.shields.io/badge/Public_Stable-1.2.0-emerald.svg" alt="Public Stable Version">
+  <img src="https://img.shields.io/badge/Public_Stable-1.3.0-emerald.svg" alt="Public Stable Version">
   <img src="https://img.shields.io/badge/Development-1.3.0--alpha.1-orange.svg" alt="Development Version">
   <img src="https://img.shields.io/badge/Release_Status-Not_Published-yellow.svg" alt="Release Status">
   <a href="https://github.com/sp6ina/SPLogbook/actions"><img src="https://github.com/sp6ina/SPLogbook/actions/workflows/build-and-release.yml/badge.svg" alt="CI"></a>
@@ -26,9 +26,8 @@
 ## 🌟 Executive Summary
 
 > [!NOTE]
-> - **CURRENT PUBLIC STABLE:** `1.2.0` (immutable historical tag `v1.2.0`)
-> - **CURRENT DEVELOPMENT:** `1.3.0-alpha.1` (active development branch, unreleased)
-> - **PUBLIC RELEASE STATUS:** `NOT PUBLISHED`
+> - **CURRENT PUBLIC STABLE:** `1.3.0` (release date 2026-11-20, tag `v1.3.0`)
+> - **PREVIOUS STABLE:** `1.2.0` (immutable historical tag `v1.2.0`)
 
 **SPLogbook** is an advanced, high-performance amateur radio logging software and station automation console engineered from the ground up in **Rust**. Built with an immediate-mode user interface powered by `egui`/`eframe`, SPLogbook delivers instant sub-millisecond responsiveness, zero-garbage-collection pauses, complete memory safety, and cross-platform native performance across both **Windows 10/11 (64-bit)** and **GNU/Linux (x86_64, X11 & Wayland)** environments.
 
@@ -554,10 +553,10 @@ Pre-compiled release packages are available directly from the [Releases](https:/
 3. Double-click **`SPLogbook.exe`** to launch.
 
 ### 🐧 GNU/Linux (x86_64 Portable tar.gz)
-1. Download **`SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz`** from the latest release.
+1. Download **`SPLogbook-Linux-x86_64-1.3.0.tar.gz`** from the latest release.
 2. Extract the archive and enter the directory:
    ```bash
-   tar -xzf SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz
+   tar -xzf SPLogbook-Linux-x86_64-1.3.0.tar.gz
    cd SPLogbook
    ```
 3. Grant access to your serial ports (for CAT & Winkeyer interfaces):
@@ -575,14 +574,14 @@ Pre-compiled release packages are available directly from the [Releases](https:/
 ### 🐧 GNU/Linux distribution packages
 
 The DEB, RPM, AppImage and Flatpak packages are implemented and verified by CI. They are
-**not yet attached to a published release** — only `v1.2.0` is published, and it predates
-these formats. Build them locally with the scripts listed in
+**not attached to the `v1.3.0` release**, which publishes the portable `tar.gz`, the Windows
+`zip`, the Inno Setup installer and the MSI. Build them locally with the scripts listed in
 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
 
 **Debian / Ubuntu (`.deb`)**
 
 ```bash
-sudo apt install ./SPLogbook-Linux-amd64-1.3.0-alpha.1.deb
+sudo apt install ./SPLogbook-Linux-amd64-1.3.0.deb
 splogbook
 ```
 
@@ -593,8 +592,8 @@ and removal never touch user data. Details:
 **Fedora / openSUSE (`.rpm`)**
 
 ```bash
-sudo dnf install --nogpgcheck ./SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm          # Fedora
-sudo zypper --no-gpg-checks install ./SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm    # openSUSE
+sudo dnf install --nogpgcheck ./SPLogbook-Linux-x86_64-1.3.0.rpm          # Fedora
+sudo zypper --no-gpg-checks install ./SPLogbook-Linux-x86_64-1.3.0.rpm    # openSUSE
 splogbook
 ```
 
@@ -615,7 +614,7 @@ Requires a working FUSE mount. Details:
 **Flatpak (`io.github.sp6ina.SPLogbook`)**
 
 ```bash
-flatpak install ./SPLogbook-Linux-x86_64-1.3.0-alpha.1.flatpak
+flatpak install ./SPLogbook-Linux-x86_64-1.3.0.flatpak
 flatpak run io.github.sp6ina.SPLogbook
 flatpak update io.github.sp6ina.SPLogbook     # updates are delivered by Flatpak only
 flatpak uninstall io.github.sp6ina.SPLogbook  # user data in ~/.var/app/io.github.sp6ina.SPLogbook is kept

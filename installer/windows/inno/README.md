@@ -104,14 +104,14 @@ powershell -ExecutionPolicy Bypass -File scripts\build_windows_user_setup.ps1
 ```
 
 Skrypt automatycznie:
-1. Weryfikuje wersję w `Cargo.toml` (`1.3.0-alpha.1`).
+1. Weryfikuje wersję w `Cargo.toml` (`1.3.0`).
 2. Sprawdza czystość repozytorium Git i pobiera hash commita.
 3. Sprawdza obecność i wersję `ISCC.exe` (7.1.1).
 4. Kompiluje binaria w profilu release (`SPLogbook.exe`, `splogbook-updater.exe`).
 5. Tworzy izolowany katalog stagingu i kopiuje wyłącznie pliki z allowlisty.
 6. Weryfikuje brak zakazanych plików w stagingu.
 7. Kompiluje instalator za pomocą zatwierdzonego ISCC z flagą `--no-signing`.
-8. Oblicza SHA-256 wynikowego instalatora `SPLogbook-Windows-x64-Setup-1.3.0-alpha.1.exe`.
+8. Oblicza SHA-256 wynikowego instalatora `SPLogbook-Windows-x64-Setup-1.3.0.exe`.
 
 ---
 

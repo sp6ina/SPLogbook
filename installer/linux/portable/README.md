@@ -3,7 +3,7 @@
 ---
 
 ## 1. Przeznaczenie i Zakres
-Katalog `installer/linux/portable/` zawiera definicje, szablony oraz specyfikację pakietu przenośnego `SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz`.
+Katalog `installer/linux/portable/` zawiera definicje, szablony oraz specyfikację pakietu przenośnego `SPLogbook-Linux-x86_64-1.3.0.tar.gz`.
 
 Pakiet jest przeznaczony do uruchamiania w przestrzeni użytkownika bez uprawnień administracyjnych (root/sudo) na wspieranej macierzy Linux x86_64 (**kernel >= 7.0, glibc >= 2.43**):
 - Ubuntu 26.04 LTS

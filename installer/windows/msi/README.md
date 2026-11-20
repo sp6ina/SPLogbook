@@ -30,7 +30,7 @@ Dokumentacja techniczna i architektoniczna instalatora **Windows System Setup (M
 - **ARCHITEKTURA:** `x64`
 - **WERSJE:**
   - `MSI ProductVersion`: `1.3.0` (format `major.minor.build` wymagany przez specyfikację Windows Installer)
-  - `DisplayVersion (ARP)`: `1.3.0-alpha.1` (pełny SemVer 2.0 z identyfikatorem prerelease)
+  - `DisplayVersion (ARP)`: `1.3.0` (pełny SemVer 2.0)
 - **SKRÓTY:**
   - Menu Start: `ProgramMenuFolder\SPLogbook`
   - Rejestr KeyPath: `HKCU\Software\SPLogbook\MsiInstalled` (zgodność z ICE38/ICE43/ICE57)

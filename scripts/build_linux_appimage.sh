@@ -26,7 +26,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 
-PRODUCT_VERSION_EXPECTED="1.3.0-alpha.1"
+PRODUCT_VERSION_EXPECTED="1.3.0"
 APPIMAGE_FILENAME="SPLogbook-Linux-x86_64.AppImage"
 GLIBC_POLICY_MAX="2.43"
 

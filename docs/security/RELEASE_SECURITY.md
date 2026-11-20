@@ -88,7 +88,7 @@ Przykład ilustracyjny (wartości `commit`, `size` i `sha256` są przykładowe):
   "manifest_version": 1,
   "key_id": "splogbook-release-2026-02",
   "product": "SPLogbook",
-  "version": "1.3.0-alpha.1",
+  "version": "1.3.0",
   "channel": "stable",
   "minimum_updater_version": "1.1.0",
   "commit": "16892e84cd824d5bfd96442beb7ba2e624c7165a",
@@ -113,7 +113,7 @@ Przykład ilustracyjny (wartości `commit`, `size` i `sha256` są przykładowe):
       "platform": "windows",
       "arch": "x86_64",
       "package_type": "inno-exe",
-      "filename": "SPLogbook-Windows-x64-Setup-1.3.0-alpha.1.exe",
+      "filename": "SPLogbook-Windows-x64-Setup-1.3.0.exe",
       "size": 55412300,
       "sha256": "1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d"
     },
@@ -121,7 +121,7 @@ Przykład ilustracyjny (wartości `commit`, `size` i `sha256` są przykładowe):
       "platform": "windows",
       "arch": "x86_64",
       "package_type": "msi",
-      "filename": "SPLogbook-Windows-x64-MSI-1.3.0-alpha.1.msi",
+      "filename": "SPLogbook-Windows-x64-MSI-1.3.0.msi",
       "size": 58120400,
       "sha256": "9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8e"
     }

@@ -6,18 +6,44 @@ it is not a development log.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning:
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Current state: **public stable `1.2.0`**, development line **`1.3.0-alpha.1` (not
-published)**. No release newer than `1.2.0` exists: there is no `v1.3.0*` tag and no
-GitHub release for the development line.
+Current state: **public stable `1.3.0`** (2026-11-20, tag `v1.3.0`); the previous stable
+release is `1.2.0`.
 
 ---
 
-## [Unreleased] — 1.3.0-alpha.1
+## [1.3.0] - 2026-11-20
 
-Development version. **Not published**: no tag, no GitHub release, no release assets.
-Artifacts are produced and verified by CI only.
+Stable release. Published by CI only when the tag `v1.3.0` is pushed: the portable Linux
+`tar.gz`, the Windows `zip`, the Inno Setup installer and the MSI, together with
+`SHA256SUMS.txt` and the signed release manifest. The DEB, RPM, AppImage and Flatpak
+packages are built and verified by CI but are not release assets.
 
 ### Added
+
+- **User interface overhaul** — shared design tokens (spacing, radii, type scale,
+  monospace callsigns/frequencies) and a WCAG-checked palette for the Dark, Daylight and
+  High Contrast themes; a typed toast queue (info/success/warning/error with severity
+  icons, time-to-live, de-duplication and dismiss); reusable status badges and
+  primary/secondary/danger buttons; a status bar with a clear TX/RX indicator; an empty
+  logbook state; a sync-in-progress state; a redesigned default dock layout with a minimum
+  window size and reliable window geometry restore.
+- **Keyboard workflow** — restored Enter (save) / Esc (clear) in the QSO form with a stable
+  Tab order, contest-mode save, and spot-click focus on the QSO form.
+- **Vector undock/redock controls** — every panel can be popped out into its own window and
+  docked back with consistent vector icons (no emoji glyphs).
+- **World map** — Natural Earth 110m land vectors (public domain, embedded at build time),
+  a smooth single-mesh day/night terminator with a grayline band, vector sun/moon icons, an
+  optional Maidenhead field grid, a great-circle path with antimeridian splitting, pan and
+  zoom that stay in frame, and responsive 2:1 scaling with letterboxing and scaled
+  compass and overlays in docked tiles and floating windows.
+- **Audio waterfall** — spectrum plot above the waterfall on a shared frequency axis with
+  a dB grid, Peak Hold, five colour palettes, Auto-Level, a crosshair with AF/level/RF
+  readout, a passband and target-tone marker, and click-to-QSY (retunes the VFO through the
+  existing CAT path; without CAT it only moves the marker). The texture is rebuilt only
+  when a new FFT row arrives or a display parameter changes.
+- **Reference data** — country files, DXCC entity attributes, regional rules and club
+  memberships are loaded from, and managed in, the user data directory with atomic
+  installs.
 
 - **Linux portable `tar.gz`** — deterministic single-root archive
   (`SPLogbook-Linux-x86_64-<version>.tar.gz`), two-phase safe extraction with entry/size
@@ -25,10 +51,10 @@ Artifacts are produced and verified by CI only.
 - **Linux AppImage** — `SPLogbook-Linux-x86_64.AppImage`, built with a pinned official
   `appimagetool` and a pinned type-2 runtime, with verified FUSE mounting and 12 negative
   fixtures.
-- **Linux DEB** — binary `splogbook` package, `1.3.0~alpha.1-1`, `amd64`, installed under
+- **Linux DEB** — binary `splogbook` package, `1.3.0-1`, `amd64`, installed under
   `/opt/SPLogbook` with the launcher `/usr/bin/splogbook`, desktop entry and icon; 27
   negative fixtures; verified install/upgrade/downgrade/reinstall/remove/purge lifecycle.
-- **Linux RPM** — `splogbook-1.3.0-0.1.alpha.1.x86_64`, same `/opt/SPLogbook` layout,
+- **Linux RPM** — `splogbook-1.3.0-1.x86_64`, same `/opt/SPLogbook` layout,
   bundled `libhamlib.so.4` with `RUNPATH=$ORIGIN/lib`; 34 negative fixtures; lifecycle
   verified on Fedora 45 and openSUSE Tumbleweed.
 - **Linux Flatpak** — sandboxed `io.github.sp6ina.SPLogbook` bundle on the pinned
@@ -43,18 +69,24 @@ Artifacts are produced and verified by CI only.
   **not published**, **not submitted to Flathub**.
 - **Windows Inno Setup user setup** — per-user installer in
   `%LOCALAPPDATA%\Programs\SPLogbook`, no elevation, user data preserved on update and
-  uninstall. Implemented and locally verified; **not built or published by CI** (see
-  Known limitations).
+  uninstall. Built, verified and published by CI.
 - **Windows WiX MSI** — per-machine MSI with a fixed `UpgradeCode`, delegated updates
   through `msiexec`, and mutual-exclusion detection against the Inno installer.
-  Implemented and locally verified; **not built or published by CI**.
+  Built, verified and published by CI.
 - **Build identity and channels** — `BuildIdentity`, `UpdateChannel`, `--build-info`,
   `--version` and `--diagnostic-version` output; SemVer channel and downgrade policy.
 - **Linux support policy snapshot** — `LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.{json,md}`
-  declaring kernel and glibc minimums and the supported distribution matrix.
+  (a point-in-time record of the `1.3.0-alpha.1` measurement) declaring kernel and glibc minimums and the supported distribution matrix.
 
 ### Changed
 
+- Time handling moved from `chrono` to `jiff 1.0.1`, which clears `RUSTSEC-2026-0543`
+  without any `--ignore` entry. LoTW/eQSL received dates are no longer invented.
+- The bundled legacy databases and the `v1.2.0` SQLite compatibility code were removed:
+  a clean profile now starts with an empty logbook. `v1.2.0` data compatibility is not a
+  goal of this line.
+- Windows Inno Setup and MSI installers are built, verified and published by the release
+  pipeline; the updater uses single-instance protection and delegated update transactions.
 - **Linux runtime requirement** is now **kernel 7.0** and **glibc 2.43**
   (`GLIBC_2.43` is the maximum required symbol). Supported distributions: Ubuntu 26.04 LTS,
   Fedora 45, Arch Linux, openSUSE Tumbleweed. Debian 13 (glibc 2.41) and openSUSE Leap 16.1
@@ -86,6 +118,11 @@ Artifacts are produced and verified by CI only.
 
 ### Fixed
 
+- Opening the logbook on a clean profile no longer fails with `unable to open database
+  file`: the `databases` directory is created when it is missing.
+- Cabrillo export covers the whole journal and never invents timestamps; sensitive log
+  data is redacted without UTF-8 slicing errors; reference downloads are size-bounded and
+  written atomically.
 - Idle peer timeout, handshake parallelism limit and the concurrent update-lock test are
   now deterministic (virtual time, permit counters) instead of wall-clock dependent.
 - The updater journal, lock and transaction records are validated on load and fail closed
@@ -96,10 +133,9 @@ Artifacts are produced and verified by CI only.
 
 ### Known limitations
 
-- MSI and Inno Setup installers are **not** built or published by CI; only the portable
-  Windows ZIP is. Tracked as finding **F-05**.
-- MSI prerelease versioning for `1.3.0-alpha.2` and later is tracked under open
-  decision `ADR-12` (Windows Installer error 1638).
+- MSI prerelease versioning for prerelease versions after `1.3.0-alpha.1` is tracked under
+  open decision `ADR-12` (Windows Installer error 1638); it does not affect the stable
+  `1.3.0` MSI.
 - Hardware-in-the-loop validation (NATIVE-7B) is **not executed**: 10 tests remain
   `#[ignore = "hardware-in-the-loop"]`. The open P0 finding **F-14** must be resolved first.
 - The Flatpak has **no Flathub submission** and is not part of any GitHub release; it is
@@ -155,8 +191,7 @@ recorded in
 
 ---
 
-## Not yet released
+## Release process
 
-Nothing on the development line has been published. Linux packages and Windows installers
-are built and verified in CI; public release assets are published only when a `v*` release
-tag is pushed.
+Linux packages and Windows installers are built and verified in CI; public release assets
+are published only when a `v*` release tag is pushed.

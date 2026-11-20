@@ -5,7 +5,7 @@
 ; ==============================================================================
 
 #ifndef AppVersion
-  #define AppVersion "1.3.0-alpha.1"
+  #define AppVersion "1.3.0"
 #endif
 
 #ifndef GitCommit
@@ -13,11 +13,11 @@
 #endif
 
 #ifndef BuildChannel
-  #define BuildChannel "alpha"
+  #define BuildChannel "stable"
 #endif
 
 #ifndef DistributionStatus
-  #define DistributionStatus "development"
+  #define DistributionStatus "published_stable"
 #endif
 
 #ifndef StagingDir
@@ -29,7 +29,7 @@
 #endif
 
 #ifndef OutputBaseFilename
-  #define OutputBaseFilename "SPLogbook-Windows-x64-Setup-1.3.0-alpha.1"
+  #define OutputBaseFilename "SPLogbook-Windows-x64-Setup-1.3.0"
 #endif
 
 #define AppMutexName "SPLogbook_Instance_Mutex_{{C8E28541-7B21-4A9B-8F5C-4EF298F613C1}"

@@ -470,7 +470,7 @@ fn readme_documents_the_rpm_contract() {
         "fedora linux 45",
         "opensuse tumbleweed",
         "glibc_2.43",
-        "1.3.0-0.1.alpha.1",
+        "1.3.0-1",
         "/opt/splogbook",
         "libhamlib.so.4",
         "linuxrpm",

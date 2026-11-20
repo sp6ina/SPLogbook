@@ -16,7 +16,7 @@ const RUNTIME: &str = "org.freedesktop.Platform";
 const RUNTIME_VERSION: &str = "26.08";
 const SDK: &str = "org.freedesktop.Sdk";
 const COMMAND: &str = "SPLogbook";
-const PACKAGE_VERSION: &str = "1.3.0-alpha.1";
+const PACKAGE_VERSION: &str = "1.3.0";
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -501,10 +501,12 @@ fn flatpak_appstream_metadata_is_real_and_consistent() {
     assert!(text.contains("<category>HamRadio</category>"));
     assert!(text.contains("<category>Utility</category>"));
     assert!(text.contains("<binary>SPLogbook</binary>"));
-    // Rozwój 1.3.0-alpha.1 nie może być ogłoszony jako wydanie publiczne.
+    // Wydanie stabilne 1.3.0 (2026-11-20) jest ogłoszone obok poprzedniego 1.2.0.
     assert!(
-        !text.contains(&format!("<release version=\"{PACKAGE_VERSION}\"")),
-        "metainfo nie może ogłaszać nieopublikowanej wersji {PACKAGE_VERSION}"
+        text.contains(&format!(
+            "<release version=\"{PACKAGE_VERSION}\" date=\"2026-11-20\" type=\"stable\""
+        )),
+        "metainfo musi ogłaszać wydanie {PACKAGE_VERSION}"
     );
     assert!(
         text.contains("<release version=\"1.2.0\""),
@@ -1063,8 +1065,7 @@ fn flatpak_ci_jobs_exist_and_never_publish() {
     assert!(
         !publish_section.contains("cp dist/SPLogbook-Linux-x86_64.flatpak")
             && !publish_section.contains("release-staging/SPLogbook-Linux-x86_64.flatpak")
-            && !publish_section
-                .contains("release-staging/SPLogbook-Linux-x86_64-1.3.0-alpha.1.flatpak"),
+            && !publish_section.contains("release-staging/SPLogbook-Linux-x86_64-1.3.0.flatpak"),
         "job publikacji nie może kopiować ani publikować bundle'a Flatpak"
     );
     assert!(

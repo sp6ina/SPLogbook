@@ -8,7 +8,7 @@
 # data.  The builder passes splog_version, splog_release and splog_commit.
 
 %{!?splog_version:%global splog_version 1.3.0}
-%{!?splog_release:%global splog_release 0.1.alpha.1}
+%{!?splog_release:%global splog_release 1}
 %{!?splog_commit:%global splog_commit 0000000000000000000000000000000000000000}
 
 # Deterministic package header and payload.  The verified portable payload is
@@ -150,5 +150,8 @@ exit 0
 %license /usr/share/licenses/splogbook/HAMLIB_LGPL-2.1.txt
 
 %changelog
+* Fri Nov 20 2026 Mariusz Woźniak (SP6INA) <contact@splogbook.org> - 1.3.0-1
+- Binary RPM build for the SPLogbook 1.3.0 stable release.
+
 * Fri Nov 13 2026 Mariusz Woźniak (SP6INA) <contact@splogbook.org> - 1.3.0-0.1.alpha.1
 - Binary RPM build for the SPLogbook 1.3.0-alpha.1 development release.

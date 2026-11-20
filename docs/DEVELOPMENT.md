@@ -14,7 +14,7 @@ per-format documentation under [`installer/`](../installer); for security rules 
 | Rust edition | `2024` | `Cargo.toml` |
 | MSRV (minimum supported Rust version) | **1.99.0** | `Cargo.toml` (`rust-version`) |
 | Pinned toolchain used by CI | **1.99.0** (components `rustfmt`, `clippy`) | `.github/workflows/ci.yml` |
-| Package version (development) | `1.3.0-alpha.1` | `Cargo.toml` |
+| Package version | `1.3.0` | `Cargo.toml` |
 | Public stable version | `1.2.0` (annotated tag `v1.2.0`, immutable) | `git tag` / [`CHANGELOG.md`](../CHANGELOG.md) |
 | Targets | Windows 10/11 x86_64, Linux x86_64 | [`LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.md`](../LINUX_SUPPORT_SNAPSHOT_1.3.0-alpha.1.md) |
 

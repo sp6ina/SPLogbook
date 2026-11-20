@@ -74,7 +74,7 @@ fn deb_builder_uses_official_dpkg_and_is_deterministic() {
     }
     assert!(builder.contains("dpkg --validate-version"));
     assert!(builder.contains("dpkg --compare-versions"));
-    assert!(builder.contains("1.3.0~alpha.1-1") || builder.contains("~${PRERELEASE}-"));
+    assert!(builder.contains("1.3.0-1") || builder.contains("~${PRERELEASE}-"));
 }
 
 #[test]
@@ -470,7 +470,7 @@ fn readme_documents_the_deb_contract() {
         "binary",
         "ubuntu 26.04 lts",
         "glibc_2.43",
-        "1.3.0~alpha.1-1",
+        "1.3.0-1",
         "/opt/splogbook",
         "libhamlib.so.4",
         "linuxdeb",

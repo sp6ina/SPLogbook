@@ -52,7 +52,7 @@ if (-not $pkg) {
     throw "BLOKER: Nie odnaleziono pakietu splogbook w cargo metadata"
 }
 
-$expectedVersion = "1.3.0-alpha.1"
+$expectedVersion = "1.3.0"
 if ($pkg.version -ne $expectedVersion) {
     throw "BLOKER: Niezgodna wersja pakietu w Cargo.toml. Oczekiwano '$expectedVersion', wykryto: '$($pkg.version)'"
 }
@@ -165,8 +165,8 @@ try {
         "--no-signing",
         "/DAppVersion=$appVersion",
         "/DGitCommit=$gitCommit",
-        "/DBuildChannel=alpha",
-        "/DDistributionStatus=development",
+        "/DBuildChannel=stable",
+        "/DDistributionStatus=published_stable",
         "/DStagingDir=$stagingDir",
         "/DOutputDir=$resolvedOutputDir",
         "/DOutputBaseFilename=$outputBaseFilename",

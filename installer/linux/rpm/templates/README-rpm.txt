@@ -2,7 +2,7 @@ SPLogbook — Linux RPM package
 
 Package:        splogbook
 Version:        1.3.0
-Release:        0.1.alpha.1
+Release:        1
 Architecture:   x86_64
 Installed root: /opt/SPLogbook
 Launcher:       /usr/bin/splogbook

@@ -103,13 +103,13 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           HAMLIB_DIST="/tmp/hamlib-dist" bash scripts/build_linux_portable_tar_gz.sh dist
-          cp dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz SPLogbook-Linux-x86_64.tar.gz
+          cp dist/SPLogbook-Linux-x86_64-1.3.0.tar.gz SPLogbook-Linux-x86_64.tar.gz
 
       - name: Audit Linux ELF and Hamlib binaries
         run: |
           set -euo pipefail
           mkdir -p /tmp/audit-staging
-          tar -xzf dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz -C /tmp/audit-staging
+          tar -xzf dist/SPLogbook-Linux-x86_64-1.3.0.tar.gz -C /tmp/audit-staging
 
           echo "=== ELF AUDIT: SPLogbook ==="
           file /tmp/audit-staging/SPLogbook/SPLogbook
@@ -142,8 +142,8 @@ jobs:
         with:
           name: SPLogbook-Linux-x86_64
           path: |
-            dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz
-            dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz.sha256
+            dist/SPLogbook-Linux-x86_64-1.3.0.tar.gz
+            dist/SPLogbook-Linux-x86_64-1.3.0.tar.gz.sha256
             SPLogbook-Linux-x86_64.tar.gz
           if-no-files-found: error
 
@@ -165,7 +165,7 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/build_linux_appimage.sh \
-            dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz \
+            dist/SPLogbook-Linux-x86_64-1.3.0.tar.gz \
             dist | tee dist/appimage-build.log
 
       - name: Smoke-verify the AppImage (structure, identity, marker)
@@ -248,8 +248,8 @@ jobs:
           docker pull "${IMAGE}"
           rm -rf deb_env
           mkdir -p deb_env/download deb_env/evidence dist
-          cp download/dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz deb_env/download/
-          cp download/dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz.sha256 deb_env/download/
+          cp download/dist/SPLogbook-Linux-x86_64-1.3.0.tar.gz deb_env/download/
+          cp download/dist/SPLogbook-Linux-x86_64-1.3.0.tar.gz.sha256 deb_env/download/
           SOURCE_DATE_EPOCH="$(git log -1 --format=%ct "${EXPECTED_BUILD_COMMIT}")"
           export SOURCE_DATE_EPOCH
           docker run --rm \
@@ -260,16 +260,16 @@ jobs:
             -v "$(pwd):/workspace" \
             -w /workspace \
             "${IMAGE}" \
-            /bin/sh -c 'set -e; export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y --no-install-recommends dpkg dpkg-dev ca-certificates file binutils xz-utils coreutils; dpkg --version | head -n 1 | tee dist/deb-dpkg-version.txt; dpkg-deb --version | head -n 1 | tee -a dist/deb-dpkg-version.txt; dpkg-architecture -qDEB_HOST_ARCH | tee -a dist/deb-dpkg-version.txt; bash scripts/build_linux_deb.sh dist deb_env/download/SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz' \
+            /bin/sh -c 'set -e; export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y --no-install-recommends dpkg dpkg-dev ca-certificates file binutils xz-utils coreutils; dpkg --version | head -n 1 | tee dist/deb-dpkg-version.txt; dpkg-deb --version | head -n 1 | tee -a dist/deb-dpkg-version.txt; dpkg-architecture -qDEB_HOST_ARCH | tee -a dist/deb-dpkg-version.txt; bash scripts/build_linux_deb.sh dist deb_env/download/SPLogbook-Linux-x86_64-1.3.0.tar.gz' \
             2>&1 | tee deb_env/evidence/deb-build.log
           test -s deb_env/evidence/deb-build.log
           grep -q "DEB BUILD COMPLETED SUCCESSFULLY" deb_env/evidence/deb-build.log
-          test -s dist/SPLogbook-Linux-amd64-1.3.0-alpha.1.deb
-          ( cd dist && sha256sum -c SPLogbook-Linux-amd64-1.3.0-alpha.1.deb.sha256 )
+          test -s dist/SPLogbook-Linux-amd64-1.3.0.deb
+          ( cd dist && sha256sum -c SPLogbook-Linux-amd64-1.3.0.deb.sha256 )
           ( cd dist && sha256sum -c SPLogbook-Linux-amd64.deb.sha256 )
           mkdir -p deb_artifact
-          cp dist/SPLogbook-Linux-amd64-1.3.0-alpha.1.deb deb_artifact/
-          cp dist/SPLogbook-Linux-amd64-1.3.0-alpha.1.deb.sha256 deb_artifact/
+          cp dist/SPLogbook-Linux-amd64-1.3.0.deb deb_artifact/
+          cp dist/SPLogbook-Linux-amd64-1.3.0.deb.sha256 deb_artifact/
           cp dist/SPLogbook-Linux-amd64.deb deb_artifact/
           cp dist/SPLogbook-Linux-amd64.deb.sha256 deb_artifact/
           cp dist/deb-toolchain.json deb_artifact/
@@ -320,8 +320,8 @@ jobs:
           docker pull "${IMAGE}"
           rm -rf rpm_env
           mkdir -p rpm_env/download rpm_env/evidence dist
-          cp download/dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz rpm_env/download/
-          cp download/dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz.sha256 rpm_env/download/
+          cp download/dist/SPLogbook-Linux-x86_64-1.3.0.tar.gz rpm_env/download/
+          cp download/dist/SPLogbook-Linux-x86_64-1.3.0.tar.gz.sha256 rpm_env/download/
           SOURCE_DATE_EPOCH="$(git log -1 --format=%ct "${EXPECTED_BUILD_COMMIT}")"
           export SOURCE_DATE_EPOCH
           docker run --rm \
@@ -332,17 +332,17 @@ jobs:
             -v "$(pwd):/workspace" \
             -w /workspace \
             "${IMAGE}" \
-            /bin/sh -c 'set -e; dnf install -y --setopt=install_weak_deps=False rpm rpm-build rpmdevtools rpmlint cpio patchelf file binutils gzip tar xz findutils coreutils bash; rpm --version | tee dist/rpm-dnf-version.txt; rpmbuild --version | tee -a dist/rpm-dnf-version.txt; rpmspec --version | tee -a dist/rpm-dnf-version.txt; rpmlint --version 2>&1 | head -n 1 | tee -a dist/rpm-dnf-version.txt; bash scripts/build_linux_rpm.sh dist rpm_env/download/SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz' \
+            /bin/sh -c 'set -e; dnf install -y --setopt=install_weak_deps=False rpm rpm-build rpmdevtools rpmlint cpio patchelf file binutils gzip tar xz findutils coreutils bash; rpm --version | tee dist/rpm-dnf-version.txt; rpmbuild --version | tee -a dist/rpm-dnf-version.txt; rpmspec --version | tee -a dist/rpm-dnf-version.txt; rpmlint --version 2>&1 | head -n 1 | tee -a dist/rpm-dnf-version.txt; bash scripts/build_linux_rpm.sh dist rpm_env/download/SPLogbook-Linux-x86_64-1.3.0.tar.gz' \
             2>&1 | tee rpm_env/evidence/rpm-build.log
           test -s rpm_env/evidence/rpm-build.log
           grep -q "RPM BUILD COMPLETED SUCCESSFULLY" rpm_env/evidence/rpm-build.log
-          test -s dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm
-          ( cd dist && sha256sum -c SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm.sha256 )
+          test -s dist/SPLogbook-Linux-x86_64-1.3.0.rpm
+          ( cd dist && sha256sum -c SPLogbook-Linux-x86_64-1.3.0.rpm.sha256 )
           ( cd dist && sha256sum -c SPLogbook-Linux-x86_64.rpm.sha256 )
           mkdir -p rpm_artifact
-          cp dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm rpm_artifact/
-          cp dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm.sha256 rpm_artifact/
-          cp dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm.manifest rpm_artifact/
+          cp dist/SPLogbook-Linux-x86_64-1.3.0.rpm rpm_artifact/
+          cp dist/SPLogbook-Linux-x86_64-1.3.0.rpm.sha256 rpm_artifact/
+          cp dist/SPLogbook-Linux-x86_64-1.3.0.rpm.manifest rpm_artifact/
           cp dist/SPLogbook-Linux-x86_64.rpm rpm_artifact/
           cp dist/SPLogbook-Linux-x86_64.rpm.sha256 rpm_artifact/
           cp dist/rpm-toolchain.json rpm_artifact/
@@ -592,12 +592,12 @@ jobs:
           echo "=== PULLING PINNED OCI IMAGE ==="
           docker pull "${{ matrix.image }}"
 
-          CANONICAL_SHA=$(awk '{print $1}' download/dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz.sha256)
+          CANONICAL_SHA=$(awk '{print $1}' download/dist/SPLogbook-Linux-x86_64-1.3.0.tar.gz.sha256)
           echo "Canonical SHA-256: ${CANONICAL_SHA}"
 
           mkdir -p test_env/evidence
-          cp download/dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz test_env/
-          cp download/dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz.sha256 test_env/
+          cp download/dist/SPLogbook-Linux-x86_64-1.3.0.tar.gz test_env/
+          cp download/dist/SPLogbook-Linux-x86_64-1.3.0.tar.gz.sha256 test_env/
           cp scripts/verify_linux_container.sh test_env/run_test.sh
           cp scripts/install_linux_runtime_deps.sh test_env/install_runtime_deps.sh
           chmod +x test_env/run_test.sh test_env/install_runtime_deps.sh
@@ -735,8 +735,8 @@ jobs:
 
           rm -rf negative_fixture
           mkdir -p negative_fixture/evidence
-          cp download/dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz negative_fixture/
-          cp download/dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz.sha256 negative_fixture/
+          cp download/dist/SPLogbook-Linux-x86_64-1.3.0.tar.gz negative_fixture/
+          cp download/dist/SPLogbook-Linux-x86_64-1.3.0.tar.gz.sha256 negative_fixture/
           cp scripts/verify_linux_container.sh negative_fixture/run_test.sh
           chmod +x negative_fixture/run_test.sh
 
@@ -915,7 +915,7 @@ jobs:
           echo "FUSE_DEVICE_PRESENT=true"
 
           ./SPLogbook-Linux-x86_64.AppImage --version | tee fuse-version.txt
-          test "$(cat fuse-version.txt)" = "SPLogbook 1.3.0-alpha.1"
+          test "$(cat fuse-version.txt)" = "SPLogbook 1.3.0"
           ./SPLogbook-Linux-x86_64.AppImage --build-info | tee fuse-build-info.txt
           grep -q "^Commit: ${{ github.sha }}$" fuse-build-info.txt
           HEALTH_PROOF=$(mktemp)
@@ -974,8 +974,8 @@ jobs:
           export EXPECTED_ICON_SHA256 EXPECTED_DESKTOP_SHA256
           rm -rf deb_verify
           mkdir -p deb_verify/evidence
-          cp deb/SPLogbook-Linux-amd64-1.3.0-alpha.1.deb deb_verify/
-          cp deb/SPLogbook-Linux-amd64-1.3.0-alpha.1.deb.sha256 deb_verify/
+          cp deb/SPLogbook-Linux-amd64-1.3.0.deb deb_verify/
+          cp deb/SPLogbook-Linux-amd64-1.3.0.deb.sha256 deb_verify/
           docker run --rm \
             -e EXPECTED_BUILD_COMMIT \
             -e EXPECTED_ICON_SHA256 \
@@ -983,7 +983,7 @@ jobs:
             -v "$(pwd):/workspace" \
             -w /workspace \
             "${IMAGE}" \
-            /bin/sh -c 'set -e; export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y --no-install-recommends dpkg apt-utils lintian desktop-file-utils file binutils python3 ca-certificates; sh scripts/verify_linux_deb.sh deb_verify/SPLogbook-Linux-amd64-1.3.0-alpha.1.deb' \
+            /bin/sh -c 'set -e; export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y --no-install-recommends dpkg apt-utils lintian desktop-file-utils file binutils python3 ca-certificates; sh scripts/verify_linux_deb.sh deb_verify/SPLogbook-Linux-amd64-1.3.0.deb' \
             2>&1 | tee deb_verify/evidence/deb-verify.log
           test -s deb_verify/evidence/deb-verify.log
           grep -q "DEB VERIFICATION COMPLETED SUCCESSFULLY" deb_verify/evidence/deb-verify.log
@@ -1035,8 +1035,8 @@ jobs:
           export EXPECTED_ICON_SHA256 EXPECTED_DESKTOP_SHA256
           rm -rf deb_negative
           mkdir -p deb_negative/evidence
-          cp deb/SPLogbook-Linux-amd64-1.3.0-alpha.1.deb deb_negative/
-          cp deb/SPLogbook-Linux-amd64-1.3.0-alpha.1.deb.sha256 deb_negative/
+          cp deb/SPLogbook-Linux-amd64-1.3.0.deb deb_negative/
+          cp deb/SPLogbook-Linux-amd64-1.3.0.deb.sha256 deb_negative/
           docker run --rm \
             -e EXPECTED_BUILD_COMMIT \
             -e EXPECTED_ICON_SHA256 \
@@ -1044,7 +1044,7 @@ jobs:
             -v "$(pwd):/workspace" \
             -w /workspace \
             "${IMAGE}" \
-            /bin/sh -c 'set -e; export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y --no-install-recommends dpkg apt-utils desktop-file-utils file binutils python3 ca-certificates; sh scripts/verify_linux_deb_negative_fixture.sh scripts/verify_linux_deb.sh deb_negative/SPLogbook-Linux-amd64-1.3.0-alpha.1.deb' \
+            /bin/sh -c 'set -e; export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y --no-install-recommends dpkg apt-utils desktop-file-utils file binutils python3 ca-certificates; sh scripts/verify_linux_deb_negative_fixture.sh scripts/verify_linux_deb.sh deb_negative/SPLogbook-Linux-amd64-1.3.0.deb' \
             2>&1 | tee deb_negative/evidence/deb-negative-fixtures.log
           test -s deb_negative/evidence/deb-negative-fixtures.log
           grep -q "NEGATIVE FIXTURES REJECTED AS EXPECTED: 27/27" deb_negative/evidence/deb-negative-fixtures.log
@@ -1112,9 +1112,9 @@ jobs:
           export EXPECTED_ICON_SHA256 EXPECTED_DESKTOP_SHA256 EXPECTED_SOURCE_DATE_EPOCH
           rm -rf rpm_verify
           mkdir -p rpm_verify/evidence
-          cp rpm/SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm rpm_verify/
-          cp rpm/SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm.sha256 rpm_verify/
-          cp rpm/SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm.manifest rpm_verify/
+          cp rpm/SPLogbook-Linux-x86_64-1.3.0.rpm rpm_verify/
+          cp rpm/SPLogbook-Linux-x86_64-1.3.0.rpm.sha256 rpm_verify/
+          cp rpm/SPLogbook-Linux-x86_64-1.3.0.rpm.manifest rpm_verify/
           docker run --rm \
             -e EXPECTED_BUILD_COMMIT \
             -e EXPECTED_ICON_SHA256 \
@@ -1125,7 +1125,7 @@ jobs:
             -v "$(pwd):/workspace" \
             -w /workspace \
             "${IMAGE}" \
-            /bin/sh -c 'set -e; if [ -n "${INSTALL_TOOLS}" ]; then eval "${INSTALL_TOOLS}"; elif command -v dnf >/dev/null 2>&1; then dnf install -y --setopt=install_weak_deps=False rpm rpm-build rpmdevtools rpmlint cpio file binutils desktop-file-utils findutils python3 ca-certificates; else echo "no supported package manager" >&2; exit 1; fi; sh scripts/install_linux_runtime_deps.sh; SPLOG_RPM_SKIP_RPMLINT="${SKIP_RPMLINT}" sh scripts/verify_linux_rpm.sh rpm_verify/SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm' \
+            /bin/sh -c 'set -e; if [ -n "${INSTALL_TOOLS}" ]; then eval "${INSTALL_TOOLS}"; elif command -v dnf >/dev/null 2>&1; then dnf install -y --setopt=install_weak_deps=False rpm rpm-build rpmdevtools rpmlint cpio file binutils desktop-file-utils findutils python3 ca-certificates; else echo "no supported package manager" >&2; exit 1; fi; sh scripts/install_linux_runtime_deps.sh; SPLOG_RPM_SKIP_RPMLINT="${SKIP_RPMLINT}" sh scripts/verify_linux_rpm.sh rpm_verify/SPLogbook-Linux-x86_64-1.3.0.rpm' \
             2>&1 | tee "rpm_verify/evidence/rpm-verify-${GITHUB_JOB}-${{ matrix.rpm_profile }}.log"
           EVIDENCE="rpm_verify/evidence/rpm-verify-${GITHUB_JOB}-${{ matrix.rpm_profile }}.log"
           test -s "${EVIDENCE}"
@@ -1181,9 +1181,9 @@ jobs:
           export EXPECTED_ICON_SHA256 EXPECTED_DESKTOP_SHA256
           rm -rf rpm_negative
           mkdir -p rpm_negative/evidence
-          cp rpm/SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm rpm_negative/
-          cp rpm/SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm.sha256 rpm_negative/
-          cp rpm/SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm.manifest rpm_negative/
+          cp rpm/SPLogbook-Linux-x86_64-1.3.0.rpm rpm_negative/
+          cp rpm/SPLogbook-Linux-x86_64-1.3.0.rpm.sha256 rpm_negative/
+          cp rpm/SPLogbook-Linux-x86_64-1.3.0.rpm.manifest rpm_negative/
           docker run --rm \
             -e EXPECTED_BUILD_COMMIT \
             -e EXPECTED_ICON_SHA256 \
@@ -1191,7 +1191,7 @@ jobs:
             -v "$(pwd):/workspace" \
             -w /workspace \
             "${IMAGE}" \
-            /bin/sh -c 'set -e; dnf install -y --setopt=install_weak_deps=False rpm rpm-build rpmdevtools rpmlint cpio file binutils desktop-file-utils findutils python3 patchelf ca-certificates; sh scripts/install_linux_runtime_deps.sh; sh scripts/verify_linux_rpm_negative_fixture.sh scripts/verify_linux_rpm.sh rpm_negative/SPLogbook-Linux-x86_64-1.3.0-alpha.1.rpm' \
+            /bin/sh -c 'set -e; dnf install -y --setopt=install_weak_deps=False rpm rpm-build rpmdevtools rpmlint cpio file binutils desktop-file-utils findutils python3 patchelf ca-certificates; sh scripts/install_linux_runtime_deps.sh; sh scripts/verify_linux_rpm_negative_fixture.sh scripts/verify_linux_rpm.sh rpm_negative/SPLogbook-Linux-x86_64-1.3.0.rpm' \
             2>&1 | tee rpm_negative/evidence/rpm-negative-fixtures.log
           test -s rpm_negative/evidence/rpm-negative-fixtures.log
           grep -q "NEGATIVE FIXTURES REJECTED AS EXPECTED: 34/34" rpm_negative/evidence/rpm-negative-fixtures.log
@@ -1305,8 +1305,8 @@ jobs:
           fi
           test -s flatpak-build.log
           grep -q "FLATPAK BUILD COMPLETED SUCCESSFULLY" flatpak-build.log
-          test -s dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.flatpak
-          ( cd dist && sha256sum -c SPLogbook-Linux-x86_64-1.3.0-alpha.1.flatpak.sha256 )
+          test -s dist/SPLogbook-Linux-x86_64-1.3.0.flatpak
+          ( cd dist && sha256sum -c SPLogbook-Linux-x86_64-1.3.0.flatpak.sha256 )
           ( cd dist && sha256sum -c SPLogbook-Linux-x86_64.flatpak.sha256 )
 
       - name: Upload the Flatpak CI artifact
@@ -1314,9 +1314,9 @@ jobs:
         with:
           name: SPLogbook-Linux-x86_64-flatpak
           path: |
-            dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.flatpak
-            dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.flatpak.sha256
-            dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.flatpak.manifest
+            dist/SPLogbook-Linux-x86_64-1.3.0.flatpak
+            dist/SPLogbook-Linux-x86_64-1.3.0.flatpak.sha256
+            dist/SPLogbook-Linux-x86_64-1.3.0.flatpak.manifest
             dist/SPLogbook-Linux-x86_64.flatpak
             dist/SPLogbook-Linux-x86_64.flatpak.sha256
             dist/flatpak-toolchain.json
@@ -1496,7 +1496,7 @@ jobs:
             -v "$(pwd):/workspace" \
             -w /workspace \
             "${IMAGE}" \
-            /bin/bash -c 'set -euo pipefail; export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y --no-install-recommends flatpak flatpak-builder ostree appstream desktop-file-utils xvfb xauth python3 file binutils git ca-certificates; bash scripts/verify_linux_flatpak.sh dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.flatpak' \
+            /bin/bash -c 'set -euo pipefail; export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y --no-install-recommends flatpak flatpak-builder ostree appstream desktop-file-utils xvfb xauth python3 file binutils git ca-certificates; bash scripts/verify_linux_flatpak.sh dist/SPLogbook-Linux-x86_64-1.3.0.flatpak' \
             2>&1 | tee flatpak-verify.log
           test -s flatpak-verify.log
           grep -q "FLATPAK VERIFICATION COMPLETED SUCCESSFULLY" flatpak-verify.log
@@ -1549,7 +1549,7 @@ jobs:
             -v "$(pwd):/workspace" \
             -w /workspace \
             "${IMAGE}" \
-            /bin/bash -c 'set -euo pipefail; export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y --no-install-recommends flatpak flatpak-builder ostree appstream desktop-file-utils xvfb xauth python3 file binutils git ca-certificates; bash scripts/verify_linux_flatpak.sh dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.flatpak' \
+            /bin/bash -c 'set -euo pipefail; export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y --no-install-recommends flatpak flatpak-builder ostree appstream desktop-file-utils xvfb xauth python3 file binutils git ca-certificates; bash scripts/verify_linux_flatpak.sh dist/SPLogbook-Linux-x86_64-1.3.0.flatpak' \
             2>&1 | tee flatpak-permissions.log
           test -s flatpak-permissions.log
           grep -q "FLATPAK PERMISSIONS VERIFICATION COMPLETED SUCCESSFULLY" flatpak-permissions.log
@@ -1599,7 +1599,7 @@ jobs:
             -v "$(pwd):/workspace" \
             -w /workspace \
             "${IMAGE}" \
-            /bin/bash -c 'set -euo pipefail; export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y --no-install-recommends flatpak flatpak-builder ostree appstream desktop-file-utils xvfb xauth python3 file binutils git ca-certificates; bash scripts/verify_linux_flatpak.sh dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.flatpak' \
+            /bin/bash -c 'set -euo pipefail; export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y --no-install-recommends flatpak flatpak-builder ostree appstream desktop-file-utils xvfb xauth python3 file binutils git ca-certificates; bash scripts/verify_linux_flatpak.sh dist/SPLogbook-Linux-x86_64-1.3.0.flatpak' \
             2>&1 | tee flatpak-lifecycle.log
           test -s flatpak-lifecycle.log
           grep -q "FLATPAK LIFECYCLE VERIFICATION COMPLETED SUCCESSFULLY" flatpak-lifecycle.log
@@ -1727,7 +1727,7 @@ jobs:
             -v "$(pwd):/workspace" \
             -w /workspace \
             "${IMAGE}" \
-            /bin/bash -c 'set -euo pipefail; export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y --no-install-recommends flatpak flatpak-builder ostree appstream desktop-file-utils xvfb xauth python3 file binutils git ca-certificates; bash scripts/verify_linux_flatpak_negative_fixture.sh dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.flatpak' \
+            /bin/bash -c 'set -euo pipefail; export DEBIAN_FRONTEND=noninteractive; apt-get update; apt-get install -y --no-install-recommends flatpak flatpak-builder ostree appstream desktop-file-utils xvfb xauth python3 file binutils git ca-certificates; bash scripts/verify_linux_flatpak_negative_fixture.sh dist/SPLogbook-Linux-x86_64-1.3.0.flatpak' \
             2>&1 | tee flatpak-negative.log
           test -s flatpak-negative.log
           grep -q "FLATPAK NEGATIVE FIXTURES COMPLETED SUCCESSFULLY" flatpak-negative.log

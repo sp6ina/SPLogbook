@@ -298,7 +298,7 @@ sizes and per-file digests), so any rewrite, deletion or truncation fails the
 job.
 
 A SemVer **version** downgrade is not exercised because only one Flatpak build
-exists: the development line `1.3.0-alpha.1` has no earlier Flatpak artifact,
+exists: the `1.3.0` line has no earlier Flatpak artifact,
 and the public `1.2.0` release predates this format. A version downgrade
 requires a second build published to a remote, and `flatpak update --commit`
 is only meaningful against such a remote; the deployment-level re-deploy path
@@ -323,7 +323,7 @@ prints `FLATPAK BUILD COMPLETED SUCCESSFULLY` only as its last statement.
 
 ```sh
 EXPECTED_BUILD_COMMIT="$(git rev-parse HEAD)" \
-  bash scripts/verify_linux_flatpak.sh dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.flatpak
+  bash scripts/verify_linux_flatpak.sh dist/SPLogbook-Linux-x86_64-1.3.0.flatpak
 ```
 
 The verifier checks the bundle type, magic, size, both checksum sidecars, the
@@ -354,7 +354,7 @@ harness and is never evidence of a successful installation.
 ```sh
 EXPECTED_BUILD_COMMIT="$(git rev-parse HEAD)" \
   bash scripts/verify_linux_flatpak_negative_fixture.sh \
-    dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.flatpak
+    dist/SPLogbook-Linux-x86_64-1.3.0.flatpak
 ```
 
 The harness mutates disposable copies of the repository contract, the bundle

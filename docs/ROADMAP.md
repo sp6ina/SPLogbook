@@ -14,7 +14,7 @@ that has been remediated and must not be reopened without a reproducible regress
 | Element | Value |
 |---|---|
 | Public stable | **1.2.0** — annotated tag `v1.2.0`, immutable (object `3ea8d51aab436805107a1cf422e0b35cc301458f`, peeled commit `6f7d3aaa3b6a54e87b481c142a5b690bcf8b5592`) |
-| Development | **1.3.0-alpha.1** — **not published** (no tag, no release, no assets) |
+| Current release | **1.3.0** — stable, tag `v1.3.0` (2026-11-20) |
 | Release pipeline | artifacts are built and verified by CI; publication is gated on a `v*` tag and a separate authorization |
 | Public release audit | [`docs/security/HISTORICAL_RELEASE_AUDIT.md`](security/HISTORICAL_RELEASE_AUDIT.md) |
 

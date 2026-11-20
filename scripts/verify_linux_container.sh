@@ -19,8 +19,8 @@
 
 set -eu
 
-ARCHIVE="SPLogbook-Linux-x86_64-1.3.0-alpha.1.tar.gz"
-EXPECTED_VERSION="1.3.0-alpha.1"
+ARCHIVE="SPLogbook-Linux-x86_64-1.3.0.tar.gz"
+EXPECTED_VERSION="1.3.0"
 GLIBC_POLICY_MAX="2.43"
 
 # Sonames that must be resolvable in the profile runtime. The artifact's direct
@@ -108,7 +108,7 @@ cat "SPLogbook/.splogbook-linux-portable-marker"
 pass "archive extracted with a single SPLogbook/ root and marker"
 
 echo "=== 4.1. MARKER IDENTITY ==="
-grep -q '"package_version": "1.3.0-alpha.1"' "SPLogbook/.splogbook-linux-portable-marker" \
+grep -q '"package_version": "1.3.0"' "SPLogbook/.splogbook-linux-portable-marker" \
     || fail "marker package_version mismatch"
 grep -q '"target_arch": "x86_64"' "SPLogbook/.splogbook-linux-portable-marker" \
     || fail "marker target_arch mismatch"

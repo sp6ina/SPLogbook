@@ -18,7 +18,7 @@
 #
 # Usage
 #   EXPECTED_BUILD_COMMIT=<40-hex> bash scripts/verify_linux_flatpak_negative_fixture.sh \
-#     [dist/SPLogbook-Linux-x86_64-1.3.0-alpha.1.flatpak]
+#     [dist/SPLogbook-Linux-x86_64-1.3.0.flatpak]
 
 set -euo pipefail
 
