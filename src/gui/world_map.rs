@@ -113,10 +113,6 @@ fn icon_checkbox(
     ui.checkbox(value, text);
 }
 
-/// Azymut wiązki/kompasu: z rotatora, gdy jest aktywny (podłączony, w ruchu lub z wysłaną
-/// komendą), w przeciwnym razie kierunek na korespondenta; bez żadnego źródła — `None`
-/// (żadnego mylącego „0°” na stacji domowej).
-#[must_use]
 /// Appends a filled octagon (a dot at marker size) to `mesh` as a triangle fan.
 fn push_dot(mesh: &mut egui::epaint::Mesh, center: egui::Pos2, radius: f32, color: egui::Color32) {
     const SIDES: u32 = 8;
@@ -136,6 +132,10 @@ fn push_dot(mesh: &mut egui::epaint::Mesh, center: egui::Pos2, radius: f32, colo
     }
 }
 
+/// Azymut wiązki/kompasu: z rotatora, gdy jest aktywny (podłączony, w ruchu lub z wysłaną
+/// komendą), w przeciwnym razie kierunek na korespondenta; bez żadnego źródła — `None`
+/// (żadnego mylącego „0°” na stacji domowej).
+#[must_use]
 pub fn beam_azimuth(
     rotor: &crate::cat::rotor::RotorState,
     dx_bearing_deg: Option<f32>,
