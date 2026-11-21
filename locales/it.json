@@ -1258,6 +1258,7 @@
   "sync.eqsl_missing_creds": "[eQSL] Errore: manca login o password per eQSL.cc.",
   "sync.eqsl_error": "[eQSL ERRORE] {err}",
   "sync.eqsl_download_success": "[eQSL SUCCESSO] Scaricate {count} conferme, aggiornate nel database: {updated}",
+  "sync.qsl_match_skipped": "[{service}] Conferme non applicate: {unmatched} senza QSO corrispondente entro ±30 min UTC, {ambiguous} ambigue (più QSO quel giorno, rapporto senza orario)",
   "sync.callsign": "Nominativo stazione:",
   "sync.api_key_optional": "Chiave API (opzionale):",
   "sync.live_auto_upload_clublog": "Invia automaticamente ogni nuovo QSO in tempo reale",

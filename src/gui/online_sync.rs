@@ -147,20 +147,27 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                         .map_err(|e| e.to_string());
                                                     match report_res {
                                                         Ok(adif) => {
-                                                            let (count, updated) = tokio::task::spawn_blocking(move || {
+                                                            // STAGE-V140-S1: paczki po QSL_MATCH_CHUNK_SIZE, blokada bazy
+                                                            // oddawana między paczkami; błąd bazy jest raportowany.
+                                                            let outcome = tokio::task::spawn_blocking(move || {
                                                                 let confs = crate::cloud::lotw::parse_lotw_confirmations(&adif);
-                                                                let count = confs.len();
-                                                                let updated = if let Ok(db) = log_db.lock() {
-                                                                    db.mark_lotw_confirmed_batch_for_journal(&journal_id, &confs)
-                                                                        .unwrap_or(0)
-                                                                } else {
-                                                                    0
-                                                                };
-                                                                (count, updated)
+                                                                crate::core::database::qsl::apply_lotw_confirmations_chunked(&log_db, &journal_id, &confs, |_| {})
+                                                                    .map_err(|e| e.to_string())
                                                             })
                                                             .await
-                                                            .unwrap_or((0, 0));
-                                                            let _ = tx.send((Msg::new(key::SYNC_LOTW_DOWNLOAD_SUCCESS).arg("count", count).arg("updated", updated).text(lang), true));
+                                                            .map_err(|e| e.to_string())
+                                                            .and_then(|result| result);
+                                                            match outcome {
+                                                                Ok(report) => {
+                                                                    let _ = tx.send((Msg::new(key::SYNC_LOTW_DOWNLOAD_SUCCESS).arg("count", report.confirmations).arg("updated", report.matched).text(lang), true));
+                                                                    if report.unmatched + report.ambiguous > 0 {
+                                                                        let _ = tx.send((Msg::new(key::SYNC_QSL_MATCH_SKIPPED).arg("service", "LoTW").arg("unmatched", report.unmatched).arg("ambiguous", report.ambiguous).text(lang), false));
+                                                                    }
+                                                                }
+                                                                Err(e) => {
+                                                                    let _ = tx.send((Msg::new(key::SYNC_LOTW_ERROR).arg("err", &e).text(lang), false));
+                                                                }
+                                                            }
                                                         }
                                                         Err(e) => {
                                                             let _ = tx.send((Msg::new(key::SYNC_LOTW_ERROR).arg("err", &e).text(lang), false));
@@ -221,20 +228,27 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                     let _ = tx.send(("[eQSL] Pobieranie skrzynki odbiorczej (Inbox ADIF)...".to_string(), false));
                                                     match client.download_inbox_adif().await {
                                                         Ok(adif) => {
-                                                            let (count, updated) = tokio::task::spawn_blocking(move || {
+                                                            // STAGE-V140-S1: paczki po QSL_MATCH_CHUNK_SIZE, blokada bazy
+                                                            // oddawana między paczkami; błąd bazy jest raportowany.
+                                                            let outcome = tokio::task::spawn_blocking(move || {
                                                                 let qsos = crate::core::adif::parse_adif(&adif);
-                                                                let count = qsos.len();
-                                                                let updated = if let Ok(db) = log_db.lock() {
-                                                                    db.mark_eqsl_confirmed_batch_for_journal(&journal_id, &qsos)
-                                                                        .unwrap_or(0)
-                                                                } else {
-                                                                    0
-                                                                };
-                                                                (count, updated)
+                                                                crate::core::database::qsl::apply_eqsl_confirmations_chunked(&log_db, &journal_id, &qsos, |_| {})
+                                                                    .map_err(|e| e.to_string())
                                                             })
                                                             .await
-                                                            .unwrap_or((0, 0));
-                                                            let _ = tx.send((Msg::new(key::SYNC_EQSL_DOWNLOAD_SUCCESS).arg("count", count).arg("updated", updated).text(lang), true));
+                                                            .map_err(|e| e.to_string())
+                                                            .and_then(|result| result);
+                                                            match outcome {
+                                                                Ok(report) => {
+                                                                    let _ = tx.send((Msg::new(key::SYNC_EQSL_DOWNLOAD_SUCCESS).arg("count", report.confirmations).arg("updated", report.matched).text(lang), true));
+                                                                    if report.unmatched + report.ambiguous > 0 {
+                                                                        let _ = tx.send((Msg::new(key::SYNC_QSL_MATCH_SKIPPED).arg("service", "eQSL").arg("unmatched", report.unmatched).arg("ambiguous", report.ambiguous).text(lang), false));
+                                                                    }
+                                                                }
+                                                                Err(e) => {
+                                                                    let _ = tx.send((Msg::new(key::SYNC_EQSL_ERROR).arg("err", &e).text(lang), false));
+                                                                }
+                                                            }
                                                         }
                                                         Err(e) => {
                                                             let _ = tx.send((Msg::new(key::SYNC_EQSL_ERROR).arg("err", &e).text(lang), false));

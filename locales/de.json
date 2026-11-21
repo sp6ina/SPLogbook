@@ -1258,6 +1258,7 @@
   "sync.eqsl_missing_creds": "[eQSL] Fehler: Fehlender Benutzername oder Passwort für eQSL.cc.",
   "sync.eqsl_error": "[eQSL FEHLER] {err}",
   "sync.eqsl_download_success": "[eQSL ERFOLG] {count} Bestätigungen heruntergeladen, in Datenbank aktualisiert: {updated}",
+  "sync.qsl_match_skipped": "[{service}] Nicht übernommene Bestätigungen: {unmatched} ohne passendes QSO innerhalb ±30 Min. UTC, {ambiguous} mehrdeutig (mehrere QSOs an diesem Tag, Bericht ohne Uhrzeit)",
   "sync.callsign": "Stationsrufzeichen:",
   "sync.api_key_optional": "API-Schlüssel (optional):",
   "sync.live_auto_upload_clublog": "Jedes neu hinzugefügte QSO automatisch in Echtzeit hochladen",

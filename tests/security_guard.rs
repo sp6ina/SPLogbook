@@ -10712,10 +10712,34 @@ fn p1_f20r_persistent_checkpoint_schema_guard() {
             "F-20R: persistent checkpoint schema must contain `{required}`"
         );
     }
-    // Wersja schematu bazy musi zostać podniesiona i zwalidowana.
+    // Wersja schematu bazy musi zostać podniesiona i zwalidowana (obejmuje migracje 8 i 9).
+    // STAGE-V140-S1, decyzja OWNER D-S1-1: zamiast literału `KNOWN_MAX_VERSION: i64 = 9`
+    // wersja pochodzi z jednej tablicy migracji, a migracje 8 i 9 muszą w niej pozostać.
+    for required in [
+        "(8, LogDatabase::migration_8_upload_checkpoints),",
+        "(9, LogDatabase::migration_9_upload_sent_dates),",
+        "pub const LATEST_SCHEMA_VERSION: i64 = MIGRATIONS[MIGRATIONS.len() - 1].0;",
+        "if version > LATEST_SCHEMA_VERSION {",
+    ] {
+        assert!(
+            migrations.contains(required),
+            "F-20R: the schema version must cover migrations 8 and 9: `{required}`"
+        );
+    }
     assert!(
-        migrations.contains("KNOWN_MAX_VERSION: i64 = 9"),
-        "F-20R: the schema version must cover migrations 8 and 9"
+        !migrations.contains("KNOWN_MAX_VERSION"),
+        "F-20R: the schema version must have exactly one source of truth"
+    );
+    const {
+        assert!(
+            splogbook::core::database::LATEST_SCHEMA_VERSION >= 9,
+            "F-20R: the schema version must cover migrations 8 and 9"
+        );
+    }
+    assert_eq!(
+        splogbook::core::backup::BackupManager::SUPPORTED_SCHEMA_VERSION,
+        splogbook::core::database::LATEST_SCHEMA_VERSION,
+        "F-20R: backup validation must use the same schema version"
     );
     for required in [
         "(\"upload_plans\", \"journal_id\")",
@@ -11543,6 +11567,9 @@ fn eqsl_received_date_is_never_fabricated_from_qso_date_guard() {
     let db = LogDatabase::open_in_memory().unwrap();
     let mut base_qso = QsoRecord::new("W1AW", "20m", "CW");
     base_qso.qso_date = "20261001".to_string();
+    // STAGE-V140-S1, decyzja OWNER D-S1-2: czas QSO = TIME_ON potwierdzeń (120000), zamiast
+    // zegara ściennego z `QsoRecord::new` — dopasowanie ±30 min jest deterministyczne.
+    base_qso.time_on = "120000".to_string();
     db.insert_qso(&base_qso).unwrap();
 
     // Confirm without date -> eqsl_qsl_rcvd = "Y", eqsl_qslrdate = None

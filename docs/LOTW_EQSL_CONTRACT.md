@@ -251,3 +251,24 @@ with the shipped binary's documentation, the **newest document** wins, and both 
   **unverified**; the code is fail-closed around it.
 * Real acceptance timing, queueing delays and rate limiting are unverified.
 * The TQSL certificate store was never touched; no certificate exists in any test fixture.
+
+---
+
+## 6. Matching downloaded confirmations to logged QSOs (STAGE-V140-S1)
+
+This section is a **local SPLogbook rule**, not a statement about the services: neither LoTW nor
+eQSL documents how a client must match a downloaded confirmation to its own log. The rule is
+fail-closed — when the match is not certain, nothing is marked.
+
+| Step | Rule |
+|---|---|
+| Normalisation | The callsign is trimmed and upper-cased in Rust; the date is reduced to `YYYYMMDD`. No `UPPER(...)` is applied to stored columns. |
+| Candidates | Same journal, same callsign, same band (reported value in lower and upper case), date via the index `idx_qso_qsl_match` (`REPLACE(qso_date, '-', '')`, so historical `YYYY-MM-DD` rows match too). Modes are equal ignoring case, or both in the SSB/USB/LSB group. |
+| Report with `TIME_ON` | Only a QSO within **±30 min UTC** of the reported time is confirmed — the nearest one, ties broken by the lower id. When the reported time is before 00:30 or after 23:30 UTC, the neighbouring day is included (`IN`), so a QSO at 23:50 matches a report at 00:05 the next day. |
+| Report without a time | Confirmed only when exactly one candidate exists that day. Several candidates are counted as **ambiguous** and nothing is marked. |
+| No candidate | Counted as **unmatched**; nothing is marked. |
+| Received date | Unchanged F20-R4 rule: `COALESCE(?, stored)`, never invented. |
+| Batching | Chunks of `QSL_MATCH_CHUNK_SIZE` (100) confirmations, each in its own transaction; the database lock is released between chunks. A QSO that is already confirmed with the same received date is not rewritten. |
+
+Downloaded reports always carry `TIME_ON`, because the ADIF parser rejects a record without it.
+The GUI reports `unmatched` and `ambiguous` counts after a download (`sync.qsl_match_skipped`).

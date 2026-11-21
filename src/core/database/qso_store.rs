@@ -171,12 +171,7 @@ impl LogDatabase {
         journal_id: &str,
         callsign: &str,
     ) -> Result<Vec<QsoRecord>> {
-        let sql = format!(
-            "SELECT {} FROM qso_records WHERE journal_id = ?1 AND callsign = ?2 ORDER BY {ORDER_CHRONO_DESC}",
-            QSO_SQL.select_columns
-        );
-
-        let mut stmt = self.conn.prepare(&sql)?;
+        let mut stmt = self.conn.prepare(&sql_previous_for_journal())?;
 
         collect_qsos(&mut stmt, params![journal_id, callsign.to_uppercase()])
     }
@@ -274,12 +269,7 @@ impl LogDatabase {
         journal_id: &str,
         limit: usize,
     ) -> Result<Vec<QsoRecord>> {
-        let sql = format!(
-            "SELECT {} FROM qso_records WHERE journal_id = ?1 ORDER BY {ORDER_CHRONO_DESC} LIMIT ?2",
-            QSO_SQL.select_columns
-        );
-
-        let mut stmt = self.conn.prepare(&sql)?;
+        let mut stmt = self.conn.prepare(&sql_recent_for_journal())?;
 
         collect_qsos(&mut stmt, params![journal_id, limit as i64])
     }
@@ -299,10 +289,7 @@ impl LogDatabase {
     /// Chronological position of every QSO within its journal, independent of
     /// the logbook's pagination, search and display sort.
     pub fn qso_numbers_for_journal(&self, journal_id: &str) -> Result<HashMap<i64, usize>> {
-        let mut stmt = self.conn.prepare(&format!(
-            "SELECT id, ROW_NUMBER() OVER (ORDER BY {ORDER_CHRONO_ASC}) \
-             FROM qso_records WHERE journal_id = ?1"
-        ))?;
+        let mut stmt = self.conn.prepare(&sql_numbers_for_journal())?;
 
         let rows = stmt.query_map(params![journal_id], |row| {
             Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)? as usize))
@@ -342,12 +329,7 @@ impl LogDatabase {
         limit: usize,
         offset: usize,
     ) -> Result<Vec<QsoRecord>> {
-        let sql = format!(
-            "SELECT {} FROM qso_records WHERE journal_id = ?1 ORDER BY {ORDER_CHRONO_DESC} LIMIT ?2 OFFSET ?3",
-            QSO_SQL.select_columns
-        );
-
-        let mut stmt = self.conn.prepare(&sql)?;
+        let mut stmt = self.conn.prepare(&sql_paginated_for_journal())?;
 
         collect_qsos(&mut stmt, params![journal_id, limit as i64, offset as i64])
     }
@@ -370,6 +352,21 @@ impl LogDatabase {
         }
 
         Ok(res)
+    }
+
+    /// Wszystkie unikalne, niepuste znaki wywoławcze dziennika — **bez limitu i bez sortowania**
+    /// (STAGE-V140-S1). Źródło SCP: limit połączony z `ORDER BY callsign` ucinał alfabetycznie
+    /// każdy dziennik większy niż limit (np. 0 z 5710 znaków SP przy 47 tys. unikalnych).
+    pub fn get_all_distinct_callsigns_for_journal(
+        &self,
+        journal_id: &str,
+    ) -> Result<DistinctCallsigns> {
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT UPPER(callsign) FROM qso_records \
+             WHERE journal_id = ?1 AND callsign IS NOT NULL AND TRIM(callsign) <> ''",
+        )?;
+        let rows = stmt.query_map(params![journal_id], |row| row.get::<_, String>(0))?;
+        rows.collect()
     }
 
     /// Pobiera unikalne, niepuste znaki wywoławcze z wybranego profilu/dziennika.
@@ -473,4 +470,37 @@ impl LogDatabase {
 
         Ok(count as usize)
     }
+}
+
+/// Tekst zapytania „ostatnie N QSO dziennika” — współdzielony z testami planu zapytań
+/// (STAGE-V140-S1), aby `EXPLAIN QUERY PLAN` sprawdzał dokładnie produkcyjny SQL.
+pub(super) fn sql_recent_for_journal() -> String {
+    format!(
+        "SELECT {} FROM qso_records WHERE journal_id = ?1 ORDER BY {ORDER_CHRONO_DESC} LIMIT ?2",
+        QSO_SQL.select_columns
+    )
+}
+
+/// Tekst zapytania strony dziennika (`LIMIT ?2 OFFSET ?3`).
+pub(super) fn sql_paginated_for_journal() -> String {
+    format!(
+        "SELECT {} FROM qso_records WHERE journal_id = ?1 ORDER BY {ORDER_CHRONO_DESC} LIMIT ?2 OFFSET ?3",
+        QSO_SQL.select_columns
+    )
+}
+
+/// Tekst zapytania poprzednich QSO ze znakiem w dzienniku.
+pub(super) fn sql_previous_for_journal() -> String {
+    format!(
+        "SELECT {} FROM qso_records WHERE journal_id = ?1 AND callsign = ?2 ORDER BY {ORDER_CHRONO_DESC}",
+        QSO_SQL.select_columns
+    )
+}
+
+/// Tekst zapytania numerów chronologicznych QSO w dzienniku.
+pub(super) fn sql_numbers_for_journal() -> String {
+    format!(
+        "SELECT id, ROW_NUMBER() OVER (ORDER BY {ORDER_CHRONO_ASC}) \
+         FROM qso_records WHERE journal_id = ?1"
+    )
 }

@@ -854,3 +854,56 @@ limit for unauthenticated requests is 60 per hour per originating IP, and exceed
 **Residual risk:** the `continuous` assets are replaced upstream on every new build. The job then
 stops with `PIN_STALE` (size or SHA-256 mismatch, or HTTP 404), and the pinned file can no longer
 be downloaded. Updating the pin requires an explicit ADR revision.
+
+---
+
+## 9. STAGE-V140-S1 — data layer foundation (2026-11-20)
+
+Measured on a synthetic 200 000-QSO journal (scale benchmark and the opt-in test
+`tests/scale_v140_data_layer.rs`, `SPLOG_RUN_SCALE_E2E=1`). The standard baseline does not run
+the measurement; without the opt-in the test prints `SCALE BENCHMARK NOT REQUESTED`.
+
+### V140-S1-01 — chronological queries sorted the whole journal in memory — CLOSED (software verified)
+
+`ORDER_CHRONO_*` uses expressions (`REPLACE(qso_date, '-', '')`, `SUBSTR(...)`), so no index
+applied and every "recent N" or page query built a temporary B-tree over the journal
+(`get_recent_qsos_for_journal(1000)` ≈ 121 ms, page at offset 150 000 ≈ 621 ms). **Fix:**
+migration 10 adds expression indexes textually identical to `ORDER_CHRONO_*`
+(`idx_qso_journal_chrono`, `idx_qso_journal_call_chrono`); the sort order and all write paths are
+unchanged. Query-plan tests forbid `USE TEMP B-TREE FOR ORDER BY`, and a differential test
+proves the order is identical to the unindexed order.
+
+### V140-S1-02 — LoTW/eQSL matching scanned the journal per confirmation — CLOSED (software verified)
+
+`UPPER(callsign) = UPPER(?)` disabled the index (≈ 188 ms per confirmation, ≈ 63 min for 20 000),
+the database lock was held for the whole batch, and a confirmation updated every same-day QSO
+with the same call, band and mode. **Fix:** `idx_qso_qsl_match`, input normalised in Rust,
+a ±30 min UTC window when the report carries `TIME_ON` (across midnight UTC), "ambiguous"
+(nothing marked) for several same-day candidates without a time, and chunks of 100 in separate
+transactions with the lock released in between. Contract: `docs/LOTW_EQSL_CONTRACT.md` §6.
+
+### V140-S1-03 — SCP knew only the alphabetically first 10 000 calls — CLOSED (software verified)
+
+`rebuild_scp` read `ORDER BY callsign LIMIT 10000`, so a large journal lost every later call
+(0 of 5 710 SP calls in the benchmark). **Fix:** `get_all_distinct_callsigns_for_journal`
+without a limit or ordering.
+
+### V140-S1-04 — schema version written in three places; no pre-migration backup — CLOSED (software verified)
+
+`KNOWN_MAX_VERSION`, `BackupManager::SUPPORTED_SCHEMA_VERSION` and the migration list each held
+the number 9. **Fix:** one `MIGRATIONS` table and `LATEST_SCHEMA_VERSION` derived from it. A file
+database with pending migrations and at least one QSO is first copied to
+`backups/pre-migration/` (validated, atomic, outside the 10-copy retention); a failed copy stops
+the migration with the cause and leaves the file untouched (`docs/DATABASE_BACKUP_RECOVERY.md`
+§1.4).
+
+### V140-S1 residual risks
+
+* The log view still loads the whole journal into memory after every save (`reload_qsos`,
+  ≈ 1.6 s and ≈ 322 MB at 200 000 QSOs). This is Slice 2 (`STAGE-V140-S2-LOG-WINDOW`).
+* At start-up `main.rs` seeds the SCP from `get_distinct_callsigns(50_000)`, a global and
+  alphabetically capped query. `rebuild_scp` (journal switch) is complete; the start-up seed is
+  left for a later slice.
+* Band matching of confirmations compares the reported band in lower and upper case; a stored
+  band with mixed case (e.g. `70Cm`) is not matched.
+* Budgets are measured on the reference host only; other hardware may differ.

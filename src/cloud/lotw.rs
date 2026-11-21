@@ -11,6 +11,10 @@ pub struct LotwConfirmation {
     pub band: String,
     pub mode: String,
     pub qso_date: String,
+    /// UTC `TIME_ON` of the confirmed QSO as reported by LoTW (`HHMM`/`HHMMSS`). When present,
+    /// only a logged QSO within ±30 min UTC is confirmed (STAGE-V140-S1); `None` falls back to
+    /// "exactly one candidate that day".
+    pub qso_time: Option<String>,
     /// Date the QSL was received from LoTW (ADIF `Date`, `YYYYMMDD`); `None` when the
     /// report supplies no valid date. It is never invented.
     pub qsl_rdate: Option<String>,
@@ -614,11 +618,14 @@ pub fn parse_lotw_confirmations(adif: &str) -> Vec<LotwConfirmation> {
                 None
             }
         });
+        // The ADIF parser rejects records without TIME_ON, so the time is the report's own value.
+        let qso_time = Some(qso.time_on).filter(|time| !time.trim().is_empty());
         confirmations.push(LotwConfirmation {
             callsign: qso.callsign,
             band: qso.band.to_lowercase(),
             mode: qso.mode,
             qso_date: qso.qso_date,
+            qso_time,
             qsl_rdate: rdate,
         });
     }

@@ -1258,6 +1258,7 @@
   "sync.eqsl_missing_creds": "[eQSL] Ошибка: отсутствует логин или пароль к eQSL.cc.",
   "sync.eqsl_error": "[eQSL ОШИБКА] {err}",
   "sync.eqsl_download_success": "[eQSL УСПЕХ] Загружено {count} подтверждений, обновлено в базе: {updated}",
+  "sync.qsl_match_skipped": "[{service}] Не применённые подтверждения: {unmatched} без подходящего QSO в пределах ±30 мин UTC, {ambiguous} неоднозначных (несколько QSO в этот день, отчёт без времени)",
   "sync.callsign": "Позывной станции:",
   "sync.api_key_optional": "API-ключ (необязательно):",
   "sync.live_auto_upload_clublog": "Автоматически отправлять каждую новую связь в реальном времени",

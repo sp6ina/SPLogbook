@@ -4,6 +4,46 @@
 use super::LogDatabase;
 use log::error;
 use rusqlite::{Connection, Result, params};
+use std::path::{Path, PathBuf};
+
+/// Sygnatura pojedynczej migracji schematu.
+pub(super) type MigrationFn = fn(&Connection) -> rusqlite::Result<()>;
+
+/// Jedyne źródło prawdy o migracjach schematu (STAGE-V140-S1): wersje rosną od 1 bez luk.
+///
+/// Każda nowa migracja jest dopisywana na końcu; wersja schematu znana programowi
+/// ([`LATEST_SCHEMA_VERSION`]) jest wyprowadzana z ostatniego wpisu, a nie wpisywana ręcznie
+/// w kilku miejscach.
+pub(super) const MIGRATIONS: &[(i64, MigrationFn)] = &[
+    (1, LogDatabase::migration_1_base_schema),
+    (2, LogDatabase::migration_2_add_columns),
+    (3, LogDatabase::migration_3_foreign_keys),
+    (4, LogDatabase::migration_4_indexes),
+    (5, LogDatabase::migration_5_identity_index),
+    (6, LogDatabase::migration_6_identity_unique),
+    (7, LogDatabase::migration_7_refined_qso_identity),
+    (8, LogDatabase::migration_8_upload_checkpoints),
+    (9, LogDatabase::migration_9_upload_sent_dates),
+    (10, LogDatabase::migration_10_chrono_and_qsl_indexes),
+];
+
+/// Najwyższa wersja schematu znana tej wersji programu — wyprowadzona z [`MIGRATIONS`].
+pub const LATEST_SCHEMA_VERSION: i64 = MIGRATIONS[MIGRATIONS.len() - 1].0;
+
+/// Podkatalog (względem katalogu bazy) z kopiami wykonywanymi przed migracją schematu.
+pub const PRE_MIGRATION_BACKUP_DIR: [&str; 2] = ["backups", "pre-migration"];
+
+/// Katalog kopii przedmigracyjnych dla bazy pod wskazaną ścieżką.
+#[must_use]
+pub fn pre_migration_backup_dir(db_path: &Path) -> PathBuf {
+    let parent = match db_path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    };
+    PRE_MIGRATION_BACKUP_DIR
+        .iter()
+        .fold(parent.to_path_buf(), |dir, part| dir.join(part))
+}
 
 pub const MIGRATION_1_SQL: &str = "CREATE TABLE IF NOT EXISTS journals (
                 id TEXT PRIMARY KEY,
@@ -258,6 +298,22 @@ pub const MIGRATION_8_SQL: &str = "CREATE TABLE IF NOT EXISTS upload_plans (
             CREATE INDEX IF NOT EXISTS idx_upload_batch_members_qso
             ON upload_batch_members(plan_id, qso_id);";
 
+/// Migracja 10 (STAGE-V140-S1): indeksy na wyrażeniach **tekstowo identycznych** z
+/// `ORDER_CHRONO_ASC`/`ORDER_CHRONO_DESC` (`schema.rs`) oraz indeks dopasowań QSL.
+///
+/// Planista SQLite używa indeksu na wyrażeniu tylko wtedy, gdy wyrażenie w zapytaniu jest
+/// takie samo jak w indeksie — dlatego porządek chronologiczny i ścieżki zapisu pozostają bez
+/// zmian, a znika jedynie sortowanie w pamięci (`USE TEMP B-TREE FOR ORDER BY`). Treść jest
+/// zamrożona: zmiana porządku chronologicznego wymaga nowej migracji (pilnuje tego test
+/// `migration_10_index_expressions_match_order_chrono`).
+pub const MIGRATION_10_SQL: &str = "CREATE INDEX IF NOT EXISTS idx_qso_journal_chrono
+                ON qso_records(journal_id, REPLACE(qso_date, '-', ''), SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6), id);
+            CREATE INDEX IF NOT EXISTS idx_qso_journal_call_chrono
+                ON qso_records(journal_id, callsign, REPLACE(qso_date, '-', ''), SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6), id);
+            CREATE INDEX IF NOT EXISTS idx_qso_qsl_match
+                ON qso_records(journal_id, callsign, band, REPLACE(qso_date, '-', ''));
+            ANALYZE;";
+
 impl LogDatabase {
     /// Inicjalizuje schemat tabeli łączności oraz niezbędne indeksy.
     /// Stosuje wersjonowane migracje rejestrowane w tabeli `schema_version`,
@@ -269,7 +325,6 @@ impl LogDatabase {
     /// `BEGIN IMMEDIATE` żadna kolejna operacja nie zwróci `SQLITE_BUSY`, co
     /// usuwa okno częściowo wykonanej migracji przy równoległym pisarzu.
     pub(super) fn init_schema(&mut self) -> Result<()> {
-        type MigrationFn = fn(&Connection) -> rusqlite::Result<()>;
         self.conn.execute_batch(
             "PRAGMA foreign_keys=ON;
             PRAGMA journal_mode=WAL;
@@ -283,21 +338,9 @@ impl LogDatabase {
             );",
         )?;
 
-        // Lista migracji w kolejności rosnącej; każda jest wykonywana w transakcji
-        // i rejestrowana w `schema_version` dopiero po pełnym powodzeniu.
-        let migrations: &[(i64, MigrationFn)] = &[
-            (1, Self::migration_1_base_schema),
-            (2, Self::migration_2_add_columns),
-            (3, Self::migration_3_foreign_keys),
-            (4, Self::migration_4_indexes),
-            (5, Self::migration_5_identity_index),
-            (6, Self::migration_6_identity_unique),
-            (7, Self::migration_7_refined_qso_identity),
-            (8, Self::migration_8_upload_checkpoints),
-            (9, Self::migration_9_upload_sent_dates),
-        ];
-
-        for (version, migrate) in migrations {
+        // Migracje z jednego źródła prawdy (`MIGRATIONS`) w kolejności rosnącej; każda jest
+        // wykonywana w transakcji i rejestrowana w `schema_version` dopiero po pełnym powodzeniu.
+        for (version, migrate) in MIGRATIONS {
             if self.current_schema_version()? < *version {
                 let tx = self
                     .conn
@@ -318,12 +361,10 @@ impl LogDatabase {
     /// `schema_version`, brak kluczowych tabel lub kolumn, zamiast pozwolić
     /// aplikacji działać na uszkodzonej bazie.
     pub(super) fn validate_schema(&self) -> Result<()> {
-        const KNOWN_MAX_VERSION: i64 = 9;
-
         let version = self.current_schema_version()?;
-        if version > KNOWN_MAX_VERSION {
+        if version > LATEST_SCHEMA_VERSION {
             error!(
-                "Baza ma nieznaną wersję schematu {version} (znana maksymalna: {KNOWN_MAX_VERSION})"
+                "Baza ma nieznaną wersję schematu {version} (znana maksymalna: {LATEST_SCHEMA_VERSION})"
             );
             return Err(rusqlite::Error::InvalidQuery);
         }
@@ -672,6 +713,96 @@ impl LogDatabase {
              DROP TABLE IF EXISTS upload_plans;
              DELETE FROM schema_version WHERE version = 8;",
         )
+    }
+
+    /// Wersja 10 (STAGE-V140-S1): indeksy chronologiczne i indeks dopasowań QSL.
+    ///
+    /// Migracja jest **wyłącznie addytywna** — tworzy trzy indeksy i odświeża statystyki
+    /// planisty (`ANALYZE`); nie modyfikuje żadnego wiersza.
+    fn migration_10_chrono_and_qsl_indexes(conn: &Connection) -> rusqlite::Result<()> {
+        conn.execute_batch(MIGRATION_10_SQL)
+    }
+
+    /// Wycofuje migrację 10 (test scope): usuwa wyłącznie jej indeksy.
+    #[cfg(test)]
+    pub(super) fn rollback_migration_10(conn: &Connection) -> rusqlite::Result<()> {
+        conn.execute_batch(
+            "DROP INDEX IF EXISTS idx_qso_journal_chrono;
+             DROP INDEX IF EXISTS idx_qso_journal_call_chrono;
+             DROP INDEX IF EXISTS idx_qso_qsl_match;
+             DELETE FROM schema_version WHERE version = 10;",
+        )
+    }
+
+    /// Kopia przedmigracyjna (STAGE-V140-S1, fail-closed).
+    ///
+    /// Wywoływana przy otwarciu bazy plikowej **przed** jakąkolwiek zmianą pliku (także przed
+    /// przełączeniem `journal_mode`). Gdy baza ma zaległe migracje (`wersja < LATEST`) i zawiera
+    /// co najmniej jedno QSO, tworzy zweryfikowaną kopię w `<katalog bazy>/backups/pre-migration/`.
+    /// Niepowodzenie kopii oznacza brak migracji: zwracany jest błąd z przyczyną, a plik bazy
+    /// pozostaje nietknięty. Baza pusta lub nowa nie wymaga kopii.
+    pub(super) fn backup_before_pending_migrations(
+        conn: &Connection,
+        db_path: &Path,
+    ) -> Result<Option<PathBuf>> {
+        let from = Self::probe_schema_version(conn)?;
+        if from >= LATEST_SCHEMA_VERSION || !Self::probe_has_qsos(conn)? {
+            return Ok(None);
+        }
+        let backup_dir = pre_migration_backup_dir(db_path);
+        match crate::core::backup::BackupManager::backup_database_pre_migration(
+            db_path,
+            &backup_dir,
+            from,
+            LATEST_SCHEMA_VERSION,
+        ) {
+            Ok(path) => {
+                log::info!(
+                    "Kopia przedmigracyjna schematu v{from} -> v{LATEST_SCHEMA_VERSION}: {}",
+                    path.display()
+                );
+                Ok(Some(path))
+            }
+            Err(e) => {
+                error!(
+                    "Kopia przedmigracyjna nie powiodła się — migracja v{from} -> v{LATEST_SCHEMA_VERSION} nie została rozpoczęta: {e}"
+                );
+                Err(rusqlite::Error::SqliteFailure(
+                    rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CANTOPEN),
+                    Some(format!(
+                        "pre-migration backup failed (schema v{from} -> v{LATEST_SCHEMA_VERSION}); \
+                         the migration was not started and the database is unchanged: {e}"
+                    )),
+                ))
+            }
+        }
+    }
+
+    /// Wersja schematu odczytana bez modyfikowania pliku (0, gdy brak tabeli wersji).
+    fn probe_schema_version(conn: &Connection) -> Result<i64> {
+        let has_table = conn
+            .prepare(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_version'",
+            )?
+            .exists([])?;
+        if !has_table {
+            return Ok(0);
+        }
+        let version: Option<i64> =
+            conn.query_row("SELECT MAX(version) FROM schema_version", [], |r| r.get(0))?;
+        Ok(version.unwrap_or(0))
+    }
+
+    /// Czy baza zawiera co najmniej jedno QSO (bez modyfikowania pliku).
+    fn probe_has_qsos(conn: &Connection) -> Result<bool> {
+        let has_table = conn
+            .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'qso_records'")?
+            .exists([])?;
+        if !has_table {
+            return Ok(false);
+        }
+        conn.prepare("SELECT 1 FROM qso_records LIMIT 1")?
+            .exists([])
     }
 
     fn add_column_if_missing(

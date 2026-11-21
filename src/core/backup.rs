@@ -59,7 +59,8 @@ impl BackupError {
 pub struct BackupManager;
 
 impl BackupManager {
-    pub const SUPPORTED_SCHEMA_VERSION: i64 = 9;
+    /// Wersja schematu obsługiwana przy przywracaniu — jedno źródło prawdy z tablicy migracji.
+    pub const SUPPORTED_SCHEMA_VERSION: i64 = crate::core::database::LATEST_SCHEMA_VERSION;
 
     /// Weryfikuje integralność pliku bazy SQLite za pomocą `PRAGMA quick_check(1)`
     /// oraz odczytuje maksymalną wersję schematu.
@@ -110,6 +111,54 @@ impl BackupManager {
         source_db_path: &Path,
         backup_dir: &Path,
     ) -> Result<PathBuf, BackupError> {
+        let file_stem = Self::source_stem(source_db_path);
+        let dest_filename = format!("{file_stem}_backup_{}.db", Self::backup_timestamp());
+        let dest_path = Self::write_validated_copy(source_db_path, backup_dir, &dest_filename)?;
+
+        // Rotacja starych kopii z filtrowaniem po file_stem (DATA-006)
+        Self::prune_old_backups(backup_dir, file_stem, ".db", 10).ok();
+
+        Ok(dest_path)
+    }
+
+    /// Kopia przedmigracyjna (STAGE-V140-S1): ten sam spójny, zweryfikowany i atomowy zapis co
+    /// [`Self::backup_database`], ale z nazwą zawierającą wersje schematu
+    /// `{stem}_pre_migration_v{from}_to_v{to}_{czas}.db` i **bez rotacji** — kopie sprzed
+    /// migracji nie podlegają retencji 10 ostatnich kopii.
+    pub fn backup_database_pre_migration(
+        source_db_path: &Path,
+        backup_dir: &Path,
+        from_version: i64,
+        to_version: i64,
+    ) -> Result<PathBuf, BackupError> {
+        let file_stem = Self::source_stem(source_db_path);
+        let dest_filename = format!(
+            "{file_stem}_pre_migration_v{from_version}_to_v{to_version}_{}.db",
+            Self::backup_timestamp()
+        );
+        Self::write_validated_copy(source_db_path, backup_dir, &dest_filename)
+    }
+
+    fn source_stem(source_db_path: &Path) -> &str {
+        source_db_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("log")
+    }
+
+    fn backup_timestamp() -> String {
+        jiff::Timestamp::now()
+            .strftime("%Y%m%d_%H%M%S%.3f")
+            .to_string()
+    }
+
+    /// Wspólny rdzeń kopii: online backup SQLite do pliku `.tmp`, walidacja `quick_check`,
+    /// atomowe przeniesienie do `dest_filename` w `backup_dir`.
+    fn write_validated_copy(
+        source_db_path: &Path,
+        backup_dir: &Path,
+        dest_filename: &str,
+    ) -> Result<PathBuf, BackupError> {
         if !source_db_path.exists() {
             return Err(BackupError::SourceNotFound);
         }
@@ -124,15 +173,7 @@ impl BackupManager {
             return Err(BackupError::SamePath);
         }
 
-        let timestamp = jiff::Timestamp::now()
-            .strftime("%Y%m%d_%H%M%S%.3f")
-            .to_string();
-        let file_stem = source_db_path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("log");
-        let dest_filename = format!("{file_stem}_backup_{timestamp}.db");
-        let dest_path = backup_dir.join(&dest_filename);
+        let dest_path = backup_dir.join(dest_filename);
         let tmp_path = backup_dir.join(format!(".{dest_filename}.tmp"));
 
         let _ = fs::remove_file(&tmp_path);
@@ -167,6 +208,15 @@ impl BackupManager {
                     let _ = fs::remove_file(&tmp_path);
                     BackupError::SqliteBackup(format!("SQLite backup step failed: {e}"))
                 })?;
+            drop(backup);
+
+            // Kopia dziedziczy tryb WAL źródła. Przełączenie na `DELETE` (checkpoint WAL)
+            // czyni plik kopii samowystarczalnym: walidacja tylko do odczytu nie zostawia
+            // osieroconych plików `-wal` / `-shm` obok kopii (STAGE-V140-S1).
+            dest.pragma_update(None, "journal_mode", "DELETE")
+                .map_err(|e| {
+                    BackupError::SqliteBackup(format!("Cannot finalize backup journal mode: {e}"))
+                })?;
         }
 
         // Walidacja spójności kopii przed zatwierdzeniem
@@ -180,9 +230,6 @@ impl BackupManager {
             let _ = fs::remove_file(&tmp_path);
             BackupError::Finalize(e.to_string())
         })?;
-
-        // Rotacja starych kopii z filtrowaniem po file_stem (DATA-006)
-        Self::prune_old_backups(backup_dir, file_stem, ".db", 10).ok();
 
         Ok(dest_path)
     }
@@ -229,7 +276,9 @@ impl BackupManager {
         // Jeśli wersja schematu jest starsza, przeprowadzamy migrację na pliku stagingowym
         if ver < Self::SUPPORTED_SCHEMA_VERSION {
             {
-                let _db = LogDatabase::open(&staging_path).map_err(|e| {
+                // Bez kopii przedmigracyjnej: plik stagingowy jest kopią `backup_path`,
+                // który pozostaje nienaruszony (stan sprzed migracji już istnieje).
+                let _db = LogDatabase::open_staged_restore(&staging_path).map_err(|e| {
                     let _ = fs::remove_file(&staging_path);
                     BackupError::Restore(format!("Staged migration failed: {e}"))
                 })?;
@@ -428,6 +477,54 @@ mod tests {
         assert_eq!(schema_ver, 7);
 
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn backup_of_a_wal_database_leaves_no_sidecar_files() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let source = temp_dir.path().join("source.db");
+        let backup_dir = temp_dir.path().join("backups");
+        {
+            let conn = Connection::open(&source).unwrap();
+            conn.execute_batch(
+                "PRAGMA journal_mode = WAL;
+                 CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
+                 INSERT INTO schema_version (version) VALUES (9);
+                 CREATE TABLE qso_records (id INTEGER PRIMARY KEY, callsign TEXT NOT NULL);
+                 INSERT INTO qso_records (callsign) VALUES ('SP6INA');",
+            )
+            .unwrap();
+        }
+
+        let regular = BackupManager::backup_database(&source, &backup_dir).unwrap();
+        let pre_migration =
+            BackupManager::backup_database_pre_migration(&source, &backup_dir, 9, 10).unwrap();
+
+        let mut names: Vec<String> = fs::read_dir(&backup_dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .collect();
+        names.sort();
+        assert_eq!(
+            names.len(),
+            2,
+            "tylko pliki kopii, bez -wal/-shm/.tmp: {names:?}"
+        );
+        assert!(regular.to_string_lossy().contains("source_backup_"));
+        assert!(
+            pre_migration
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("source_pre_migration_v9_to_v10_")
+        );
+        for path in [&regular, &pre_migration] {
+            let conn = Connection::open(path).unwrap();
+            let count: i64 = conn
+                .query_row("SELECT COUNT(*) FROM qso_records", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(count, 1, "kopia jest samowystarczalna: {}", path.display());
+        }
     }
 
     #[test]
@@ -677,7 +774,7 @@ mod tests {
         match res {
             Err(BackupError::SchemaMismatch { backup, current }) => {
                 assert_eq!(backup, 99);
-                assert_eq!(current, 9);
+                assert_eq!(current, crate::core::database::LATEST_SCHEMA_VERSION);
             }
             other => panic!("Expected SchemaMismatch, got {other:?}"),
         }
@@ -713,13 +810,14 @@ mod tests {
         // Restore bazy w wersji 1 do active_db
         BackupManager::restore_database(&older_backup, &active_db).unwrap();
 
-        // Aktywna baza po restore musi mieć schemat podniesiony do 9 i zachowane dane
+        // Aktywna baza po restore musi mieć schemat podniesiony do najnowszego i zachowane dane
         {
             let db = LogDatabase::open(&active_db).unwrap();
             let ver = db.current_schema_version().unwrap();
             assert_eq!(
-                ver, 9,
-                "Restored database must be migrated to latest schema version 9"
+                ver,
+                crate::core::database::LATEST_SCHEMA_VERSION,
+                "Restored database must be migrated to the latest schema version"
             );
             let qsos = db.get_recent_qsos(10).unwrap();
             assert_eq!(qsos.len(), 1);

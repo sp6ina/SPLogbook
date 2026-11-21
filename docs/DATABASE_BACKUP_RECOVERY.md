@@ -27,6 +27,27 @@ W SPLogbook baza danych SQLite pracuje domyślnie w trybie `PRAGMA journal_mode 
   dzięki czemu nie dotyka kopii innych profili dzienników ani żadnych obcych plików w katalogu kopii zapasowych (`DATA-006`).
 - Domyślnie zachowywanych jest 10 ostatnich prawidłowych kopii zapasowych bazy danych oraz 10 ostatnich kopii ADIF.
 
+### 1.4. Kopia przedmigracyjna (STAGE-V140-S1, fail-closed)
+- Wersja schematu ma **jedno źródło prawdy**: tablicę `MIGRATIONS` w `src/core/database/migrations.rs`.
+  `LATEST_SCHEMA_VERSION` jest wyprowadzana z jej ostatniego wpisu, a `BackupManager::SUPPORTED_SCHEMA_VERSION`
+  i walidacja schematu używają tej samej stałej.
+- `LogDatabase::open` na bazie plikowej sprawdza (bez modyfikowania pliku, także przed przełączeniem
+  `journal_mode`), czy są zaległe migracje. Jeżeli wersja schematu jest niższa niż `LATEST_SCHEMA_VERSION`
+  **i** baza zawiera co najmniej jedno QSO, najpierw powstaje kopia:
+  `<katalog bazy>/backups/pre-migration/{stem}_pre_migration_v{from}_to_v{to}_%Y%m%d_%H%M%S%.3f.db`.
+- Kopia przedmigracyjna korzysta z tego samego rdzenia co zwykła kopia (online backup SQLite, `quick_check`,
+  plik `.tmp`, atomowy `rename`), ale **nie podlega rotacji** 10 ostatnich kopii.
+- **Fail-closed:** jeżeli kopii nie da się utworzyć (np. brak miejsca, katalog niedostępny), otwarcie bazy kończy
+  się błędem `pre-migration backup failed (schema vX -> vY); the migration was not started and the database is
+  unchanged: …`, migracja nie jest uruchamiana, a plik bazy pozostaje nietknięty.
+- Jeżeli kopia powstała, a migracja się nie powiedzie, transakcja `BEGIN IMMEDIATE` jest wycofywana: baza zostaje
+  w poprzedniej wersji schematu, a kopia przedmigracyjna zawiera stan sprzed próby.
+- Baza pusta, nowa lub w pamięci nie wymaga kopii. Plik stagingowy przywracania (`restore_database`) jest otwierany
+  bez kopii przedmigracyjnej, ponieważ jest kopią pliku kopii zapasowej, który pozostaje nienaruszony.
+- Testy: `s1_pre_migration_backup_is_taken_before_migration_10_and_keeps_rows`,
+  `s1_failed_migration_10_keeps_schema_9_rows_and_a_valid_pre_migration_backup`,
+  `s1_pre_migration_backup_failure_blocks_the_migration`, `s1_migrations_table_is_contiguous_and_defines_latest_version`.
+
 ---
 
 ## 2. Walidacja integralności bazy i kopii zapasowych

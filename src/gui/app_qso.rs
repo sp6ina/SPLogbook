@@ -623,11 +623,12 @@ impl SpLogApp {
         self.invalidate_cluster_badges();
     }
 
-    /// Odbudowuje silnik podpowiedzi SCP z unikalnych znaków aktywnego dziennika (DATA-005)
+    /// Odbudowuje silnik podpowiedzi SCP z unikalnych znaków aktywnego dziennika (DATA-005).
+    /// Bez limitu i alfabetycznego ucięcia (STAGE-V140-S1): SCP zna każdy znak dziennika.
     pub fn rebuild_scp(&mut self) {
         let journal_id = self.active_journal.id.clone();
         if let Ok(db) = self.services.log_db.lock()
-            && let Ok(calls) = db.get_distinct_callsigns_for_journal(&journal_id, 10_000)
+            && let Ok(calls) = db.get_all_distinct_callsigns_for_journal(&journal_id)
             && let Ok(mut scp) = self.services.scp_engine.lock()
         {
             scp.clear();

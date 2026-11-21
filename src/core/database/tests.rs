@@ -22,7 +22,7 @@ fn test_insert_and_find_qso() {
 fn schema_migrations_record_versions_and_are_idempotent() {
     let mut db = LogDatabase::open_in_memory().unwrap();
     // Wszystkie kroki migracji zostaĹ‚y zarejestrowane.
-    assert_eq!(db.current_schema_version().unwrap(), 9);
+    assert_eq!(db.current_schema_version().unwrap(), LATEST_SCHEMA_VERSION);
 
     // Kolumny z migracji 2 istniejÄ… i ponowna inicjalizacja nie psuje schematu.
     let col_count: i64 = db
@@ -47,7 +47,7 @@ fn schema_migrations_record_versions_and_are_idempotent() {
     assert_eq!(idx_count, 2);
 
     db.init_schema().unwrap();
-    assert_eq!(db.current_schema_version().unwrap(), 9);
+    assert_eq!(db.current_schema_version().unwrap(), LATEST_SCHEMA_VERSION);
 }
 
 #[test]
@@ -314,6 +314,7 @@ fn f20r4_lotw_confirmation_without_date_keeps_the_stored_date() {
         band: "20m".to_string(),
         mode: "CW".to_string(),
         qso_date: "20260920".to_string(),
+        qso_time: None,
         qsl_rdate: rdate.map(str::to_string),
     };
     let stored = |db: &LogDatabase| {
@@ -1245,7 +1246,7 @@ fn migration_from_v1_preserves_rows() {
     }
 
     let db = LogDatabase::open(&db_path).unwrap();
-    assert_eq!(db.current_schema_version().unwrap(), 9);
+    assert_eq!(db.current_schema_version().unwrap(), LATEST_SCHEMA_VERSION);
 
     let qsos = db.get_all_qsos().unwrap();
     assert_eq!(qsos.len(), 1);
@@ -1267,8 +1268,13 @@ fn validate_schema_rejects_future_version() {
             "CREATE TABLE schema_version (
                 version INTEGER NOT NULL,
                 applied_at TEXT NOT NULL DEFAULT (datetime('now'))
-            );
-            INSERT INTO schema_version (version) VALUES (10);",
+            );",
+        )
+        .unwrap();
+        // Wersja o jeden wyższa niż najwyższa znana programowi (jedno źródło prawdy).
+        conn.execute(
+            "INSERT INTO schema_version (version) VALUES (?1)",
+            [LATEST_SCHEMA_VERSION + 1],
         )
         .unwrap();
     }
@@ -2058,7 +2064,7 @@ fn migrated_schema_contains_same_identity_unique_constraint() {
     }
 
     let db = LogDatabase::open(&db_path).unwrap();
-    assert_eq!(db.current_schema_version().unwrap(), 9);
+    assert_eq!(db.current_schema_version().unwrap(), LATEST_SCHEMA_VERSION);
 
     let count: i64 = db.conn.query_row(
         "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_qso_identity_unique' AND sql LIKE '%UNIQUE%'",
@@ -2215,7 +2221,7 @@ fn migration_can_be_retried_after_manual_resolution() {
 
     // 3. Ponowna prĂłba migracji koĹ„czy siÄ™ sukcesem
     let db = LogDatabase::open(&db_path).unwrap();
-    assert_eq!(db.current_schema_version().unwrap(), 9);
+    assert_eq!(db.current_schema_version().unwrap(), LATEST_SCHEMA_VERSION);
     assert_eq!(db.count_all().unwrap(), 2);
 }
 
@@ -2812,7 +2818,7 @@ fn migration_7_upgrades_v1_keys_to_v2_keys_and_preserves_distinct_seconds() {
 
     // Otwarcie bazy wykonuje migracje 7
     let db = LogDatabase::open(&db_path).unwrap();
-    assert_eq!(db.current_schema_version().unwrap(), 9);
+    assert_eq!(db.current_schema_version().unwrap(), LATEST_SCHEMA_VERSION);
     assert_eq!(db.count_all().unwrap(), 2);
 
     let conn = Connection::open(&db_path).unwrap();
@@ -2884,7 +2890,7 @@ fn migration_7_conflict_rolls_back_without_data_loss_and_preserves_v6() {
     .unwrap();
 
     let db = LogDatabase::open(&db_path).unwrap();
-    assert_eq!(db.current_schema_version().unwrap(), 9);
+    assert_eq!(db.current_schema_version().unwrap(), LATEST_SCHEMA_VERSION);
     assert_eq!(db.count_all().unwrap(), 2);
 }
 
@@ -3809,7 +3815,10 @@ fn f20r_seeded_db(journal_id: &str, count: usize) -> LogDatabase {
 #[test]
 fn f20r_checkpoint_tables_and_sent_date_columns_exist_after_migrations() {
     let db = LogDatabase::open_in_memory().expect("db");
-    assert_eq!(db.current_schema_version().expect("version"), 9);
+    assert_eq!(
+        db.current_schema_version().expect("version"),
+        LATEST_SCHEMA_VERSION
+    );
     for table in ["upload_plans", "upload_batches", "upload_batch_members"] {
         let exists: bool = db
             .raw_conn()
@@ -3940,6 +3949,8 @@ fn f20r_migration_9_rollback_and_reapply_preserves_upload_status() {
     db.update_qso(id, &qso).expect("update");
 
     // Rollback v9: kolumny znikają, wersja wraca do 8, status `Y` zostaje.
+    // Kolejność odwrotna do zastosowania: najpierw migracja 10 (STAGE-V140-S1).
+    LogDatabase::rollback_migration_10(db.raw_conn()).expect("rollback 10");
     LogDatabase::rollback_migration_9(db.raw_conn()).expect("rollback 9");
     assert_eq!(db.current_schema_version().expect("version"), 8);
     let has_column: bool = db
@@ -3968,7 +3979,8 @@ fn f20r_migration_8_rollback_and_reapply_preserves_qso_data() {
         .expect("checkpoint");
     assert_eq!(db.count_upload_plans().expect("count"), 1);
 
-    // Rollback w kolejności odwrotnej do zastosowania: najpierw 9, potem 8.
+    // Rollback w kolejności odwrotnej do zastosowania: najpierw 10, 9, potem 8.
+    LogDatabase::rollback_migration_10(db.raw_conn()).expect("rollback 10");
     LogDatabase::rollback_migration_9(db.raw_conn()).expect("rollback 9");
     LogDatabase::rollback_migration_8(db.raw_conn()).expect("rollback 8");
     assert_eq!(db.current_schema_version().expect("version"), 7);
@@ -3994,16 +4006,25 @@ fn f20r_reopening_a_migrated_database_is_idempotent() {
     let path = dir.path().join("f20r_idempotent.sqlite");
     {
         let db = LogDatabase::open(&path).expect("open");
-        assert_eq!(db.current_schema_version().expect("version"), 9);
+        assert_eq!(
+            db.current_schema_version().expect("version"),
+            LATEST_SCHEMA_VERSION
+        );
     }
     for _ in 0..5 {
         let db = LogDatabase::open(&path).expect("reopen");
-        assert_eq!(db.current_schema_version().expect("version"), 9);
+        assert_eq!(
+            db.current_schema_version().expect("version"),
+            LATEST_SCHEMA_VERSION
+        );
         let versions: i64 = db
             .raw_conn()
             .query_row("SELECT COUNT(*) FROM schema_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(versions, 9, "każda wersja migracji dokładnie raz");
+        assert_eq!(
+            versions, LATEST_SCHEMA_VERSION,
+            "każda wersja migracji dokładnie raz"
+        );
         assert_eq!(db.count_upload_plans().expect("count"), 0);
     }
 }
@@ -4014,6 +4035,7 @@ fn f20r_interrupted_migration_keeps_the_previous_version_and_is_rerunnable() {
     let path = dir.path().join("f20r_interrupted.sqlite");
     {
         let db = LogDatabase::open(&path).expect("open");
+        LogDatabase::rollback_migration_10(db.raw_conn()).expect("rollback 10");
         LogDatabase::rollback_migration_9(db.raw_conn()).expect("rollback 9");
         assert_eq!(db.current_schema_version().expect("version"), 8);
     }
@@ -4044,9 +4066,12 @@ fn f20r_interrupted_migration_keeps_the_previous_version_and_is_rerunnable() {
         assert!(!probe, "przerwana migracja nie może zostawić kolumny");
     }
     {
-        // Ponowne otwarcie kończy migrację 9 dokładnie raz.
+        // Ponowne otwarcie kończy migrację 9 (i kolejne) dokładnie raz.
         let db = LogDatabase::open(&path).expect("reopen");
-        assert_eq!(db.current_schema_version().expect("version"), 9);
+        assert_eq!(
+            db.current_schema_version().expect("version"),
+            LATEST_SCHEMA_VERSION
+        );
         for column in ["lotw_qslsdate", "eqsl_qslsdate"] {
             let exists: bool = db
                 .raw_conn()
@@ -4088,6 +4113,7 @@ fn f20r_legacy_accepted_rows_keep_y_with_null_sent_date() {
     assert!(reloaded.eqsl_qslsdate.is_none());
 
     // Migracja nie wypełnia historii żadną datą.
+    LogDatabase::rollback_migration_10(db.raw_conn()).expect("rollback 10");
     LogDatabase::rollback_migration_9(db.raw_conn()).expect("rollback 9");
     assert_eq!(db.current_schema_version().expect("version"), 8);
 }
@@ -4139,7 +4165,7 @@ fn open_creates_missing_databases_directory_on_clean_profile() {
     let db = LogDatabase::open(&db_path).expect("open na czystym profilu");
     assert!(db_path.is_file(), "plik bazy został utworzony");
     assert!(db_path.parent().unwrap().is_dir());
-    assert_eq!(db.current_schema_version().unwrap(), 9);
+    assert_eq!(db.current_schema_version().unwrap(), LATEST_SCHEMA_VERSION);
 }
 
 #[test]
@@ -4167,5 +4193,669 @@ fn open_reports_readable_error_when_directory_cannot_be_created() {
     assert!(
         err.to_string().contains("cannot create directory"),
         "błąd ma wskazywać przyczynę: {err}"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// STAGE-V140-S1 — fundament danych: migracja 10, jedno źródło wersji schematu, kopia
+// przedmigracyjna, plany zapytań, dopasowanie QSL i SCP.
+// ---------------------------------------------------------------------------------------------
+
+const S1_DATE_EXPR: &str = "REPLACE(qso_date, '-', '')";
+const S1_TIME_EXPR: &str = "SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6)";
+
+fn s1_qso(call: &str, band: &str, mode: &str, date: &str, time: &str) -> QsoRecord {
+    let mut qso = QsoRecord::new(call, band, mode);
+    qso.qso_date = date.to_string();
+    qso.time_on = time.to_string();
+    qso
+}
+
+fn s1_plan(conn: &Connection, sql: &str, params: &[&dyn rusqlite::ToSql]) -> String {
+    let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
+    let rows = stmt.query_map(params, |r| r.get::<_, String>(3)).unwrap();
+    rows.map(|r| r.unwrap()).collect::<Vec<_>>().join(" ; ")
+}
+
+fn s1_ids(conn: &Connection, sql: &str, journal: &str) -> Vec<i64> {
+    let mut stmt = conn.prepare(sql).unwrap();
+    let rows = stmt.query_map([journal], |r| r.get::<_, i64>(0)).unwrap();
+    rows.map(|r| r.unwrap()).collect()
+}
+
+fn s1_has_index(conn: &Connection, name: &str) -> bool {
+    conn.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?1")
+        .unwrap()
+        .exists([name])
+        .unwrap()
+}
+
+fn s1_raw_version(path: &std::path::Path) -> i64 {
+    let conn = Connection::open(path).unwrap();
+    conn.query_row("SELECT MAX(version) FROM schema_version", [], |r| r.get(0))
+        .unwrap()
+}
+
+fn s1_raw_count(path: &std::path::Path) -> i64 {
+    let conn = Connection::open(path).unwrap();
+    conn.query_row("SELECT COUNT(*) FROM qso_records", [], |r| r.get(0))
+        .unwrap()
+}
+
+/// Plikowa baza z trzema QSO cofnięta do schematu 9 (stan sprzed STAGE-V140-S1).
+fn s1_v9_database(dir: &std::path::Path) -> std::path::PathBuf {
+    let path = dir.join("log.db");
+    {
+        let db = LogDatabase::open(&path).unwrap();
+        for i in 0..3 {
+            db.insert_qso(&s1_qso(
+                &format!("SP{i}AAA"),
+                "20m",
+                "CW",
+                "20260101",
+                &format!("12{i:02}00"),
+            ))
+            .unwrap();
+        }
+        LogDatabase::rollback_migration_10(db.raw_conn()).unwrap();
+    }
+    assert_eq!(s1_raw_version(&path), 9);
+    path
+}
+
+fn s1_pre_migration_files(db_path: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let dir = pre_migration_backup_dir(db_path);
+    match std::fs::read_dir(&dir) {
+        Ok(entries) => entries.map(|e| e.unwrap().path()).collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+#[test]
+fn s1_migrations_table_is_contiguous_and_defines_latest_version() {
+    let versions: Vec<i64> = migrations::MIGRATIONS.iter().map(|(v, _)| *v).collect();
+    let expected: Vec<i64> = (1..=versions.len() as i64).collect();
+    assert_eq!(versions, expected, "migracje muszą rosnąć od 1 bez luk");
+    assert_eq!(Some(&LATEST_SCHEMA_VERSION), versions.last());
+    const {
+        assert!(LATEST_SCHEMA_VERSION >= 10);
+    }
+    assert_eq!(
+        crate::core::backup::BackupManager::SUPPORTED_SCHEMA_VERSION,
+        LATEST_SCHEMA_VERSION,
+        "kopia zapasowa korzysta z tej samej wersji schematu"
+    );
+}
+
+#[test]
+fn s1_migration_10_index_expressions_match_order_chrono() {
+    use super::schema::{ORDER_CHRONO_ASC, ORDER_CHRONO_DESC};
+    assert_eq!(
+        ORDER_CHRONO_ASC,
+        format!("{S1_DATE_EXPR} ASC, {S1_TIME_EXPR} ASC, id ASC")
+    );
+    assert_eq!(
+        ORDER_CHRONO_DESC,
+        format!("{S1_DATE_EXPR} DESC, {S1_TIME_EXPR} DESC, id DESC")
+    );
+    let sql = migrations::MIGRATION_10_SQL;
+    assert!(sql.contains(&format!("(journal_id, {S1_DATE_EXPR}, {S1_TIME_EXPR}, id)")));
+    assert!(sql.contains(&format!(
+        "(journal_id, callsign, {S1_DATE_EXPR}, {S1_TIME_EXPR}, id)"
+    )));
+    assert!(sql.contains(&format!("(journal_id, callsign, band, {S1_DATE_EXPR})")));
+    assert!(qsl::QSL_CANDIDATES_SQL.contains(&format!("{S1_DATE_EXPR} IN")));
+}
+
+#[test]
+fn s1_new_database_has_migration_10_indexes() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    for name in [
+        "idx_qso_journal_chrono",
+        "idx_qso_journal_call_chrono",
+        "idx_qso_qsl_match",
+    ] {
+        assert!(s1_has_index(db.raw_conn(), name), "brak indeksu {name}");
+    }
+}
+
+#[test]
+fn s1_query_plans_use_chrono_indexes_without_temp_sort() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    db.create_journal(&Journal {
+        id: "PORTABLE".to_string(),
+        name: "Portable".to_string(),
+        ..Default::default()
+    })
+    .unwrap();
+    for i in 0..300 {
+        let mut qso = s1_qso(
+            &format!("SP{}AB", i % 37),
+            if i % 2 == 0 { "20m" } else { "40m" },
+            "CW",
+            &format!("2026{:02}{:02}", 1 + i % 12, 1 + i % 28),
+            &format!("{:02}{:02}", i % 24, i % 60),
+        );
+        if i % 3 == 0 {
+            qso.journal_id = Some("PORTABLE".to_string());
+        }
+        db.insert_qso(&qso).unwrap();
+    }
+    let conn = db.raw_conn();
+    let cases: Vec<(&str, String, Vec<&dyn rusqlite::ToSql>, &str)> = vec![
+        (
+            "get_recent_qsos_for_journal",
+            qso_store::sql_recent_for_journal(),
+            vec![&"DEFAULT", &50_i64],
+            "idx_qso_journal_chrono",
+        ),
+        (
+            "get_qsos_paginated_for_journal",
+            qso_store::sql_paginated_for_journal(),
+            vec![&"DEFAULT", &50_i64, &100_i64],
+            "idx_qso_journal_chrono",
+        ),
+        (
+            "find_previous_qsos_for_journal",
+            qso_store::sql_previous_for_journal(),
+            vec![&"DEFAULT", &"SP1AB"],
+            "idx_qso_journal_call_chrono",
+        ),
+        (
+            "qso_numbers_for_journal",
+            qso_store::sql_numbers_for_journal(),
+            vec![&"DEFAULT"],
+            "idx_qso_journal_chrono",
+        ),
+    ];
+    for (name, sql, params, index) in cases {
+        let plan = s1_plan(conn, &sql, &params);
+        assert!(
+            !plan.contains("USE TEMP B-TREE FOR ORDER BY"),
+            "{name}: sortowanie w pamięci zamiast indeksu: {plan}"
+        );
+        assert!(plan.contains(index), "{name}: plan bez {index}: {plan}");
+    }
+    let plan = s1_plan(
+        conn,
+        qsl::QSL_CANDIDATES_SQL,
+        &[
+            &"DEFAULT",
+            &"SP1AB",
+            &"20m",
+            &"20M",
+            &"20260920",
+            &"20260919",
+            &"20260921",
+        ],
+    );
+    assert!(
+        plan.contains("idx_qso_qsl_match"),
+        "dopasowanie QSL musi używać idx_qso_qsl_match: {plan}"
+    );
+}
+
+#[test]
+fn s1_chrono_order_is_identical_to_the_unindexed_order() {
+    use super::schema::{ORDER_CHRONO_ASC, ORDER_CHRONO_DESC};
+    let db = LogDatabase::open_in_memory().unwrap();
+    db.create_journal(&Journal {
+        id: "PORTABLE".to_string(),
+        name: "Portable".to_string(),
+        ..Default::default()
+    })
+    .unwrap();
+    let mut state: u64 = 0x5331_5f4f_5244_4552;
+    let mut next = || {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        (state >> 33) as usize
+    };
+    let mut inserted = 0;
+    while inserted < 10_000 {
+        let (y, m, d) = (2020 + next() % 7, 1 + next() % 12, 1 + next() % 28);
+        let date = if next() % 3 == 0 {
+            format!("{y:04}-{m:02}-{d:02}")
+        } else {
+            format!("{y:04}{m:02}{d:02}")
+        };
+        let (hh, mm, ss) = (next() % 24, next() % 60, next() % 60);
+        let time = match next() % 4 {
+            0 => format!("{hh:02}{mm:02}"),
+            1 => format!("{hh:02}{mm:02}{ss:02}"),
+            2 => format!("{hh:02}:{mm:02}"),
+            _ => format!("{hh:02}:{mm:02}:{ss:02}"),
+        };
+        let mut qso = s1_qso(&format!("SQ{}X", next() % 400), "20m", "CW", &date, &time);
+        if next() % 4 == 0 {
+            qso.journal_id = Some("PORTABLE".to_string());
+        }
+        if db.insert_qso(&qso).is_ok() {
+            inserted += 1;
+        }
+    }
+    let conn = db.raw_conn();
+    for journal in ["DEFAULT", "PORTABLE"] {
+        let unindexed_desc = s1_ids(
+            conn,
+            &format!(
+                "SELECT id FROM qso_records NOT INDEXED WHERE journal_id = ?1 ORDER BY {ORDER_CHRONO_DESC}"
+            ),
+            journal,
+        );
+        let indexed_desc: Vec<i64> = db
+            .get_recent_qsos_for_journal(journal, 20_000)
+            .unwrap()
+            .into_iter()
+            .map(|q| q.id.unwrap())
+            .collect();
+        assert_eq!(indexed_desc, unindexed_desc, "{journal}: porządek malejący");
+
+        let mut paged = Vec::new();
+        for page in 0.. {
+            let rows = db
+                .get_qsos_paginated_for_journal(journal, 997, page * 997)
+                .unwrap();
+            if rows.is_empty() {
+                break;
+            }
+            paged.extend(rows.into_iter().map(|q| q.id.unwrap()));
+        }
+        assert_eq!(
+            paged, unindexed_desc,
+            "{journal}: strony bez luk i zmian kolejności"
+        );
+
+        let unindexed_asc = s1_ids(
+            conn,
+            &format!(
+                "SELECT id FROM qso_records NOT INDEXED WHERE journal_id = ?1 ORDER BY {ORDER_CHRONO_ASC}"
+            ),
+            journal,
+        );
+        let numbers = db.qso_numbers_for_journal(journal).unwrap();
+        for (position, id) in unindexed_asc.iter().enumerate() {
+            assert_eq!(
+                numbers.get(id),
+                Some(&(position + 1)),
+                "{journal}: numer {id}"
+            );
+        }
+
+        let previous: Vec<i64> = db
+            .find_previous_qsos_for_journal(journal, "SQ7X")
+            .unwrap()
+            .into_iter()
+            .map(|q| q.id.unwrap())
+            .collect();
+        let mut stmt = conn
+            .prepare(&format!(
+                "SELECT id FROM qso_records NOT INDEXED WHERE journal_id = ?1 AND callsign = 'SQ7X' ORDER BY {ORDER_CHRONO_DESC}"
+            ))
+            .unwrap();
+        let expected: Vec<i64> = stmt
+            .query_map([journal], |r| r.get::<_, i64>(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(previous, expected, "{journal}: poprzednie QSO");
+    }
+}
+
+#[test]
+fn s1_pre_migration_backup_is_taken_before_migration_10_and_keeps_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = s1_v9_database(dir.path());
+    // Nowa, pusta baza nie wymagała kopii.
+    assert_eq!(
+        s1_pre_migration_files(&path),
+        Vec::<std::path::PathBuf>::new()
+    );
+
+    let db = LogDatabase::open(&path).unwrap();
+    assert_eq!(db.current_schema_version().unwrap(), LATEST_SCHEMA_VERSION);
+    assert_eq!(db.count_all().unwrap(), 3);
+    for name in [
+        "idx_qso_journal_chrono",
+        "idx_qso_journal_call_chrono",
+        "idx_qso_qsl_match",
+    ] {
+        assert!(s1_has_index(db.raw_conn(), name), "brak indeksu {name}");
+    }
+    drop(db);
+
+    let files = s1_pre_migration_files(&path);
+    assert_eq!(
+        files.len(),
+        1,
+        "dokładnie jedna kopia przedmigracyjna: {files:?}"
+    );
+    let name = files[0].file_name().unwrap().to_string_lossy().to_string();
+    assert!(
+        name.starts_with(&format!(
+            "log_pre_migration_v9_to_v{LATEST_SCHEMA_VERSION}_"
+        )) && files[0]
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("db")),
+        "nazwa kopii zawiera wersje: {name}"
+    );
+    let version = crate::core::backup::BackupManager::validate_backup_internal(&files[0]).unwrap();
+    assert_eq!(version, Some(9), "kopia ma stan sprzed migracji");
+    assert_eq!(s1_raw_count(&files[0]), 3);
+
+    // Ponowne otwarcie bez zaległych migracji nie tworzy kolejnej kopii.
+    drop(LogDatabase::open(&path).unwrap());
+    assert_eq!(s1_pre_migration_files(&path).len(), 1);
+}
+
+#[test]
+fn s1_failed_migration_10_keeps_schema_9_rows_and_a_valid_pre_migration_backup() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = s1_v9_database(dir.path());
+    {
+        // Wstrzyknięta awaria: obiekt o nazwie indeksu z migracji 10 blokuje CREATE INDEX.
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch("CREATE TABLE idx_qso_qsl_match (blocker INTEGER);")
+            .unwrap();
+    }
+
+    assert!(
+        LogDatabase::open(&path).is_err(),
+        "migracja musi się nie powieść"
+    );
+
+    assert_eq!(s1_raw_version(&path), 9, "wersja schematu bez zmian");
+    assert_eq!(s1_raw_count(&path), 3, "dane bez zmian");
+    let conn = Connection::open(&path).unwrap();
+    assert!(
+        !s1_has_index(&conn, "idx_qso_journal_chrono"),
+        "częściowa migracja została wycofana"
+    );
+    drop(conn);
+
+    let files = s1_pre_migration_files(&path);
+    assert_eq!(files.len(), 1, "kopia przedmigracyjna istnieje: {files:?}");
+    let version = crate::core::backup::BackupManager::validate_backup_internal(&files[0]).unwrap();
+    assert_eq!(version, Some(9));
+    assert_eq!(s1_raw_count(&files[0]), 3);
+}
+
+#[test]
+fn s1_pre_migration_backup_failure_blocks_the_migration() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = s1_v9_database(dir.path());
+    // Plik w miejscu katalogu `backups` uniemożliwia utworzenie kopii.
+    std::fs::write(dir.path().join("backups"), b"not a directory").unwrap();
+
+    let err = LogDatabase::open(&path)
+        .err()
+        .expect("otwarcie musi się nie powieść");
+    assert!(
+        err.to_string().contains("pre-migration backup failed"),
+        "błąd wskazuje przyczynę: {err}"
+    );
+    assert_eq!(s1_raw_version(&path), 9, "migracja nie została rozpoczęta");
+    assert_eq!(s1_raw_count(&path), 3);
+    let conn = Connection::open(&path).unwrap();
+    assert!(!s1_has_index(&conn, "idx_qso_journal_chrono"));
+}
+
+fn s1_lotw(
+    call: &str,
+    band: &str,
+    mode: &str,
+    date: &str,
+    time: Option<&str>,
+) -> crate::cloud::lotw::LotwConfirmation {
+    crate::cloud::lotw::LotwConfirmation {
+        callsign: call.to_string(),
+        band: band.to_string(),
+        mode: mode.to_string(),
+        qso_date: date.to_string(),
+        qso_time: time.map(str::to_string),
+        qsl_rdate: Some("20261120".to_string()),
+    }
+}
+
+fn s1_lotw_state(db: &LogDatabase, id: i64) -> String {
+    db.get_qso_by_id(id).unwrap().unwrap().lotw_qsl_rcvd
+}
+
+#[test]
+fn s1_qsl_time_window_confirms_only_the_nearest_qso() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let morning = db
+        .insert_qso(&s1_qso("W1AW", "20m", "CW", "20260920", "100000"))
+        .unwrap();
+    let afternoon = db
+        .insert_qso(&s1_qso("W1AW", "20m", "CW", "20260920", "140000"))
+        .unwrap();
+
+    let report = db
+        .mark_lotw_confirmed_batch_report(
+            "DEFAULT",
+            &[s1_lotw("W1AW", "20m", "CW", "20260920", Some("140500"))],
+        )
+        .unwrap();
+    assert_eq!(report.matched, 1);
+    assert_eq!(s1_lotw_state(&db, afternoon), "Y");
+    assert_ne!(s1_lotw_state(&db, morning), "Y");
+
+    // 45 minut od najbliższego QSO: poza oknem ±30 min.
+    let report = db
+        .mark_lotw_confirmed_batch_report(
+            "DEFAULT",
+            &[s1_lotw("W1AW", "20m", "CW", "20260920", Some("104500"))],
+        )
+        .unwrap();
+    assert_eq!((report.matched, report.unmatched), (0, 1));
+    assert_ne!(s1_lotw_state(&db, morning), "Y");
+}
+
+#[test]
+fn s1_qsl_without_time_and_two_same_day_candidates_is_ambiguous() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let first = db
+        .insert_qso(&s1_qso("W1AW", "20m", "CW", "20260920", "100000"))
+        .unwrap();
+    let second = db
+        .insert_qso(&s1_qso("W1AW", "20m", "CW", "20260920", "140000"))
+        .unwrap();
+
+    let report = db
+        .mark_lotw_confirmed_batch_report(
+            "DEFAULT",
+            &[s1_lotw("W1AW", "20m", "CW", "20260920", None)],
+        )
+        .unwrap();
+    assert_eq!(report.confirmations, 1);
+    assert_eq!(report.ambiguous, 1, "raport: niejednoznaczne");
+    assert_eq!(report.matched, 0);
+    assert_ne!(s1_lotw_state(&db, first), "Y");
+    assert_ne!(s1_lotw_state(&db, second), "Y");
+
+    // Pojedyncze potwierdzenie bez czasu (eQSL) podlega tej samej regule.
+    let updated = db
+        .mark_eqsl_confirmed_scoped("DEFAULT", "W1AW", "20m", "CW", "20260920", "20261120")
+        .unwrap();
+    assert_eq!(updated, 0);
+}
+
+#[test]
+fn s1_qsl_record_with_dashed_date_is_matched_through_the_index() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let id = db
+        .insert_qso(&s1_qso("SP6INA", "40m", "CW", "2026-09-20", "18:30:00"))
+        .unwrap();
+    let report = db
+        .mark_lotw_confirmed_batch_report(
+            "DEFAULT",
+            &[s1_lotw("sp6ina ", "40m", "CW", "20260920", Some("1835"))],
+        )
+        .unwrap();
+    assert_eq!(report.matched, 1);
+    assert_eq!(s1_lotw_state(&db, id), "Y");
+    let plan = s1_plan(
+        db.raw_conn(),
+        qsl::QSL_CANDIDATES_SQL,
+        &[
+            &"DEFAULT",
+            &"SP6INA",
+            &"40m",
+            &"40M",
+            &"20260920",
+            &"20260920",
+            &"20260920",
+        ],
+    );
+    assert!(plan.contains("idx_qso_qsl_match"), "{plan}");
+}
+
+#[test]
+fn s1_qsl_time_window_crosses_midnight_utc() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let late = db
+        .insert_qso(&s1_qso("JA1XYZ", "20m", "FT8", "20260920", "235000"))
+        .unwrap();
+    let early = db
+        .insert_qso(&s1_qso("VK2ABC", "20m", "FT8", "20260921", "000500"))
+        .unwrap();
+
+    let report = db
+        .mark_lotw_confirmed_batch_report(
+            "DEFAULT",
+            &[
+                s1_lotw("JA1XYZ", "20m", "FT8", "20260921", Some("000500")),
+                s1_lotw("VK2ABC", "20m", "FT8", "20260920", Some("235000")),
+            ],
+        )
+        .unwrap();
+    assert_eq!(report.matched, 2, "{report:?}");
+    assert_eq!(s1_lotw_state(&db, late), "Y");
+    assert_eq!(s1_lotw_state(&db, early), "Y");
+}
+
+#[test]
+fn s1_qsl_keeps_band_case_and_phone_group_semantics() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let id = db
+        .insert_qso(&s1_qso("DL1ABC", "20M", "USB", "20260920", "1200"))
+        .unwrap();
+    let report = db
+        .mark_lotw_confirmed_batch_report(
+            "DEFAULT",
+            &[s1_lotw("DL1ABC", "20m", "SSB", "20260920", Some("1210"))],
+        )
+        .unwrap();
+    assert_eq!(report.matched, 1);
+    assert_eq!(s1_lotw_state(&db, id), "Y");
+}
+
+#[test]
+fn s1_qsl_chunks_release_the_database_lock_between_batches() {
+    use std::sync::Mutex;
+    let db = LogDatabase::open_in_memory().unwrap();
+    let id = db
+        .insert_qso(&s1_qso("W1AW", "20m", "CW", "20260920", "120000"))
+        .unwrap();
+    let shared = Mutex::new(db);
+    let confirmations: Vec<_> = (0..=(2 * qsl::QSL_MATCH_CHUNK_SIZE))
+        .map(|_| s1_lotw("W1AW", "20m", "CW", "20260920", Some("120100")))
+        .collect();
+
+    let mut calls = 0;
+    let report = qsl::apply_lotw_confirmations_chunked(&shared, "DEFAULT", &confirmations, |r| {
+        calls += 1;
+        assert!(
+            shared.try_lock().is_ok(),
+            "blokada bazy musi być wolna między paczkami"
+        );
+        assert_eq!(
+            r.confirmations,
+            (calls * qsl::QSL_MATCH_CHUNK_SIZE).min(confirmations.len())
+        );
+    })
+    .unwrap();
+    assert_eq!(calls, 3);
+    assert_eq!(report.confirmations, confirmations.len());
+    assert_eq!(report.matched, confirmations.len());
+    assert_eq!(s1_lotw_state(&shared.lock().unwrap(), id), "Y");
+
+    let mut eqsl_calls = 0;
+    let mut incoming = s1_qso("W1AW", "20m", "CW", "20260920", "120200");
+    incoming.eqsl_qsl_rcvd = "Y".to_string();
+    let eqsl = vec![incoming; qsl::QSL_MATCH_CHUNK_SIZE + 1];
+    let report = qsl::apply_eqsl_confirmations_chunked(&shared, "DEFAULT", &eqsl, |_| {
+        eqsl_calls += 1;
+        assert!(shared.try_lock().is_ok());
+    })
+    .unwrap();
+    assert_eq!(eqsl_calls, 2);
+    assert_eq!(report.matched, eqsl.len());
+}
+
+#[test]
+fn s1_scp_source_lists_every_callsign_beyond_ten_thousand() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let mut qsos: Vec<QsoRecord> = (0..10_000)
+        .map(|i| s1_qso(&format!("AA{i:05}"), "20m", "CW", "20260101", "120000"))
+        .collect();
+    qsos.extend((0..50).map(|i| s1_qso(&format!("SP{i}ZZ"), "20m", "CW", "20260101", "120000")));
+    db.batch_insert_qsos(&qsos).unwrap();
+
+    // Dotychczasowe zapytanie z limitem ucina alfabetycznie — SP nie mieści się w 10 000.
+    let truncated = db
+        .get_distinct_callsigns_for_journal("DEFAULT", 10_000)
+        .unwrap();
+    assert!(!truncated.iter().any(|c| c.starts_with("SP")));
+
+    let all = db
+        .get_all_distinct_callsigns_for_journal("DEFAULT")
+        .unwrap();
+    assert_eq!(all.len(), 10_050);
+    assert_eq!(all.iter().filter(|c| c.starts_with("SP")).count(), 50);
+}
+
+#[test]
+fn s1_qsl_reconfirmation_without_change_writes_nothing_but_still_matches() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let id = db
+        .insert_qso(&s1_qso("W1AW", "20m", "CW", "20260920", "120000"))
+        .unwrap();
+    let total_changes = |db: &LogDatabase| -> i64 {
+        db.raw_conn()
+            .query_row("SELECT total_changes()", [], |r| r.get(0))
+            .unwrap()
+    };
+    let conf = s1_lotw("W1AW", "20m", "CW", "20260920", Some("120000"));
+
+    let report = db
+        .mark_lotw_confirmed_batch_report("DEFAULT", std::slice::from_ref(&conf))
+        .unwrap();
+    assert_eq!(report.matched, 1);
+    assert_eq!(s1_lotw_state(&db, id), "Y");
+    let after_first = total_changes(&db);
+
+    // Ten sam raport ponownie: dopasowane, ale bez żadnego zapisu.
+    let report = db
+        .mark_lotw_confirmed_batch_report("DEFAULT", &[conf.clone(), conf.clone()])
+        .unwrap();
+    assert_eq!(report.matched, 2);
+    assert_eq!(total_changes(&db), after_first, "brak zbędnych zapisów");
+
+    // Nowa data odbioru nadal jest zapisywana.
+    let mut newer = conf;
+    newer.qsl_rdate = Some("20261121".to_string());
+    db.mark_lotw_confirmed_batch_report("DEFAULT", &[newer])
+        .unwrap();
+    assert_eq!(total_changes(&db), after_first + 1);
+    assert_eq!(
+        db.get_qso_by_id(id)
+            .unwrap()
+            .unwrap()
+            .lotw_qslrdate
+            .as_deref(),
+        Some("20261121")
     );
 }
