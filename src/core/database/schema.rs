@@ -162,6 +162,28 @@ pub(super) fn for_storage(qso: &QsoRecord) -> Cow<'_, QsoRecord> {
 pub(super) const ORDER_CHRONO_DESC: &str = "REPLACE(qso_date, '-', '') DESC, SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6) DESC, id DESC";
 pub(super) const ORDER_CHRONO_ASC: &str = "REPLACE(qso_date, '-', '') ASC, SUBSTR(REPLACE(time_on, ':', '') || '000000', 1, 6) ASC, id ASC";
 
+/// Chronological sort key that orders rows exactly like `ORDER_CHRONO_ASC`.
+///
+/// SQLite compares the two text expressions byte-wise (BINARY collation) and `SUBSTR` counts
+/// characters, which is what `String` ordering and `chars().take(6)` reproduce.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ChronoKey {
+    date: String,
+    time: String,
+    id: i64,
+}
+
+#[must_use]
+pub fn chrono_key(qso: &QsoRecord) -> ChronoKey {
+    let mut time: String = qso.time_on.chars().filter(|c| *c != ':').collect();
+    time.push_str("000000");
+    ChronoKey {
+        date: qso.qso_date.replace('-', ""),
+        time: time.chars().take(6).collect(),
+        id: qso.id.unwrap_or(0),
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum QslChannel {
     Lotw,

@@ -173,7 +173,7 @@ impl SpLogApp {
         self.entry.focus_callsign_requested = true;
 
         self.clear_qso_form();
-        self.reload_qsos();
+        self.apply_stored_qso(&outcome.qso);
     }
 
     /// Wykonuje centralne efekty uboczne po pomyślnym zapisie QSO w potoku `core::ingest` (PIPE-4B.3).
@@ -339,7 +339,7 @@ impl SpLogApp {
                         outcome.qso.callsign
                     ),
                 );
-                self.reload_qsos();
+                self.apply_stored_qso(&outcome.qso);
             }
             Err(e) => {
                 self.report_error(
@@ -372,7 +372,7 @@ impl SpLogApp {
                         outcome.qso.callsign
                     ),
                 );
-                self.reload_qsos();
+                self.apply_stored_qso(&outcome.qso);
             }
             Err(e) => {
                 self.gui.chrome.push_status_toast(
@@ -406,7 +406,7 @@ impl SpLogApp {
                     crate::gui::state::ToastSeverity::Success,
                     format!("🌐 Multi-Op LAN: Dodano QSO z {}!", outcome.qso.callsign),
                 );
-                self.reload_qsos();
+                self.apply_stored_qso(&outcome.qso);
             }
             Err(crate::core::ingest::IngestError::Duplicate) => {
                 // Duplicate jest ignorowany bez ponownego zapisu
@@ -483,7 +483,6 @@ impl SpLogApp {
 
         if catchup_applied > 0 {
             self.rebuild_awards_full();
-            self.reload_qsos();
             self.gui.chrome.push_status_toast(
                 crate::gui::state::ToastSeverity::Info,
                 Msg::new(key::MULTI_OP_CATCHUP_TOAST)
@@ -530,38 +529,31 @@ impl SpLogApp {
         self.entry.focus_callsign_requested = true;
     }
 
+    /// Loads the whole active journal into the log view. Numbers follow from the
+    /// chronological order of the rows, so no second query is needed.
     pub fn reload_qsos(&mut self) {
-        // Pobierz duży bufor żeby paginacja w tabeli miała z czego czerpać.
-        // Gdy dziennik jest większy niż bufor, ładujemy całość — w przeciwnym
-        // razie sortowanie, filtrowanie i eksport zakresu „Filtered" operowałyby
-        // na niepełnych danych.
-        if let Ok(db) = self.services.log_db.lock() {
-            let total = db
-                .count_qsos_for_journal(&self.active_journal.id)
-                .unwrap_or(0);
-            let requested = if self.log_view.page_size == 0 {
-                10000
-            } else {
-                (self.log_view.page_size * 20).max(500)
-            };
-            let limit = requested.max(total);
-            self.log_view.recent_qsos = db
-                .get_recent_qsos_for_journal(&self.active_journal.id, limit)
-                .unwrap_or_default();
-            match db.qso_numbers_for_journal(&self.active_journal.id) {
-                Ok(numbers) => self.log_view.qso_numbers = numbers,
-                Err(error) => {
-                    log::error!("Failed to calculate QSO serial numbers: {error}");
-                    self.log_view.qso_numbers.clear();
-                    self.gui.chrome.push_status_toast(
-                        crate::gui::state::ToastSeverity::Error,
-                        Msg::new(key::QSO_SERIAL_ERROR)
-                            .arg("err", &error)
-                            .text(self.gui.appearance.language),
-                    );
-                }
+        let loaded = {
+            let db = self
+                .services
+                .log_db
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            db.get_all_qsos_for_journal(&self.active_journal.id)
+        };
+        match loaded {
+            Ok(mut rows) => {
+                rows.reverse();
+                self.log_view.set_journal_rows(rows);
             }
-            self.log_view.bump_revision();
+            Err(error) => {
+                log::error!("Failed to load the logbook: {error}");
+                self.gui.chrome.push_status_toast(
+                    crate::gui::state::ToastSeverity::Error,
+                    Msg::new(key::LOG_LOAD_ERROR)
+                        .arg("err", &error)
+                        .text(self.gui.appearance.language),
+                );
+            }
         }
         // Znormalizuj indeks strony względem nowej długości bufora (F-16).
         let total = self.log_view.recent_qsos.len();
@@ -580,8 +572,7 @@ impl SpLogApp {
     /// normalizuje indeks strony (F-16). Dzięki temu żaden konsument stanu nie
     /// widzi nieaktualnej strony jeszcze przed następną klatką renderu.
     pub fn apply_filtered_qsos(&mut self, filtered: Vec<QsoRecord>) {
-        self.log_view.recent_qsos = filtered;
-        self.log_view.bump_revision();
+        self.log_view.set_filtered_rows(filtered);
         let total = self.log_view.recent_qsos.len();
         let _window = self.log_view.pagination_window(total);
     }
@@ -606,21 +597,74 @@ impl SpLogApp {
         self.views.panel_log.visible = true;
     }
 
+    /// Reloads the journal once and rebuilds the award state from the loaded rows.
     pub fn rebuild_awards_full(&mut self) {
-        let active_id = self.active_journal.id.clone();
-        let journal_qsos = if let Ok(db) = self.services.log_db.lock() {
-            db.get_all_qsos_for_journal(&active_id).ok()
-        } else {
-            None
-        };
-        if let Some(qsos) = journal_qsos
-            && let Ok(mut awards) = self.services.awards_engine.lock()
-        {
-            awards.rebuild_for_journal(&active_id, &qsos);
-        }
         self.reload_qsos();
+        if !self.log_view.buffer_is_filtered {
+            let active_id = self.active_journal.id.clone();
+            let mut awards = self
+                .services
+                .awards_engine
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            awards.rebuild_for_journal(&active_id, &self.log_view.recent_qsos);
+        }
         // Stan nagród się zmienił — odznaki spotów klastra są nieaktualne.
         self.invalidate_cluster_badges();
+    }
+
+    /// Drops deleted QSOs from the view and rebuilds the award state from the remaining rows.
+    fn apply_removed_qsos(&mut self, ids: &[i64]) {
+        if self.log_view.buffer_is_filtered {
+            self.rebuild_awards_full();
+            return;
+        }
+        self.log_view.remove_records(ids);
+        let total = self.log_view.recent_qsos.len();
+        let _window = self.log_view.pagination_window(total);
+        {
+            let active_id = self.active_journal.id.clone();
+            let mut awards = self
+                .services
+                .awards_engine
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            awards.rebuild_for_journal(&active_id, &self.log_view.recent_qsos);
+        }
+        self.invalidate_cluster_badges();
+    }
+
+    /// Shows a QSO that was just stored without reloading the journal. Rows of another
+    /// journal are not part of the view; a filtered view is refreshed in full.
+    pub fn apply_stored_qso(&mut self, qso: &QsoRecord) {
+        let journal_id = qso.journal_id.as_deref().unwrap_or("DEFAULT");
+        if journal_id != self.active_journal.id {
+            return;
+        }
+        let Some(id) = qso.id else {
+            self.reload_qsos();
+            return;
+        };
+        if self.log_view.buffer_is_filtered {
+            self.reload_qsos();
+            return;
+        }
+        let stored = {
+            let db = self
+                .services
+                .log_db
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            db.get_qso_by_id_scoped(id, journal_id)
+        };
+        match stored {
+            Ok(Some(row)) => {
+                self.log_view.upsert_record(row);
+                let total = self.log_view.recent_qsos.len();
+                let _window = self.log_view.pagination_window(total);
+            }
+            Ok(None) | Err(_) => self.reload_qsos(),
+        }
     }
 
     /// Odbudowuje silnik podpowiedzi SCP z unikalnych znaków aktywnego dziennika (DATA-005).
@@ -670,7 +714,6 @@ impl SpLogApp {
         // 2. Odbudowa stanu pochodnego ściśle dla nowego aktywnego dziennika
         self.rebuild_awards_full();
         self.rebuild_scp();
-        self.reload_qsos();
 
         self.gui.chrome.push_status_toast(
             crate::gui::state::ToastSeverity::Info,
@@ -725,6 +768,7 @@ impl SpLogApp {
                         .arg("count", count)
                         .text(self.gui.appearance.language),
                 );
+                self.apply_removed_qsos(&ids);
             }
             Err(e) => {
                 self.report_error(
@@ -733,10 +777,9 @@ impl SpLogApp {
                         .arg("err", e.to_string())
                         .text(self.gui.appearance.language),
                 );
+                self.rebuild_awards_full();
             }
         }
-        self.rebuild_awards_full();
-        self.reload_qsos();
     }
 
     pub fn delete_qso_by_id(&mut self, id: i64) {
@@ -781,8 +824,7 @@ impl SpLogApp {
                     .selected_qso_ids
                     .retain(|selected| *selected != id);
 
-                self.rebuild_awards_full();
-                self.reload_qsos();
+                self.apply_removed_qsos(&[id]);
                 self.gui.chrome.status_message = Some(
                     Msg::new(key::MSG_QSO_DELETED_ID)
                         .arg("id", id)
@@ -844,7 +886,6 @@ impl SpLogApp {
                         }
                     }
                     self.rebuild_awards_full();
-                    self.reload_qsos();
                     self.gui.chrome.status_message = Some(
                         Msg::new(key::MSG_QSO_RESTORED_CALL)
                             .arg("call", &callsign)
@@ -884,7 +925,6 @@ impl SpLogApp {
                         }
                     }
                     self.rebuild_awards_full();
-                    self.reload_qsos();
                     self.gui.chrome.status_message = Some(
                         Msg::new(key::MSG_QSO_DELETED_MULTIPLE)
                             .arg("count", count)
@@ -943,7 +983,6 @@ impl SpLogApp {
                         }
                     }
                     self.rebuild_awards_full();
-                    self.reload_qsos();
                     self.gui.chrome.status_message = Some(
                         Msg::new(key::MSG_QSO_REDO_DELETED_CALL)
                             .arg("call", &callsign)
@@ -978,7 +1017,6 @@ impl SpLogApp {
                         }
                     }
                     self.rebuild_awards_full();
-                    self.reload_qsos();
                     self.gui.chrome.status_message = Some(
                         Msg::new(key::MSG_QSO_DELETED_MULTIPLE)
                             .arg("count", count)
@@ -991,6 +1029,7 @@ impl SpLogApp {
 
     pub fn save_edited_qso(&mut self) {
         let mut warnings_toast: Option<String> = None;
+        let mut stored: Option<QsoRecord> = None;
         if let Some(ref qso) = self.log_view.editing_qso {
             let Some(id) = qso.id else {
                 return;
@@ -1018,6 +1057,7 @@ impl SpLogApp {
                             .arg("call", &updated.callsign)
                             .text(self.gui.appearance.language),
                     );
+                    stored = Some(updated);
                 }
                 Ok(None) => {
                     self.report_error(
@@ -1051,6 +1091,18 @@ impl SpLogApp {
             self.report_warning(msg);
         }
         self.log_view.editing_qso = None;
-        self.rebuild_awards_full();
+        match stored {
+            Some(qso) if !self.log_view.buffer_is_filtered => {
+                self.apply_stored_qso(&qso);
+                let active_id = self.active_journal.id.clone();
+                self.services
+                    .awards_engine
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .rebuild_for_journal(&active_id, &self.log_view.recent_qsos);
+                self.invalidate_cluster_badges();
+            }
+            _ => self.rebuild_awards_full(),
+        }
     }
 }

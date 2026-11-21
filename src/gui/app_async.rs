@@ -273,7 +273,6 @@ impl SpLogApp {
             .swap(false, std::sync::atomic::Ordering::AcqRel)
         {
             self.rebuild_awards_full();
-            self.reload_qsos();
         }
     }
 

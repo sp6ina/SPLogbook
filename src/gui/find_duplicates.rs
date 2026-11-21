@@ -335,7 +335,6 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 }
                 drop(db);
                 app.rebuild_awards_full();
-                app.reload_qsos();
             }
             Err(e) => {
                 app.duplicates.status = Some(e.to_string());

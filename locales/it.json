@@ -1370,7 +1370,7 @@
   "multi_op.status_failed": "Connessione fallita",
   "multi_op.backward_sync": "Sincronizzazione di recupero: importati {inserted} QSO mancanti",
   "multi_op.catchup_toast": "🌐 Multi-Op LAN: Importati {count} QSO mancanti!",
-  "qso.serial_error": "Errore numerazione seriale QSO: {err}",
+  "log.load_error": "Errore nel caricamento del registro: {err}",
   "msg.qso_delete_error_id": "Errore durante l'eliminazione del QSO #{id}: {err}",
   "msg.qso_deleted_multiple": "Eliminati {count} QSO dal logbook.",
   "msg.qso_deleted_id": "Eliminato QSO #{id} dal logbook.",

@@ -1370,7 +1370,7 @@
   "multi_op.status_failed": "Błąd połączenia",
   "multi_op.backward_sync": "Synchronizacja wsteczna: zaimportowano {inserted} brakujących QSO",
   "multi_op.catchup_toast": "🌐 Multi-Op LAN: Zaimportowano {count} brakujących QSO!",
-  "qso.serial_error": "Błąd numeracji QSO: {err}",
+  "log.load_error": "Błąd wczytywania dziennika: {err}",
   "msg.qso_delete_error_id": "Błąd usuwania łączności #{id}: {err}",
   "msg.qso_deleted_multiple": "Usunięto {count} łączności z dziennika.",
   "msg.qso_deleted_id": "Usunięto łączność #{id} z dziennika.",

@@ -1370,7 +1370,7 @@
   "multi_op.status_failed": "Échec de connexion",
   "multi_op.backward_sync": "Synchronisation de rattrapage : {inserted} QSO manquants importés",
   "multi_op.catchup_toast": "🌐 Multi-Op LAN : {count} QSO manquants importés !",
-  "qso.serial_error": "Erreur de numérotation des QSO : {err}",
+  "log.load_error": "Échec du chargement du journal : {err}",
   "msg.qso_delete_error_id": "Échec de la suppression du QSO #{id} : {err}",
   "msg.qso_deleted_multiple": "{count} QSO supprimés du journal.",
   "msg.qso_deleted_id": "QSO #{id} supprimé du journal.",

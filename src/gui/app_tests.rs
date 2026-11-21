@@ -3927,3 +3927,157 @@ fn toast_overlay_does_not_duplicate_the_severity_icon() {
         "jedna ikona ostrzeżenia (z ToastSeverity), nie dwie: {texts:?}"
     );
 }
+
+fn s2_app() -> SpLogApp {
+    let init = AppInit {
+        config: AppConfig::default(),
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    SpLogApp::for_tests(init, test_deps())
+}
+
+fn s2_view(app: &SpLogApp) -> (Vec<i64>, Vec<(i64, usize)>) {
+    let ids: Vec<i64> = app
+        .log_view
+        .recent_qsos
+        .iter()
+        .filter_map(|q| q.id)
+        .collect();
+    let mut numbers: Vec<(i64, usize)> = app
+        .log_view
+        .qso_numbers
+        .iter()
+        .map(|(id, n)| (*id, *n))
+        .collect();
+    numbers.sort_unstable();
+    (ids, numbers)
+}
+
+#[test]
+fn incremental_log_updates_match_a_full_reload() {
+    let mut app = s2_app();
+    let journal = app.active_journal.id.clone();
+    {
+        let db = app.services.log_db.lock().unwrap();
+        for day in 1..=20 {
+            let mut qso = QsoRecord::new(format!("SP{day}ABC"), "20m", "CW");
+            qso.journal_id = Some(journal.clone());
+            qso.qso_date = format!("202610{day:02}");
+            qso.time_on = "1200".to_string();
+            db.insert_qso(&qso).unwrap();
+        }
+    }
+    app.reload_qsos();
+    assert_eq!(app.log_view.recent_qsos.len(), 20);
+
+    // Form save (current time, newest row).
+    app.entry.callsign = "SQ9NEW".to_string();
+    app.entry.band = "40m".to_string();
+    app.entry.mode = "SSB".to_string();
+    app.entry.rst_sent = "59".to_string();
+    app.entry.rst_rcvd = "59".to_string();
+    app.save_qso();
+    assert_eq!(app.log_view.recent_qsos.len(), 21);
+    assert_eq!(app.log_view.recent_qsos[0].callsign, "SQ9NEW");
+
+    // A backdated QSO from another source lands in the middle of the journal.
+    let mut backdated = QsoRecord::new("DL1OLD", "15m", "CW");
+    backdated.journal_id = Some(journal.clone());
+    backdated.qso_date = "2026-10-05".to_string();
+    backdated.time_on = "13:00".to_string();
+    let outcome = app
+        .services
+        .ingestor
+        .ingest(backdated, crate::core::ingest::QsoOrigin::LanPeer)
+        .unwrap();
+    app.apply_stored_qso(&outcome.qso);
+    assert_eq!(app.log_view.recent_qsos.len(), 22);
+
+    // A QSO of another journal is not shown.
+    {
+        let db = app.services.log_db.lock().unwrap();
+        db.create_journal(&Journal {
+            id: "OTHER".to_string(),
+            name: "Other".to_string(),
+            ..Default::default()
+        })
+        .unwrap();
+    }
+    let mut foreign = QsoRecord::new("OK1XYZ", "20m", "CW");
+    foreign.journal_id = Some("OTHER".to_string());
+    foreign.qso_date = "20261030".to_string();
+    foreign.time_on = "1200".to_string();
+    let outcome = app
+        .services
+        .ingestor
+        .ingest(foreign, crate::core::ingest::QsoOrigin::LanPeer)
+        .unwrap();
+    app.apply_stored_qso(&outcome.qso);
+    assert_eq!(app.log_view.recent_qsos.len(), 22);
+
+    // Delete one row and edit another so it moves to a new position.
+    let delete_id = app.log_view.recent_qsos[5].id.unwrap();
+    app.delete_qso_by_id(delete_id);
+    let mut edited = app.log_view.recent_qsos[10].clone();
+    edited.qso_date = "20261031".to_string();
+    app.log_view.editing_qso = Some(edited.clone());
+    app.save_edited_qso();
+    assert_eq!(app.log_view.recent_qsos[1].id, edited.id);
+
+    let incremental = s2_view(&app);
+    app.reload_qsos();
+    assert_eq!(
+        s2_view(&app),
+        incremental,
+        "incremental view == full reload"
+    );
+}
+
+#[test]
+fn awards_after_incremental_delete_match_a_rebuild_from_the_database() {
+    let mut app = s2_app();
+    let journal = app.active_journal.id.clone();
+    {
+        let db = app.services.log_db.lock().unwrap();
+        for (call, band) in [("SP1AAA", "20m"), ("DL1BBB", "40m"), ("OK1CCC", "15m")] {
+            let mut qso = QsoRecord::new(call, band, "CW");
+            qso.journal_id = Some(journal.clone());
+            qso.qso_date = "20261001".to_string();
+            qso.time_on = "1200".to_string();
+            qso.dxcc = Some(match call {
+                "SP1AAA" => 269,
+                "DL1BBB" => 230,
+                _ => 503,
+            });
+            db.insert_qso(&qso).unwrap();
+        }
+    }
+    app.rebuild_awards_full();
+    let dl = app
+        .log_view
+        .recent_qsos
+        .iter()
+        .find(|q| q.callsign == "DL1BBB")
+        .and_then(|q| q.id)
+        .unwrap();
+    app.delete_qso_by_id(dl);
+    let incremental = app
+        .services
+        .awards_engine
+        .lock()
+        .unwrap()
+        .worked_dxcc_all
+        .clone();
+    app.rebuild_awards_full();
+    let rebuilt = app
+        .services
+        .awards_engine
+        .lock()
+        .unwrap()
+        .worked_dxcc_all
+        .clone();
+    assert_eq!(incremental, rebuilt);
+    assert!(!incremental.contains(&230));
+}

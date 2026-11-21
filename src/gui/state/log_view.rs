@@ -69,6 +69,8 @@ pub struct LogViewState {
     pub lotw_users_cache: HashMap<String, bool>,
     pub log_revision: u64,
     pub cache: LogViewCache,
+    /// `true` while `recent_qsos` holds an advanced-filter result instead of the whole journal.
+    pub buffer_is_filtered: bool,
 }
 
 impl Default for LogViewState {
@@ -92,6 +94,7 @@ impl Default for LogViewState {
             lotw_users_cache: HashMap::new(),
             log_revision: 0,
             cache: LogViewCache::default(),
+            buffer_is_filtered: false,
         }
     }
 }
@@ -107,6 +110,65 @@ impl LogViewState {
 
     pub fn bump_revision(&mut self) {
         self.log_revision = self.log_revision.wrapping_add(1);
+    }
+
+    /// Replaces the buffer with journal rows in `ORDER_CHRONO_DESC` order and numbers them.
+    pub fn set_journal_rows(&mut self, rows: Vec<QsoRecord>) {
+        self.recent_qsos = rows;
+        self.buffer_is_filtered = false;
+        self.renumber();
+        self.bump_revision();
+    }
+
+    /// Replaces the buffer with an advanced-filter result; journal numbers are kept.
+    pub fn set_filtered_rows(&mut self, rows: Vec<QsoRecord>) {
+        self.recent_qsos = rows;
+        self.buffer_is_filtered = true;
+        self.bump_revision();
+    }
+
+    /// Chronological numbers derived from the buffer order: the oldest QSO is number 1.
+    fn renumber(&mut self) {
+        let total = self.recent_qsos.len();
+        self.qso_numbers.clear();
+        self.qso_numbers.reserve(total);
+        for (index, qso) in self.recent_qsos.iter().enumerate() {
+            if let Some(id) = qso.id {
+                self.qso_numbers.insert(id, total - index);
+            }
+        }
+    }
+
+    /// Inserts or replaces one stored QSO at its chronological position without reloading the
+    /// journal. Rows without an id are ignored.
+    pub fn upsert_record(&mut self, qso: QsoRecord) {
+        let Some(id) = qso.id else {
+            return;
+        };
+        if let Some(existing) = self.recent_qsos.iter().position(|q| q.id == Some(id)) {
+            self.recent_qsos.remove(existing);
+        }
+        let key = crate::core::database::schema::chrono_key(&qso);
+        let position = self
+            .recent_qsos
+            .partition_point(|q| crate::core::database::schema::chrono_key(q) > key);
+        self.recent_qsos.insert(position, qso);
+        if position == 0 && !self.qso_numbers.contains_key(&id) {
+            self.qso_numbers.insert(id, self.recent_qsos.len());
+        } else {
+            self.renumber();
+        }
+        self.bump_revision();
+    }
+
+    /// Removes the given QSOs from the buffer and the selection.
+    pub fn remove_records(&mut self, ids: &[i64]) {
+        let ids: HashSet<i64> = ids.iter().copied().collect();
+        self.recent_qsos
+            .retain(|q| q.id.is_none_or(|id| !ids.contains(&id)));
+        self.selected_qso_ids.retain(|id| !ids.contains(id));
+        self.renumber();
+        self.bump_revision();
     }
 
     pub fn is_cache_valid(&self, log_identity: &str, profile_id: &str) -> bool {
@@ -386,6 +448,82 @@ mod tests {
         assert_eq!(selection.indices.len(), 50);
         assert!(selection.indices.iter().all(|&index| index < 120));
         assert!(selection.window.start <= selection.window.end);
+    }
+
+    fn dated(id: i64, date: &str, time: &str) -> QsoRecord {
+        let mut qso = QsoRecord::new(format!("SP{id}AA"), "20m", "CW");
+        qso.id = Some(id);
+        qso.qso_date = date.to_string();
+        qso.time_on = time.to_string();
+        qso
+    }
+
+    fn ids(state: &LogViewState) -> Vec<i64> {
+        state.recent_qsos.iter().filter_map(|q| q.id).collect()
+    }
+
+    fn assert_numbers_follow_order(state: &LogViewState) {
+        let total = state.recent_qsos.len();
+        assert_eq!(state.qso_numbers.len(), total);
+        for (index, qso) in state.recent_qsos.iter().enumerate() {
+            let number = qso.id.and_then(|id| state.qso_numbers.get(&id).copied());
+            assert_eq!(number, Some(total - index));
+        }
+    }
+
+    #[test]
+    fn upsert_record_keeps_chronological_order_and_numbers() {
+        let mut state = LogViewState::default();
+        state.set_journal_rows(vec![
+            dated(3, "20261003", "1200"),
+            dated(2, "20261002", "1200"),
+            dated(1, "20261001", "1200"),
+        ]);
+        let revision = state.log_revision;
+
+        state.upsert_record(dated(4, "20261004", "0000"));
+        assert_eq!(ids(&state), [4, 3, 2, 1]);
+        state.upsert_record(dated(5, "2026-10-02", "12:30"));
+        assert_eq!(ids(&state), [4, 3, 5, 2, 1]);
+        assert_numbers_follow_order(&state);
+        assert!(state.log_revision > revision);
+
+        // An edited row moves to its new position instead of being duplicated.
+        state.upsert_record(dated(2, "20261005", "0100"));
+        assert_eq!(ids(&state), [2, 4, 3, 5, 1]);
+        assert_numbers_follow_order(&state);
+
+        state.upsert_record(QsoRecord::new("NOID", "20m", "CW"));
+        assert_eq!(state.recent_qsos.len(), 5, "rows without an id are ignored");
+    }
+
+    #[test]
+    fn remove_records_renumbers_and_clears_the_selection() {
+        let mut state = LogViewState::default();
+        state.set_journal_rows(vec![
+            dated(3, "20261003", "1200"),
+            dated(2, "20261002", "1200"),
+            dated(1, "20261001", "1200"),
+        ]);
+        state.selected_qso_ids = vec![2, 3];
+        state.remove_records(&[2]);
+        assert_eq!(ids(&state), [3, 1]);
+        assert_eq!(state.selected_qso_ids, [3]);
+        assert_numbers_follow_order(&state);
+    }
+
+    #[test]
+    fn filtered_rows_are_flagged_and_keep_journal_numbers() {
+        let mut state = LogViewState::default();
+        state.set_journal_rows(vec![
+            dated(2, "20261002", "1200"),
+            dated(1, "20261001", "1200"),
+        ]);
+        state.set_filtered_rows(vec![dated(1, "20261001", "1200")]);
+        assert!(state.buffer_is_filtered);
+        assert_eq!(state.qso_numbers.get(&2), Some(&2));
+        state.set_journal_rows(vec![dated(1, "20261001", "1200")]);
+        assert!(!state.buffer_is_filtered);
     }
 
     #[test]

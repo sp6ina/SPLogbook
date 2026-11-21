@@ -214,12 +214,17 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
     let cache_hit = app.contest.cache.key.as_ref() == Some(&current_key);
     if !cache_hit {
-        let full_journal_qsos = app
-            .services
-            .log_db
-            .lock()
-            .ok()
-            .and_then(|db| db.get_all_qsos_for_journal(&app.active_journal.id).ok());
+        // The log buffer already holds the whole journal; only an advanced-filter view needs
+        // the untruncated journal from the database.
+        let full_journal_qsos = if app.log_view.buffer_is_filtered {
+            app.services
+                .log_db
+                .lock()
+                .ok()
+                .and_then(|db| db.get_all_qsos_for_journal(&app.active_journal.id).ok())
+        } else {
+            None
+        };
         let journal_qsos: &[QsoRecord] = full_journal_qsos
             .as_deref()
             .unwrap_or(&app.log_view.recent_qsos);
@@ -761,7 +766,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         app.entry.rst_rcvd.clear();
                         app.entry.exchange.clear();
                         app.entry.focus_callsign_requested = true;
-                        app.reload_qsos();
+                        app.apply_stored_qso(&outcome.qso);
                     }
                     Err(IngestError::Invalid(reason)) => {
                         app.gui.chrome.push_status_toast(

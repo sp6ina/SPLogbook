@@ -4452,6 +4452,14 @@ fn s1_chrono_order_is_identical_to_the_unindexed_order() {
             .collect();
         assert_eq!(indexed_desc, unindexed_desc, "{journal}: porządek malejący");
 
+        let mut rust_sorted = db.get_all_qsos_for_journal(journal).unwrap();
+        rust_sorted.sort_by_key(|q| std::cmp::Reverse(schema::chrono_key(q)));
+        let rust_desc: Vec<i64> = rust_sorted.iter().map(|q| q.id.unwrap()).collect();
+        assert_eq!(
+            rust_desc, unindexed_desc,
+            "{journal}: chrono_key == ORDER_CHRONO_DESC"
+        );
+
         let mut paged = Vec::new();
         for page in 0.. {
             let rows = db
