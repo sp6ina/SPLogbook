@@ -117,6 +117,25 @@ fn icon_checkbox(
 /// komendą), w przeciwnym razie kierunek na korespondenta; bez żadnego źródła — `None`
 /// (żadnego mylącego „0°” na stacji domowej).
 #[must_use]
+/// Appends a filled octagon (a dot at marker size) to `mesh` as a triangle fan.
+fn push_dot(mesh: &mut egui::epaint::Mesh, center: egui::Pos2, radius: f32, color: egui::Color32) {
+    const SIDES: u32 = 8;
+    let Ok(base) = u32::try_from(mesh.vertices.len()) else {
+        return;
+    };
+    mesh.colored_vertex(center, color);
+    for i in 0..SIDES {
+        let angle = std::f32::consts::TAU * i as f32 / SIDES as f32;
+        mesh.colored_vertex(
+            center + radius * egui::vec2(angle.cos(), angle.sin()),
+            color,
+        );
+    }
+    for i in 0..SIDES {
+        mesh.add_triangle(base, base + 1 + i, base + 1 + (i + 1) % SIDES);
+    }
+}
+
 pub fn beam_azimuth(
     rotor: &crate::cat::rotor::RotorState,
     dx_bearing_deg: Option<f32>,
@@ -873,6 +892,8 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
         );
         let visible_area = canvas_rect.expand(4.0);
         let mut drawn_cells = std::collections::HashSet::new();
+        let mut marker_mesh = egui::epaint::Mesh::default();
+        let outline = map.ocean.alpha(150);
         let mut hovered: Option<(egui::Pos2, egui::Color32, String)> = None;
         for marker in &app.world_map.markers {
             let qso_pos = project(marker.latitude, marker.longitude);
@@ -890,12 +911,8 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 marker.confirmed,
             );
             if drawn_cells.insert(cell) {
-                painter.circle_filled(qso_pos, 2.5, color);
-                painter.circle_stroke(
-                    qso_pos,
-                    3.5,
-                    egui::Stroke::new(1.0_f32, map.ocean.alpha(150)),
-                );
+                push_dot(&mut marker_mesh, qso_pos, 4.0, outline);
+                push_dot(&mut marker_mesh, qso_pos, 2.5, color);
             }
             if hovered.is_none()
                 && let Some(hp) = hover_pos
@@ -904,6 +921,7 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 hovered = Some((qso_pos, color, marker.callsign.clone()));
             }
         }
+        painter.add(egui::Shape::mesh(marker_mesh));
         if let Some((qso_pos, color, callsign)) = hovered {
             let tip_box =
                 egui::Rect::from_min_size(qso_pos + egui::vec2(6.0, -12.0), egui::vec2(90.0, 16.0));
