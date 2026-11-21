@@ -1396,6 +1396,7 @@
   "import.rejected_damaged": "{count} enregistrements ADIF corrompus",
   "import.rejected_validation": "{count} rejetés par la validation",
   "import.skipped_duplicates": "{count} doublons ignorés",
+  "import.probable_duplicates": "{count} doublons probables ignorés (même bande et même mode, à 2 min près)",
   "import.first_validation_error": "première erreur de validation",
   "import.db_save_error": "Erreur d'enregistrement de l'import dans la base : {err}",
   "file.read_error": "Échec de lecture du fichier {path} : {err}",

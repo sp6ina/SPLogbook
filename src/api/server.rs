@@ -1278,7 +1278,7 @@ async fn export_adif_handler(
             let active = db
                 .get_active_journal()
                 .map_or_else(|_| "DEFAULT".to_string(), |j| j.id);
-            db.get_all_qsos_for_journal(&active)
+            db.get_all_qsos_for_journal_with_extras(&active)
         }
     })
     .await?;
@@ -1326,6 +1326,7 @@ async fn import_adif_handler(
         let options = ImportOptions {
             journal_id,
             enrich: true,
+            keep_probable_duplicates: false,
         };
         let import_report = ingestor.import_batch(qsos, &options)?;
         let total_qsos = {
@@ -1351,8 +1352,15 @@ async fn import_adif_handler(
             if import_report.skipped_duplicates > 0 {
                 errors.push("duplikat (rekord już istnieje w dzienniku)".to_string());
             }
-            let rejected =
-                adif_rejected + import_report.rejected_invalid + import_report.skipped_duplicates;
+            if import_report.probable_duplicates > 0 {
+                errors.push(
+                    "prawdopodobny duplikat (to samo pasmo i emisja, różnica do 2 min)".to_string(),
+                );
+            }
+            let rejected = adif_rejected
+                + import_report.rejected_invalid
+                + import_report.skipped_duplicates
+                + import_report.probable_duplicates;
             Ok(Json(AdifImportApiResponse {
                 imported: import_report.inserted,
                 rejected,

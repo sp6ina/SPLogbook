@@ -74,6 +74,24 @@ pub struct QsoRecord {
     pub vucc_grids: Option<String>,  // ADIF: VUCC_GRIDS (np. dla satelitów/VHF)
     pub audio_file: Option<String>,  // Powiązany plik audio nagrania łączności
     pub journal_id: Option<String>, // Identyfikator profilu/dziennika (np. DEFAULT, PORTABLE, CONTEST)
+    pub tx_pwr: Option<String>,
+    pub operator: Option<String>,
+    pub station_callsign: Option<String>,
+    pub contest_id: Option<String>,
+    pub my_rig: Option<String>,
+    pub my_antenna: Option<String>,
+    pub cnty: Option<String>,
+    /// Special-interest activity other than POTA (POTA is kept in `pota_ref`).
+    pub sig: Option<String>,
+    pub sig_info: Option<String>,
+    pub my_sig: Option<String>,
+    pub my_sig_info: Option<String>,
+    pub wwff_ref: Option<String>,
+    pub my_wwff_ref: Option<String>,
+    pub email: Option<String>,
+    /// ADIF fields without a dedicated column, kept verbatim (`qso_extra`).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub extra_fields: Vec<(String, String)>,
 }
 
 impl Default for QsoRecord {
@@ -137,6 +155,21 @@ impl Default for QsoRecord {
             my_state: None,
             audio_file: None,
             journal_id: Some("DEFAULT".to_string()),
+            tx_pwr: None,
+            operator: None,
+            station_callsign: None,
+            contest_id: None,
+            my_rig: None,
+            my_antenna: None,
+            cnty: None,
+            sig: None,
+            sig_info: None,
+            my_sig: None,
+            my_sig_info: None,
+            wwff_ref: None,
+            my_wwff_ref: None,
+            email: None,
+            extra_fields: Vec::new(),
         }
     }
 }
@@ -377,6 +410,23 @@ impl QsoRecord {
     pub fn identity(&self) -> QsoIdentity {
         QsoIdentity::from_qso(self)
     }
+}
+
+/// UTC instant in seconds of a `YYYYMMDD` date and an `HHMM`/`HHMMSS` time (separators are
+/// ignored); `None` when either part is not a valid ADIF value.
+pub fn utc_epoch_seconds(date: &str, time: &str) -> Option<i64> {
+    let date: String = date.chars().filter(char::is_ascii_digit).collect();
+    let time: String = time.chars().filter(char::is_ascii_digit).collect();
+    let date = jiff::civil::Date::strptime("%Y%m%d", &date).ok()?;
+    let time = match time.len() {
+        6 => jiff::civil::Time::strptime("%H%M%S", &time).ok()?,
+        4 => jiff::civil::Time::strptime("%H%M", &time).ok()?,
+        _ => return None,
+    };
+    jiff::tz::TimeZone::UTC
+        .to_timestamp(date.to_datetime(time))
+        .ok()
+        .map(jiff::Timestamp::as_second)
 }
 
 /// Poziom precyzji znacznika czasu łączności (TIME_ON).

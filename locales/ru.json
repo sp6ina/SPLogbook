@@ -1396,6 +1396,7 @@
   "import.rejected_damaged": "{count} поврежденных записей ADIF",
   "import.rejected_validation": "{count} отклонено проверкой",
   "import.skipped_duplicates": "{count} дубликатов пропущено",
+  "import.probable_duplicates": "{count} вероятных дубликатов пропущено (тот же диапазон и вид излучения, в пределах 2 мин)",
   "import.first_validation_error": "первая ошибка валидации",
   "import.db_save_error": "Ошибка сохранения импорта в базу данных: {err}",
   "file.read_error": "Ошибка чтения файла {path}: {err}",

@@ -441,6 +441,39 @@ pub fn import_adif_references<S: std::hash::BuildHasher>(
     })
 }
 
+/// The `SIG`/`SIG_INFO` (or `MY_SIG`/`MY_SIG_INFO`) pair of one side when its activity is not
+/// POTA. [`import_adif_references`] consumes both tags, so the importer reads this first to keep
+/// activities such as WWFF on the QSO.
+pub fn other_sig_pair<S: std::hash::BuildHasher>(
+    fields: &HashMap<String, String, S>,
+    side: StationSide,
+) -> Option<(String, Option<String>)> {
+    let (sig_tag, info_tag) = side.sig_fields();
+    let sig = fields.get(sig_tag).and_then(|v| clean_value(v))?;
+    if sig.eq_ignore_ascii_case(SIG_POTA) {
+        return None;
+    }
+    Some((sig, fields.get(info_tag).and_then(|v| clean_value(v))))
+}
+
+/// ADIF fields of the non-POTA activities stored on a QSO (`MY_SIG` side first).
+pub fn other_sig_adif_fields(qso: &QsoRecord) -> Vec<(&'static str, String)> {
+    let mut fields = Vec::new();
+    for (side, sig, info) in [
+        (StationSide::Local, &qso.my_sig, &qso.my_sig_info),
+        (StationSide::Remote, &qso.sig, &qso.sig_info),
+    ] {
+        if let Some(sig) = sig {
+            let (sig_tag, info_tag) = side.sig_fields();
+            fields.push((sig_tag, sig.clone()));
+            if let Some(info) = info {
+                fields.push((info_tag, info.clone()));
+            }
+        }
+    }
+    fields
+}
+
 /// Odczytuje i usuwa z mapy parę `(MY_SIG, MY_SIG_INFO)` / `(SIG, SIG_INFO)`.
 fn read_sig_side<S: std::hash::BuildHasher>(
     fields: &mut HashMap<String, String, S>,

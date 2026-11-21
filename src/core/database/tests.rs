@@ -520,6 +520,21 @@ fn make_test_qso_literal(callsign: &str, qso_date: &str, time_on: &str) -> QsoRe
         vucc_grids: None,
         audio_file: None,
         journal_id: Some("DEFAULT".to_string()),
+        tx_pwr: Some("100".to_string()),
+        operator: Some("SP6INA".to_string()),
+        station_callsign: Some("SP6INA/P".to_string()),
+        contest_id: Some("SP-DX-CONTEST".to_string()),
+        my_rig: Some("IC-7300".to_string()),
+        my_antenna: Some("Dipole".to_string()),
+        cnty: Some("MA,Middlesex".to_string()),
+        sig: Some("WWFF".to_string()),
+        sig_info: Some("SPFF-0001".to_string()),
+        my_sig: Some("WWFF".to_string()),
+        my_sig_info: Some("SPFF-0002".to_string()),
+        wwff_ref: Some("SPFF-0001".to_string()),
+        my_wwff_ref: Some("SPFF-0002".to_string()),
+        email: Some("op@example.com".to_string()),
+        extra_fields: Vec::new(),
     }
 }
 
@@ -583,6 +598,21 @@ fn insert_roundtrip_preserves_every_column() {
         vucc_grids: Some("JO81,JO82".to_string()),
         audio_file: Some("/path/to/audio.wav".to_string()),
         journal_id: None,
+        tx_pwr: Some("100".to_string()),
+        operator: Some("SP6INA".to_string()),
+        station_callsign: Some("SP6INA/P".to_string()),
+        contest_id: Some("SP-DX-CONTEST".to_string()),
+        my_rig: Some("IC-7300".to_string()),
+        my_antenna: Some("Dipole".to_string()),
+        cnty: Some("MA,Middlesex".to_string()),
+        sig: Some("WWFF".to_string()),
+        sig_info: Some("SPFF-0001".to_string()),
+        my_sig: Some("WWFF".to_string()),
+        my_sig_info: Some("SPFF-0002".to_string()),
+        wwff_ref: Some("SPFF-0001".to_string()),
+        my_wwff_ref: Some("SPFF-0002".to_string()),
+        email: Some("op@example.com".to_string()),
+        extra_fields: Vec::new(),
     };
 
     let id = db.insert_qso(&qso).unwrap();
@@ -645,6 +675,21 @@ fn insert_roundtrip_preserves_every_column() {
         vucc_grids: Some("JO81,JO82".to_string()),
         audio_file: Some("/path/to/audio.wav".to_string()),
         journal_id: Some("DEFAULT".to_string()),
+        tx_pwr: Some("100".to_string()),
+        operator: Some("SP6INA".to_string()),
+        station_callsign: Some("SP6INA/P".to_string()),
+        contest_id: Some("SP-DX-CONTEST".to_string()),
+        my_rig: Some("IC-7300".to_string()),
+        my_antenna: Some("Dipole".to_string()),
+        cnty: Some("MA,Middlesex".to_string()),
+        sig: Some("WWFF".to_string()),
+        sig_info: Some("SPFF-0001".to_string()),
+        my_sig: Some("WWFF".to_string()),
+        my_sig_info: Some("SPFF-0002".to_string()),
+        wwff_ref: Some("SPFF-0001".to_string()),
+        my_wwff_ref: Some("SPFF-0002".to_string()),
+        email: Some("op@example.com".to_string()),
+        extra_fields: Vec::new(),
     };
 
     assert_eq!(retrieved, expected);
@@ -722,6 +767,21 @@ fn update_roundtrip_preserves_every_column() {
         vucc_grids: None,
         audio_file: None,
         journal_id: Some("DEFAULT".to_string()),
+        tx_pwr: Some("100".to_string()),
+        operator: Some("SP6INA".to_string()),
+        station_callsign: Some("SP6INA/P".to_string()),
+        contest_id: Some("SP-DX-CONTEST".to_string()),
+        my_rig: Some("IC-7300".to_string()),
+        my_antenna: Some("Dipole".to_string()),
+        cnty: Some("MA,Middlesex".to_string()),
+        sig: Some("WWFF".to_string()),
+        sig_info: Some("SPFF-0001".to_string()),
+        my_sig: Some("WWFF".to_string()),
+        my_sig_info: Some("SPFF-0002".to_string()),
+        wwff_ref: Some("SPFF-0001".to_string()),
+        my_wwff_ref: Some("SPFF-0002".to_string()),
+        email: Some("op@example.com".to_string()),
+        extra_fields: Vec::new(),
     };
     let id = db.insert_qso(&initial).unwrap();
 
@@ -782,6 +842,21 @@ fn update_roundtrip_preserves_every_column() {
         vucc_grids: Some("JO62,JO63".to_string()),
         audio_file: Some("/path/updated.wav".to_string()),
         journal_id: Some("PORTABLE".to_string()),
+        tx_pwr: Some("100".to_string()),
+        operator: Some("SP6INA".to_string()),
+        station_callsign: Some("SP6INA/P".to_string()),
+        contest_id: Some("SP-DX-CONTEST".to_string()),
+        my_rig: Some("IC-7300".to_string()),
+        my_antenna: Some("Dipole".to_string()),
+        cnty: Some("MA,Middlesex".to_string()),
+        sig: Some("WWFF".to_string()),
+        sig_info: Some("SPFF-0001".to_string()),
+        my_sig: Some("WWFF".to_string()),
+        my_sig_info: Some("SPFF-0002".to_string()),
+        wwff_ref: Some("SPFF-0001".to_string()),
+        my_wwff_ref: Some("SPFF-0002".to_string()),
+        email: Some("op@example.com".to_string()),
+        extra_fields: Vec::new(),
     };
 
     db.update_qso(id, &updated).unwrap();
@@ -844,6 +919,21 @@ fn update_roundtrip_preserves_every_column() {
         vucc_grids: Some("JO62,JO63".to_string()),
         audio_file: Some("/path/updated.wav".to_string()),
         journal_id: Some("PORTABLE".to_string()),
+        tx_pwr: Some("100".to_string()),
+        operator: Some("SP6INA".to_string()),
+        station_callsign: Some("SP6INA/P".to_string()),
+        contest_id: Some("SP-DX-CONTEST".to_string()),
+        my_rig: Some("IC-7300".to_string()),
+        my_antenna: Some("Dipole".to_string()),
+        cnty: Some("MA,Middlesex".to_string()),
+        sig: Some("WWFF".to_string()),
+        sig_info: Some("SPFF-0001".to_string()),
+        my_sig: Some("WWFF".to_string()),
+        my_sig_info: Some("SPFF-0002".to_string()),
+        wwff_ref: Some("SPFF-0001".to_string()),
+        my_wwff_ref: Some("SPFF-0002".to_string()),
+        email: Some("op@example.com".to_string()),
+        extra_fields: Vec::new(),
     };
 
     assert_eq!(retrieved, expected);
@@ -909,6 +999,21 @@ fn restore_qso_keeps_id_and_columns() {
         vucc_grids: Some("FN42,FN43".to_string()),
         audio_file: Some("/path/restored.wav".to_string()),
         journal_id: Some("DEFAULT".to_string()),
+        tx_pwr: Some("100".to_string()),
+        operator: Some("SP6INA".to_string()),
+        station_callsign: Some("SP6INA/P".to_string()),
+        contest_id: Some("SP-DX-CONTEST".to_string()),
+        my_rig: Some("IC-7300".to_string()),
+        my_antenna: Some("Dipole".to_string()),
+        cnty: Some("MA,Middlesex".to_string()),
+        sig: Some("WWFF".to_string()),
+        sig_info: Some("SPFF-0001".to_string()),
+        my_sig: Some("WWFF".to_string()),
+        my_sig_info: Some("SPFF-0002".to_string()),
+        wwff_ref: Some("SPFF-0001".to_string()),
+        my_wwff_ref: Some("SPFF-0002".to_string()),
+        email: Some("op@example.com".to_string()),
+        extra_fields: Vec::new(),
     };
 
     let restored_id = db.restore_qso(&to_restore).unwrap();
@@ -972,6 +1077,21 @@ fn restore_qso_keeps_id_and_columns() {
         vucc_grids: Some("FN42,FN43".to_string()),
         audio_file: Some("/path/restored.wav".to_string()),
         journal_id: Some("DEFAULT".to_string()),
+        tx_pwr: Some("100".to_string()),
+        operator: Some("SP6INA".to_string()),
+        station_callsign: Some("SP6INA/P".to_string()),
+        contest_id: Some("SP-DX-CONTEST".to_string()),
+        my_rig: Some("IC-7300".to_string()),
+        my_antenna: Some("Dipole".to_string()),
+        cnty: Some("MA,Middlesex".to_string()),
+        sig: Some("WWFF".to_string()),
+        sig_info: Some("SPFF-0001".to_string()),
+        my_sig: Some("WWFF".to_string()),
+        my_sig_info: Some("SPFF-0002".to_string()),
+        wwff_ref: Some("SPFF-0001".to_string()),
+        my_wwff_ref: Some("SPFF-0002".to_string()),
+        email: Some("op@example.com".to_string()),
+        extra_fields: Vec::new(),
     };
 
     assert_eq!(retrieved, expected);
@@ -1037,6 +1157,21 @@ fn batch_insert_roundtrip() {
         vucc_grids: Some("QM05,QM06".to_string()),
         audio_file: Some("/path/batch1.wav".to_string()),
         journal_id: None,
+        tx_pwr: Some("100".to_string()),
+        operator: Some("SP6INA".to_string()),
+        station_callsign: Some("SP6INA/P".to_string()),
+        contest_id: Some("SP-DX-CONTEST".to_string()),
+        my_rig: Some("IC-7300".to_string()),
+        my_antenna: Some("Dipole".to_string()),
+        cnty: Some("MA,Middlesex".to_string()),
+        sig: Some("WWFF".to_string()),
+        sig_info: Some("SPFF-0001".to_string()),
+        my_sig: Some("WWFF".to_string()),
+        my_sig_info: Some("SPFF-0002".to_string()),
+        wwff_ref: Some("SPFF-0001".to_string()),
+        my_wwff_ref: Some("SPFF-0002".to_string()),
+        email: Some("op@example.com".to_string()),
+        extra_fields: Vec::new(),
     };
 
     let count = db.batch_insert_qsos(&[qso1]).unwrap();
@@ -1103,6 +1238,21 @@ fn batch_insert_roundtrip() {
         vucc_grids: Some("QM05,QM06".to_string()),
         audio_file: Some("/path/batch1.wav".to_string()),
         journal_id: Some("DEFAULT".to_string()),
+        tx_pwr: Some("100".to_string()),
+        operator: Some("SP6INA".to_string()),
+        station_callsign: Some("SP6INA/P".to_string()),
+        contest_id: Some("SP-DX-CONTEST".to_string()),
+        my_rig: Some("IC-7300".to_string()),
+        my_antenna: Some("Dipole".to_string()),
+        cnty: Some("MA,Middlesex".to_string()),
+        sig: Some("WWFF".to_string()),
+        sig_info: Some("SPFF-0001".to_string()),
+        my_sig: Some("WWFF".to_string()),
+        my_sig_info: Some("SPFF-0002".to_string()),
+        wwff_ref: Some("SPFF-0001".to_string()),
+        my_wwff_ref: Some("SPFF-0002".to_string()),
+        email: Some("op@example.com".to_string()),
+        extra_fields: Vec::new(),
     };
 
     assert_eq!(retrieved, &expected);
@@ -1207,9 +1357,23 @@ fn table_columns_match_expected_snapshot() {
         "identity_key".to_string(),
         "lotw_qslsdate".to_string(),
         "eqsl_qslsdate".to_string(),
+        "tx_pwr".to_string(),
+        "operator".to_string(),
+        "station_callsign".to_string(),
+        "contest_id".to_string(),
+        "my_rig".to_string(),
+        "my_antenna".to_string(),
+        "cnty".to_string(),
+        "sig".to_string(),
+        "sig_info".to_string(),
+        "my_sig".to_string(),
+        "my_sig_info".to_string(),
+        "wwff_ref".to_string(),
+        "my_wwff_ref".to_string(),
+        "email".to_string(),
     ];
 
-    assert_eq!(expected.len(), 57);
+    assert_eq!(expected.len(), 71);
     assert_eq!(columns, expected);
 }
 
@@ -3950,6 +4114,7 @@ fn f20r_migration_9_rollback_and_reapply_preserves_upload_status() {
 
     // Rollback v9: kolumny znikają, wersja wraca do 8, status `Y` zostaje.
     // Kolejność odwrotna do zastosowania: najpierw migracja 10 (STAGE-V140-S1).
+    LogDatabase::rollback_migration_11(db.raw_conn()).expect("rollback 11");
     LogDatabase::rollback_migration_10(db.raw_conn()).expect("rollback 10");
     LogDatabase::rollback_migration_9(db.raw_conn()).expect("rollback 9");
     assert_eq!(db.current_schema_version().expect("version"), 8);
@@ -3980,6 +4145,7 @@ fn f20r_migration_8_rollback_and_reapply_preserves_qso_data() {
     assert_eq!(db.count_upload_plans().expect("count"), 1);
 
     // Rollback w kolejności odwrotnej do zastosowania: najpierw 10, 9, potem 8.
+    LogDatabase::rollback_migration_11(db.raw_conn()).expect("rollback 11");
     LogDatabase::rollback_migration_10(db.raw_conn()).expect("rollback 10");
     LogDatabase::rollback_migration_9(db.raw_conn()).expect("rollback 9");
     LogDatabase::rollback_migration_8(db.raw_conn()).expect("rollback 8");
@@ -4035,6 +4201,7 @@ fn f20r_interrupted_migration_keeps_the_previous_version_and_is_rerunnable() {
     let path = dir.path().join("f20r_interrupted.sqlite");
     {
         let db = LogDatabase::open(&path).expect("open");
+        LogDatabase::rollback_migration_11(db.raw_conn()).expect("rollback 11");
         LogDatabase::rollback_migration_10(db.raw_conn()).expect("rollback 10");
         LogDatabase::rollback_migration_9(db.raw_conn()).expect("rollback 9");
         assert_eq!(db.current_schema_version().expect("version"), 8);
@@ -4113,6 +4280,7 @@ fn f20r_legacy_accepted_rows_keep_y_with_null_sent_date() {
     assert!(reloaded.eqsl_qslsdate.is_none());
 
     // Migracja nie wypełnia historii żadną datą.
+    LogDatabase::rollback_migration_11(db.raw_conn()).expect("rollback 11");
     LogDatabase::rollback_migration_10(db.raw_conn()).expect("rollback 10");
     LogDatabase::rollback_migration_9(db.raw_conn()).expect("rollback 9");
     assert_eq!(db.current_schema_version().expect("version"), 8);
@@ -4257,6 +4425,7 @@ fn s1_v9_database(dir: &std::path::Path) -> std::path::PathBuf {
             ))
             .unwrap();
         }
+        LogDatabase::rollback_migration_11(db.raw_conn()).unwrap();
         LogDatabase::rollback_migration_10(db.raw_conn()).unwrap();
     }
     assert_eq!(s1_raw_version(&path), 9);
@@ -4866,4 +5035,145 @@ fn s1_qsl_reconfirmation_without_change_writes_nothing_but_still_matches() {
             .as_deref(),
         Some("20261121")
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// STAGE-V140-S4 — pełne pola ADIF i pola nieznane (qso_extra).
+// ---------------------------------------------------------------------------------------------
+
+fn s4_field(tag: &str, value: &str) -> String {
+    format!("<{tag}:{}>{value}", value.len())
+}
+
+fn s4_adif_record() -> String {
+    [
+        ("CALL", "SP6INA"),
+        ("BAND", "20m"),
+        ("MODE", "CW"),
+        ("QSO_DATE", "20261101"),
+        ("TIME_ON", "120000"),
+        ("TX_PWR", "100"),
+        ("OPERATOR", "SP6ABC"),
+        ("STATION_CALLSIGN", "SP6INA/P"),
+        ("CONTEST_ID", "SP-DX-CONTEST"),
+        ("MY_RIG", "IC-7300"),
+        ("MY_ANTENNA", "Dipole"),
+        ("CNTY", "MA,Middlesex"),
+        ("SIG", "WWFF"),
+        ("SIG_INFO", "SPFF-0001"),
+        ("MY_SIG", "SOTA"),
+        ("MY_SIG_INFO", "SP/BZ-001"),
+        ("WWFF_REF", "SPFF-0001"),
+        ("MY_WWFF_REF", "SPFF-0002"),
+        ("EMAIL", "op@example.com"),
+        ("APP_LOG4OM_RATING", "5"),
+        ("USERDEF_NOTE", "from another logger"),
+    ]
+    .iter()
+    .map(|(tag, value)| s4_field(tag, value))
+    .collect::<String>()
+        + "<EOR>\n"
+}
+
+fn s4_assert_fields(q: &QsoRecord) {
+    assert_eq!(q.tx_pwr.as_deref(), Some("100"));
+    assert_eq!(q.operator.as_deref(), Some("SP6ABC"));
+    assert_eq!(q.station_callsign.as_deref(), Some("SP6INA/P"));
+    assert_eq!(q.contest_id.as_deref(), Some("SP-DX-CONTEST"));
+    assert_eq!(q.my_rig.as_deref(), Some("IC-7300"));
+    assert_eq!(q.my_antenna.as_deref(), Some("Dipole"));
+    assert_eq!(q.cnty.as_deref(), Some("MA,Middlesex"));
+    assert_eq!(q.sig.as_deref(), Some("WWFF"));
+    assert_eq!(q.sig_info.as_deref(), Some("SPFF-0001"));
+    assert_eq!(q.my_sig.as_deref(), Some("SOTA"));
+    assert_eq!(q.my_sig_info.as_deref(), Some("SP/BZ-001"));
+    assert_eq!(q.wwff_ref.as_deref(), Some("SPFF-0001"));
+    assert_eq!(q.my_wwff_ref.as_deref(), Some("SPFF-0002"));
+    assert_eq!(q.email.as_deref(), Some("op@example.com"));
+    assert_eq!(
+        q.extra_fields,
+        vec![
+            ("APP_LOG4OM_RATING".to_string(), "5".to_string()),
+            (
+                "USERDEF_NOTE".to_string(),
+                "from another logger".to_string()
+            ),
+        ]
+    );
+}
+
+#[test]
+fn s4_adif_fields_and_unknown_fields_survive_import_storage_and_export() {
+    let parsed = crate::core::adif::parse_adif(&s4_adif_record());
+    assert_eq!(parsed.len(), 1);
+    s4_assert_fields(&parsed[0]);
+
+    let db = LogDatabase::open_in_memory().unwrap();
+    let id = db.insert_qso(&parsed[0]).unwrap();
+    s4_assert_fields(&db.get_qso_by_id(id).unwrap().unwrap());
+    let all = db.get_all_qsos_for_journal_with_extras("DEFAULT").unwrap();
+    s4_assert_fields(&all[0]);
+    assert!(
+        db.get_all_qsos_for_journal("DEFAULT").unwrap()[0]
+            .extra_fields
+            .is_empty(),
+        "the plain journal load does not read qso_extra"
+    );
+
+    let exported = crate::core::adif::export_adif(&all, "SPLogbook", "SP6INA");
+    assert!(!exported.contains("Author:"));
+    let reparsed = crate::core::adif::parse_adif(&exported);
+    assert_eq!(reparsed.len(), 1);
+    s4_assert_fields(&reparsed[0]);
+}
+
+#[test]
+fn s4_pota_sig_stays_in_pota_ref_and_not_in_the_sig_columns() {
+    let record = [
+        ("CALL", "K1ABC"),
+        ("BAND", "40m"),
+        ("MODE", "SSB"),
+        ("QSO_DATE", "20261101"),
+        ("TIME_ON", "1300"),
+        ("SIG", "POTA"),
+        ("SIG_INFO", "US-0001"),
+    ]
+    .iter()
+    .map(|(tag, value)| s4_field(tag, value))
+    .collect::<String>()
+        + "<EOR>\n";
+    let parsed = crate::core::adif::parse_adif(&record);
+    assert_eq!(parsed[0].pota_ref.as_deref(), Some("US-0001"));
+    assert_eq!(parsed[0].sig, None);
+    assert_eq!(parsed[0].extra_fields, Vec::<(String, String)>::new());
+}
+
+#[test]
+fn s4_extra_fields_follow_updates_and_cascade_on_delete() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let mut parsed = crate::core::adif::parse_adif(&s4_adif_record());
+    let id = db.insert_qso(&parsed[0]).unwrap();
+
+    // An update from a row loaded without extras keeps the stored extras.
+    let mut plain = db.get_all_qsos_for_journal("DEFAULT").unwrap().remove(0);
+    plain.comment = Some("edited".to_string());
+    db.update_qso(id, &plain).unwrap();
+    assert_eq!(db.get_qso_by_id(id).unwrap().unwrap().extra_fields.len(), 2);
+
+    // An update that carries extras replaces them.
+    let mut replaced = parsed.remove(0);
+    replaced.id = Some(id);
+    replaced.extra_fields = vec![("APP_X".to_string(), "1".to_string())];
+    assert!(db.update_qso_scoped(id, "DEFAULT", &replaced).unwrap());
+    assert_eq!(
+        db.get_qso_by_id(id).unwrap().unwrap().extra_fields,
+        vec![("APP_X".to_string(), "1".to_string())]
+    );
+
+    db.delete_qso(id).unwrap();
+    let left: i64 = db
+        .raw_conn()
+        .query_row("SELECT COUNT(*) FROM qso_extra", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(left, 0, "qso_extra rows are deleted with their QSO");
 }

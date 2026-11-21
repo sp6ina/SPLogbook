@@ -25,9 +25,11 @@ impl LogDatabase {
             QSO_SQL.select_columns
         );
 
-        self.conn
+        let row = self
+            .conn
             .query_row(&sql, params![id], qso_from_row)
-            .optional()
+            .optional()?;
+        self.with_extra_fields(row)
     }
 
     /// Pobiera QSO po ID w kontekście konkretnego profilu/dziennika.
@@ -38,9 +40,11 @@ impl LogDatabase {
             QSO_SQL.select_columns
         );
 
-        self.conn
+        let row = self
+            .conn
             .query_row(&sql, params![id, journal_id], qso_from_row)
-            .optional()
+            .optional()?;
+        self.with_extra_fields(row)
     }
 
     /// Wstawia nowy rekord QSO do bazy i zwraca nadane ID
@@ -53,9 +57,20 @@ impl LogDatabase {
         params.extend_from_slice(&data_params);
         params.push(&identity_key);
 
-        let mut stmt = self.conn.prepare_cached(&QSO_SQL.insert)?;
-        stmt.execute(params.as_slice())?;
-        Ok(self.conn.last_insert_rowid())
+        if qso.extra_fields.is_empty() {
+            let mut stmt = self.conn.prepare_cached(&QSO_SQL.insert)?;
+            stmt.execute(params.as_slice())?;
+            return Ok(self.conn.last_insert_rowid());
+        }
+        let tx = self.conn.unchecked_transaction()?;
+        let id = {
+            let mut stmt = tx.prepare_cached(&QSO_SQL.insert)?;
+            stmt.execute(params.as_slice())?;
+            tx.last_insert_rowid()
+        };
+        write_extra_fields(&tx, id, &qso.extra_fields)?;
+        tx.commit()?;
+        Ok(id)
     }
 
     /// Przywraca usunięte QSO zachowując jego oryginalny identyfikator pod warunkiem zgodności z journal_id
@@ -74,8 +89,18 @@ impl LogDatabase {
         params.push(&id);
         params.push(&identity_key);
 
-        let mut stmt = self.conn.prepare_cached(&QSO_SQL.insert_with_id)?;
-        stmt.execute(params.as_slice())?;
+        if owned.extra_fields.is_empty() {
+            let mut stmt = self.conn.prepare_cached(&QSO_SQL.insert_with_id)?;
+            stmt.execute(params.as_slice())?;
+            return Ok(id);
+        }
+        let tx = self.conn.unchecked_transaction()?;
+        {
+            let mut stmt = tx.prepare_cached(&QSO_SQL.insert_with_id)?;
+            stmt.execute(params.as_slice())?;
+        }
+        write_extra_fields(&tx, id, &owned.extra_fields)?;
+        tx.commit()?;
         Ok(id)
     }
 
@@ -107,6 +132,7 @@ impl LogDatabase {
                     params.push(&id);
                     params.push(&identity_key);
                     stmt_with_id.execute(params.as_slice())?;
+                    write_extra_fields(&tx, id, &owned.extra_fields)?;
                     restored_ids.push(id);
                 } else {
                     let mut params: Vec<&dyn rusqlite::ToSql> =
@@ -115,6 +141,7 @@ impl LogDatabase {
                     params.push(&identity_key);
                     stmt_no_id.execute(params.as_slice())?;
                     let new_id = tx.last_insert_rowid();
+                    write_extra_fields(&tx, new_id, &owned.extra_fields)?;
                     restored_ids.push(new_id);
                 }
             }
@@ -146,6 +173,7 @@ impl LogDatabase {
                 params.push(&identity_key);
 
                 stmt.execute(params.as_slice())?;
+                write_extra_fields(&tx, tx.last_insert_rowid(), &qso.extra_fields)?;
                 count += 1;
             }
         }
@@ -242,8 +270,19 @@ impl LogDatabase {
         params.push(&id);
         params.push(&journal_id);
 
-        let mut stmt = self.conn.prepare_cached(&QSO_SQL.update_scoped)?;
-        let rows = stmt.execute(params.as_slice())?;
+        if qso.extra_fields.is_empty() {
+            let mut stmt = self.conn.prepare_cached(&QSO_SQL.update_scoped)?;
+            return Ok(stmt.execute(params.as_slice())? > 0);
+        }
+        let tx = self.conn.unchecked_transaction()?;
+        let rows = {
+            let mut stmt = tx.prepare_cached(&QSO_SQL.update_scoped)?;
+            stmt.execute(params.as_slice())?
+        };
+        if rows > 0 {
+            replace_extra_fields(&tx, id, &qso.extra_fields)?;
+        }
+        tx.commit()?;
         Ok(rows > 0)
     }
 
@@ -258,9 +297,18 @@ impl LogDatabase {
         params.push(&identity_key);
         params.push(&id);
 
-        let mut stmt = self.conn.prepare_cached(&QSO_SQL.update)?;
-        stmt.execute(params.as_slice())?;
-        Ok(())
+        if qso.extra_fields.is_empty() {
+            let mut stmt = self.conn.prepare_cached(&QSO_SQL.update)?;
+            stmt.execute(params.as_slice())?;
+            return Ok(());
+        }
+        let tx = self.conn.unchecked_transaction()?;
+        {
+            let mut stmt = tx.prepare_cached(&QSO_SQL.update)?;
+            stmt.execute(params.as_slice())?;
+        }
+        replace_extra_fields(&tx, id, &qso.extra_fields)?;
+        tx.commit()
     }
 
     /// Pobiera ostatnio zarejestrowane łączności dla wybranego profilu/dziennika
@@ -503,4 +551,89 @@ pub(super) fn sql_numbers_for_journal() -> String {
         "SELECT id, ROW_NUMBER() OVER (ORDER BY {ORDER_CHRONO_ASC}) \
          FROM qso_records WHERE journal_id = ?1"
     )
+}
+
+impl LogDatabase {
+    fn with_extra_fields(&self, row: Option<QsoRecord>) -> Result<Option<QsoRecord>> {
+        let Some(mut qso) = row else {
+            return Ok(None);
+        };
+        if let Some(id) = qso.id {
+            qso.extra_fields = read_extra_fields(&self.conn, id)?;
+        }
+        Ok(Some(qso))
+    }
+
+    /// Fills `extra_fields` of journal rows (one query for the journal), for ADIF export.
+    pub fn attach_extra_fields_for_journal(
+        &self,
+        journal_id: &str,
+        qsos: &mut [QsoRecord],
+    ) -> Result<()> {
+        let mut stmt = self.conn.prepare(
+            "SELECT e.qso_id, e.field, e.value FROM qso_extra e \
+             JOIN qso_records q ON q.id = e.qso_id \
+             WHERE q.journal_id = ?1 ORDER BY e.qso_id, e.field",
+        )?;
+        let mut by_id: HashMap<i64, Vec<(String, String)>> = HashMap::new();
+        let rows = stmt.query_map(params![journal_id], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?;
+        for row in rows {
+            let (id, field, value) = row?;
+            by_id.entry(id).or_default().push((field, value));
+        }
+        for qso in qsos.iter_mut() {
+            if let Some(fields) = qso.id.and_then(|id| by_id.remove(&id)) {
+                qso.extra_fields = fields;
+            }
+        }
+        Ok(())
+    }
+
+    /// The whole journal in chronological order with `extra_fields`, for ADIF export.
+    pub fn get_all_qsos_for_journal_with_extras(&self, journal_id: &str) -> Result<Vec<QsoRecord>> {
+        let mut qsos = self.get_all_qsos_for_journal(journal_id)?;
+        self.attach_extra_fields_for_journal(journal_id, &mut qsos)?;
+        Ok(qsos)
+    }
+}
+
+fn write_extra_fields(
+    conn: &rusqlite::Connection,
+    qso_id: i64,
+    fields: &[(String, String)],
+) -> Result<()> {
+    if fields.is_empty() {
+        return Ok(());
+    }
+    let mut stmt = conn.prepare_cached(
+        "INSERT OR REPLACE INTO qso_extra (qso_id, field, value) VALUES (?1, ?2, ?3)",
+    )?;
+    for (field, value) in fields {
+        stmt.execute(params![qso_id, field, value])?;
+    }
+    Ok(())
+}
+
+fn replace_extra_fields(
+    conn: &rusqlite::Connection,
+    qso_id: i64,
+    fields: &[(String, String)],
+) -> Result<()> {
+    conn.execute("DELETE FROM qso_extra WHERE qso_id = ?1", params![qso_id])?;
+    write_extra_fields(conn, qso_id, fields)
+}
+
+fn read_extra_fields(conn: &rusqlite::Connection, qso_id: i64) -> Result<Vec<(String, String)>> {
+    let mut stmt =
+        conn.prepare_cached("SELECT field, value FROM qso_extra WHERE qso_id = ?1 ORDER BY field")?;
+    let rows = stmt.query_map(params![qso_id], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?;
+    rows.collect()
 }

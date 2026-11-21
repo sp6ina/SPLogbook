@@ -16,6 +16,7 @@ impl SpLogApp {
         let options = crate::core::ingest::ImportOptions {
             journal_id: active_journal_id,
             enrich: true,
+            keep_probable_duplicates: false,
         };
 
         match self.services.ingestor.import_batch(parsed, &options) {
@@ -46,6 +47,13 @@ impl SpLogApp {
                     details.push(
                         Msg::new(key::IMPORT_SKIPPED_DUPLICATES)
                             .arg("count", import_report.skipped_duplicates)
+                            .text(self.gui.appearance.language),
+                    );
+                }
+                if import_report.probable_duplicates > 0 {
+                    details.push(
+                        Msg::new(key::IMPORT_PROBABLE_DUPLICATES)
+                            .arg("count", import_report.probable_duplicates)
                             .text(self.gui.appearance.language),
                     );
                 }
@@ -117,7 +125,7 @@ impl SpLogApp {
                     .log_db
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
-                match db.get_all_qsos_for_journal(&self.active_journal.id) {
+                match db.get_all_qsos_for_journal_with_extras(&self.active_journal.id) {
                     Ok(list) => list,
                     Err(e) => {
                         self.gui.chrome.status_message = Some(
@@ -287,7 +295,7 @@ impl SpLogApp {
                 .log_db
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            db.get_all_qsos_for_journal(&self.active_journal.id)
+            db.get_all_qsos_for_journal_with_extras(&self.active_journal.id)
                 .unwrap_or_default()
         };
         let adif =

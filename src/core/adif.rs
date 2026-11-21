@@ -718,10 +718,27 @@ impl AdifEngine {
         qso.gridsquare = fields.remove("GRIDSQUARE");
         qso.state = fields.remove("STATE");
         qso.iota = fields.remove("IOTA");
-        // F-19: referencje SOTA/POTA wyłącznie przez centralne mapowanie stron.
+        // F-19: referencje SOTA/POTA wyłącznie przez centralne mapowanie stron. SIG pairs that
+        // are not POTA are kept in their own columns instead of being dropped.
+        let remote_sig = crate::core::award_refs::other_sig_pair(
+            fields,
+            crate::core::award_refs::StationSide::Remote,
+        );
+        let local_sig = crate::core::award_refs::other_sig_pair(
+            fields,
+            crate::core::award_refs::StationSide::Local,
+        );
         let reference_import = crate::core::award_refs::import_adif_references(fields)
             .map_err(AdifRecordError::ConflictingPotaRepresentation)?;
         reference_import.references.apply_to_qso(&mut qso);
+        if let Some((sig, info)) = remote_sig {
+            qso.sig = Some(sig);
+            qso.sig_info = info;
+        }
+        if let Some((sig, info)) = local_sig {
+            qso.my_sig = Some(sig);
+            qso.my_sig_info = info;
+        }
         qso.vucc_grids = fields.remove("VUCC_GRIDS");
         qso.pga_ref = fields.remove("PGA_REF").or_else(|| fields.remove("PGA"));
         if let Some(dxcc) = fields.get("DXCC") {
@@ -797,6 +814,26 @@ impl AdifEngine {
         qso.qsl_manager = fields
             .remove("QSL_VIA_MANAGER")
             .or_else(|| fields.remove("QSL_MANAGER"));
+        qso.tx_pwr = fields.remove("TX_PWR");
+        qso.operator = fields.remove("OPERATOR");
+        qso.station_callsign = fields.remove("STATION_CALLSIGN");
+        qso.contest_id = fields.remove("CONTEST_ID");
+        qso.my_rig = fields.remove("MY_RIG");
+        qso.my_antenna = fields.remove("MY_ANTENNA");
+        qso.cnty = fields.remove("CNTY");
+        qso.wwff_ref = fields.remove("WWFF_REF");
+        qso.my_wwff_ref = fields.remove("MY_WWFF_REF");
+        qso.email = fields.remove("EMAIL");
+
+        let mut extra_fields: Vec<(String, String)> = fields
+            .iter()
+            .filter(|(name, value)| {
+                !value.is_empty() && !FIELDS_READ_IN_PLACE.contains(&name.as_str())
+            })
+            .map(|(name, value)| (name.clone(), value.clone()))
+            .collect();
+        extra_fields.sort();
+        qso.extra_fields = extra_fields;
 
         Ok((qso, reference_import.notices))
     }
@@ -804,7 +841,6 @@ impl AdifEngine {
     /// Eksportuje listę łączności do formatu ADIF.
     pub fn export_to_writer<W: Write>(qsos: &[QsoRecord], mut writer: W) -> std::io::Result<()> {
         writeln!(writer, "SPLogbook ADIF {ADIF_VERSION} Export")?;
-        writeln!(writer, "Author: Mariusz Wozniak (SP6INA)")?;
         writeln!(writer, "<ADIF_VER:{}>{}", ADIF_VERSION.len(), ADIF_VERSION)?;
         writeln!(writer, "<PROGRAMID:9>SPLogbook")?;
         writeln!(
@@ -816,8 +852,20 @@ impl AdifEngine {
         writeln!(writer, "<EOH>")?;
 
         for q in qsos {
-            for (tag, val) in Self::qso_fields(q) {
-                Self::write_field(&mut writer, tag, &val)?;
+            let fields = Self::qso_fields(q);
+            for (tag, val) in &fields {
+                Self::write_field(&mut writer, tag, val)?;
+            }
+            for (tag, val) in &q.extra_fields {
+                let is_valid_tag =
+                    !tag.is_empty() && tag.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
+                if is_valid_tag
+                    && !fields
+                        .iter()
+                        .any(|(known, _)| known.eq_ignore_ascii_case(tag))
+                {
+                    Self::write_field(&mut writer, tag, val)?;
+                }
             }
             writeln!(writer, "<EOR>")?;
         }
@@ -954,6 +1002,23 @@ impl AdifEngine {
         if let Some(v) = Self::adif_sent_date(&q.eqsl_qsl_sent, q.eqsl_qslsdate.as_deref()) {
             f.push(("EQSL_QSLSDATE", v));
         }
+        for (tag, value) in [
+            ("TX_PWR", &q.tx_pwr),
+            ("OPERATOR", &q.operator),
+            ("STATION_CALLSIGN", &q.station_callsign),
+            ("CONTEST_ID", &q.contest_id),
+            ("MY_RIG", &q.my_rig),
+            ("MY_ANTENNA", &q.my_antenna),
+            ("CNTY", &q.cnty),
+            ("WWFF_REF", &q.wwff_ref),
+            ("MY_WWFF_REF", &q.my_wwff_ref),
+            ("EMAIL", &q.email),
+        ] {
+            if let Some(v) = value {
+                f.push((tag, v.clone()));
+            }
+        }
+        f.extend(crate::core::award_refs::other_sig_adif_fields(q));
         f
     }
 
@@ -1042,6 +1107,20 @@ fn find_tag_end_ci(bytes: &[u8], start: usize, tag: &[u8]) -> Option<usize> {
 /// Accepts `YYYYMMDD` or `YYYY-MM-DD`, optionally followed by a time after a space or `T`
 /// (the LoTW `APP_LoTW_RXQSL` timestamp is `YYYY-MM-DD HH:MM:SS`). Anything else is `None`:
 /// a date is never invented.
+/// Record fields that `fields_to_qso` reads without removing them from the map; they are
+/// mapped to columns and must not be kept a second time as extra fields.
+const FIELDS_READ_IN_PLACE: &[&str] = &[
+    "FREQ",
+    "FREQ_RX",
+    "MODE",
+    "APP_LOTW_MODE",
+    "DXCC",
+    "CQZ",
+    "ITUZ",
+    "SRX",
+    "STX",
+];
+
 pub fn adif_date_part(raw: &str) -> Option<String> {
     let head = raw.trim().split([' ', 'T']).next()?;
     let bytes = head.as_bytes();

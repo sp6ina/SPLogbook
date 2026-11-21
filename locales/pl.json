@@ -1396,6 +1396,7 @@
   "import.rejected_damaged": "{count} uszkodzonych rekordów ADIF",
   "import.rejected_validation": "{count} odrzuconych przez walidację",
   "import.skipped_duplicates": "{count} duplikatów pominiętych",
+  "import.probable_duplicates": "{count} prawdopodobnych duplikatów pominiętych (to samo pasmo i emisja, różnica do 2 min)",
   "import.first_validation_error": "pierwszy błąd walidacji",
   "import.db_save_error": "Błąd zapisu łączności do bazy: {err}",
   "file.read_error": "Błąd odczytu pliku {path}: {err}",

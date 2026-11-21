@@ -25,6 +25,25 @@ pub(super) const MIGRATIONS: &[(i64, MigrationFn)] = &[
     (8, LogDatabase::migration_8_upload_checkpoints),
     (9, LogDatabase::migration_9_upload_sent_dates),
     (10, LogDatabase::migration_10_chrono_and_qsl_indexes),
+    (11, LogDatabase::migration_11_adif_fields_and_extras),
+];
+
+/// Columns added by migration 11 (all `TEXT`, nullable).
+pub(super) const MIGRATION_11_COLUMNS: &[&str] = &[
+    "tx_pwr",
+    "operator",
+    "station_callsign",
+    "contest_id",
+    "my_rig",
+    "my_antenna",
+    "cnty",
+    "sig",
+    "sig_info",
+    "my_sig",
+    "my_sig_info",
+    "wwff_ref",
+    "my_wwff_ref",
+    "email",
 ];
 
 /// Najwyższa wersja schematu znana tej wersji programu — wyprowadzona z [`MIGRATIONS`].
@@ -377,6 +396,7 @@ impl LogDatabase {
             "upload_plans",
             "upload_batches",
             "upload_batch_members",
+            "qso_extra",
         ];
         for table in required_tables {
             let exists: bool = self
@@ -400,6 +420,8 @@ impl LogDatabase {
             ("qso_records", "identity_key"),
             ("qso_records", "lotw_qslsdate"),
             ("qso_records", "eqsl_qslsdate"),
+            ("qso_records", "station_callsign"),
+            ("qso_records", "email"),
             ("upload_queue", "id"),
             ("upload_queue", "qso_id"),
             ("upload_queue", "service"),
@@ -721,6 +743,32 @@ impl LogDatabase {
     /// planisty (`ANALYZE`); nie modyfikuje żadnego wiersza.
     fn migration_10_chrono_and_qsl_indexes(conn: &Connection) -> rusqlite::Result<()> {
         conn.execute_batch(MIGRATION_10_SQL)
+    }
+
+    /// Wersja 11 (STAGE-V140-S4): dedicated columns for commonly exchanged ADIF fields and the
+    /// `qso_extra` table that keeps any other ADIF field verbatim. Purely additive.
+    fn migration_11_adif_fields_and_extras(conn: &Connection) -> rusqlite::Result<()> {
+        for column in MIGRATION_11_COLUMNS {
+            Self::add_column_if_missing(conn, "qso_records", column, "TEXT")?;
+        }
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS qso_extra (
+                qso_id INTEGER NOT NULL REFERENCES qso_records(id) ON DELETE CASCADE,
+                field TEXT NOT NULL,
+                value TEXT NOT NULL,
+                PRIMARY KEY (qso_id, field)
+            );",
+        )
+    }
+
+    /// Wycofuje migrację 11 (test scope).
+    #[cfg(test)]
+    pub(super) fn rollback_migration_11(conn: &Connection) -> rusqlite::Result<()> {
+        conn.execute_batch("DROP TABLE IF EXISTS qso_extra;")?;
+        for column in MIGRATION_11_COLUMNS {
+            conn.execute_batch(&format!("ALTER TABLE qso_records DROP COLUMN {column};"))?;
+        }
+        conn.execute_batch("DELETE FROM schema_version WHERE version = 11;")
     }
 
     /// Wycofuje migrację 10 (test scope): usuwa wyłącznie jej indeksy.

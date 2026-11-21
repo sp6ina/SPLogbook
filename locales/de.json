@@ -1396,6 +1396,7 @@
   "import.rejected_damaged": "{count} beschädigte ADIF-Datensätze",
   "import.rejected_validation": "{count} durch Validierung abgewiesen",
   "import.skipped_duplicates": "{count} Duplikate übersprungen",
+  "import.probable_duplicates": "{count} wahrscheinliche Duplikate übersprungen (gleiches Band und gleiche Betriebsart, bis 2 Min.)",
   "import.first_validation_error": "erster Validierungsfehler",
   "import.db_save_error": "Fehler beim Speichern des Imports in die Datenbank: {err}",
   "file.read_error": "Fehler beim Lesen der Datei {path}: {err}",

@@ -1396,6 +1396,7 @@
   "import.rejected_damaged": "{count} record ADIF danneggiati",
   "import.rejected_validation": "{count} rifiutati dalla validazione",
   "import.skipped_duplicates": "{count} duplicati saltati",
+  "import.probable_duplicates": "{count} probabili duplicati saltati (stessa banda e modo, entro 2 min)",
   "import.first_validation_error": "primo errore di validazione",
   "import.db_save_error": "Errore salvataggio import nel database: {err}",
   "file.read_error": "Errore lettura file {path}: {err}",

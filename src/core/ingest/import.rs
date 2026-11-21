@@ -3,9 +3,10 @@
 
 //! Zbiorczy import rekordów QSO w potoku `core::ingest` (PIPE-3).
 
+use std::collections::HashMap;
 use std::sync::PoisonError;
 
-use crate::core::qso::{QsoIssue, QsoRecord};
+use crate::core::qso::{QsoIdentity, QsoIssue, QsoRecord};
 
 use super::enrich::{apply_prefix_info, normalize_qso_fields};
 use super::{IngestError, QsoIngestor};
@@ -15,6 +16,9 @@ use super::{IngestError, QsoIngestor};
 pub struct ImportOptions {
     pub journal_id: String,
     pub enrich: bool,
+    /// Store records that only look like an existing QSO (see [`PROBABLE_DUPLICATE_WINDOW_SECS`])
+    /// instead of skipping them.
+    pub keep_probable_duplicates: bool,
 }
 
 /// Raport z wykonania zbiorczego importu rekordów QSO (`QsoIngestor::import_batch`).
@@ -23,7 +27,61 @@ pub struct ImportReport {
     pub inserted: usize,
     pub rejected_invalid: usize,
     pub skipped_duplicates: usize,
+    /// Records skipped (or, with `keep_probable_duplicates`, stored) because a QSO with the same
+    /// call, band and mode exists within the tolerance window.
+    pub probable_duplicates: usize,
     pub first_issue: Option<QsoIssue>,
+}
+
+/// Same call, band and mode closer than this are treated as the same contact, which is what
+/// differs between WSJT-X (seconds), loggers that round to the minute and service downloads.
+pub const PROBABLE_DUPLICATE_WINDOW_SECS: i64 = 120;
+/// Largest frequency difference of a probable duplicate when both records carry a frequency.
+pub const PROBABLE_DUPLICATE_FREQ_HZ: u64 = 1_000;
+
+/// Existing contacts by (call, band, mode) for the tolerant duplicate check.
+#[derive(Default)]
+struct ProbableDuplicateIndex {
+    by_key: HashMap<(String, String, String), Vec<(i64, Option<u64>)>>,
+}
+
+impl ProbableDuplicateIndex {
+    fn key(identity: &QsoIdentity) -> (String, String, String) {
+        (
+            identity.callsign.clone(),
+            identity.band.clone(),
+            identity.mode.clone(),
+        )
+    }
+
+    fn instant(identity: &QsoIdentity) -> Option<i64> {
+        crate::core::qso::utc_epoch_seconds(&identity.date, &identity.time)
+    }
+
+    fn insert(&mut self, identity: &QsoIdentity) {
+        if let Some(at) = Self::instant(identity) {
+            self.by_key
+                .entry(Self::key(identity))
+                .or_default()
+                .push((at, identity.freq_hz));
+        }
+    }
+
+    fn matches(&self, identity: &QsoIdentity) -> bool {
+        let Some(at) = Self::instant(identity) else {
+            return false;
+        };
+        self.by_key.get(&Self::key(identity)).is_some_and(|known| {
+            known.iter().any(|(other_at, other_freq)| {
+                let close_in_time = (at - other_at).abs() <= PROBABLE_DUPLICATE_WINDOW_SECS;
+                let close_in_freq = match (identity.freq_hz, other_freq) {
+                    (Some(a), Some(b)) => a.abs_diff(*b) <= PROBABLE_DUPLICATE_FREQ_HZ,
+                    _ => true,
+                };
+                close_in_time && close_in_freq
+            })
+        })
+    }
 }
 
 impl QsoIngestor {
@@ -57,9 +115,15 @@ impl QsoIngestor {
                 .map_err(IngestError::Storage)?
         };
 
+        let mut probable = ProbableDuplicateIndex::default();
+        for identity in &seen_identities {
+            probable.insert(identity);
+        }
+
         let mut accepted = Vec::with_capacity(qsos.len());
         let mut rejected_invalid = 0usize;
         let mut skipped_duplicates = 0usize;
+        let mut probable_duplicates = 0usize;
         let mut first_issue: Option<QsoIssue> = None;
 
         for mut qso in qsos {
@@ -83,9 +147,19 @@ impl QsoIngestor {
             }
 
             let identity = qso.identity();
-            if identity.is_complete() && !seen_identities.insert(identity) {
-                skipped_duplicates += 1;
-                continue;
+            if identity.is_complete() {
+                if seen_identities.contains(&identity) {
+                    skipped_duplicates += 1;
+                    continue;
+                }
+                if probable.matches(&identity) {
+                    probable_duplicates += 1;
+                    if !options.keep_probable_duplicates {
+                        continue;
+                    }
+                }
+                probable.insert(&identity);
+                seen_identities.insert(identity);
             }
 
             accepted.push(qso);
@@ -96,6 +170,7 @@ impl QsoIngestor {
                 inserted: 0,
                 rejected_invalid,
                 skipped_duplicates,
+                probable_duplicates,
                 first_issue,
             });
         }
@@ -126,6 +201,7 @@ impl QsoIngestor {
             inserted,
             rejected_invalid,
             skipped_duplicates,
+            probable_duplicates,
             first_issue,
         })
     }
@@ -146,6 +222,7 @@ mod tests {
         ImportOptions {
             journal_id: "DEFAULT".to_string(),
             enrich,
+            keep_probable_duplicates: false,
         }
     }
 
@@ -174,6 +251,7 @@ mod tests {
                 inserted: 1,
                 rejected_invalid: 0,
                 skipped_duplicates: 1,
+                probable_duplicates: 0,
                 first_issue: None,
             }
         );
@@ -206,18 +284,20 @@ mod tests {
                 inserted: 0,
                 rejected_invalid: 0,
                 skipped_duplicates: 1,
+                probable_duplicates: 0,
                 first_issue: None,
             }
         );
         assert_eq!(fixture.count_qsos(), 1);
 
-        // Rekord z inną sekundą (12:34:57) NIE jest duplikatem i zostaje pomyślnie wstawiony.
+        // Rekord z inną sekundą (12:34:57) ma inną tożsamość, ale jest prawdopodobnym
+        // duplikatem (STAGE-V140-S4): domyślnie pominięty i zgłoszony, a na żądanie zapisany.
         let mut qso_diff_sec = sample_valid_qso("SP6INA");
         qso_diff_sec.time_on = "123457".to_string();
 
         let third_report = match fixture
             .ingestor
-            .import_batch(vec![qso_diff_sec], &default_options(false))
+            .import_batch(vec![qso_diff_sec.clone()], &default_options(false))
         {
             Ok(report) => report,
             Err(e) => panic!("expected third import_batch to succeed, got error: {e}"),
@@ -226,9 +306,28 @@ mod tests {
         assert_eq!(
             third_report,
             ImportReport {
+                inserted: 0,
+                rejected_invalid: 0,
+                skipped_duplicates: 0,
+                probable_duplicates: 1,
+                first_issue: None,
+            }
+        );
+        assert_eq!(fixture.count_qsos(), 1);
+
+        let mut keep = default_options(false);
+        keep.keep_probable_duplicates = true;
+        let fourth_report = match fixture.ingestor.import_batch(vec![qso_diff_sec], &keep) {
+            Ok(report) => report,
+            Err(e) => panic!("expected fourth import_batch to succeed, got error: {e}"),
+        };
+        assert_eq!(
+            fourth_report,
+            ImportReport {
                 inserted: 1,
                 rejected_invalid: 0,
                 skipped_duplicates: 0,
+                probable_duplicates: 1,
                 first_issue: None,
             }
         );
@@ -290,6 +389,7 @@ mod tests {
         let options = ImportOptions {
             journal_id: "CONTEST_2026".to_string(),
             enrich: false,
+            keep_probable_duplicates: false,
         };
 
         let report = match fixture
@@ -306,6 +406,7 @@ mod tests {
                 inserted: 2,
                 rejected_invalid: 0,
                 skipped_duplicates: 0,
+                probable_duplicates: 0,
                 first_issue: None,
             }
         );
@@ -458,6 +559,7 @@ mod tests {
                 inserted: 2,
                 rejected_invalid: 1,
                 skipped_duplicates: 1,
+                probable_duplicates: 0,
                 first_issue: Some(QsoIssue::EmptyBand),
             }
         );
@@ -529,6 +631,7 @@ mod tests {
                 inserted: 0,
                 rejected_invalid: 0,
                 skipped_duplicates: 0,
+                probable_duplicates: 0,
                 first_issue: None,
             }
         );
@@ -549,6 +652,7 @@ mod tests {
         let invalid_journal_options = ImportOptions {
             journal_id: "NIE_ISTNIEJE".to_string(),
             enrich: true,
+            keep_probable_duplicates: false,
         };
 
         let result = fixture
@@ -663,6 +767,7 @@ mod tests {
                 inserted: 1,
                 rejected_invalid: 0,
                 skipped_duplicates: 1,
+                probable_duplicates: 0,
                 first_issue: None,
             }
         );
@@ -937,5 +1042,103 @@ mod tests {
         let qsos = db.get_all_qsos().unwrap();
         assert_eq!(qsos.len(), 1);
         assert_eq!(qsos[0].callsign, "SP6INA");
+    }
+}
+
+#[cfg(test)]
+mod probable_duplicate_tests {
+    use super::super::tests::{TestFixture, sample_valid_qso};
+    use super::ImportOptions;
+
+    fn options(keep: bool) -> ImportOptions {
+        ImportOptions {
+            journal_id: "DEFAULT".to_string(),
+            enrich: false,
+            keep_probable_duplicates: keep,
+        }
+    }
+
+    fn stored(fixture: &TestFixture) -> usize {
+        fixture.ingestor.db().lock().unwrap().count_all().unwrap()
+    }
+
+    #[test]
+    fn minute_precision_and_rounded_frequency_are_a_probable_duplicate() {
+        let fixture = TestFixture::new();
+        let mut original = sample_valid_qso("SP6INA");
+        original.time_on = "123415".to_string();
+        original.freq = Some(14.074_123);
+        let first = fixture
+            .ingestor
+            .import_batch(vec![original], &options(false))
+            .unwrap();
+        assert_eq!(first.inserted, 1);
+
+        let mut rounded = sample_valid_qso("SP6INA");
+        rounded.time_on = "1234".to_string();
+        rounded.freq = Some(14.074);
+        let report = fixture
+            .ingestor
+            .import_batch(vec![rounded.clone()], &options(false))
+            .unwrap();
+        assert_eq!((report.inserted, report.probable_duplicates), (0, 1));
+        assert_eq!(stored(&fixture), 1);
+
+        let kept = fixture
+            .ingestor
+            .import_batch(vec![rounded], &options(true))
+            .unwrap();
+        assert_eq!((kept.inserted, kept.probable_duplicates), (1, 1));
+        assert_eq!(stored(&fixture), 2);
+    }
+
+    #[test]
+    fn distinct_contacts_are_not_probable_duplicates() {
+        let fixture = TestFixture::new();
+        let mut base = sample_valid_qso("SP6INA");
+        base.time_on = "120000".to_string();
+        fixture
+            .ingestor
+            .import_batch(vec![base.clone()], &options(false))
+            .unwrap();
+
+        let mut later = base.clone();
+        later.time_on = "120300".to_string();
+        let mut other_band = base.clone();
+        other_band.band = "40m".to_string();
+        other_band.freq = Some(7.025);
+        let mut other_mode = base.clone();
+        other_mode.mode = "SSB".to_string();
+        other_mode.rst_sent = "59".to_string();
+        other_mode.rst_rcvd = "59".to_string();
+        let mut far_frequency = base.clone();
+        far_frequency.time_on = "120030".to_string();
+        far_frequency.freq = Some(14.035);
+        let mut other_call = base;
+        other_call.callsign = "DL1ABC".to_string();
+
+        let report = fixture
+            .ingestor
+            .import_batch(
+                vec![later, other_band, other_mode, far_frequency, other_call],
+                &options(false),
+            )
+            .unwrap();
+        assert_eq!(report.inserted, 5, "{report:?}");
+        assert_eq!(report.probable_duplicates, 0);
+    }
+
+    #[test]
+    fn probable_duplicates_inside_one_batch_are_detected() {
+        let fixture = TestFixture::new();
+        let mut first = sample_valid_qso("JA1XYZ");
+        first.time_on = "080010".to_string();
+        let mut second = first.clone();
+        second.time_on = "0801".to_string();
+        let report = fixture
+            .ingestor
+            .import_batch(vec![first, second], &options(false))
+            .unwrap();
+        assert_eq!((report.inserted, report.probable_duplicates), (1, 1));
     }
 }

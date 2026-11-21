@@ -58,6 +58,7 @@ impl SyncStore for QsoIngestor {
         let options = ImportOptions {
             journal_id: journal.to_string(),
             enrich: false,
+            keep_probable_duplicates: false,
         };
         let report = self
             .import_batch(qsos, &options)

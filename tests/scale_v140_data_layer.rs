@@ -194,7 +194,30 @@ fn scale_v140_data_layer_budgets_e2e() {
             "DROP INDEX idx_qso_journal_chrono;
              DROP INDEX idx_qso_journal_call_chrono;
              DROP INDEX idx_qso_qsl_match;
-             DELETE FROM schema_version WHERE version = 10;
+             DROP TABLE qso_extra;",
+        )
+        .expect("SCALE FAIL-CLOSED: rewind to schema 9");
+        for column in [
+            "tx_pwr",
+            "operator",
+            "station_callsign",
+            "contest_id",
+            "my_rig",
+            "my_antenna",
+            "cnty",
+            "sig",
+            "sig_info",
+            "my_sig",
+            "my_sig_info",
+            "wwff_ref",
+            "my_wwff_ref",
+            "email",
+        ] {
+            conn.execute_batch(&format!("ALTER TABLE qso_records DROP COLUMN {column};"))
+                .expect("SCALE FAIL-CLOSED: rewind to schema 9");
+        }
+        conn.execute_batch(
+            "DELETE FROM schema_version WHERE version >= 10;
              PRAGMA wal_checkpoint(TRUNCATE);",
         )
         .expect("SCALE FAIL-CLOSED: rewind to schema 9");
@@ -203,7 +226,7 @@ fn scale_v140_data_layer_budgets_e2e() {
     let db = LogDatabase::open(&db_path).expect("SCALE FAIL-CLOSED: migrate 9 -> 10");
     check(
         &mut failures,
-        "migration 9->10 incl. pre-migration backup",
+        "migration 9->latest incl. pre-migration backup",
         started.elapsed(),
         BUDGET_MIGRATION_WITH_BACKUP,
     );

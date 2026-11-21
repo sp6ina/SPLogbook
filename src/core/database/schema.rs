@@ -15,9 +15,9 @@ macro_rules! qso_columns {
         pub(super) fn qso_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<QsoRecord> {
             let mut next = 0usize;
             let mut column = || { let index = next; next += 1; index };
-            Ok(QsoRecord { id: Some(row.get(column())?), $($field: row.get(column())?),+ })
+            Ok(QsoRecord { id: Some(row.get(column())?), $($field: row.get(column())?),+, extra_fields: Vec::new() })
         }
-        const _: fn(&QsoRecord) = |q| { let QsoRecord { id: _, $($field: _),+ } = q; };
+        const _: fn(&QsoRecord) = |q| { let QsoRecord { id: _, extra_fields: _, $($field: _),+ } = q; };
     };
 }
 
@@ -79,6 +79,20 @@ qso_columns! {
     vucc_grids => "vucc_grids",
     audio_file => "audio_file",
     journal_id => "journal_id",
+    tx_pwr => "tx_pwr",
+    operator => "operator",
+    station_callsign => "station_callsign",
+    contest_id => "contest_id",
+    my_rig => "my_rig",
+    my_antenna => "my_antenna",
+    cnty => "cnty",
+    sig => "sig",
+    sig_info => "sig_info",
+    my_sig => "my_sig",
+    my_sig_info => "my_sig_info",
+    wwff_ref => "wwff_ref",
+    my_wwff_ref => "my_wwff_ref",
+    email => "email",
 }
 
 pub(super) struct QsoSql {

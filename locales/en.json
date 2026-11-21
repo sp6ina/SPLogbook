@@ -1396,6 +1396,7 @@
   "import.rejected_damaged": "{count} corrupted ADIF records",
   "import.rejected_validation": "{count} rejected by validation",
   "import.skipped_duplicates": "{count} duplicate QSOs skipped",
+  "import.probable_duplicates": "{count} probable duplicates skipped (same band and mode, within 2 min)",
   "import.first_validation_error": "first validation error",
   "import.db_save_error": "Database import save error: {err}",
   "file.read_error": "Failed to read file {path}: {err}",
