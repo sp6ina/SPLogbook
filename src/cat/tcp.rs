@@ -51,6 +51,31 @@ pub(super) async fn read_line_timeout<R: AsyncBufReadExt + Unpin>(
     }
 }
 
+/// Łączy się z demonem, wysyła komendę i zwraca pierwszą linię odpowiedzi, jeśli przyszła
+/// w krótkim oknie oczekiwania (`None`, gdy demon nic nie odpowiedział).
+pub(super) async fn send_cmd_read_reply(
+    addr: &str,
+    cmd: &str,
+    daemon: &str,
+) -> Result<Option<String>, std::io::Error> {
+    let stream = connect_timeout(addr, daemon).await?;
+    let (reader, mut writer) = stream.into_split();
+    write_cmd(&mut writer, cmd.as_bytes(), daemon).await?;
+    let mut buf_reader = BufReader::new(reader);
+    let mut resp = String::new();
+    match tokio::time::timeout(
+        IGNORED_REPLY_TIMEOUT,
+        (&mut buf_reader)
+            .take((MAX_LINE_LEN + 1) as u64)
+            .read_line(&mut resp),
+    )
+    .await
+    {
+        Ok(Ok(n)) if n > 0 => Ok(Some(resp)),
+        _ => Ok(None),
+    }
+}
+
 /// Łączy się z demonem, wysyła komendę i odrzuca (best-effort) pierwszą linię odpowiedzi.
 pub(super) async fn send_cmd_ignore_reply(
     addr: &str,

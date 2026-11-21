@@ -151,40 +151,33 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
     }
 
     let forecasts = app.solar_band_forecasts();
-    let k_index = app.solar.space_weather.k_index;
+    let k_index = app.solar.indices().map_or(0, |(_, k)| k);
     let band = current_band(app);
     let lang = app.gui.appearance.language;
     let rec = recommend(&forecasts, &band, k_index, lang);
 
-    // Wytłumaczalność aktualnego pasma (rzeczywista trasa jeśli znany lokator).
-    let explanation: Option<crate::core::propagation::PropagationExplanation> = {
-        let sfi = if app.solar.space_weather.sfi > 0 {
-            app.solar.space_weather.sfi
-        } else {
-            140
+    // Wytłumaczalność aktualnego pasma: tylko dla prawdziwej trasy (lokator operatora i
+    // korespondenta) i prawdziwych danych słonecznych.
+    let explanation: Option<crate::core::propagation::PropagationExplanation> =
+        match app.solar.indices() {
+            Some((sfi, k)) if !app.entry.grid.is_empty() => {
+                let now = jiff::tz::TimeZone::UTC.to_datetime(jiff::Timestamp::now());
+                let utc_h = now.hour() as f64 + (now.minute() as f64) / 60.0;
+                let doy = now.day_of_year() as u32;
+                PropagationEngine::forecast_explain(
+                    &app.config.station.gridsquare,
+                    &app.entry.grid,
+                    &band,
+                    sfi,
+                    k as u8,
+                    utc_h,
+                    doy,
+                )
+                .ok()
+                .map(|(_, e)| e)
+            }
+            _ => None,
         };
-        let now = jiff::tz::TimeZone::UTC.to_datetime(jiff::Timestamp::now());
-        let utc_h = now.hour() as f64 + (now.minute() as f64) / 60.0;
-        let doy = now.day_of_year() as u32;
-        if app.entry.grid.is_empty() {
-            let sp = crate::core::geo::Coordinates::new(51.1, 17.0);
-            let dx = crate::core::geo::Coordinates::new(40.7, -74.0);
-            let freq = crate::core::propagation::band_to_center_mhz(&band).unwrap_or(14.175);
-            Some(PropagationEngine::explain(sp, dx, freq, sfi, k_index as u8, utc_h, doy).1)
-        } else {
-            PropagationEngine::forecast_explain(
-                &app.config.station.gridsquare,
-                &app.entry.grid,
-                &band,
-                sfi,
-                k_index as u8,
-                utc_h,
-                doy,
-            )
-            .ok()
-            .map(|(_, e)| e)
-        }
-    };
 
     let mut open = app.gui.windows.show_operator_assistant;
     egui::Window::new(tr(key::ASSISTANT_WINDOW_TITLE, lang))

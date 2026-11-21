@@ -60,7 +60,56 @@ impl SpLogApp {
         cfg.panel_satellites = self.views.panel_satellites.clone();
         cfg.panel_world_map = self.views.panel_world_map.clone();
         cfg.panel_waterfall = self.views.panel_waterfall.clone();
+        cfg.ui_state = self.ui_state_snapshot();
         cfg
+    }
+
+    /// Stan interfejsu do zapisania w konfiguracji (STAGE-V140-S5).
+    pub fn ui_state_snapshot(&self) -> crate::core::station::UiStateConfig {
+        crate::core::station::UiStateConfig {
+            log_page_size: self.log_view.page_size,
+            cluster_band: self.cluster.filter_band_selection.clone(),
+            cluster_mode: self.cluster.filter_mode_selection.clone(),
+            cluster_status: self.cluster.filter_status.clone(),
+            cluster_source: self.cluster.filter_source.clone(),
+            cluster_pota_sota_only: self.cluster.filter_pota_sota_only,
+            waterfall: self.gui.dialogs.waterfall_panel.settings(),
+            duplicates_match_date: self.duplicates.match_date,
+            contest_name: self.contest.name.clone(),
+            contest_next_serial: self.contest.stx,
+        }
+    }
+
+    /// Przywraca zapisany stan interfejsu; niepoprawne wartości wracają do domyślnych.
+    pub fn apply_ui_state(&mut self, state: &crate::core::station::UiStateConfig) {
+        let defaults = crate::core::station::UiStateConfig::default();
+        let or_default = |value: &str, default: &str| {
+            if value.trim().is_empty() {
+                default.to_string()
+            } else {
+                value.to_string()
+            }
+        };
+        self.log_view.page_size =
+            if crate::gui::state::log_view::LOG_PAGE_SIZES.contains(&state.log_page_size) {
+                state.log_page_size
+            } else {
+                defaults.log_page_size
+            };
+        self.cluster.filter_band_selection =
+            or_default(&state.cluster_band, &defaults.cluster_band);
+        self.cluster.filter_mode_selection =
+            or_default(&state.cluster_mode, &defaults.cluster_mode);
+        self.cluster.filter_status = or_default(&state.cluster_status, &defaults.cluster_status);
+        self.cluster.filter_source = or_default(&state.cluster_source, &defaults.cluster_source);
+        self.cluster.filter_pota_sota_only = state.cluster_pota_sota_only;
+        self.gui
+            .dialogs
+            .waterfall_panel
+            .apply_settings(&state.waterfall);
+        self.duplicates.match_date = state.duplicates_match_date;
+        self.contest.name = or_default(&state.contest_name, &defaults.contest_name);
+        self.contest.stx = state.contest_next_serial.max(1);
     }
 
     /// Tworzy zaktualizowaną strukturę [`AppConfig`] odzwierciedlającą bieżący stan aplikacji.

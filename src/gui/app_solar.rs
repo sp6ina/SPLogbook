@@ -5,22 +5,34 @@ use crate::core::i18n::{Msg, key};
 use eframe::egui;
 
 impl SpLogApp {
-    /// Zwraca prognozy otwarcia pasm dla panelu słonecznego z cache'em kluczowanym
-    /// po (SFI, K, godzina, minuta, dzień roku), aby nie przeliczać 11 pasm co klatkę.
-    pub fn solar_band_forecasts(
-        &mut self,
-    ) -> Vec<(&'static str, crate::core::propagation::PropagationForecast)> {
-        let sfi = if self.solar.space_weather.sfi > 0 {
-            self.solar.space_weather.sfi
-        } else {
-            140
+    /// Prognozy pasm z QTH operatora (lokator aktywnego profilu): do korespondenta,
+    /// jeśli w formularzu jest jego lokator, w przeciwnym razie do kontynentów.
+    /// Bez prawdziwych danych słonecznych albo bez lokatora operatora lista jest pusta.
+    pub fn solar_band_outlooks(&mut self) -> Vec<crate::core::propagation::BandOutlook> {
+        let Some((sfi, k_index)) = self.solar.indices() else {
+            return Vec::new();
         };
-        let k_index = self.solar.space_weather.k_index;
+        let Ok(origin) = locator_to_coordinates(&self.config.station.gridsquare) else {
+            return Vec::new();
+        };
+        let target = locator_to_coordinates(&self.entry.grid).ok();
         let now = jiff::tz::TimeZone::UTC.to_datetime(jiff::Timestamp::now());
         let hour = now.hour() as u32;
         let minute = now.minute() as u32;
         let doy = now.day_of_year() as u32;
-        let key = (sfi, k_index, hour, minute, doy);
+        let key = crate::gui::state::solar::SolarCacheKey {
+            sfi,
+            k_index,
+            hour,
+            minute,
+            day_of_year: doy,
+            my_locator: self.config.station.gridsquare.trim().to_uppercase(),
+            dx_locator: if target.is_some() {
+                self.entry.grid.trim().to_uppercase()
+            } else {
+                String::new()
+            },
+        };
 
         if let Some((cached_key, cached)) = &self.solar.propagation_cache
             && *cached_key == key
@@ -28,26 +40,13 @@ impl SpLogApp {
             return cached.clone();
         }
 
-        let sp = crate::core::geo::Coordinates::new(51.1, 17.0);
-        let dx = crate::core::geo::Coordinates::new(40.7, -74.0);
         let utc_h = hour as f64 + (minute as f64) / 60.0;
+        let outlooks =
+            crate::core::propagation::band_outlooks(origin, target, sfi, k_index as u8, utc_h, doy);
         let forecasts: Vec<(&'static str, crate::core::propagation::PropagationForecast)> =
-            crate::core::propagation::HF_BANDS
+            outlooks
                 .iter()
-                .map(|&(name, freq)| {
-                    (
-                        name,
-                        crate::core::propagation::PropagationEngine::calculate(
-                            sp,
-                            dx,
-                            freq,
-                            sfi,
-                            k_index as u8,
-                            utc_h,
-                            doy,
-                        ),
-                    )
-                })
+                .map(|o| (o.band, o.forecast.clone()))
                 .collect();
 
         // Zapis prognoz do historii dokładności oraz wykrywanie przejść
@@ -80,15 +79,27 @@ impl SpLogApp {
             crate::media::sounds::play_band_opened_alert();
             self.gui.chrome.push_status_toast(
                 crate::gui::state::ToastSeverity::Info,
-                format!("📡 Otwarcie pasma: {names}"),
+                Msg::new(key::SOLAR_BAND_OPENED)
+                    .arg("bands", names)
+                    .text(self.gui.appearance.language),
             );
             for band in newly_opened {
                 self.services.plugin_engine.run_on_band_opened(band);
             }
         }
 
-        self.solar.propagation_cache = Some((key, forecasts.clone()));
-        forecasts
+        self.solar.propagation_cache = Some((key, outlooks.clone()));
+        outlooks
+    }
+
+    /// Prognozy pasm w postaci (pasmo, prognoza) dla asystenta operatora.
+    pub fn solar_band_forecasts(
+        &mut self,
+    ) -> Vec<(&'static str, crate::core::propagation::PropagationForecast)> {
+        self.solar_band_outlooks()
+            .into_iter()
+            .map(|o| (o.band, o.forecast))
+            .collect()
     }
 
     /// Odświeża pozycję satelity i listę najbliższych przelotów (przybliżenie keplerowskie).
@@ -113,8 +124,12 @@ impl SpLogApp {
             .into_iter()
             .find(|d| d.name == self.satellites.selected_satellite);
 
-        let coords = locator_to_coordinates(&self.config.station.gridsquare)
-            .unwrap_or(crate::core::geo::Coordinates::new(52.2297, 21.0122));
+        // Bez lokatora stacji nie ma obserwatora — przeloty liczone dla cudzego QTH
+        // byłyby błędne.
+        let Ok(coords) = locator_to_coordinates(&self.config.station.gridsquare) else {
+            self.satellites.passes.clear();
+            return;
+        };
         let obs = crate::core::satellite::Observer {
             lat_deg: coords.latitude,
             lon_deg: coords.longitude,
@@ -202,14 +217,18 @@ impl SpLogApp {
                         .text(self.gui.appearance.language),
                 );
             } else if sfi_delta.abs() >= 20 {
-                self.solar.last_alert =
-                    Some(format!("ℹ Zmiana SFI: {} → {}", prev.sfi, weather.sfi));
+                self.solar.last_alert = Some(
+                    Msg::new(key::SOLAR_SFI_CHANGE)
+                        .arg("prev", prev.sfi)
+                        .arg("curr", weather.sfi)
+                        .text(self.gui.appearance.language),
+                );
             } else {
                 self.solar.last_alert = None;
             }
         }
 
-        self.solar.space_weather = weather.clone();
+        self.solar.space_weather = Some(weather.clone());
 
         let differs = match self.solar.history.last() {
             Some(p) => {

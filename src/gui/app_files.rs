@@ -1,5 +1,4 @@
 use super::SpLogApp;
-use crate::core::backup::BackupManager;
 use crate::core::i18n::{Msg, key, tr};
 use crate::core::qso::QsoRecord;
 use crate::gui::csv_export_dialog::{CsvExportRequest, CsvExportScope};
@@ -277,41 +276,6 @@ impl SpLogApp {
                             .text(self.gui.appearance.language),
                     );
                 }
-            }
-        }
-    }
-
-    pub fn run_manual_backup(&mut self) {
-        let backup_dir = self.paths.active_db_path.parent().map_or_else(
-            || std::path::PathBuf::from("backups"),
-            |p| p.join("backups"),
-        );
-        let _ = std::fs::create_dir_all(&backup_dir);
-        let backup_res = BackupManager::backup_database(&self.paths.active_db_path, &backup_dir);
-
-        let qsos = {
-            let db = self
-                .services
-                .log_db
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            db.get_all_qsos_for_journal_with_extras(&self.active_journal.id)
-                .unwrap_or_default()
-        };
-        let adif =
-            crate::core::adif::export_adif(&qsos, "SPLogbook", &self.config.station.callsign);
-        let _ = BackupManager::backup_adif(&adif, &backup_dir);
-
-        match backup_res {
-            Ok(backed_path) => {
-                let name = backed_path
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy();
-                self.say(Msg::new(key::BACKUP_CREATED_TOAST).arg("name", &name));
-            }
-            Err(e) => {
-                self.fail(e.msg());
             }
         }
     }

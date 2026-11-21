@@ -100,6 +100,10 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.run_manual_backup();
             ui.close();
         }
+        if ui.button(tr(key::MENU_RESTORE_BACKUP, lang)).clicked() {
+            ui.close();
+            app.restore_from_backup_dialog();
+        }
         ui.separator();
         if ui.button(tr(key::MENU_EXIT, lang)).clicked() {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);

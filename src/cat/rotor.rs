@@ -28,8 +28,39 @@ async fn read_line_timeout<R: AsyncBufReadExt + Unpin>(
     tcp::read_line_timeout(reader, line, DAEMON).await
 }
 
-async fn send_rotor_cmd(host: &str, port: u16, cmd: &str) -> Result<(), std::io::Error> {
-    tcp::send_cmd_ignore_reply(&format!("{host}:{port}"), cmd, DAEMON).await
+/// Błąd polecenia wysłanego do rotctld.
+#[derive(Debug)]
+pub enum RotctldError {
+    /// Brak połączenia, przekroczony czas albo inny błąd gniazda.
+    Io(std::io::Error),
+    /// rotctld odpowiedział `RPRT <kod>` z kodem różnym od zera.
+    Rejected(i32),
+}
+
+impl std::fmt::Display for RotctldError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Io(e) => write!(f, "{e}"),
+            Self::Rejected(code) => write!(f, "RPRT {code}"),
+        }
+    }
+}
+
+impl std::error::Error for RotctldError {}
+
+/// Kod z odpowiedzi `RPRT <n>`; `None`, gdy linia nie jest raportem rotctld.
+fn rprt_code(reply: &str) -> Option<i32> {
+    reply.trim().strip_prefix("RPRT")?.trim().parse().ok()
+}
+
+async fn send_rotor_cmd(host: &str, port: u16, cmd: &str) -> Result<(), RotctldError> {
+    let reply = tcp::send_cmd_read_reply(&format!("{host}:{port}"), cmd, DAEMON)
+        .await
+        .map_err(RotctldError::Io)?;
+    match reply.as_deref().and_then(rprt_code) {
+        Some(code) if code != 0 => Err(RotctldError::Rejected(code)),
+        _ => Ok(()),
+    }
 }
 
 /// Identyfikator rotora antenowego w konfiguracji wielourządzeniowej
@@ -249,7 +280,7 @@ impl RotorClient {
         port: u16,
         azimuth_deg: f32,
         elevation_deg: f32,
-    ) -> Result<(), std::io::Error> {
+    ) -> Result<(), RotctldError> {
         let norm_az = (azimuth_deg % 360.0 + 360.0) % 360.0;
         let norm_el = elevation_deg.clamp(-10.0, 90.0);
         let cmd = format!("P {norm_az:.1} {norm_el:.1}\n");
@@ -257,7 +288,7 @@ impl RotorClient {
     }
 
     /// Zatrzymuje ruch rotora
-    pub async fn stop(host: &str, port: u16) -> Result<(), std::io::Error> {
+    pub async fn stop(host: &str, port: u16) -> Result<(), RotctldError> {
         send_rotor_cmd(host, port, "S\n").await
     }
 }
@@ -265,6 +296,57 @@ impl RotorClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Jednorazowy serwer rotctld: odbiera jedną linię i odpowiada `reply` (pusty = milczy).
+    async fn one_shot_rotctld(reply: &'static str) -> (u16, tokio::task::JoinHandle<String>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let handle = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (reader, mut writer) = stream.into_split();
+            let mut line = String::new();
+            BufReader::new(reader).read_line(&mut line).await.unwrap();
+            if !reply.is_empty() {
+                writer.write_all(reply.as_bytes()).await.unwrap();
+            }
+            line
+        });
+        (port, handle)
+    }
+
+    #[test]
+    fn rprt_code_parses_only_rotctld_reports() {
+        assert_eq!(rprt_code("RPRT 0\n"), Some(0));
+        assert_eq!(rprt_code("RPRT -8"), Some(-8));
+        assert_eq!(rprt_code("180.000000"), None);
+        assert_eq!(rprt_code(""), None);
+    }
+
+    #[tokio::test]
+    async fn set_position_sends_the_normalised_command_and_accepts_rprt_zero() {
+        let (port, server) = one_shot_rotctld("RPRT 0\n").await;
+        RotorClient::set_position("127.0.0.1", port, -90.0, 100.0)
+            .await
+            .unwrap();
+        assert_eq!(server.await.unwrap(), "P 270.0 90.0\n");
+    }
+
+    #[tokio::test]
+    async fn a_negative_rprt_is_reported_as_rejected() {
+        let (port, server) = one_shot_rotctld("RPRT -8\n").await;
+        let err = RotorClient::stop("127.0.0.1", port).await.unwrap_err();
+        assert!(matches!(err, RotctldError::Rejected(-8)), "{err:?}");
+        assert_eq!(server.await.unwrap(), "S\n");
+    }
+
+    #[tokio::test]
+    async fn an_unreachable_rotctld_is_an_io_error() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        let err = RotorClient::stop("127.0.0.1", port).await.unwrap_err();
+        assert!(matches!(err, RotctldError::Io(_)), "{err:?}");
+    }
 
     #[test]
     fn eme_rotator_uses_explicit_rotator_id() {

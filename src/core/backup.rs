@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
-// Automatyczna kopia zapasowa bazy danych SQLite i eksportu ADIF przy zamykaniu programu
+// Kopie zapasowe bazy SQLite i eksportu ADIF: ręczne, okresowe, przy zamknięciu programu
+// i po nieoczekiwanym zakończeniu poprzedniej sesji.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -58,6 +59,67 @@ impl BackupError {
 
 pub struct BackupManager;
 
+/// Domyślna liczba zachowywanych kopii bazy i kopii ADIF.
+pub const DEFAULT_BACKUP_KEEP: usize = 10;
+/// Kopie wykonywane po nieoczekiwanym zakończeniu sesji mają osobną, krótszą retencję.
+const UNCLEAN_SHUTDOWN_KEEP: usize = 5;
+
+/// Odcisk pliku bazy: czas modyfikacji i rozmiar bazy oraz pliku `-wal`. Jeśli się nie
+/// zmienił od ostatniej kopii, kolejna kopia okresowa byłaby identyczna.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DbFingerprint {
+    db: (std::time::SystemTime, u64),
+    wal: Option<(std::time::SystemTime, u64)>,
+}
+
+impl DbFingerprint {
+    pub fn of(db_path: &Path) -> Option<Self> {
+        let stat = |path: &Path| {
+            let meta = std::fs::metadata(path).ok()?;
+            Some((meta.modified().ok()?, meta.len()))
+        };
+        let mut wal_path = db_path.as_os_str().to_owned();
+        wal_path.push("-wal");
+        Some(Self {
+            db: stat(db_path)?,
+            wal: stat(Path::new(&wal_path)),
+        })
+    }
+}
+
+/// Znacznik działającej sesji obok pliku bazy (`<baza>.session`).
+///
+/// Program zakłada go przy starcie i usuwa przy poprawnym zamknięciu. Jeśli znacznik
+/// istnieje już przy starcie, poprzednia sesja nie zakończyła się poprawnie (awaria,
+/// zabicie procesu, utrata zasilania) albo działa druga instancja programu.
+#[derive(Debug)]
+pub struct SessionMarker {
+    path: PathBuf,
+}
+
+impl SessionMarker {
+    pub fn path_for(db_path: &Path) -> PathBuf {
+        db_path.with_extension("session")
+    }
+
+    /// Zakłada znacznik. Drugi element wyniku mówi, czy znacznik poprzedniej sesji
+    /// został na dysku.
+    pub fn acquire(db_path: &Path) -> std::io::Result<(Self, bool)> {
+        let path = Self::path_for(db_path);
+        let previous_left_open = path.exists();
+        fs::write(&path, std::process::id().to_string())?;
+        Ok((Self { path }, previous_left_open))
+    }
+
+    /// Usuwa znacznik przy poprawnym zamknięciu programu.
+    pub fn release(self) -> std::io::Result<()> {
+        match fs::remove_file(&self.path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
+        }
+    }
+}
+
 impl BackupManager {
     /// Wersja schematu obsługiwana przy przywracaniu — jedno źródło prawdy z tablicy migracji.
     pub const SUPPORTED_SCHEMA_VERSION: i64 = crate::core::database::LATEST_SCHEMA_VERSION;
@@ -111,13 +173,38 @@ impl BackupManager {
         source_db_path: &Path,
         backup_dir: &Path,
     ) -> Result<PathBuf, BackupError> {
+        Self::backup_database_keeping(source_db_path, backup_dir, DEFAULT_BACKUP_KEEP)
+    }
+
+    /// Jak [`Self::backup_database`], z retencją `keep` najnowszych kopii tej bazy.
+    pub fn backup_database_keeping(
+        source_db_path: &Path,
+        backup_dir: &Path,
+        keep: usize,
+    ) -> Result<PathBuf, BackupError> {
         let file_stem = Self::source_stem(source_db_path);
         let dest_filename = format!("{file_stem}_backup_{}.db", Self::backup_timestamp());
         let dest_path = Self::write_validated_copy(source_db_path, backup_dir, &dest_filename)?;
 
         // Rotacja starych kopii z filtrowaniem po file_stem (DATA-006)
-        Self::prune_old_backups(backup_dir, file_stem, ".db", 10).ok();
+        Self::prune_old_backups(backup_dir, file_stem, ".db", keep.max(1)).ok();
 
+        Ok(dest_path)
+    }
+
+    /// Po nieoczekiwanym zakończeniu poprzedniej sesji: sprawdza spójność bazy
+    /// (`quick_check`) i zapisuje jej kopię `{stem}_unclean_shutdown_{czas}.db`.
+    /// Te kopie mają własną retencję i nie wypierają zwykłych kopii.
+    pub fn backup_after_unclean_shutdown(
+        source_db_path: &Path,
+        backup_dir: &Path,
+    ) -> Result<PathBuf, BackupError> {
+        Self::validate_backup_internal(source_db_path)?;
+        let file_stem = Self::source_stem(source_db_path);
+        let prefix = format!("{file_stem}_unclean_shutdown_");
+        let dest_filename = format!("{prefix}{}.db", Self::backup_timestamp());
+        let dest_path = Self::write_validated_copy(source_db_path, backup_dir, &dest_filename)?;
+        Self::prune_with_prefix(backup_dir, &prefix, ".db", UNCLEAN_SHUTDOWN_KEEP).ok();
         Ok(dest_path)
     }
 
@@ -358,6 +445,15 @@ impl BackupManager {
 
     /// Wykonuje kopię zapasową w formacie ADIF
     pub fn backup_adif(adif_content: &str, backup_dir: &Path) -> Result<PathBuf, BackupError> {
+        Self::backup_adif_keeping(adif_content, backup_dir, DEFAULT_BACKUP_KEEP)
+    }
+
+    /// Jak [`Self::backup_adif`], z retencją `keep` najnowszych kopii ADIF.
+    pub fn backup_adif_keeping(
+        adif_content: &str,
+        backup_dir: &Path,
+        keep: usize,
+    ) -> Result<PathBuf, BackupError> {
         fs::create_dir_all(backup_dir).map_err(|e| BackupError::CreateDir(e.to_string()))?;
 
         let timestamp = jiff::Timestamp::now()
@@ -372,7 +468,7 @@ impl BackupManager {
             let _ = fs::remove_file(&tmp_path);
             BackupError::Finalize(e.to_string())
         })?;
-        Self::prune_old_backups(backup_dir, "SPLogbook", ".adi", 10).ok();
+        Self::prune_old_backups(backup_dir, "SPLogbook", ".adi", keep.max(1)).ok();
 
         Ok(dest_path)
     }
@@ -386,7 +482,15 @@ impl BackupManager {
         extension: &str,
         keep_max: usize,
     ) -> std::io::Result<()> {
-        let expected_prefix = format!("{stem}_backup_");
+        Self::prune_with_prefix(dir, &format!("{stem}_backup_"), extension, keep_max)
+    }
+
+    fn prune_with_prefix(
+        dir: &Path,
+        expected_prefix: &str,
+        extension: &str,
+        keep_max: usize,
+    ) -> std::io::Result<()> {
         let mut entries = Vec::new();
         for entry in fs::read_dir(dir)? {
             let entry = entry?;
@@ -395,7 +499,7 @@ impl BackupManager {
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or_default();
-            let is_app_backup = name.starts_with(&expected_prefix) && name.ends_with(extension);
+            let is_app_backup = name.starts_with(expected_prefix) && name.ends_with(extension);
             if path.is_file()
                 && is_app_backup
                 && let Ok(meta) = entry.metadata()
@@ -422,6 +526,81 @@ impl BackupManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn s5_db_with_one_qso(dir: &Path) -> PathBuf {
+        let db_path = dir.join("log.db");
+        let db = LogDatabase::open(&db_path).unwrap();
+        db.insert_qso(&crate::core::qso::QsoRecord {
+            callsign: "SP6INA".to_string(),
+            ..Default::default()
+        })
+        .unwrap();
+        db_path
+    }
+
+    fn s5_count(dir: &Path, prefix: &str) -> usize {
+        fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().starts_with(prefix))
+            .count()
+    }
+
+    #[test]
+    fn session_marker_reports_a_session_that_was_not_closed() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("log.db");
+
+        let (marker, left_open) = SessionMarker::acquire(&db_path).unwrap();
+        assert!(!left_open, "first start");
+        assert!(SessionMarker::path_for(&db_path).exists());
+        marker.release().unwrap();
+        assert!(!SessionMarker::path_for(&db_path).exists());
+
+        let (_crashed, left_open) = SessionMarker::acquire(&db_path).unwrap();
+        assert!(!left_open, "after a clean close");
+        // Brak `release` = awaria. Kolejny start to widzi.
+        let (again, left_open) = SessionMarker::acquire(&db_path).unwrap();
+        assert!(left_open, "after a crash");
+        again.release().unwrap();
+    }
+
+    #[test]
+    fn backup_retention_follows_the_configured_count() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = s5_db_with_one_qso(temp.path());
+        let dir = temp.path().join("backups");
+        for _ in 0..4 {
+            BackupManager::backup_database_keeping(&db_path, &dir, 2).unwrap();
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(s5_count(&dir, "log_backup_"), 2);
+    }
+
+    #[test]
+    fn unclean_shutdown_backup_checks_the_database_and_keeps_its_own_retention() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = s5_db_with_one_qso(temp.path());
+        let dir = temp.path().join("backups");
+        BackupManager::backup_database_keeping(&db_path, &dir, 1).unwrap();
+        for _ in 0..(UNCLEAN_SHUTDOWN_KEEP + 2) {
+            BackupManager::backup_after_unclean_shutdown(&db_path, &dir).unwrap();
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(
+            s5_count(&dir, "log_unclean_shutdown_"),
+            UNCLEAN_SHUTDOWN_KEEP
+        );
+        assert_eq!(
+            s5_count(&dir, "log_backup_"),
+            1,
+            "regular backups are untouched"
+        );
+
+        let corrupt = temp.path().join("broken.db");
+        fs::write(&corrupt, b"not a database").unwrap();
+        assert!(BackupManager::backup_after_unclean_shutdown(&corrupt, &dir).is_err());
+    }
 
     #[test]
     fn test_backup_adif() {

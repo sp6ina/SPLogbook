@@ -131,6 +131,10 @@ pub fn display_norm(db: f32, floor_db: f32, color_scale: f32) -> f32 {
     (((db - floor) / (-floor).max(1.0)) * scale).clamp(0.0, 1.0)
 }
 
+fn finite_or(value: f32, fallback: f32) -> f32 {
+    if value.is_finite() { value } else { fallback }
+}
+
 /// Parametry, od których zależy tekstura wodospadu — przebudowa tylko przy ich zmianie.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct TextureKey {
@@ -227,6 +231,41 @@ impl WaterfallPanel {
             texture_key: None,
             texture_uploads: 0,
         }
+    }
+
+    /// Ustawienia do zapisania w konfiguracji.
+    pub fn settings(&self) -> crate::core::station::WaterfallSettings {
+        crate::core::station::WaterfallSettings {
+            palette: self.palette.id().to_string(),
+            fft_index: self.fft_idx,
+            gain_db: self.gain_db,
+            floor_db: self.floor_db,
+            color_scale: self.color_scale,
+            auto_level: self.auto_level,
+            peak_hold: self.peak_hold_on,
+            view_max_hz: self.view_max_hz,
+        }
+    }
+
+    /// Przywraca zapisane ustawienia; wartości spoza zakresów suwaków są przycinane,
+    /// a nieznane wartości wracają do domyślnych.
+    pub fn apply_settings(&mut self, settings: &crate::core::station::WaterfallSettings) {
+        self.palette = WaterfallPalette::ALL
+            .into_iter()
+            .find(|p| p.id() == settings.palette)
+            .unwrap_or(WaterfallPalette::Classic);
+        self.fft_idx = settings.fft_index.min(FFT_SIZES.len() - 1);
+        self.gain_db = finite_or(settings.gain_db, 0.0).clamp(-40.0, 40.0);
+        self.floor_db = finite_or(settings.floor_db, -100.0).clamp(-160.0, -40.0);
+        self.color_scale = finite_or(settings.color_scale, 1.0).clamp(0.1, 3.0);
+        self.auto_level = settings.auto_level;
+        self.peak_hold_on = settings.peak_hold;
+        self.view_max_hz = if VIEW_RANGES_HZ.contains(&settings.view_max_hz) {
+            settings.view_max_hz
+        } else {
+            VIEW_RANGES_HZ[0]
+        };
+        self.texture_key = None;
     }
 
     /// Odświeża listę urządzeń wejściowych audio (wywoływane raz przy pierwszym

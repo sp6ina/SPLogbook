@@ -7,6 +7,9 @@ use crate::gui::pagination::{PaginationInput, PaginationWindow, paginate};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Atomowa akcja w historii operacji Undo/Redo (DATA-004)
+/// Rozmiary strony dziennika do wyboru; 0 = wszystkie wiersze.
+pub const LOG_PAGE_SIZES: [usize; 4] = [25, 50, 100, 0];
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum UndoAction {
     DeleteSingle {

@@ -433,7 +433,7 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     // Pasek paginacji — wszystkie obliczenia pochodzą z centralnego modelu.
     ui.horizontal(|ui| {
         ui.label(tr(key::LOG_ROWS_PER_PAGE, lang));
-        for &size in &[25usize, 50, 100, 0usize] {
+        for &size in &crate::gui::state::log_view::LOG_PAGE_SIZES {
             let lbl = if size == 0 {
                 tr(key::LOG_ALL_ROWS, lang).to_string()
             } else {

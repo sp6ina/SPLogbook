@@ -467,9 +467,130 @@ impl PropagationEngine {
     }
 }
 
+/// Punkty odniesienia kontynentów dla prognozy bez konkretnego korespondenta
+/// (przybliżone środki obszarów z największą aktywnością krótkofalarską).
+pub const CONTINENT_REFERENCE_POINTS: [(&str, f64, f64); 6] = [
+    ("EU", 50.0, 10.0),
+    ("NA", 40.0, -95.0),
+    ("SA", -15.0, -55.0),
+    ("AF", 5.0, 20.0),
+    ("AS", 35.0, 100.0),
+    ("OC", -25.0, 135.0),
+];
+
+/// Prognoza dla jednego pasma liczona z QTH operatora.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BandOutlook {
+    pub band: &'static str,
+    /// Prognoza dla trasy do korespondenta albo — bez korespondenta — najlepsza
+    /// z tras do punktów odniesienia kontynentów.
+    pub forecast: PropagationForecast,
+    /// Kontynenty, do których pasmo jest otwarte (tylko bez korespondenta).
+    pub open_to: Vec<&'static str>,
+}
+
+/// Prognoza wszystkich pasm HF z `origin`: do `target`, gdy jest znany, w przeciwnym
+/// razie do kontynentów z [`CONTINENT_REFERENCE_POINTS`].
+pub fn band_outlooks(
+    origin: Coordinates,
+    target: Option<Coordinates>,
+    sfi: u32,
+    k_index: u8,
+    utc_hour: f64,
+    day_of_year: u32,
+) -> Vec<BandOutlook> {
+    let calc = |dest: Coordinates, freq: f64| {
+        PropagationEngine::calculate(origin, dest, freq, sfi, k_index, utc_hour, day_of_year)
+    };
+    HF_BANDS
+        .iter()
+        .map(|&(band, freq)| {
+            if let Some(dest) = target {
+                return BandOutlook {
+                    band,
+                    forecast: calc(dest, freq),
+                    open_to: Vec::new(),
+                };
+            }
+            let per_continent: Vec<(&'static str, PropagationForecast)> =
+                CONTINENT_REFERENCE_POINTS
+                    .iter()
+                    .map(|&(name, lat, lon)| (name, calc(Coordinates::new(lat, lon), freq)))
+                    .collect();
+            let open_to = per_continent
+                .iter()
+                .filter(|(_, f)| f.status == BandOpeningStatus::Open)
+                .map(|(name, _)| *name)
+                .collect();
+            let forecast = per_continent
+                .into_iter()
+                .map(|(_, f)| f)
+                .max_by_key(|f| f.reliability_pct)
+                .expect("CONTINENT_REFERENCE_POINTS is not empty");
+            BandOutlook {
+                band,
+                forecast,
+                open_to,
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn band_outlooks_depend_on_the_operators_own_qth() {
+        let wroclaw = Coordinates::new(51.1, 17.0);
+        let sydney = Coordinates::new(-33.9, 151.2);
+        let a = band_outlooks(wroclaw, None, 150, 2, 12.0, 172);
+        let b = band_outlooks(sydney, None, 150, 2, 12.0, 172);
+        assert_eq!(a.len(), HF_BANDS.len());
+        assert_ne!(
+            a, b,
+            "the same conditions give different outlooks from different QTHs"
+        );
+    }
+
+    #[test]
+    fn band_outlook_to_a_known_station_uses_that_path_only() {
+        let origin = Coordinates::new(51.1, 17.0);
+        let dx = Coordinates::new(35.7, 139.7);
+        let outlooks = band_outlooks(origin, Some(dx), 150, 2, 8.0, 100);
+        for o in &outlooks {
+            let freq = HF_BANDS.iter().find(|(b, _)| *b == o.band).unwrap().1;
+            assert_eq!(
+                o.forecast,
+                PropagationEngine::calculate(origin, dx, freq, 150, 2, 8.0, 100)
+            );
+            assert_eq!(o.open_to, Vec::<&str>::new());
+        }
+    }
+
+    #[test]
+    fn band_outlook_without_a_station_reports_open_continents_and_the_best_path() {
+        let origin = Coordinates::new(51.1, 17.0);
+        for o in band_outlooks(origin, None, 180, 1, 13.0, 80) {
+            let freq = HF_BANDS.iter().find(|(b, _)| *b == o.band).unwrap().1;
+            let per_continent: Vec<(&str, PropagationForecast)> = CONTINENT_REFERENCE_POINTS
+                .iter()
+                .map(|&(name, lat, lon)| {
+                    let dest = Coordinates::new(lat, lon);
+                    let f = PropagationEngine::calculate(origin, dest, freq, 180, 1, 13.0, 80);
+                    (name, f)
+                })
+                .collect();
+            let best = per_continent.iter().map(|(_, f)| f.reliability_pct).max();
+            assert_eq!(Some(o.forecast.reliability_pct), best);
+            let open: Vec<&str> = per_continent
+                .iter()
+                .filter(|(_, f)| f.status == BandOpeningStatus::Open)
+                .map(|(name, _)| *name)
+                .collect();
+            assert_eq!(o.open_to, open, "{}", o.band);
+        }
+    }
 
     #[test]
     fn test_propagation_calculation_eu_to_us() {

@@ -58,16 +58,10 @@ impl SpLogApp {
                 let now = jiff::tz::TimeZone::UTC.to_datetime(jiff::Timestamp::now());
                 let utc_hour = now.hour() as f64 + (now.minute() as f64) / 60.0;
                 let day_of_year = now.day_of_year() as u32;
-                let sfi = if self.solar.space_weather.sfi > 0 {
-                    self.solar.space_weather.sfi
-                } else {
-                    140
-                };
-                let k_index = self.solar.space_weather.k_index;
                 let freq_mhz = crate::core::propagation::band_to_center_mhz(&self.entry.band)
                     .unwrap_or(14.175);
-                self.entry.active_propagation =
-                    Some(crate::core::propagation::PropagationEngine::calculate(
+                self.entry.active_propagation = self.solar.indices().map(|(sfi, k_index)| {
+                    crate::core::propagation::PropagationEngine::calculate(
                         my_coords,
                         dx_coords,
                         freq_mhz,
@@ -75,7 +69,8 @@ impl SpLogApp {
                         k_index as u8,
                         utc_hour,
                         day_of_year,
-                    ));
+                    )
+                });
             }
 
             self.entry.active_polish_district = AwardsEngine::get_polish_district(&clean);
@@ -223,16 +218,10 @@ impl SpLogApp {
             let now = jiff::tz::TimeZone::UTC.to_datetime(jiff::Timestamp::now());
             let utc_hour = now.hour() as f64 + (now.minute() as f64) / 60.0;
             let day_of_year = now.day_of_year() as u32;
-            let sfi = if self.solar.space_weather.sfi > 0 {
-                self.solar.space_weather.sfi
-            } else {
-                140
-            };
-            let k_index = self.solar.space_weather.k_index;
             let freq_mhz =
                 crate::core::propagation::band_to_center_mhz(&self.entry.band).unwrap_or(14.175);
-            self.entry.active_propagation =
-                Some(crate::core::propagation::PropagationEngine::calculate(
+            self.entry.active_propagation = self.solar.indices().map(|(sfi, k_index)| {
+                crate::core::propagation::PropagationEngine::calculate(
                     p1,
                     p2,
                     freq_mhz,
@@ -240,7 +229,8 @@ impl SpLogApp {
                     k_index as u8,
                     utc_hour,
                     day_of_year,
-                ));
+                )
+            });
         }
     }
 

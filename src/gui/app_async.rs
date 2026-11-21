@@ -22,6 +22,22 @@ impl SpLogApp {
         self.poll_upload_scheduler();
         self.refresh_satellite_tracking();
         self.poll_solar_fetch();
+        self.poll_background_notices();
+        self.poll_backup_results();
+        self.run_backup_schedule(std::time::Instant::now());
+    }
+
+    /// Powiadomienia z zadań w tle (rotator, kopie zapasowe) trafiają do logu i na ekran.
+    pub fn poll_background_notices(&mut self) {
+        while let Ok(notice) = self.runtime.notice_rx.try_recv() {
+            let text = notice.msg.text(self.gui.appearance.language);
+            match notice.severity {
+                crate::gui::state::ToastSeverity::Error => log::error!("{text}"),
+                crate::gui::state::ToastSeverity::Warning => log::warn!("{text}"),
+                _ => log::info!("{text}"),
+            }
+            self.gui.chrome.push_status_toast(notice.severity, text);
+        }
     }
 
     /// WSPR: sprawdź czy pobieranie zakończyło się

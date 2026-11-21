@@ -165,10 +165,10 @@ impl SpLogApp {
             .clone()
             .unwrap_or_else(|| tr(key::STATUS_READY_ALL_ACTIVE, lang).to_string());
         let rst_txt = format!("RST {} / {}", self.entry.rst_sent, self.entry.rst_rcvd);
-        let prop_txt = format!(
-            "🌞 SFI {} | K {}",
-            self.solar.space_weather.sfi, self.solar.space_weather.k_index
-        );
+        let prop_txt = match self.solar.indices() {
+            Some((sfi, k)) => format!("🌞 SFI {sfi} | K {k}"),
+            None => "🌞 SFI — | K —".to_string(),
+        };
         let journal_txt = format!(
             "📁 {}: {} ({} QSO)",
             tr(key::STATUSBAR_LOG, lang),

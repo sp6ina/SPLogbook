@@ -300,6 +300,115 @@ impl std::fmt::Display for ConfigValidationError {
 
 impl std::error::Error for ConfigValidationError {}
 
+/// Ustawienia kopii zapasowych (STAGE-V140-S5).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BackupSettings {
+    /// Odstęp kopii okresowych bazy w minutach; 0 wyłącza kopie okresowe.
+    pub interval_minutes: u32,
+    /// Liczba zachowywanych kopii bazy i kopii ADIF.
+    pub keep: u32,
+    /// Kopia bazy przy zamknięciu programu.
+    pub on_exit: bool,
+    /// Kopia ręczna i kopia przy zamknięciu zapisują też dziennik w ADIF.
+    pub with_adif: bool,
+}
+
+impl BackupSettings {
+    pub const MAX_INTERVAL_MINUTES: u32 = 24 * 60;
+    pub const MAX_KEEP: u32 = 500;
+
+    /// Liczba kopii do zachowania, zawsze w zakresie 1..=MAX_KEEP.
+    pub fn keep_count(&self) -> usize {
+        self.keep.clamp(1, Self::MAX_KEEP) as usize
+    }
+
+    /// Odstęp kopii okresowych; `None`, gdy są wyłączone.
+    pub fn interval(&self) -> Option<std::time::Duration> {
+        (self.interval_minutes > 0).then(|| {
+            std::time::Duration::from_secs(
+                u64::from(self.interval_minutes.min(Self::MAX_INTERVAL_MINUTES)) * 60,
+            )
+        })
+    }
+}
+
+impl Default for BackupSettings {
+    fn default() -> Self {
+        Self {
+            interval_minutes: 30,
+            keep: crate::core::backup::DEFAULT_BACKUP_KEEP as u32,
+            on_exit: true,
+            with_adif: true,
+        }
+    }
+}
+
+/// Ustawienia wodospadu audio zapamiętywane między uruchomieniami.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WaterfallSettings {
+    /// Identyfikator palety (`WaterfallPalette::id`).
+    pub palette: String,
+    pub fft_index: usize,
+    pub gain_db: f32,
+    pub floor_db: f32,
+    pub color_scale: f32,
+    pub auto_level: bool,
+    pub peak_hold: bool,
+    pub view_max_hz: f32,
+}
+
+impl Default for WaterfallSettings {
+    fn default() -> Self {
+        Self {
+            palette: "classic".to_string(),
+            fft_index: 1,
+            gain_db: 0.0,
+            floor_db: -100.0,
+            color_scale: 1.0,
+            auto_level: true,
+            peak_hold: true,
+            view_max_hz: 3000.0,
+        }
+    }
+}
+
+/// Stan interfejsu zapamiętywany między uruchomieniami (STAGE-V140-S5): filtry,
+/// rozmiar strony dziennika, wodospad, wyszukiwarka duplikatów i bieżące zawody.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UiStateConfig {
+    pub log_page_size: usize,
+    pub cluster_band: String,
+    pub cluster_mode: String,
+    pub cluster_status: String,
+    pub cluster_source: String,
+    pub cluster_pota_sota_only: bool,
+    pub waterfall: WaterfallSettings,
+    pub duplicates_match_date: bool,
+    pub contest_name: String,
+    /// Następny numer seryjny w zawodach; nie zaczyna się od 001 po każdym restarcie.
+    pub contest_next_serial: u32,
+}
+
+impl Default for UiStateConfig {
+    fn default() -> Self {
+        Self {
+            log_page_size: 50,
+            cluster_band: "ALL".to_string(),
+            cluster_mode: "ALL".to_string(),
+            cluster_status: "ALL".to_string(),
+            cluster_source: "ALL".to_string(),
+            cluster_pota_sota_only: false,
+            waterfall: WaterfallSettings::default(),
+            duplicates_match_date: true,
+            contest_name: "SP DX Contest".to_string(),
+            contest_next_serial: 1,
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
@@ -555,6 +664,12 @@ pub struct AppConfig {
 
     #[serde(default)]
     pub custom_contests: Vec<CustomContest>,
+
+    #[serde(default)]
+    pub backup: BackupSettings,
+
+    #[serde(default)]
+    pub ui_state: UiStateConfig,
 }
 
 impl std::fmt::Debug for AppConfig {
@@ -674,6 +789,8 @@ impl std::fmt::Debug for AppConfig {
             .field("logbook_columns", &self.logbook_columns)
             .field("logbook_column_presets", &self.logbook_column_presets)
             .field("custom_contests", &self.custom_contests)
+            .field("backup", &self.backup)
+            .field("ui_state", &self.ui_state)
             .finish()
     }
 }
@@ -1285,6 +1402,8 @@ impl Default for AppConfig {
             logbook_columns: default_logbook_columns(),
             logbook_column_presets: vec![],
             custom_contests: vec![],
+            backup: BackupSettings::default(),
+            ui_state: UiStateConfig::default(),
         }
     }
 }

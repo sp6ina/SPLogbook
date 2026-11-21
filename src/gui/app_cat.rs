@@ -1,48 +1,90 @@
 use super::SpLogApp;
 use crate::core::i18n::{Msg, key, tr};
 
+/// Polecenie dla rotctld wykonywane w tle.
+#[derive(Debug, Clone, Copy)]
+enum RotorCommand {
+    Position {
+        azimuth_deg: f32,
+        elevation_deg: f32,
+    },
+    Stop,
+}
+
+/// Komunikat dla operatora: dlaczego rotator nie wykonał polecenia.
+fn rotor_failure_msg(err: &crate::cat::rotor::RotctldError, host: &str, port: u16) -> Msg {
+    use crate::cat::rotor::RotctldError;
+    use std::io::ErrorKind;
+
+    let msg = match err {
+        RotctldError::Rejected(code) => Msg::new(key::ROTOR_CMD_REJECTED).arg("code", code),
+        RotctldError::Io(e) if e.kind() == ErrorKind::TimedOut => Msg::new(key::ROTOR_CMD_TIMEOUT),
+        RotctldError::Io(e) if e.kind() == ErrorKind::ConnectionRefused => {
+            Msg::new(key::ROTOR_CMD_UNREACHABLE)
+        }
+        RotctldError::Io(e) => Msg::new(key::ROTOR_CMD_FAILED).arg("err", e),
+    };
+    msg.arg("host", host).arg("port", port)
+}
+
 impl SpLogApp {
     /// Obraca antenę na podany azymut przez protokół rotctld (Hamlib)
     pub fn rotate_antenna_to(&mut self, azimuth_deg: f32) {
+        self.rotate_antenna_to_el(azimuth_deg, 0.0);
+    }
+
+    /// Obraca antenę na zadany azymut i elewację (także akcja pluginu `rotate`).
+    ///
+    /// Powiadomienie pojawia się dopiero po odpowiedzi rotctld: potwierdzenie albo
+    /// błąd (brak połączenia, przekroczony czas, odrzucenie polecenia).
+    pub fn rotate_antenna_to_el(&mut self, azimuth_deg: f32, elevation_deg: f32) {
         self.cat.rotor_state.azimuth_deg = azimuth_deg;
-        let host = self.config.rotor_host.clone();
-        let port = self.config.rotor_port;
-        tokio::spawn(async move {
-            let _ =
-                crate::cat::rotor::RotorClient::set_position(&host, port, azimuth_deg, 0.0).await;
-        });
-        self.gui.chrome.push_status_toast(
-            crate::gui::state::ToastSeverity::Info,
+        self.cat.rotor_state.elevation_deg = elevation_deg;
+        let done = if elevation_deg == 0.0 {
             Msg::new(key::ROTOR_CMD_SENT_AZ)
                 .arg("az", format!("{azimuth_deg:.0}"))
                 .arg("host", &self.config.rotor_host)
                 .arg("port", self.config.rotor_port)
-                .text(self.gui.appearance.language),
-        );
-    }
-
-    /// Obraca antenę na zadany azymut i elewację (akcja pluginu `rotate`).
-    pub fn rotate_antenna_to_el(&mut self, azimuth_deg: f32, elevation_deg: f32) {
-        self.cat.rotor_state.azimuth_deg = azimuth_deg;
-        self.cat.rotor_state.elevation_deg = elevation_deg;
-        let host = self.config.rotor_host.clone();
-        let port = self.config.rotor_port;
-        tokio::spawn(async move {
-            let _ = crate::cat::rotor::RotorClient::set_position(
-                &host,
-                port,
-                azimuth_deg,
-                elevation_deg,
-            )
-            .await;
-        });
-        self.gui.chrome.push_status_toast(
-            crate::gui::state::ToastSeverity::Info,
+        } else {
             Msg::new(key::ROTOR_CMD_SENT_AZ_EL)
                 .arg("az", format!("{azimuth_deg:.0}"))
                 .arg("el", format!("{elevation_deg:.0}"))
-                .text(self.gui.appearance.language),
+        };
+        self.spawn_rotor_command(
+            RotorCommand::Position {
+                azimuth_deg,
+                elevation_deg,
+            },
+            Some(done),
         );
+    }
+
+    fn spawn_rotor_command(&self, command: RotorCommand, done: Option<Msg>) {
+        use crate::cat::rotor::RotorClient;
+        use crate::gui::state::ToastSeverity;
+
+        let host = self.config.rotor_host.clone();
+        let port = self.config.rotor_port;
+        let notices = self.runtime.notice_sender();
+        tokio::spawn(async move {
+            let result = match command {
+                RotorCommand::Position {
+                    azimuth_deg,
+                    elevation_deg,
+                } => RotorClient::set_position(&host, port, azimuth_deg, elevation_deg).await,
+                RotorCommand::Stop => RotorClient::stop(&host, port).await,
+            };
+            match result {
+                Ok(()) => {
+                    if let Some(msg) = done {
+                        notices.send(ToastSeverity::Info, msg);
+                    }
+                }
+                Err(err) => {
+                    notices.send(ToastSeverity::Error, rotor_failure_msg(&err, &host, port));
+                }
+            }
+        });
     }
 
     /// Centralne wejście warstwy GUI do intencji PTT (F-17).
@@ -150,11 +192,7 @@ impl SpLogApp {
 
     pub fn stop_rotor(&mut self) {
         self.cat.rotor_state.moving = false;
-        let host = self.config.rotor_host.clone();
-        let port = self.config.rotor_port;
-        tokio::spawn(async move {
-            let _ = crate::cat::rotor::RotorClient::stop(&host, port).await;
-        });
+        self.spawn_rotor_command(RotorCommand::Stop, None);
     }
 
     pub fn turn_rotor_short_path(&mut self) {

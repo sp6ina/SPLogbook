@@ -195,7 +195,15 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         });
     }
 
-    let weather = app.solar.space_weather.clone();
+    let Some(weather) = app.solar.space_weather.clone() else {
+        ui.add_space(4.0);
+        ui.label(
+            egui::RichText::new(tr(key::SOLAR_NO_DATA, lang))
+                .italics()
+                .color(palette.text_muted),
+        );
+        return;
+    };
 
     ui.columns(4, |cols| {
         cols[0].vertical_centered(|ui| {
@@ -294,9 +302,27 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             crate::gui::user_manual::help_button(app, ui, "propagation");
         });
     });
-    let forecasts = app.solar_band_forecasts();
+    let outlooks = app.solar_band_outlooks();
+    if outlooks.is_empty() {
+        ui.label(
+            egui::RichText::new(tr(key::SOLAR_NEED_LOCATOR, lang))
+                .small()
+                .italics()
+                .color(palette.text_muted),
+        );
+    }
     ui.horizontal_wrapped(|ui| {
-        for (b_name, forecast) in &forecasts {
+        for outlook in &outlooks {
+            let (b_name, forecast) = (outlook.band, &outlook.forecast);
+            let reach = if outlook.open_to.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "\n{}: {}",
+                    tr(key::SOLAR_OPEN_TO, lang),
+                    outlook.open_to.join(", ")
+                )
+            };
             let (st_color, sym) = match forecast.status {
                 crate::core::propagation::BandOpeningStatus::Open => (palette.success, "●"),
                 crate::core::propagation::BandOpeningStatus::Marginal => (palette.warning, "◐"),
@@ -308,7 +334,7 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     .small(),
             )
             .on_hover_text(format!(
-                "{}: {}% REL, {}\nMUF: {:.1} MHz",
+                "{}: {}% REL, {}\nMUF: {:.1} MHz{reach}",
                 b_name,
                 forecast.reliability_pct,
                 forecast.status.as_str(),

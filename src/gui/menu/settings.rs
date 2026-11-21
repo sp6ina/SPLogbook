@@ -63,6 +63,8 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             }
         });
 
+        backup_settings_menu(app, ui);
+
         ui.separator();
 
         // Skala czcionki / UI
@@ -135,5 +137,36 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     }
                 }
             });
+    });
+}
+
+/// Podmenu kopii zapasowych: odstęp kopii okresowych, retencja, kopia przy zamknięciu, ADIF.
+fn backup_settings_menu(app: &mut SpLogApp, ui: &mut egui::Ui) {
+    use crate::core::station::BackupSettings;
+    let lang = app.gui.appearance.language;
+    ui.menu_button(tr(key::SETTINGS_BACKUP_MENU, lang), |ui| {
+        let before = app.config.backup.clone();
+        let backup = &mut app.config.backup;
+
+        ui.label(egui::RichText::new(tr(key::SETTINGS_BACKUP_INTERVAL, lang)).strong());
+        ui.add(
+            egui::DragValue::new(&mut backup.interval_minutes)
+                .range(0..=BackupSettings::MAX_INTERVAL_MINUTES)
+                .suffix(" min"),
+        )
+        .on_hover_text(tr(key::SETTINGS_BACKUP_INTERVAL_HINT, lang));
+
+        ui.label(egui::RichText::new(tr(key::SETTINGS_BACKUP_KEEP, lang)).strong());
+        ui.add(egui::DragValue::new(&mut backup.keep).range(1..=BackupSettings::MAX_KEEP));
+
+        ui.checkbox(&mut backup.on_exit, tr(key::SETTINGS_BACKUP_ON_EXIT, lang));
+        ui.checkbox(
+            &mut backup.with_adif,
+            tr(key::SETTINGS_BACKUP_WITH_ADIF, lang),
+        );
+
+        if app.config.backup != before {
+            app.save_station_config();
+        }
     });
 }

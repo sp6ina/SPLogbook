@@ -4081,3 +4081,305 @@ fn awards_after_incremental_delete_match_a_rebuild_from_the_database() {
     assert_eq!(incremental, rebuilt);
     assert!(!incremental.contains(&230));
 }
+
+// ======================================================================================
+// STAGE-V140-S5: wyniki poleceń rotatora trafiają do GUI dopiero po odpowiedzi rotctld
+// ======================================================================================
+
+/// Jednorazowy rotctld: odbiera jedną linię i odpowiada `reply`.
+async fn s5_one_shot_rotctld(reply: &'static str) -> u16 {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (reader, mut writer) = stream.into_split();
+        let mut line = String::new();
+        tokio::io::BufReader::new(reader)
+            .read_line(&mut line)
+            .await
+            .unwrap();
+        writer.write_all(reply.as_bytes()).await.unwrap();
+    });
+    port
+}
+
+async fn s5_wait_for_toast(app: &mut SpLogApp) -> (crate::gui::state::ToastSeverity, String) {
+    for _ in 0..200 {
+        app.poll_background_notices();
+        if let Some(t) = app.gui.chrome.toasts.latest() {
+            return (t.severity, t.message.clone());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    panic!("no background notice arrived");
+}
+
+#[tokio::test]
+async fn s5_rotor_rejection_is_shown_as_an_error_not_as_sent() {
+    let mut app = qso_form_test_app();
+    app.gui.appearance.language = crate::core::i18n::Language::En;
+    app.config.rotor_host = "127.0.0.1".to_string();
+    app.config.rotor_port = s5_one_shot_rotctld("RPRT -8\n").await;
+
+    app.rotate_antenna_to(123.0);
+    assert!(
+        app.gui.chrome.toasts.is_empty(),
+        "nothing is reported before rotctld answers"
+    );
+    let (severity, message) = s5_wait_for_toast(&mut app).await;
+    assert_eq!(severity, crate::gui::state::ToastSeverity::Error);
+    assert!(message.contains("RPRT -8"), "{message}");
+}
+
+#[tokio::test]
+async fn s5_rotor_success_is_confirmed_after_the_reply() {
+    let mut app = qso_form_test_app();
+    app.config.rotor_host = "127.0.0.1".to_string();
+    app.config.rotor_port = s5_one_shot_rotctld("RPRT 0\n").await;
+
+    app.rotate_antenna_to(45.0);
+    let (severity, message) = s5_wait_for_toast(&mut app).await;
+    assert_eq!(severity, crate::gui::state::ToastSeverity::Info);
+    assert!(message.contains("45"), "{message}");
+}
+
+// ======================================================================================
+// STAGE-V140-S5: kopie okresowe, znacznik sesji, przywracanie z kopii, stan UI
+// ======================================================================================
+
+fn s5_file_backed_app(dir: &std::path::Path) -> SpLogApp {
+    let db_path = dir.join("log.db");
+    let fresh = !db_path.exists();
+    let db = LogDatabase::open(&db_path).unwrap();
+    if fresh {
+        db.insert_qso(&QsoRecord::new("SP6INA", "20m", "CW"))
+            .unwrap();
+    }
+    let init = AppInit {
+        config: AppConfig::default(),
+        config_file_path: dir.join("station_config.json"),
+        active_db_path: db_path,
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    let deps = AppDeps {
+        log_db: Arc::new(Mutex::new(db)),
+        prefix_matcher: Arc::new(test_prefix_matcher()),
+        scp_engine: Arc::new(Mutex::new(ScpEngine::new())),
+    };
+    let mut app = SpLogApp::for_tests(init, deps);
+    app.gui.chrome.show_welcome_wizard = false;
+    app
+}
+
+fn s5_app_from_config(config: AppConfig) -> SpLogApp {
+    let init = AppInit {
+        config,
+        config_file_path: std::path::PathBuf::from("config.json"),
+        active_db_path: std::path::PathBuf::from("db.sqlite"),
+        shutdown_policy: ShutdownPolicy::None,
+    };
+    SpLogApp::for_tests(init, test_deps())
+}
+
+fn s5_backups(dir: &std::path::Path, prefix: &str) -> Vec<std::path::PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir.join("backups")) else {
+        return Vec::new();
+    };
+    let mut found: Vec<_> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .is_some_and(|n| n.to_string_lossy().starts_with(prefix))
+        })
+        .collect();
+    found.sort();
+    found
+}
+
+fn s5_wait_until(mut done: impl FnMut() -> bool) {
+    for _ in 0..500 {
+        if done() {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    panic!("condition not reached");
+}
+
+#[test]
+fn s5_periodic_backup_runs_after_the_interval_and_skips_an_unchanged_database() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut app = s5_file_backed_app(temp.path());
+    app.config.backup.interval_minutes = 5;
+    let start = app.runtime.backup.last_periodic;
+
+    app.run_backup_schedule(start + std::time::Duration::from_secs(60));
+    assert!(
+        s5_backups(temp.path(), "log_backup_").is_empty(),
+        "too early"
+    );
+
+    app.run_backup_schedule(start + std::time::Duration::from_mins(5));
+    s5_wait_until(|| {
+        app.poll_backup_results();
+        app.runtime.backup.last_fingerprint.is_some()
+    });
+    assert_eq!(s5_backups(temp.path(), "log_backup_").len(), 1);
+
+    // Ta sama baza: kolejny termin nie tworzy identycznej kopii.
+    app.run_backup_schedule(start + std::time::Duration::from_mins(10));
+    assert!(
+        !app.runtime
+            .backup
+            .in_flight
+            .load(std::sync::atomic::Ordering::Acquire)
+    );
+    assert_eq!(s5_backups(temp.path(), "log_backup_").len(), 1);
+
+    // Interwał 0 wyłącza kopie okresowe.
+    app.config.backup.interval_minutes = 0;
+    app.runtime.backup.last_fingerprint = None;
+    app.run_backup_schedule(start + std::time::Duration::from_hours(1));
+    assert!(
+        !app.runtime
+            .backup
+            .in_flight
+            .load(std::sync::atomic::Ordering::Acquire)
+    );
+    assert_eq!(s5_backups(temp.path(), "log_backup_").len(), 1);
+}
+
+#[test]
+fn s5_periodic_backup_failure_is_shown_to_the_operator() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut app = s5_file_backed_app(temp.path());
+    app.config.backup.interval_minutes = 1;
+    // `backups` jako plik: katalogu kopii nie da się utworzyć.
+    std::fs::write(temp.path().join("backups"), b"not a directory").unwrap();
+    let start = app.runtime.backup.last_periodic;
+    app.run_backup_schedule(start + std::time::Duration::from_secs(60));
+    s5_wait_until(|| {
+        app.poll_background_notices();
+        !app.gui.chrome.toasts.is_empty()
+    });
+    assert_eq!(
+        app.gui.chrome.toasts.latest().map(|t| t.severity),
+        Some(crate::gui::state::ToastSeverity::Error)
+    );
+}
+
+#[test]
+fn s5_session_guard_checks_and_copies_the_database_after_an_unclean_exit() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut app = s5_file_backed_app(temp.path());
+    app.start_session_guard();
+    assert!(app.gui.chrome.toasts.is_empty(), "first start is clean");
+    // Brak backup_on_exit = awaria; znacznik zostaje na dysku.
+    drop(app.runtime.backup.session_marker.take());
+
+    let mut next = s5_file_backed_app(temp.path());
+    next.start_session_guard();
+    s5_wait_until(|| {
+        next.poll_background_notices();
+        !next.gui.chrome.toasts.is_empty()
+    });
+    assert_eq!(
+        next.gui.chrome.toasts.latest().map(|t| t.severity),
+        Some(crate::gui::state::ToastSeverity::Warning)
+    );
+    assert_eq!(s5_backups(temp.path(), "log_unclean_shutdown_").len(), 1);
+
+    next.backup_on_exit();
+    assert!(!crate::core::backup::SessionMarker::path_for(&temp.path().join("log.db")).exists());
+    assert_eq!(
+        s5_backups(temp.path(), "log_backup_").len(),
+        1,
+        "backup on exit"
+    );
+    assert_eq!(
+        s5_backups(temp.path(), "SPLogbook_backup_").len(),
+        1,
+        "ADIF on exit"
+    );
+}
+
+#[test]
+fn s5_restore_from_backup_replaces_the_log_and_keeps_a_copy_of_the_previous_state() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut app = s5_file_backed_app(temp.path());
+    app.run_manual_backup();
+    let backup = s5_backups(temp.path(), "log_backup_").remove(0);
+
+    app.services
+        .log_db
+        .lock()
+        .unwrap()
+        .insert_qso(&QsoRecord::new("DL1ABC", "40m", "SSB"))
+        .unwrap();
+    app.rebuild_awards_full();
+    assert_eq!(app.log_view.recent_qsos.len(), 2);
+
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    app.restore_from_backup(&backup);
+    assert_eq!(app.log_view.recent_qsos.len(), 1, "log view reloaded");
+    assert_eq!(app.log_view.recent_qsos[0].callsign, "SP6INA");
+    let count: i64 = app
+        .services
+        .log_db
+        .lock()
+        .unwrap()
+        .raw_conn()
+        .query_row("SELECT COUNT(*) FROM qso_records", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(count, 1, "the reopened database is the restored one");
+    assert_eq!(
+        s5_backups(temp.path(), "log_backup_").len(),
+        2,
+        "the state before the restore was saved first"
+    );
+    assert_eq!(
+        app.gui.chrome.toasts.latest().map(|t| t.severity),
+        Some(crate::gui::state::ToastSeverity::Info)
+    );
+}
+
+#[test]
+fn s5_ui_state_survives_a_restart_and_bad_values_fall_back_to_defaults() {
+    let temp = tempfile::tempdir().unwrap();
+    let cfg_path = temp.path().join("station_config.json");
+    let mut app = s5_app_from_config(AppConfig::default());
+    app.paths.config_file_path = cfg_path.clone();
+    app.log_view.page_size = 100;
+    app.cluster.filter_band_selection = "20m".to_string();
+    app.cluster.filter_pota_sota_only = true;
+    app.duplicates.match_date = false;
+    app.contest.name = "CQ WW DX".to_string();
+    app.contest.stx = 157;
+    app.save_station_config();
+
+    let restarted = s5_app_from_config(AppConfig::load_from_file(&cfg_path).unwrap());
+    assert_eq!(restarted.log_view.page_size, 100);
+    assert_eq!(restarted.cluster.filter_band_selection, "20m");
+    assert!(restarted.cluster.filter_pota_sota_only);
+    assert!(!restarted.duplicates.match_date);
+    assert_eq!(restarted.contest.name, "CQ WW DX");
+    assert_eq!(restarted.contest.stx, 157, "contest serial continues");
+
+    let mut broken = AppConfig::default();
+    broken.ui_state.log_page_size = 7;
+    broken.ui_state.cluster_band = "   ".to_string();
+    broken.ui_state.contest_next_serial = 0;
+    broken.ui_state.waterfall.gain_db = f32::NAN;
+    broken.ui_state.waterfall.view_max_hz = 5.0;
+    broken.ui_state.waterfall.palette = "no-such-palette".to_string();
+    let app = s5_app_from_config(broken);
+    assert_eq!(app.log_view.page_size, 50);
+    assert_eq!(app.cluster.filter_band_selection, "ALL");
+    assert_eq!(app.contest.stx, 1);
+    assert_eq!(
+        app.gui.dialogs.waterfall_panel.settings(),
+        crate::core::station::WaterfallSettings::default()
+    );
+}

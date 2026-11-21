@@ -19,23 +19,6 @@ pub struct SpaceWeather {
     pub updated_utc: String,
 }
 
-impl Default for SpaceWeather {
-    fn default() -> Self {
-        Self {
-            sfi: 140,
-            ssn: 90,
-            a_index: 5,
-            k_index: 1,
-            x_ray: "B1.0".to_string(),
-            geomagnetic_field: "Quiet".to_string(),
-            aurora_latitude: 67,
-            updated_utc: jiff::Timestamp::now()
-                .strftime("%Y-%m-%d %H:%M:%S UTC")
-                .to_string(),
-        }
-    }
-}
-
 /// Ocena warunków propagacyjnych na danym paśmie
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum BandCondition {

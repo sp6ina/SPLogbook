@@ -17,6 +17,59 @@ pub enum ShutdownPolicy {
     Backup,
 }
 
+/// Wynik zadania w tle (rotator, kopia zapasowa), który GUI pokazuje jako powiadomienie.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BackgroundNotice {
+    pub severity: crate::gui::state::ToastSeverity,
+    pub msg: crate::core::i18n::Msg,
+}
+
+/// Uchwyt dla zadań w tle: wysyła powiadomienie i budzi pętlę GUI.
+#[derive(Clone)]
+pub struct NoticeSender {
+    tx: std::sync::mpsc::Sender<BackgroundNotice>,
+    egui_ctx: Arc<Mutex<Option<egui::Context>>>,
+}
+
+impl NoticeSender {
+    pub fn send(&self, severity: crate::gui::state::ToastSeverity, msg: crate::core::i18n::Msg) {
+        if self.tx.send(BackgroundNotice { severity, msg }).is_ok()
+            && let Ok(guard) = self.egui_ctx.lock()
+            && let Some(ctx) = guard.as_ref()
+        {
+            ctx.request_repaint();
+        }
+    }
+}
+
+/// Stan kopii zapasowych w trakcie pracy programu.
+pub struct BackupRuntime {
+    /// Moment ostatniej próby kopii okresowej (start programu liczy się jak próba).
+    pub last_periodic: std::time::Instant,
+    /// Kopia okresowa w toku — kolejna nie startuje, dopóki ta się nie skończy.
+    pub in_flight: Arc<AtomicBool>,
+    /// Odcisk bazy z ostatniej udanej kopii okresowej.
+    pub last_fingerprint: Option<crate::core::backup::DbFingerprint>,
+    pub done_tx: std::sync::mpsc::Sender<crate::core::backup::DbFingerprint>,
+    pub done_rx: std::sync::mpsc::Receiver<crate::core::backup::DbFingerprint>,
+    /// Znacznik sesji (tylko w programie, nie w testach).
+    pub session_marker: Option<crate::core::backup::SessionMarker>,
+}
+
+impl Default for BackupRuntime {
+    fn default() -> Self {
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        Self {
+            last_periodic: std::time::Instant::now(),
+            in_flight: Arc::new(AtomicBool::new(false)),
+            last_fingerprint: None,
+            done_tx,
+            done_rx,
+            session_marker: None,
+        }
+    }
+}
+
 /// Runtime flags, server handles, and polling timestamps.
 pub struct AppRuntime {
     pub shutdown_policy: ShutdownPolicy,
@@ -30,6 +83,9 @@ pub struct AppRuntime {
     pub qrz_lookup_rx: std::sync::mpsc::Receiver<crate::cloud::qrz::CallbookData>,
     pub egui_ctx: Arc<Mutex<Option<egui::Context>>>,
     pub event_bus_rx: tokio::sync::broadcast::Receiver<crate::core::events::AppEvent>,
+    notice_tx: std::sync::mpsc::Sender<BackgroundNotice>,
+    pub notice_rx: std::sync::mpsc::Receiver<BackgroundNotice>,
+    pub backup: BackupRuntime,
 }
 
 impl Default for AppRuntime {
@@ -46,6 +102,7 @@ impl AppRuntime {
         event_bus_rx: tokio::sync::broadcast::Receiver<crate::core::events::AppEvent>,
     ) -> Self {
         let (qrz_lookup_tx, qrz_lookup_rx) = std::sync::mpsc::channel();
+        let (notice_tx, notice_rx) = std::sync::mpsc::channel();
         Self {
             shutdown_policy,
             initial_cat_enabled,
@@ -58,6 +115,17 @@ impl AppRuntime {
             qrz_lookup_rx,
             egui_ctx: Arc::new(Mutex::new(None)),
             event_bus_rx,
+            notice_tx,
+            notice_rx,
+            backup: BackupRuntime::default(),
+        }
+    }
+
+    /// Nadawca powiadomień dla zadania uruchamianego w osobnym wątku lub na runtime tokio.
+    pub fn notice_sender(&self) -> NoticeSender {
+        NoticeSender {
+            tx: self.notice_tx.clone(),
+            egui_ctx: Arc::clone(&self.egui_ctx),
         }
     }
 

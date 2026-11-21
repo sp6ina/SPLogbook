@@ -4,7 +4,6 @@
 use crate::cat::hamlib::RigState;
 use crate::cat::rotor::RotorState;
 use crate::core::awards::AwardsEngine;
-use crate::core::backup::BackupManager;
 use crate::core::database::Journal;
 use crate::core::i18n::{Msg, key, tr};
 use crate::core::ingest::{IngestError, IngestOutcome, QsoOrigin};
@@ -199,6 +198,7 @@ impl SpLogApp {
             scp_engine,
         };
         let mut app = Self::build(init, deps);
+        app.start_session_guard();
         app.set_egui_ctx(cc.egui_ctx.clone());
         app.configure_egui(&cc.egui_ctx);
         app.start_background();
@@ -398,6 +398,8 @@ impl SpLogApp {
         );
 
         app.rebuild_awards_full();
+
+        app.apply_ui_state(&init.config.ui_state);
 
         // Zbuduj (lub wczytaj z konfiguracji) układ dokowania paneli.
         app.build_dock_state(init.config.dock_layout.as_ref());
@@ -704,31 +706,14 @@ impl Drop for SpLogApp {
         if self.runtime.shutdown_policy == ShutdownPolicy::None {
             return;
         }
-
-        let backup_dir = self
-            .paths
-            .active_db_path
-            .parent()
-            .unwrap_or_else(|| std::path::Path::new("."))
-            .join("backups");
-        let _ = std::fs::create_dir_all(&backup_dir);
-        let _ = BackupManager::backup_database(&self.paths.active_db_path, &backup_dir);
-
-        let db = self
-            .services
-            .log_db
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Ok(qsos) = db.get_all_qsos_for_journal_with_extras(&self.active_journal.id) {
-            let adif =
-                crate::core::adif::export_adif(&qsos, "SPLogbook", &self.config.station.callsign);
-            let _ = BackupManager::backup_adif(&adif, &backup_dir);
-        }
+        self.backup_on_exit();
     }
 }
 
 #[path = "app_async.rs"]
 mod app_async;
+#[path = "app_backup.rs"]
+mod app_backup;
 #[path = "app_cat.rs"]
 mod app_cat;
 #[path = "app_config.rs"]
