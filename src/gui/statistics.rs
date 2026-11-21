@@ -86,10 +86,8 @@ pub fn render_statistics_window(app: &mut SpLogApp, ctx: &egui::Context) {
 #[derive(Clone, PartialEq, Eq)]
 struct StatsCacheKey {
     journal_id: String,
-    qso_count: usize,
-    recent_len: usize,
-    first_id: Option<i64>,
-    confirmed_sample: usize,
+    revision: u64,
+    filtered: bool,
 }
 
 #[derive(Clone, Default)]
@@ -114,18 +112,10 @@ pub fn invalidate_stats_cache() {
 }
 
 fn get_cached_stats(app: &mut SpLogApp) -> StatsCacheData {
-    let confirmed_sample = app
-        .log_view
-        .recent_qsos
-        .iter()
-        .filter(|q| q.lotw_qsl_rcvd == "Y" || q.eqsl_qsl_rcvd == "Y" || q.qsl_rcvd == "Y")
-        .count();
     let key = StatsCacheKey {
         journal_id: app.active_journal.id.clone(),
-        qso_count: app.log_view.qso_numbers.len(),
-        recent_len: app.log_view.recent_qsos.len(),
-        first_id: app.log_view.recent_qsos.first().and_then(|q| q.id),
-        confirmed_sample,
+        revision: app.log_view.log_revision,
+        filtered: app.log_view.buffer_is_filtered,
     };
 
     let cache_mutex = STATS_CACHE.get_or_init(|| std::sync::Mutex::new(None));
@@ -134,6 +124,14 @@ fn get_cached_stats(app: &mut SpLogApp) -> StatsCacheData {
         && *cached_key == key
     {
         return cached_data.clone();
+    }
+
+    if !key.filtered {
+        let data = stats_from_rows(&app.log_view.recent_qsos);
+        if let Ok(mut guard) = cache_mutex.lock() {
+            *guard = Some((key, data.clone()));
+        }
+        return data;
     }
 
     let lang = app.gui.appearance.language;
@@ -206,6 +204,74 @@ fn get_cached_stats(app: &mut SpLogApp) -> StatsCacheData {
         *guard = Some((key, data.clone()));
     }
     data
+}
+
+/// Counts sorted by count (descending), ties by key, like `GROUP BY … ORDER BY cnt DESC`.
+fn ranked<K: Ord>(counts: std::collections::HashMap<K, i64>) -> Vec<(K, i64)> {
+    let mut ranked: Vec<(K, i64)> = counts.into_iter().collect();
+    ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    ranked
+}
+
+/// Leading integer of a text, like SQLite `CAST(text AS INTEGER)`.
+fn sqlite_leading_int(text: &str) -> i64 {
+    let digits: String = text
+        .trim_start()
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
+    digits.parse().unwrap_or(0)
+}
+
+/// The statistics of the journal from the rows already in memory, with the same semantics as
+/// the `stats_*_for_journal` queries.
+fn stats_from_rows(rows: &[crate::core::qso::QsoRecord]) -> StatsCacheData {
+    use std::collections::HashMap;
+    let mut band: HashMap<String, i64> = HashMap::new();
+    let mut mode: HashMap<String, i64> = HashMap::new();
+    let mut monthly: HashMap<String, i64> = HashMap::new();
+    let mut hourly: HashMap<u32, i64> = HashMap::new();
+    let mut countries: HashMap<String, i64> = HashMap::new();
+    let mut qsl = (0_i64, 0_i64, 0_i64, 0_i64);
+    for q in rows {
+        *band.entry(q.band.clone()).or_default() += 1;
+        *mode.entry(q.mode.clone()).or_default() += 1;
+        let date: Vec<char> = q.qso_date.chars().filter(|c| *c != '-').collect();
+        if date.len() >= 6 {
+            let year: String = date.get(..4).unwrap_or_default().iter().collect();
+            let month: String = date.get(4..6).unwrap_or_default().iter().collect();
+            *monthly.entry(format!("{year}-{month}")).or_default() += 1;
+        }
+        let time: String = q.time_on.chars().filter(|c| *c != ':').collect();
+        if time.chars().count() >= 2 {
+            let hour_text: String = time.chars().take(2).collect();
+            if let Ok(hour) = u32::try_from(sqlite_leading_int(&hour_text)) {
+                *hourly.entry(hour).or_default() += 1;
+            }
+        }
+        let country = q.country.clone().unwrap_or_else(|| "Unknown".to_string());
+        *countries.entry(country).or_default() += 1;
+        qsl.0 += 1;
+        qsl.1 += i64::from(q.lotw_qsl_rcvd == "Y");
+        qsl.2 += i64::from(q.eqsl_qsl_rcvd == "Y");
+        qsl.3 += i64::from(q.qsl_rcvd == "Y");
+    }
+    let mut monthly: Vec<(String, i64)> = monthly.into_iter().collect();
+    monthly.sort_by(|a, b| a.0.cmp(&b.0));
+    let keep_from = monthly.len().saturating_sub(24);
+    let monthly = monthly.split_off(keep_from);
+    let mut hourly: Vec<(u32, i64)> = hourly.into_iter().collect();
+    hourly.sort_unstable();
+    let mut countries = ranked(countries);
+    countries.truncate(15);
+    StatsCacheData {
+        band: ranked(band),
+        mode: ranked(mode),
+        monthly,
+        hourly,
+        countries,
+        qsl,
+    }
 }
 
 fn get_stats_band(app: &mut SpLogApp) -> Vec<(String, i64)> {
@@ -652,5 +718,123 @@ fn render_tab_qsl(app: &mut SpLogApp, ui: &mut egui::Ui) {
             _ => QslDrillStatus::None,
         };
         app.drill_down(DrillFilter::Qsl(filter));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::database::LogDatabase;
+    use crate::core::qso::QsoRecord;
+
+    fn by_count<K: Ord + Clone>(mut rows: Vec<(K, i64)>) -> Vec<(K, i64)> {
+        rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        rows
+    }
+
+    #[test]
+    fn in_memory_statistics_match_the_sql_statistics() {
+        let db = LogDatabase::open_in_memory().unwrap();
+        let samples = [
+            (
+                "SP1AA",
+                "20m",
+                "CW",
+                "20261101",
+                "1200",
+                Some("Poland"),
+                "Y",
+                "N",
+                "N",
+            ),
+            (
+                "SP2BB",
+                "20m",
+                "SSB",
+                "2026-11-02",
+                "12:30",
+                Some("Poland"),
+                "N",
+                "Y",
+                "N",
+            ),
+            (
+                "DL1CC",
+                "40m",
+                "CW",
+                "20261015",
+                "0005",
+                Some("Germany"),
+                "N",
+                "N",
+                "Y",
+            ),
+            (
+                "OK1DD", "40m", "FT8", "20250301", "235959", None, "Y", "Y", "Y",
+            ),
+            (
+                "G1EE",
+                "15m",
+                "FT8",
+                "20240101",
+                "7",
+                Some(""),
+                "N",
+                "N",
+                "N",
+            ),
+            (
+                "JA1FF",
+                "15m",
+                "CW",
+                "2023",
+                "1",
+                Some("Japan"),
+                "N",
+                "N",
+                "N",
+            ),
+        ];
+        for (i, (call, band, mode, date, time, country, lotw, eqsl, paper)) in
+            samples.iter().enumerate()
+        {
+            for repeat in 0..=(i % 3) {
+                let mut q = QsoRecord::new(format!("{call}{repeat}"), *band, *mode);
+                q.qso_date = (*date).to_string();
+                q.time_on = format!("{time}{repeat}");
+                q.country = country.map(str::to_string);
+                q.lotw_qsl_rcvd = (*lotw).to_string();
+                q.eqsl_qsl_rcvd = (*eqsl).to_string();
+                q.qsl_rcvd = (*paper).to_string();
+                db.insert_qso(&q).unwrap();
+            }
+        }
+        let mut rows = db.get_all_qsos_for_journal("DEFAULT").unwrap();
+        rows.reverse();
+        let memory = stats_from_rows(&rows);
+
+        assert_eq!(
+            by_count(memory.band.clone()),
+            by_count(db.stats_qso_per_band_for_journal("DEFAULT").unwrap())
+        );
+        assert_eq!(
+            by_count(memory.mode.clone()),
+            by_count(db.stats_qso_per_mode_for_journal("DEFAULT").unwrap())
+        );
+        let mut sql_monthly = db.stats_qso_per_month_for_journal("DEFAULT").unwrap();
+        sql_monthly.reverse();
+        assert_eq!(memory.monthly, sql_monthly);
+        assert_eq!(
+            memory.hourly,
+            db.stats_activity_by_hour_for_journal("DEFAULT").unwrap()
+        );
+        assert_eq!(
+            by_count(memory.countries.clone()),
+            by_count(db.stats_top_countries_for_journal("DEFAULT", 15).unwrap())
+        );
+        assert_eq!(
+            memory.qsl,
+            db.stats_qsl_summary_for_journal("DEFAULT").unwrap()
+        );
     }
 }

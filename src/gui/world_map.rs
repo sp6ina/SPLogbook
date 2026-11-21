@@ -864,49 +864,63 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.tune_to_spot(&dx_call, freq, &band);
         }
 
-        // QSO Markers
-        for qso in &app.log_view.recent_qsos {
-            if let Some(grid) = &qso.gridsquare
-                && grid.len() >= 4
-                && let Ok(c) = locator_to_coordinates(grid)
-            {
-                let qso_pos = project(c.latitude, c.longitude);
-                let is_lotw = qso.lotw_qsl_rcvd == "Y" || qso.lotw_qsl_rcvd == "V";
-                let color = if is_lotw {
-                    map.qso_marker_confirmed
-                } else {
-                    map.qso_marker
-                };
+        // QSO markers: one per locator (cached per log revision), drawn only when visible and
+        // not already covered by a marker of the same colour in the same 2-pixel cell.
+        app.world_map.refresh_markers(
+            &app.active_journal.id,
+            app.log_view.log_revision,
+            &app.log_view.recent_qsos,
+        );
+        let visible_area = canvas_rect.expand(4.0);
+        let mut drawn_cells = std::collections::HashSet::new();
+        let mut hovered: Option<(egui::Pos2, egui::Color32, String)> = None;
+        for marker in &app.world_map.markers {
+            let qso_pos = project(marker.latitude, marker.longitude);
+            if !visible_area.contains(qso_pos) {
+                continue;
+            }
+            let color = if marker.confirmed {
+                map.qso_marker_confirmed
+            } else {
+                map.qso_marker
+            };
+            let cell = (
+                (qso_pos.x * 0.5) as i32,
+                (qso_pos.y * 0.5) as i32,
+                marker.confirmed,
+            );
+            if drawn_cells.insert(cell) {
                 painter.circle_filled(qso_pos, 2.5, color);
                 painter.circle_stroke(
                     qso_pos,
                     3.5,
                     egui::Stroke::new(1.0_f32, map.ocean.alpha(150)),
                 );
-
-                if let Some(hp) = hover_pos
-                    && (hp - qso_pos).length() < 5.0
-                {
-                    let tip_box = egui::Rect::from_min_size(
-                        qso_pos + egui::vec2(6.0, -12.0),
-                        egui::vec2(90.0, 16.0),
-                    );
-                    painter.rect_filled(tip_box, 3.0, map.ocean.alpha(235));
-                    painter.rect_stroke(
-                        tip_box,
-                        3.0,
-                        egui::Stroke::new(1.0_f32, color),
-                        egui::StrokeKind::Inside,
-                    );
-                    painter.text(
-                        qso_pos + egui::vec2(10.0, -4.0),
-                        egui::Align2::LEFT_CENTER,
-                        format!("QSO: {}", qso.callsign),
-                        egui::FontId::proportional(9.0),
-                        color,
-                    );
-                }
             }
+            if hovered.is_none()
+                && let Some(hp) = hover_pos
+                && (hp - qso_pos).length() < 5.0
+            {
+                hovered = Some((qso_pos, color, marker.callsign.clone()));
+            }
+        }
+        if let Some((qso_pos, color, callsign)) = hovered {
+            let tip_box =
+                egui::Rect::from_min_size(qso_pos + egui::vec2(6.0, -12.0), egui::vec2(90.0, 16.0));
+            painter.rect_filled(tip_box, 3.0, map.ocean.alpha(235));
+            painter.rect_stroke(
+                tip_box,
+                3.0,
+                egui::Stroke::new(1.0_f32, color),
+                egui::StrokeKind::Inside,
+            );
+            painter.text(
+                qso_pos + egui::vec2(10.0, -4.0),
+                egui::Align2::LEFT_CENTER,
+                format!("QSO: {callsign}"),
+                egui::FontId::proportional(9.0),
+                color,
+            );
         }
 
         // Znacznik stacji własnej (My QTH) i punkt początkowy wiązki

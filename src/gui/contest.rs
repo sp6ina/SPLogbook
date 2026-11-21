@@ -262,7 +262,13 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
         .unwrap_or_default()
         .as_secs() as i64;
     if !cache_hit || app.contest.cache.rate_cached_at_sec != now_secs {
-        app.contest.cache.rate = compute_rate(&app.log_view.recent_qsos, now_secs);
+        let rows = &app.log_view.recent_qsos;
+        let window = if app.log_view.buffer_is_filtered {
+            rows.len()
+        } else {
+            crate::core::contest_stats::rate_window_len(rows, now_secs)
+        };
+        app.contest.cache.rate = compute_rate(rows.get(..window).unwrap_or(rows), now_secs);
         app.contest.cache.rate_cached_at_sec = now_secs;
     }
 

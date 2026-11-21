@@ -18,11 +18,11 @@ pub fn qso_epoch_secs(q: &QsoRecord) -> Option<i64> {
         Date::strptime("%Y-%m-%d", d).ok()
     }?;
 
-    let t = q.time_on.trim();
-    let time = if t.len() == 6 && t.bytes().all(|b| b.is_ascii_digit()) {
-        Time::strptime("%H%M%S", t).ok()
-    } else {
-        Time::strptime("%H:%M:%S", t).ok()
+    let t: String = q.time_on.trim().chars().filter(|c| *c != ':').collect();
+    let time = match t.len() {
+        6 if t.bytes().all(|b| b.is_ascii_digit()) => Time::strptime("%H%M%S", &t).ok(),
+        4 if t.bytes().all(|b| b.is_ascii_digit()) => Time::strptime("%H%M", &t).ok(),
+        _ => None,
     }
     .unwrap_or(Time::midnight());
 
@@ -62,6 +62,16 @@ impl RateStats {
     pub fn rate_60m(&self) -> u32 {
         self.last_60m
     }
+}
+
+/// Number of leading rows of a newest-first journal that can count towards the rate meter:
+/// every row dated on the previous UTC day or later (the 60-minute window can cross midnight).
+pub fn rate_window_len(rows_newest_first: &[QsoRecord], now_secs: i64) -> usize {
+    let Ok(cutoff) = jiff::Timestamp::from_second(now_secs - 86_400) else {
+        return rows_newest_first.len();
+    };
+    let cutoff = cutoff.strftime("%Y%m%d").to_string();
+    rows_newest_first.partition_point(|q| q.qso_date.replace('-', "") >= cutoff)
 }
 
 /// Oblicza metr tempa dla podanych QSO względem `now_secs` (uniksowy czas UTC).
@@ -327,6 +337,48 @@ pub fn compute_scoreboard(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn at(date: &str, time: &str) -> QsoRecord {
+        let mut q = QsoRecord::new("SP6INA", "20m", "CW");
+        q.qso_date = date.to_string();
+        q.time_on = time.to_string();
+        q
+    }
+
+    fn epoch(date: &str, time: &str) -> i64 {
+        qso_epoch_secs(&at(date, time)).expect("valid timestamp")
+    }
+
+    #[test]
+    fn epoch_accepts_every_adif_time_form() {
+        let reference = epoch("20261120", "123400");
+        assert_eq!(epoch("20261120", "1234"), reference);
+        assert_eq!(epoch("2026-11-20", "12:34"), reference);
+        assert_eq!(epoch("20261120", "12:34:00"), reference);
+    }
+
+    #[test]
+    fn rate_counts_minute_precision_form_qsos() {
+        let now = epoch("20261120", "123500");
+        let rate = compute_rate(&[at("20261120", "1234"), at("20261120", "1200")], now);
+        assert_eq!(rate.last_1m, 1);
+        assert_eq!(rate.last_60m, 2);
+    }
+
+    #[test]
+    fn rate_window_is_a_prefix_that_keeps_the_result() {
+        let now = epoch("20261120", "003000");
+        let rows = vec![
+            at("20261120", "0020"),
+            at("20261119", "2350"),
+            at("20261119", "0100"),
+            at("20261118", "2359"),
+            at("20250101", "1200"),
+        ];
+        let window = rate_window_len(&rows, now);
+        assert_eq!(window, 3);
+        assert_eq!(compute_rate(&rows[..window], now), compute_rate(&rows, now));
+    }
 
     fn qso(
         call: &str,

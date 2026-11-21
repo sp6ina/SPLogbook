@@ -191,46 +191,13 @@ fn render_tab_dxcc(
     render_legend(ui, lang);
     ui.add_space(4.0);
 
-    let bands = &[
-        "160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "4m", "2m",
-        "70cm",
-    ];
-    let modes = &["CW", "SSB", "DIGI", "MIXED"];
-
-    // Pojedynczy przebieg po QSO zamiast skanowania listy dla każdej komórki siatki.
-    let mut worked = vec![[false; 4]; bands.len()];
-    let mut confirmed = vec![[false; 4]; bands.len()];
-    let mut band_counts = vec![0usize; bands.len()];
-
-    for q in &app.log_view.recent_qsos {
-        let Some(bi) = bands.iter().position(|b| *b == q.band) else {
-            continue;
-        };
-        band_counts[bi] += 1;
-
-        let mut mode_flags = [false; 4];
-        mode_flags[3] = true; // MIXED — każde QSO pasuje do pasma
-        if q.mode == "CW" {
-            mode_flags[0] = true;
-        }
-        if q.mode == "SSB" {
-            mode_flags[1] = true;
-        }
-        if q.mode == "DIGI" || q.mode == "FT8" || q.mode == "FT4" || q.mode == "RTTY" {
-            mode_flags[2] = true;
-        }
-
-        let is_confirmed = q.lotw_qsl_rcvd == "Y" || q.qsl_rcvd == "Y" || q.eqsl_qsl_rcvd == "Y";
-
-        for (mi, &flag) in mode_flags.iter().enumerate() {
-            if flag {
-                worked[bi][mi] = true;
-                if is_confirmed {
-                    confirmed[bi][mi] = true;
-                }
-            }
-        }
-    }
+    let bands = MATRIX_BANDS;
+    let modes = MATRIX_MODES;
+    let matrix = band_mode_matrix(
+        &app.active_journal.id,
+        app.log_view.log_revision,
+        &app.log_view.recent_qsos,
+    );
 
     egui::ScrollArea::vertical().show(ui, |ui| {
         egui::Grid::new("awards_dxcc_grid")
@@ -248,8 +215,8 @@ fn render_tab_dxcc(
                     ui.label(egui::RichText::new(*band).strong().color(palette.accent));
 
                     for mi in 0..modes.len() {
-                        let worked = worked[bi][mi];
-                        let confirmed = confirmed[bi][mi];
+                        let worked = matrix.worked.get(bi).is_some_and(|row| row[mi]);
+                        let confirmed = matrix.confirmed.get(bi).is_some_and(|row| row[mi]);
 
                         if confirmed {
                             ui.label(egui::RichText::new("✓ C").color(palette.success).strong());
@@ -260,7 +227,7 @@ fn render_tab_dxcc(
                         }
                     }
 
-                    let band_qsos = band_counts[bi];
+                    let band_qsos = matrix.band_counts.get(bi).copied().unwrap_or(0);
                     ui.label(
                         egui::RichText::new(format!("{band_qsos} QSO"))
                             .size(11.0)
@@ -839,4 +806,112 @@ fn render_tab_wae(ui: &mut egui::Ui, awards: &crate::core::awards::AwardsEngine,
                 .text(lang),
         );
     });
+}
+
+const MATRIX_BANDS: &[&str] = &[
+    "160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "4m", "2m", "70cm",
+];
+const MATRIX_MODES: &[&str] = &["CW", "SSB", "DIGI", "MIXED"];
+
+/// Worked and confirmed cells of the DXCC band/mode matrix plus QSOs per band.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct BandModeMatrix {
+    worked: Vec<[bool; 4]>,
+    confirmed: Vec<[bool; 4]>,
+    band_counts: Vec<usize>,
+}
+
+/// Matrix column for a mode: 0 CW, 1 phone, 2 data.
+fn mode_column(mode: &str) -> usize {
+    match mode.trim().to_ascii_uppercase().as_str() {
+        "CW" | "CW-R" | "PCW" => 0,
+        "SSB" | "USB" | "LSB" | "AM" | "FM" | "DV" | "DIGITALVOICE" | "C4FM" | "DMR" | "DSTAR"
+        | "FREEDV" => 1,
+        _ => 2,
+    }
+}
+
+fn compute_band_mode_matrix(rows: &[crate::core::qso::QsoRecord]) -> BandModeMatrix {
+    let mut matrix = BandModeMatrix {
+        worked: vec![[false; 4]; MATRIX_BANDS.len()],
+        confirmed: vec![[false; 4]; MATRIX_BANDS.len()],
+        band_counts: vec![0; MATRIX_BANDS.len()],
+    };
+    for q in rows {
+        let Some(bi) = MATRIX_BANDS
+            .iter()
+            .position(|b| b.eq_ignore_ascii_case(q.band.trim()))
+        else {
+            continue;
+        };
+        let is_confirmed = q.lotw_qsl_rcvd == "Y" || q.qsl_rcvd == "Y" || q.eqsl_qsl_rcvd == "Y";
+        if let (Some(count), Some(worked), Some(confirmed)) = (
+            matrix.band_counts.get_mut(bi),
+            matrix.worked.get_mut(bi),
+            matrix.confirmed.get_mut(bi),
+        ) {
+            *count += 1;
+            for column in [mode_column(&q.mode), 3] {
+                worked[column] = true;
+                confirmed[column] |= is_confirmed;
+            }
+        }
+    }
+    matrix
+}
+
+static MATRIX_CACHE: std::sync::Mutex<Option<((String, u64), BandModeMatrix)>> =
+    std::sync::Mutex::new(None);
+
+/// The matrix for the journal, recomputed only when the log revision changes.
+fn band_mode_matrix(
+    journal_id: &str,
+    revision: u64,
+    rows: &[crate::core::qso::QsoRecord],
+) -> BandModeMatrix {
+    let mut cache = MATRIX_CACHE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(((cached_journal, cached_revision), matrix)) = cache.as_ref()
+        && cached_journal == journal_id
+        && *cached_revision == revision
+    {
+        return matrix.clone();
+    }
+    let matrix = compute_band_mode_matrix(rows);
+    *cache = Some(((journal_id.to_string(), revision), matrix.clone()));
+    matrix
+}
+
+#[cfg(test)]
+mod matrix_tests {
+    use super::*;
+    use crate::core::qso::QsoRecord;
+
+    fn qso(band: &str, mode: &str, confirmed: bool) -> QsoRecord {
+        let mut q = QsoRecord::new("SP6INA", band, mode);
+        q.lotw_qsl_rcvd = if confirmed { "Y" } else { "N" }.to_string();
+        q
+    }
+
+    #[test]
+    fn matrix_groups_phone_and_data_modes() {
+        let matrix = compute_band_mode_matrix(&[
+            qso("20m", "USB", false),
+            qso("20m", "PSK", true),
+            qso("40M", "CW", false),
+            qso("23cm", "CW", true),
+        ]);
+        let twenty = MATRIX_BANDS.iter().position(|b| *b == "20m").unwrap();
+        let forty = MATRIX_BANDS.iter().position(|b| *b == "40m").unwrap();
+        assert_eq!(matrix.worked[twenty], [false, true, true, true]);
+        assert_eq!(matrix.confirmed[twenty], [false, false, true, true]);
+        assert_eq!(matrix.worked[forty], [true, false, false, true]);
+        assert_eq!(matrix.band_counts[twenty], 2);
+        assert_eq!(
+            matrix.band_counts.iter().sum::<usize>(),
+            3,
+            "23cm is not in the matrix"
+        );
+    }
 }
