@@ -13,6 +13,8 @@ pub struct ChromeState {
     pub toasts: ToastQueue,
     pub show_welcome_wizard: bool,
     pub wizard_tab: u8,
+    /// Pasek o brakujących plikach krajów ukryty do końca sesji.
+    pub reference_banner_dismissed: bool,
     pub show_about_window: bool,
     pub show_shortcuts_window: bool,
     pub show_legend_window: bool,
@@ -42,6 +44,7 @@ mod tests {
         assert!(state.toasts.is_empty());
         assert!(!state.show_welcome_wizard);
         assert_eq!(state.wizard_tab, 0);
+        assert!(!state.reference_banner_dismissed);
         assert!(!state.show_about_window);
         assert!(!state.show_shortcuts_window);
         assert!(!state.show_legend_window);

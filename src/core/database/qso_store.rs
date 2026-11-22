@@ -382,24 +382,16 @@ impl LogDatabase {
         collect_qsos(&mut stmt, params![journal_id, limit as i64, offset as i64])
     }
 
-    /// Pobiera unikalne, niepuste znaki wywoławcze z całego dziennika (do
-    /// lokalnego podpowiadania SCP i korekty rozmytej). Ograniczone limitem.
-    pub fn get_distinct_callsigns(&self, limit: usize) -> Result<DistinctCallsigns> {
+    /// Wszystkie unikalne, niepuste znaki wywoławcze ze wszystkich dzienników — źródło
+    /// podpowiedzi SCP i korekty rozmytej. Bez limitu: limit z `ORDER BY callsign`
+    /// pomijał znaki z dalszej części alfabetu w dużych dziennikach.
+    pub fn get_distinct_callsigns(&self) -> Result<DistinctCallsigns> {
         let mut stmt = self.conn.prepare(
             "SELECT DISTINCT UPPER(callsign) FROM qso_records \
-             WHERE callsign IS NOT NULL AND TRIM(callsign) <> '' \
-             ORDER BY callsign LIMIT ?1",
+             WHERE callsign IS NOT NULL AND TRIM(callsign) <> ''",
         )?;
-
-        let rows = stmt.query_map(params![limit as i64], |row| row.get::<_, String>(0))?;
-
-        let mut res = Vec::new();
-
-        for r in rows {
-            res.push(r?);
-        }
-
-        Ok(res)
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        rows.collect()
     }
 
     /// Wszystkie unikalne, niepuste znaki wywoławcze dziennika — **bez limitu i bez sortowania**

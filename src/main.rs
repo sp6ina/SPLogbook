@@ -337,7 +337,7 @@ fn main() -> Result<(), eframe::Error> {
 
     // Wzbogać bazę podpowiedzi SCP o znaki znane z lokalnego dziennika
     // (umożliwia lokalne podpowiadanie oraz korektę rozmytych znaków).
-    if let Ok(distinct_calls) = log_db.get_distinct_callsigns(50_000) {
+    if let Ok(distinct_calls) = log_db.get_distinct_callsigns() {
         for call in distinct_calls {
             scp.insert(&call);
         }

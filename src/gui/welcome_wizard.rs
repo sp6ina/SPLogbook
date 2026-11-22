@@ -6,6 +6,9 @@ use crate::gui::app::SpLogApp;
 use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
+/// Indeks ostatniej zakładki kreatora (wygląd).
+const LAST_TAB: u8 = 4;
+
 /// Ekran powitalny / kreator pierwszego uruchomienia.
 /// Wzorowany na: Log4OM, HamRadioDeluxe, QLog.
 pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
@@ -130,7 +133,12 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.selectable_value(
                     &mut app.gui.chrome.wizard_tab,
                     3,
-                    format!("4. {}", tr(key::WIZARD_TAB_APPEARANCE, lang)),
+                    format!("4. {}", tr(key::WIZARD_TAB_REFERENCE, lang)),
+                );
+                ui.selectable_value(
+                    &mut app.gui.chrome.wizard_tab,
+                    LAST_TAB,
+                    format!("5. {}", tr(key::WIZARD_TAB_APPEARANCE, lang)),
                 );
             });
             ui.separator();
@@ -140,6 +148,7 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
                 0 => render_tab_station(app, ui, lang),
                 1 => render_tab_radio(app, ui, lang),
                 2 => render_tab_services(app, ui, lang),
+                3 => render_tab_reference(app, ui, lang),
                 _ => render_tab_appearance(app, ui, lang, ctx),
             }
 
@@ -156,7 +165,7 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
                 {
                     app.gui.chrome.wizard_tab -= 1;
                 }
-                if app.gui.chrome.wizard_tab < 3
+                if app.gui.chrome.wizard_tab < LAST_TAB
                     && ui
                         .button(
                             egui::RichText::new(format!("{} >", tr(key::BTN_NEXT, lang))).strong(),
@@ -476,7 +485,39 @@ fn render_tab_services(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
     );
 }
 
-// ZAKLADKA 4: Wyglad
+// ZAKLADKA 4: Dane referencyjne (pliki krajów Big CTY)
+fn render_tab_reference(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
+    let palette = ui.palette();
+    ui.label(egui::RichText::new(tr(key::WIZARD_REFERENCE_SUB, lang)).strong());
+    ui.add_space(6.0);
+    ui.label(egui::RichText::new(tr(key::WIZARD_REFERENCE_HINT, lang)).color(palette.text_muted));
+    ui.add_space(10.0);
+
+    let status = crate::core::reference::loader::last_status().country_files;
+    let status_text = Msg::new(key::REF_CF_STATUS)
+        .arg(
+            "status",
+            crate::gui::app::app_reference::source_status_text(&status, lang),
+        )
+        .text(lang);
+    let color = if crate::gui::app::app_reference::country_files_banner(&status).is_some() {
+        palette.warning
+    } else {
+        palette.success
+    };
+    ui.label(egui::RichText::new(status_text).strong().color(color));
+    ui.add_space(8.0);
+    ui.horizontal(|ui| {
+        if ui.button(tr(key::REF_CF_INSTALL, lang)).clicked() {
+            app.trigger_country_files_download();
+        }
+        if ui.button(tr(key::REF_CF_IMPORT, lang)).clicked() {
+            app.trigger_country_files_import();
+        }
+    });
+}
+
+// ZAKLADKA 5: Wyglad
 fn render_tab_appearance(
     app: &mut SpLogApp,
     ui: &mut egui::Ui,

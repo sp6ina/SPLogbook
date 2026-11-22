@@ -4995,6 +4995,39 @@ fn s1_scp_source_lists_every_callsign_beyond_ten_thousand() {
 }
 
 #[test]
+fn scp_seed_covers_every_journal_and_the_whole_alphabet() {
+    let db = LogDatabase::open_in_memory().unwrap();
+    let mut qsos: Vec<QsoRecord> = (0..60_000)
+        .map(|i| s1_qso(&format!("AA{i:05}"), "20m", "CW", "20260101", "120000"))
+        .collect();
+    qsos.push(s1_qso("sp6ina", "20m", "CW", "20260101", "120100"));
+    qsos.push(s1_qso("SP6INA", "40m", "CW", "20260101", "120200"));
+    db.batch_insert_qsos(&qsos).unwrap();
+    db.create_journal(&Journal {
+        id: "CONTEST".to_string(),
+        name: "Contest".to_string(),
+        station_callsign: "SP6INA".to_string(),
+        operator: String::new(),
+        my_gridsquare: String::new(),
+        my_pga: String::new(),
+        description: String::new(),
+        is_default: false,
+    })
+    .unwrap();
+    db.raw_conn()
+        .execute(
+            "UPDATE qso_records SET journal_id = 'CONTEST' WHERE callsign = 'AA00000'",
+            [],
+        )
+        .unwrap();
+
+    let calls = db.get_distinct_callsigns().unwrap();
+    assert_eq!(calls.len(), 60_001);
+    assert_eq!(calls.iter().filter(|c| *c == "SP6INA").count(), 1);
+    assert!(calls.iter().any(|c| c == "AA00000"));
+}
+
+#[test]
 fn s1_qsl_reconfirmation_without_change_writes_nothing_but_still_matches() {
     let db = LogDatabase::open_in_memory().unwrap();
     let id = db

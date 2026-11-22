@@ -25,8 +25,48 @@ impl SpLogApp {
             render_main_toolbar(self, ui);
         });
 
+        self.render_reference_banner(ui);
+
         // Dolny pasek statusu stacji
         self.render_status_bar(ui);
+    }
+
+    /// Pasek pod menu, gdy pliki krajów nie są wczytane. Znika sam po instalacji danych;
+    /// można go ukryć do końca sesji.
+    fn render_reference_banner(&mut self, ui: &mut egui::Ui) {
+        if self.gui.chrome.reference_banner_dismissed {
+            return;
+        }
+        let status = crate::core::reference::loader::last_status();
+        let Some(message) = app_reference::country_files_banner(&status.country_files) else {
+            return;
+        };
+        let lang = self.gui.appearance.language;
+        egui::Panel::top("reference_data_banner").show(ui, |ui| {
+            let palette = ui.palette();
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(format!("⚠ {}", tr(message, lang)))
+                        .size(TEXT_BODY)
+                        .color(palette.warning),
+                );
+                if ui.button(tr(key::REF_CF_BANNER_DOWNLOAD, lang)).clicked() {
+                    self.trigger_country_files_download();
+                }
+                if ui.button(tr(key::REF_CF_BANNER_IMPORT, lang)).clicked() {
+                    self.trigger_country_files_import();
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .small_button("✕")
+                        .on_hover_text(tr(key::REF_CF_BANNER_HIDE, lang))
+                        .clicked()
+                    {
+                        self.gui.chrome.reference_banner_dismissed = true;
+                    }
+                });
+            });
+        });
     }
 
     /// Dolny pasek statusu. Lewa i prawa strona nigdy na siebie nie nachodzą:

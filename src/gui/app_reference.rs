@@ -7,7 +7,7 @@
 //! shared prefix matcher without a restart when it succeeds.
 
 use super::SpLogApp;
-use crate::core::i18n::{Language, Msg, key, tr};
+use crate::core::i18n::{Key, Language, Msg, key, tr};
 use crate::core::reference::country_files::{self, CountryFilesError};
 use crate::core::reference::install::SetOrigin;
 use crate::core::reference::loader::{self, SourceStatus};
@@ -30,6 +30,16 @@ pub fn source_status_text(status: &SourceStatus, lang: Language) -> String {
             .arg("date", date)
             .arg("items", items.to_string())
             .text(lang),
+    }
+}
+
+/// Komunikat paska ostrzeżenia, gdy pliki krajów nie są wczytane. Bez nich program
+/// nie rozpoznaje DXCC, stref ani prefiksów.
+pub fn country_files_banner(status: &SourceStatus) -> Option<Key> {
+    match status {
+        SourceStatus::NotInstalled => Some(key::REF_CF_BANNER_MISSING),
+        SourceStatus::Failed(_) => Some(key::REF_CF_BANNER_FAILED),
+        SourceStatus::Loaded { .. } => None,
     }
 }
 
@@ -358,5 +368,33 @@ impl SpLogApp {
             Err(_) => tr(key::REF_RULES_NOTHING_TO_EXPORT, lang).to_string(),
         };
         let _ = self.online.sync_log_tx.send((msg, false));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::reference::loader::LoadFailure;
+
+    #[test]
+    fn banner_shows_only_while_country_files_are_not_loaded() {
+        assert_eq!(
+            country_files_banner(&SourceStatus::NotInstalled),
+            Some(key::REF_CF_BANNER_MISSING)
+        );
+        let failed = SourceStatus::Failed(LoadFailure::Invalid {
+            detail: "bad cty.csv".to_string(),
+        });
+        assert_eq!(
+            country_files_banner(&failed),
+            Some(key::REF_CF_BANNER_FAILED)
+        );
+        let loaded = SourceStatus::Loaded {
+            source: "country-files.com".to_string(),
+            version: "VER20261120".to_string(),
+            date: "2026-11-20".to_string(),
+            items: 340,
+        };
+        assert_eq!(country_files_banner(&loaded), None);
     }
 }
