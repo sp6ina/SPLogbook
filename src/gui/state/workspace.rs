@@ -14,6 +14,8 @@ pub struct DockWorkspace {
     pub last_saved_dock_layout: Option<serde_json::Value>,
     pub reset_layout_requested: bool,
     pub dragging_tile: Option<String>,
+    /// Otwarte okno zmiany nazwy strony pulpitu.
+    pub page_rename: Option<crate::gui::workspace_pages::PageRename>,
     pub active_tab: [usize; 3],
 }
 
@@ -30,6 +32,7 @@ impl DockWorkspace {
             last_saved_dock_layout: None,
             reset_layout_requested: false,
             dragging_tile: None,
+            page_rename: None,
             active_tab: [0; 3],
         }
     }

@@ -5501,3 +5501,152 @@ async fn every_module_renders_as_a_window_and_as_a_tile() {
         }
     }
 }
+
+// ======================================================================================
+// Strony pulpitu (S12b)
+// ======================================================================================
+
+#[test]
+fn workspace_pages_keep_their_own_layouts() {
+    use crate::gui::state::Tile;
+    let mut app = qso_form_test_app();
+    app.rebuild_dock_state_from_panels();
+    assert_eq!(app.workspace_pages(), []);
+
+    app.add_workspace_page();
+    assert_eq!(app.workspace_pages().len(), 2);
+    assert_eq!(app.active_workspace_page(), 1);
+    assert_ne!(app.workspace_pages()[0].name, app.workspace_pages()[1].name);
+
+    // Strona 2: kontest zadokowany, mapa pasma ukryta.
+    app.open_tile(Tile::Contest);
+    app.dock_tile(Tile::Contest.id());
+    app.close_tile(Tile::Bandmap.id());
+    app.sync_dock_state();
+
+    app.switch_workspace_page(0);
+    assert_eq!(app.active_workspace_page(), 0);
+    assert!(!app.views.panel(Tile::Contest).visible);
+    assert!(app.views.panel(Tile::Bandmap).visible);
+    let dock = &app.gui.workspace.dock_state;
+    assert!(dock.find_tab(&"contest".to_string()).is_none());
+    assert!(dock.find_tab(&"bandmap".to_string()).is_some());
+
+    app.step_workspace_page(1);
+    assert_eq!(app.active_workspace_page(), 1);
+    assert!(app.views.panel(Tile::Contest).visible);
+    assert!(!app.views.panel(Tile::Bandmap).visible);
+    assert!(
+        app.gui
+            .workspace
+            .dock_state
+            .find_tab(&"contest".to_string())
+            .is_some()
+    );
+
+    // Przełączanie zawija się na końcach.
+    app.step_workspace_page(1);
+    assert_eq!(app.active_workspace_page(), 0);
+    app.step_workspace_page(-1);
+    assert_eq!(app.active_workspace_page(), 1);
+
+    // Strony trafiają do zapisu konfiguracji.
+    let cfg = app.snapshot_config();
+    assert_eq!(cfg.workspace_pages.len(), 2);
+    assert_eq!(cfg.active_workspace_page, 1);
+}
+
+#[test]
+fn workspace_pages_rename_and_remove() {
+    let mut app = qso_form_test_app();
+    app.rebuild_dock_state_from_panels();
+    app.add_workspace_page();
+    app.add_workspace_page();
+    assert_eq!(app.workspace_pages().len(), 3);
+    assert_eq!(app.active_workspace_page(), 2);
+
+    app.rename_workspace_page(0, "  FT8 \n");
+    assert_eq!(app.workspace_pages()[0].name, "FT8");
+    app.rename_workspace_page(0, "   ");
+    assert_eq!(app.workspace_pages()[0].name, "FT8");
+
+    // Usunięcie aktywnej strony przełącza na sąsiednią.
+    app.remove_workspace_page(2);
+    assert_eq!(app.workspace_pages().len(), 2);
+    assert_eq!(app.active_workspace_page(), 1);
+    app.remove_workspace_page(0);
+    // Jedna strona to zwykły pulpit bez paska stron.
+    assert_eq!(app.workspace_pages(), []);
+    assert_eq!(app.active_workspace_page(), 0);
+
+    for _ in 0..crate::gui::workspace_pages::MAX_PAGES + 2 {
+        app.add_workspace_page();
+    }
+    assert_eq!(
+        app.workspace_pages().len(),
+        crate::gui::workspace_pages::MAX_PAGES
+    );
+}
+
+#[test]
+fn workspace_page_bar_and_rename_dialog_render() {
+    let mut app = qso_form_test_app();
+    app.rebuild_dock_state_from_panels();
+    app.add_workspace_page();
+    app.start_page_rename(0);
+    let ctx = egui::Context::default();
+    for _ in 0..2 {
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.render_workspace_page_bar(ui);
+            app.render_page_rename_dialog(ui.ctx());
+        });
+        output.textures_delta.clear();
+    }
+    assert!(
+        app.gui.workspace.page_rename.is_some(),
+        "okno zostaje otwarte"
+    );
+}
+
+#[test]
+fn workspace_pages_from_disk_are_normalized() {
+    let mut cfg = AppConfig::default();
+    cfg.workspace_pages = vec![crate::core::station::WorkspacePage {
+        name: "Only".to_string(),
+        layout: crate::core::station::workspace_profile_presets().remove(0),
+    }];
+    cfg.active_workspace_page = 5;
+    cfg.normalize_workspace_pages();
+    assert_eq!(cfg.workspace_pages.len(), 0);
+    assert_eq!(cfg.active_workspace_page, 0);
+
+    let page = crate::core::station::WorkspacePage {
+        name: "A".to_string(),
+        layout: crate::core::station::workspace_profile_presets().remove(0),
+    };
+    cfg.workspace_pages = vec![page.clone(), page];
+    cfg.active_workspace_page = 7;
+    cfg.normalize_workspace_pages();
+    assert_eq!(cfg.workspace_pages.len(), 2);
+    assert_eq!(cfg.active_workspace_page, 0);
+    let back: AppConfig = serde_json::from_str(&serde_json::to_string(&cfg).unwrap()).unwrap();
+    assert_eq!(back.workspace_pages, cfg.workspace_pages);
+}
+
+#[test]
+fn workspace_pages_switch_with_ctrl_page_keys() {
+    use crate::gui::shortcuts::{AppAction, ShortcutRegistry};
+    let registry = ShortcutRegistry::default();
+    for (action, key) in [
+        (AppAction::PreviousWorkspacePage, egui::Key::PageUp),
+        (AppAction::NextWorkspacePage, egui::Key::PageDown),
+    ] {
+        let binding = registry
+            .bindings()
+            .iter()
+            .find(|b| b.action == action)
+            .expect("skrót strony pulpitu");
+        assert_eq!(binding.shortcut.logical_key, key);
+        assert!(binding.shortcut.modifiers.command);
+    }
+}

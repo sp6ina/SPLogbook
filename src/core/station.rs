@@ -685,6 +685,13 @@ pub struct AppConfig {
     #[serde(default)]
     pub module_panels: std::collections::BTreeMap<String, ViewPanelConfig>,
 
+    /// Strony pulpitu; pusta lista to jeden pulpit bez paska stron.
+    #[serde(default)]
+    pub workspace_pages: Vec<WorkspacePage>,
+    /// Strona, której układem jest bieżący pulpit.
+    #[serde(default)]
+    pub active_workspace_page: usize,
+
     /// Tryb zakładek w kolumnach dokowanego układu: true = kafelki w kolumnie
     /// prezentowane jako zakładki (jedna aktywna na raz), false = układ pionowy.
     #[serde(default)]
@@ -839,6 +846,8 @@ impl std::fmt::Debug for AppConfig {
             .field("panel_world_map", &self.panel_world_map)
             .field("panel_waterfall", &self.panel_waterfall)
             .field("module_panels", &self.module_panels)
+            .field("workspace_pages", &self.workspace_pages.len())
+            .field("active_workspace_page", &self.active_workspace_page)
             .field("tabbed_columns", &self.tabbed_columns)
             .field("dock_layout", &self.dock_layout)
             .field("logbook_columns", &self.logbook_columns)
@@ -1090,6 +1099,13 @@ impl WorkspaceProfile {
             self.id = slugify(&self.name);
         }
     }
+}
+
+/// Strona pulpitu: nazwany układ kafelków przełączany jednym kliknięciem.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WorkspacePage {
+    pub name: String,
+    pub layout: WorkspaceProfile,
 }
 
 /// Opakowanie pliku eksportu/importu workspace (`*.spws`) z polem wersji
@@ -1516,6 +1532,8 @@ impl Default for AppConfig {
                 saved_size: None,
             },
             module_panels: std::collections::BTreeMap::new(),
+            workspace_pages: Vec::new(),
+            active_workspace_page: 0,
 
             schema_version: default_schema_version(),
             tabbed_columns: false,
@@ -1548,6 +1566,17 @@ impl AppConfig {
 
     /// Odrzuca zapisany plan pasm, który nie przechodzi walidacji (np. ręcznie
     /// zmieniony plik); wtedy obowiązuje plan IARU Region 1.
+    /// Porządkuje strony pulpitu z pliku: pojedyncza strona to zwykły pulpit, indeks
+    /// aktywnej strony mieści się w liście.
+    pub fn normalize_workspace_pages(&mut self) {
+        if self.workspace_pages.len() < 2 {
+            self.workspace_pages.clear();
+        }
+        if self.active_workspace_page >= self.workspace_pages.len() {
+            self.active_workspace_page = 0;
+        }
+    }
+
     pub fn discard_invalid_bandplan(&mut self) {
         if let Some(plan) = &self.bandplan
             && let Err(e) = plan.validate()

@@ -255,6 +255,8 @@ impl SpLogApp {
                 AppAction::FocusLog => self.views.panel_log.visible = true,
                 AppAction::ContestSaveQso => self.contest.save_requested = true,
                 AppAction::ContestMacro(index) => self.contest_macro(usize::from(index)),
+                AppAction::PreviousWorkspacePage => self.step_workspace_page(-1),
+                AppAction::NextWorkspacePage => self.step_workspace_page(1),
                 AppAction::ContestWipeQso => {
                     self.entry.callsign.clear();
                     self.entry.rst_rcvd.clear();

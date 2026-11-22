@@ -67,6 +67,7 @@ pub mod voice_keyer;
 pub mod waterfall_panel;
 pub mod welcome_wizard;
 pub mod wol_dialog;
+pub mod workspace_pages;
 pub mod workspace_profiles;
 pub mod world_map;
 pub mod wsjtx_window;

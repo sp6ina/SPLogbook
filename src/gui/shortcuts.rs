@@ -76,6 +76,8 @@ pub enum AppAction {
     ContestWipeQso,
     /// Makro CW F1..F8 w oknie zawodów (indeks od zera).
     ContestMacro(u8),
+    PreviousWorkspacePage,
+    NextWorkspacePage,
 }
 
 /// Jawne konteksty fokusu interfejsu użytkownika (GUI-001).
@@ -706,6 +708,26 @@ impl ShortcutRegistry {
             RepeatPolicy::SingleTrigger,
             "Ctrl+Shift+S",
             "Logbook statistics",
+        ));
+        self.register(ShortcutBinding::new(
+            AppAction::PreviousWorkspacePage,
+            KeyboardShortcut::new(ctrl, Key::PageUp),
+            ShortcutContext::Global,
+            5,
+            ConflictPolicy::AllowInTextEditing,
+            RepeatPolicy::SingleTrigger,
+            "Ctrl+PgUp",
+            "Previous workspace page",
+        ));
+        self.register(ShortcutBinding::new(
+            AppAction::NextWorkspacePage,
+            KeyboardShortcut::new(ctrl, Key::PageDown),
+            ShortcutContext::Global,
+            5,
+            ConflictPolicy::AllowInTextEditing,
+            RepeatPolicy::SingleTrigger,
+            "Ctrl+PgDn",
+            "Next workspace page",
         ));
         self.register(ShortcutBinding::new(
             AppAction::OpenManual,

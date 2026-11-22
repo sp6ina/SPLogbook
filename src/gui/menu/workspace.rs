@@ -42,6 +42,55 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
 
         ui.separator();
+        ui.label(
+            egui::RichText::new(tr(key::WORKSPACE_PAGES, lang))
+                .strong()
+                .color(palette.accent),
+        );
+        let active = app.active_workspace_page();
+        let mut switch_to = None;
+        for (index, page) in app.workspace_pages().iter().enumerate() {
+            if ui.selectable_label(index == active, &page.name).clicked() {
+                switch_to = Some(index);
+            }
+        }
+        if let Some(index) = switch_to {
+            app.switch_workspace_page(index);
+            ui.close();
+        }
+        if ui
+            .add_enabled(
+                app.workspace_pages().len() < crate::gui::workspace_pages::MAX_PAGES,
+                egui::Button::new(tr(key::WORKSPACE_PAGE_ADD, lang)),
+            )
+            .clicked()
+        {
+            app.add_workspace_page();
+            ui.close();
+        }
+        let has_pages = !app.workspace_pages().is_empty();
+        if ui
+            .add_enabled(
+                has_pages,
+                egui::Button::new(tr(key::WORKSPACE_PAGE_RENAME, lang)),
+            )
+            .clicked()
+        {
+            app.start_page_rename(active);
+            ui.close();
+        }
+        if ui
+            .add_enabled(
+                has_pages,
+                egui::Button::new(tr(key::WORKSPACE_PAGE_REMOVE, lang)),
+            )
+            .clicked()
+        {
+            app.remove_workspace_page(active);
+            ui.close();
+        }
+
+        ui.separator();
         if ui.button(tr(key::WORKSPACE_SAVE_CURRENT, lang)).clicked() {
             app.gui.windows.show_workspace_profiles_window = true;
             ui.close();

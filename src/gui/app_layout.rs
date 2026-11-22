@@ -414,6 +414,7 @@ impl SpLogApp {
                     }
                 });
             } else {
+                self.render_workspace_page_bar(ui);
                 let total_visible = self.views.visible_count();
 
                 if total_visible == 0 {
@@ -566,6 +567,7 @@ impl SpLogApp {
 
     /// Okna dialogowe i narzędzia pomocnicze
     pub fn render_dialogs(&mut self, ctx: &egui::Context) {
+        self.render_page_rename_dialog(ctx);
         if self.gui.dialogs.journal_dialog.is_open {
             let mut switched_journal = None;
             let lang = self.gui.appearance.language;
