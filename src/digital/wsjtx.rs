@@ -608,20 +608,35 @@ fn multicast_group(settings: &WsjtxSettings) -> Result<Option<Ipv4Addr>, WsjtxLi
     }
 }
 
-/// Gniazdo UDP do odbioru pakietów i odsyłania poleceń do nadawców.
+/// Gniazdo multicast współdzielone z innymi programami (np. GridTracker, JTAlert):
+/// `SO_REUSEADDR` pozwala kilku odbiorcom na jednym komputerze zająć ten sam port
+/// i odbierać tę samą grupę.
+fn shared_socket(addr: SocketAddr) -> std::io::Result<UdpSocket> {
+    use socket2::{Domain, Protocol, Socket, Type};
+    let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
+    socket.set_reuse_address(true)?;
+    socket.bind(&addr.into())?;
+    socket.set_nonblocking(true)?;
+    UdpSocket::from_std(socket.into())
+}
+
+/// Gniazdo UDP do odbioru pakietów i odsyłania poleceń do nadawców. Port unicast jest
+/// zajmowany na wyłączność — pakiety skierowane do jednego odbiorcy nie mogą trafić
+/// do innego programu.
 pub async fn bind_socket(settings: &WsjtxSettings) -> Result<UdpSocket, WsjtxLinkError> {
     let group = multicast_group(settings)?;
-    let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, settings.port))
-        .await
-        .map_err(|source| WsjtxLinkError::Bind {
-            port: settings.port,
-            source,
-        })?;
-    if let Some(group) = group {
-        socket
-            .join_multicast_v4(group, Ipv4Addr::UNSPECIFIED)
-            .map_err(|source| WsjtxLinkError::Join { group, source })?;
-    }
+    let addr = SocketAddr::from((Ipv4Addr::UNSPECIFIED, settings.port));
+    let bind_error = |source| WsjtxLinkError::Bind {
+        port: settings.port,
+        source,
+    };
+    let Some(group) = group else {
+        return UdpSocket::bind(addr).await.map_err(bind_error);
+    };
+    let socket = shared_socket(addr).map_err(bind_error)?;
+    socket
+        .join_multicast_v4(group, Ipv4Addr::UNSPECIFIED)
+        .map_err(|source| WsjtxLinkError::Join { group, source })?;
     Ok(socket)
 }
 
@@ -961,6 +976,33 @@ mod tests {
                 Err(WsjtxLinkError::InvalidGroup(_))
             ));
         }
+    }
+
+    #[tokio::test]
+    async fn multicast_receivers_share_the_port_but_unicast_keeps_it() {
+        let first = shared_socket(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))).unwrap();
+        let port = first.local_addr().unwrap().port();
+        let second = shared_socket(SocketAddr::from((Ipv4Addr::UNSPECIFIED, port)));
+        assert!(
+            second.is_ok(),
+            "a second multicast receiver can bind the same port"
+        );
+
+        let unicast = WsjtxSettings {
+            port: UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))
+                .await
+                .unwrap()
+                .local_addr()
+                .unwrap()
+                .port(),
+            ..WsjtxSettings::default()
+        };
+        let owner = bind_socket(&unicast).await.unwrap();
+        assert!(matches!(
+            bind_socket(&unicast).await,
+            Err(WsjtxLinkError::Bind { .. })
+        ));
+        drop(owner);
     }
 
     /// Wirtualny WSJT-X na pętli zwrotnej: dekod trafia do programu, a Reply wraca
