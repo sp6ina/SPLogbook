@@ -345,10 +345,9 @@ impl SpLogApp {
                 }
                 self.gui.chrome.push_status_toast(
                     crate::gui::state::ToastSeverity::Success,
-                    format!(
-                        "WSJT-X: Automatycznie dodano QSO z {}!",
-                        outcome.qso.callsign
-                    ),
+                    Msg::new(key::WSJTX_AUTO_SAVED)
+                        .arg("call", &outcome.qso.callsign)
+                        .text(self.gui.appearance.language),
                 );
                 self.apply_stored_qso(&outcome.qso);
             }

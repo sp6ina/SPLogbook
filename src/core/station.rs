@@ -710,6 +710,9 @@ pub struct AppConfig {
 
     #[serde(default)]
     pub cw: CwConfig,
+
+    #[serde(default)]
+    pub wsjtx: crate::digital::wsjtx::WsjtxSettings,
 }
 
 impl std::fmt::Debug for AppConfig {
@@ -832,6 +835,7 @@ impl std::fmt::Debug for AppConfig {
             .field("backup", &self.backup)
             .field("ui_state", &self.ui_state)
             .field("cw", &self.cw)
+            .field("wsjtx", &self.wsjtx)
             .finish()
     }
 }
@@ -1446,6 +1450,7 @@ impl Default for AppConfig {
             backup: BackupSettings::default(),
             ui_state: UiStateConfig::default(),
             cw: CwConfig::default(),
+            wsjtx: crate::digital::wsjtx::WsjtxSettings::default(),
         }
     }
 }

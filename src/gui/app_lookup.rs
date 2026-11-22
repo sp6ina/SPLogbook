@@ -402,8 +402,10 @@ impl SpLogApp {
         badge
     }
 
-    /// Czyści cache odznak spotów klastra po zmianie stanu nagród (nowe/usunięte QSO).
+    /// Czyści cache odznak spotów klastra po zmianie stanu nagród (nowe/usunięte QSO)
+    /// i zleca przeliczenie wyróżnień znaków w WSJT-X.
     pub fn invalidate_cluster_badges(&mut self) {
         self.cluster.badge_cache.clear();
+        self.digital.wsjtx.marks_stale = true;
     }
 }

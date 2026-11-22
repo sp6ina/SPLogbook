@@ -111,11 +111,27 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         // 2. Sygnalizator WSJT-X
         if app.config.quick_access.show_wsjtx {
-            ui.label(
-                egui::RichText::new(format!("● WSJT-X ({})", app.digital.wsjtx_packets_count))
-                    .small()
-                    .color(palette.success),
-            );
+            let color = if app.digital.wsjtx.is_listening() {
+                palette.success
+            } else {
+                palette.text_muted
+            };
+            let indicator = ui
+                .add(
+                    egui::Label::new(
+                        egui::RichText::new(format!(
+                            "● WSJT-X ({})",
+                            app.digital.wsjtx_packets_count
+                        ))
+                        .small()
+                        .color(color),
+                    )
+                    .sense(egui::Sense::click()),
+                )
+                .on_hover_text(tr(key::WSJTX_OPEN_WINDOW, lang));
+            if indicator.clicked() {
+                app.digital.wsjtx.show_window = true;
+            }
         }
 
         // 3. Sygnalizator aktywnego filtra

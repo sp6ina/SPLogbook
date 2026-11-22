@@ -387,7 +387,7 @@ fn render_tab_radio(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
                     tr(key::WIZARD_ENABLE_JS8CALL, lang),
                 );
                 ui.label(
-                    egui::RichText::new("(port 2237)")
+                    egui::RichText::new(format!("(TCP {})", app.digital.js8call_port))
                         .color(ui.palette().text_muted)
                         .small(),
                 );

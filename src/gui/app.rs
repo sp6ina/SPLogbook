@@ -475,17 +475,7 @@ impl SpLogApp {
     }
 
     pub fn start_background(&mut self) {
-        let ws_tx = self.digital.wsjtx_tx.clone();
-        tokio::spawn(async move {
-            let receiver = crate::digital::wsjtx::WsjtxReceiver::new(2237);
-            let (tokio_tx, mut tokio_rx) = tokio::sync::mpsc::channel(100);
-            tokio::spawn(async move {
-                let _ = receiver.run(tokio_tx).await;
-            });
-            while let Some(msg) = tokio_rx.recv().await {
-                let _ = ws_tx.send(msg);
-            }
-        });
+        self.start_wsjtx_link();
         // Wczytanie pluginów użytkownika (Rhai) z katalogu i uruchomienie on_startup().
         {
             let dir = std::path::PathBuf::from(&self.config.plugins_dir);
@@ -690,6 +680,7 @@ impl eframe::App for SpLogApp {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        drop(self.stop_wsjtx_link());
         self.cat
             .runtime
             .shutdown_blocking(std::time::Duration::from_millis(1500));
@@ -736,6 +727,8 @@ pub mod app_reference;
 mod app_services;
 #[path = "app_solar.rs"]
 mod app_solar;
+#[path = "app_wsjtx.rs"]
+mod app_wsjtx;
 
 #[path = "app_chrome.rs"]
 mod app_chrome;

@@ -551,38 +551,6 @@ impl SpLogApp {
         }
     }
 
-    /// Odbiór pakietów cyfrowych WSJT-X (UDP 2237)
-    pub fn poll_wsjtx(&mut self) {
-        while let Ok(msg) = self.digital.wsjtx_rx.try_recv() {
-            self.digital.wsjtx_packets_count += 1;
-            match msg {
-                crate::digital::wsjtx::WsjtxMessage::Status {
-                    dial_freq,
-                    mode,
-                    dx_call,
-                    ..
-                } => {
-                    if !dx_call.is_empty() {
-                        self.digital.wsjtx_last_call = Some(dx_call);
-                    }
-                    if dial_freq > 0 {
-                        self.cat.rig_state.frequency_hz = dial_freq;
-                        if let Some(band_def) = crate::core::bandplan::get_band_by_freq(dial_freq) {
-                            self.entry.band = band_def.name.to_string();
-                        }
-                    }
-                    if !mode.is_empty() {
-                        self.entry.mode = mode;
-                    }
-                }
-                crate::digital::wsjtx::WsjtxMessage::QsoLogged(qso) => {
-                    self.handle_wsjtx_qso(*qso);
-                }
-                crate::digital::wsjtx::WsjtxMessage::Heartbeat { .. } => {}
-            }
-        }
-    }
-
     /// Odbiór aktualizacji stanu i zalogowanych QSO z modułu JS8Call przez TCP API
     pub fn poll_js8call(&mut self) {
         if let Some(ref rx) = self.digital.js8call_state_rx {

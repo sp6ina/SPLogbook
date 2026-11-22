@@ -145,6 +145,13 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.close();
         }
         if ui
+            .button(icons::ANTENNA_TUNER.label(tr(key::WSJTX_OPEN_WINDOW, lang)))
+            .clicked()
+        {
+            app.digital.wsjtx.show_window = true;
+            ui.close();
+        }
+        if ui
             .button(icons::VOICE_KEYER.label(tr(key::MENU_VOICE_KEYER, lang)))
             .clicked()
         {

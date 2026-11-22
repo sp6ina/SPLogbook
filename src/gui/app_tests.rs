@@ -4694,3 +4694,443 @@ fn s7_contest_session_survives_a_restart() {
     assert_eq!(session.categories.power, "LOW");
     assert!(session.is_active());
 }
+
+// ── STAGE-V140-S8: dwukierunkowa współpraca z WSJT-X / JTDX ──
+
+use crate::digital::wsjtx::{
+    self as wsjtx_proto, WsjtxDecode, WsjtxMark, WsjtxMessage, WsjtxOutgoing, WsjtxStatus,
+};
+
+/// Aplikacja z wirtualnym kanałem poleceń zamiast gniazda UDP.
+fn s8_app() -> (
+    tempfile::TempDir,
+    Box<SpLogApp>,
+    tokio::sync::mpsc::UnboundedReceiver<WsjtxOutgoing>,
+) {
+    let (dir, mut app) = s7_app();
+    app.config.station.callsign = "SP6INA".to_string();
+    // Pierwsza klatka programu: przeliczenie ocen zlecone przy starcie, jeszcze bez dekodów.
+    app.poll_wsjtx();
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    app.digital.wsjtx.out = Some(tx);
+    (dir, app, rx)
+}
+
+fn s8_status(id: &str, dial_freq: u64) -> WsjtxMessage {
+    WsjtxMessage::Status(Box::new(WsjtxStatus {
+        id: id.to_string(),
+        dial_freq,
+        mode: "FT8".to_string(),
+        ..WsjtxStatus::default()
+    }))
+}
+
+fn s8_decode(id: &str, message: &str) -> WsjtxDecode {
+    WsjtxDecode {
+        id: id.to_string(),
+        is_new: true,
+        time_ms: 43_200_000,
+        snr: -8,
+        delta_time: 0.1,
+        delta_freq: 1500,
+        mode: "~".to_string(),
+        message: message.to_string(),
+        low_confidence: false,
+        off_air: false,
+    }
+}
+
+fn s8_feed(app: &mut SpLogApp, messages: Vec<WsjtxMessage>) {
+    for message in messages {
+        app.digital.wsjtx_tx.send(message).unwrap();
+    }
+    app.poll_wsjtx();
+}
+
+fn s8_sent(rx: &mut tokio::sync::mpsc::UnboundedReceiver<WsjtxOutgoing>) -> Vec<WsjtxOutgoing> {
+    let mut sent = Vec::new();
+    while let Ok(packet) = rx.try_recv() {
+        sent.push(packet);
+    }
+    sent
+}
+
+fn s8_highlight(id: &str, call: &str, mark: WsjtxMark) -> WsjtxOutgoing {
+    let (background, foreground) = mark.colors().unwrap();
+    WsjtxOutgoing {
+        client_id: id.to_string(),
+        packet: wsjtx_proto::encode_highlight(id, call, background, foreground, false),
+    }
+}
+
+fn s8_clear_all(id: &str) -> WsjtxOutgoing {
+    WsjtxOutgoing {
+        client_id: id.to_string(),
+        packet: wsjtx_proto::encode_clear_highlights(id),
+    }
+}
+
+fn s8_logged(call: &str, band: &str, freq: f64) -> WsjtxMessage {
+    // Tak jak po dekodowaniu pakietu bez raportów: pola RST są puste.
+    let mut qso = QsoRecord::new(call, band, "FT8");
+    qso.rst_sent.clear();
+    qso.rst_rcvd.clear();
+    qso.qso_date = "20261122".to_string();
+    qso.time_on = "120000".to_string();
+    qso.freq = Some(freq);
+    WsjtxMessage::QsoLogged {
+        id: "WSJT-X".to_string(),
+        qso: Box::new(qso),
+    }
+}
+
+#[tokio::test]
+async fn s8_cq_callers_are_coloured_once_by_their_log_status() {
+    let (_dir, mut app, mut rx) = s8_app();
+    s8_feed(
+        &mut app,
+        vec![
+            s8_status("WSJT-X", 14_074_000),
+            WsjtxMessage::Decode(s8_decode("WSJT-X", "CQ SP9ABC JO90")),
+            WsjtxMessage::Decode(s8_decode("WSJT-X", "SP9ABC SP3XYZ -05")),
+            WsjtxMessage::Decode(s8_decode("WSJT-X", "CQ SP9ABC JO90")),
+        ],
+    );
+    assert_eq!(
+        s8_sent(&mut rx),
+        vec![s8_highlight("WSJT-X", "SP9ABC", WsjtxMark::NewDxcc)],
+        "a CQ caller is highlighted once; other messages are not highlighted"
+    );
+    let decodes = &app.digital.wsjtx.decodes;
+    assert_eq!(decodes.len(), 3);
+    assert_eq!(decodes[0].call.as_deref(), Some("SP9ABC"));
+    assert_eq!(decodes[0].band.as_deref(), Some("20m"));
+    assert_eq!(decodes[0].mark, WsjtxMark::NewDxcc);
+    assert_eq!(decodes[1].call.as_deref(), Some("SP3XYZ"));
+    assert_eq!(app.entry.band, "20m");
+    assert_eq!(app.entry.mode, "FT8");
+}
+
+#[tokio::test]
+async fn s8_unknown_band_or_country_is_not_highlighted() {
+    let (_dir, mut app, mut rx) = s8_app();
+    // Bez pakietu Status pasmo jest nieznane; K1ABC nie ma w testowym pliku krajów.
+    s8_feed(
+        &mut app,
+        vec![WsjtxMessage::Decode(s8_decode("WSJT-X", "CQ SP9ABC JO90"))],
+    );
+    s8_feed(
+        &mut app,
+        vec![
+            s8_status("WSJT-X", 14_074_000),
+            WsjtxMessage::Decode(s8_decode("WSJT-X", "CQ K1ABC FN42")),
+        ],
+    );
+    assert_eq!(s8_sent(&mut rx), Vec::<WsjtxOutgoing>::new());
+    assert!(
+        app.digital
+            .wsjtx
+            .decodes
+            .iter()
+            .all(|row| row.mark == WsjtxMark::Other)
+    );
+}
+
+#[tokio::test]
+async fn s8_logging_a_qso_recolours_the_band_activity() {
+    let (_dir, mut app, mut rx) = s8_app();
+    s8_feed(
+        &mut app,
+        vec![
+            s8_status("WSJT-X", 7_074_000),
+            WsjtxMessage::Decode(s8_decode("WSJT-X", "CQ SP3XYZ JO82")),
+        ],
+    );
+    assert_eq!(
+        s8_sent(&mut rx),
+        vec![s8_highlight("WSJT-X", "SP3XYZ", WsjtxMark::NewDxcc)]
+    );
+
+    s8_feed(&mut app, vec![s8_logged("SP3XYZ", "40m", 7.074)]);
+    assert_eq!(
+        s8_sent(&mut rx),
+        vec![
+            s8_clear_all("WSJT-X"),
+            s8_highlight("WSJT-X", "SP3XYZ", WsjtxMark::WorkedBefore),
+        ],
+        "after the QSO the station is worked on this band"
+    );
+    assert_eq!(app.digital.wsjtx.decodes[0].mark, WsjtxMark::WorkedBefore);
+
+    // Na innym paśmie ten sam kraj jest nowym pasmem.
+    s8_feed(
+        &mut app,
+        vec![
+            s8_status("WSJT-X", 14_074_000),
+            WsjtxMessage::Decode(s8_decode("WSJT-X", "CQ SP3XYZ JO82")),
+        ],
+    );
+    let sent = s8_sent(&mut rx);
+    assert_eq!(
+        sent.last(),
+        Some(&s8_highlight("WSJT-X", "SP3XYZ", WsjtxMark::NewBand))
+    );
+    assert_eq!(app.digital.wsjtx.decodes[0].mark, WsjtxMark::NewBand);
+}
+
+#[tokio::test]
+async fn s8_highlights_are_capped_per_instance() {
+    let (_dir, mut app, mut rx) = s8_app();
+    let mut messages = vec![s8_status("WSJT-X", 14_074_000)];
+    let calls: Vec<String> = (0..=wsjtx_proto::MAX_HIGHLIGHTS)
+        .map(|n| {
+            format!(
+                "SP{}A{}{}",
+                n % 10,
+                (b'A' + (n / 26 % 26) as u8) as char,
+                (b'A' + (n % 26) as u8) as char
+            )
+        })
+        .collect();
+    for call in &calls {
+        messages.push(WsjtxMessage::Decode(s8_decode(
+            "WSJT-X",
+            &format!("CQ {call} JO90"),
+        )));
+    }
+    s8_feed(&mut app, messages);
+    let sent = s8_sent(&mut rx);
+    assert_eq!(sent.len(), wsjtx_proto::MAX_HIGHLIGHTS + 2);
+    assert_eq!(sent[wsjtx_proto::MAX_HIGHLIGHTS], s8_clear_all("WSJT-X"));
+    assert_eq!(app.digital.wsjtx.marks.len(), 1);
+}
+
+#[tokio::test]
+async fn s8_highlighting_can_be_switched_off() {
+    let (_dir, mut app, mut rx) = s8_app();
+    app.config.wsjtx.highlight = false;
+    s8_feed(
+        &mut app,
+        vec![
+            s8_status("WSJT-X", 14_074_000),
+            WsjtxMessage::Decode(s8_decode("WSJT-X", "CQ SP9ABC JO90")),
+        ],
+    );
+    assert_eq!(s8_sent(&mut rx), Vec::<WsjtxOutgoing>::new());
+    assert_eq!(app.digital.wsjtx.decodes[0].mark, WsjtxMark::NewDxcc);
+}
+
+#[tokio::test]
+async fn s8_reply_goes_back_to_the_instance_that_decoded_the_cq() {
+    let (_dir, mut app, mut rx) = s8_app();
+    app.config.wsjtx.highlight = false;
+    let cq = s8_decode("JTDX", "CQ DX SP9ABC JO90");
+    s8_feed(
+        &mut app,
+        vec![
+            s8_status("JTDX", 14_074_000),
+            WsjtxMessage::Decode(cq.clone()),
+            WsjtxMessage::Decode(s8_decode("JTDX", "SP9ABC SP3XYZ R-05")),
+        ],
+    );
+    app.reply_to_wsjtx_decode(0);
+    assert!(
+        s8_sent(&mut rx).is_empty(),
+        "only CQ/QRZ decodes are answered"
+    );
+    app.reply_to_wsjtx_decode(1);
+    assert_eq!(
+        s8_sent(&mut rx),
+        vec![WsjtxOutgoing {
+            client_id: "JTDX".to_string(),
+            packet: wsjtx_proto::encode_reply(&cq, 0),
+        }]
+    );
+    app.reply_to_wsjtx_decode(99);
+    assert_eq!(s8_sent(&mut rx), Vec::<WsjtxOutgoing>::new());
+}
+
+#[tokio::test]
+async fn s8_clear_and_close_drop_only_that_instance() {
+    let (_dir, mut app, _rx) = s8_app();
+    s8_feed(
+        &mut app,
+        vec![
+            s8_status("WSJT-X", 14_074_000),
+            s8_status("JTDX", 7_074_000),
+            WsjtxMessage::Decode(s8_decode("WSJT-X", "CQ SP9ABC JO90")),
+            WsjtxMessage::Decode(s8_decode("JTDX", "CQ SP3XYZ JO82")),
+            WsjtxMessage::Clear {
+                id: "WSJT-X".to_string(),
+            },
+        ],
+    );
+    assert_eq!(app.digital.wsjtx.decodes.len(), 1);
+    assert_eq!(app.digital.wsjtx.clients.len(), 2);
+    s8_feed(
+        &mut app,
+        vec![WsjtxMessage::Close {
+            id: "JTDX".to_string(),
+        }],
+    );
+    assert!(app.digital.wsjtx.decodes.is_empty());
+    assert_eq!(
+        app.digital.wsjtx.clients.keys().collect::<Vec<_>>(),
+        vec!["WSJT-X"]
+    );
+    assert!(
+        app.digital
+            .wsjtx
+            .marks
+            .keys()
+            .all(|(client, _)| client == "WSJT-X")
+    );
+}
+
+#[tokio::test]
+async fn s8_stopping_the_link_clears_the_highlights_it_set() {
+    let (_dir, mut app, mut rx) = s8_app();
+    s8_feed(
+        &mut app,
+        vec![
+            s8_status("WSJT-X", 14_074_000),
+            WsjtxMessage::Decode(s8_decode("WSJT-X", "CQ SP9ABC JO90")),
+        ],
+    );
+    s8_sent(&mut rx);
+    assert!(app.stop_wsjtx_link().is_none());
+    assert_eq!(s8_sent(&mut rx), vec![s8_clear_all("WSJT-X")]);
+    assert!(app.digital.wsjtx.out.is_none() && app.digital.wsjtx.marks.is_empty());
+}
+
+#[tokio::test]
+async fn s8_logged_qso_without_reports_is_stored_without_invented_rst() {
+    let (_dir, mut app, _rx) = s8_app();
+    s8_feed(&mut app, vec![s8_logged("SP9ABC", "20m", 14.074)]);
+    let db = app.services.log_db.lock().unwrap();
+    let stored = db.get_all_qsos_for_journal(&app.active_journal.id).unwrap();
+    assert_eq!(stored.len(), 1);
+    assert_eq!(stored[0].callsign, "SP9ABC");
+    assert_eq!(stored[0].rst_sent, "");
+    assert_eq!(stored[0].rst_rcvd, "");
+}
+
+/// Wolny port UDP na pętli zwrotnej (gniazdo jest od razu zamykane).
+fn s8_free_udp_port() -> u16 {
+    std::net::UdpSocket::bind("0.0.0.0:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
+}
+
+async fn s8_wait_for(app: &mut SpLogApp, mut done: impl FnMut(&SpLogApp) -> bool) {
+    for _ in 0..200 {
+        app.poll_wsjtx();
+        if done(app) {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    panic!("condition not reached in time");
+}
+
+#[tokio::test]
+async fn s8_link_listens_on_the_configured_port_and_releases_it() {
+    let (_dir, mut app) = s7_app();
+    let port = s8_free_udp_port();
+    app.config.wsjtx.port = port;
+    app.start_wsjtx_link();
+
+    let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let cq = s8_decode("WSJT-X", "CQ SP9ABC JO90");
+    let mut packet = Vec::new();
+    packet.extend_from_slice(&0xadbc_cbdau32.to_be_bytes());
+    packet.extend_from_slice(&2u32.to_be_bytes());
+    packet.extend_from_slice(&2u32.to_be_bytes());
+    packet.extend_from_slice(&6u32.to_be_bytes());
+    packet.extend_from_slice(b"WSJT-X");
+    packet.push(1);
+    packet.extend_from_slice(&cq.time_ms.to_be_bytes());
+    packet.extend_from_slice(&cq.snr.to_be_bytes());
+    packet.extend_from_slice(&cq.delta_time.to_be_bytes());
+    packet.extend_from_slice(&cq.delta_freq.to_be_bytes());
+    packet.extend_from_slice(&1u32.to_be_bytes());
+    packet.extend_from_slice(b"~");
+    packet.extend_from_slice(&(cq.message.len() as u32).to_be_bytes());
+    packet.extend_from_slice(cq.message.as_bytes());
+    packet.extend_from_slice(&[0, 0]);
+
+    for _ in 0..40 {
+        peer.send_to(&packet, ("127.0.0.1", port)).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        app.poll_wsjtx();
+        if !app.digital.wsjtx.decodes.is_empty() {
+            break;
+        }
+    }
+    assert_eq!(app.digital.wsjtx.decodes[0].decode, cq);
+    assert!(app.digital.wsjtx.is_listening());
+
+    let link = app.stop_wsjtx_link().expect("the link task is running");
+    tokio::time::timeout(std::time::Duration::from_secs(5), link)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        std::net::UdpSocket::bind(("0.0.0.0", port)).is_ok(),
+        "the port is free again after stopping"
+    );
+}
+
+#[tokio::test]
+async fn s8_busy_port_is_reported_to_the_operator() {
+    let (_dir, mut app) = s7_app();
+    let busy = std::net::UdpSocket::bind("0.0.0.0:0").unwrap();
+    app.config.wsjtx.port = busy.local_addr().unwrap().port();
+    app.start_wsjtx_link();
+    s8_wait_for(&mut app, |app| !app.digital.wsjtx.is_listening()).await;
+    let notice = app.runtime.notice_rx.try_recv().expect("a notice is sent");
+    assert_eq!(notice.severity, crate::gui::state::ToastSeverity::Error);
+    assert!(
+        notice
+            .msg
+            .text(crate::core::i18n::Language::En)
+            .starts_with("Cannot start the WSJT-X listener"),
+    );
+}
+
+#[tokio::test]
+async fn s8_disabled_link_does_not_bind() {
+    let (_dir, mut app) = s7_app();
+    app.config.wsjtx.enabled = false;
+    app.start_wsjtx_link();
+    assert!(app.digital.wsjtx.out.is_none() && app.digital.wsjtx.link.is_none());
+}
+
+#[test]
+fn s8_decodes_window_renders_rows_and_settings() {
+    let (_dir, mut app) = s7_app();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let _guard = rt.enter();
+    s8_feed(
+        &mut app,
+        vec![
+            s8_status("WSJT-X", 14_074_000),
+            WsjtxMessage::Decode(s8_decode("WSJT-X", "CQ SP9ABC JO90")),
+            WsjtxMessage::Decode(s8_decode("WSJT-X", "SP9ABC SP3XYZ -05")),
+        ],
+    );
+    app.digital.wsjtx.show_window = true;
+    app.digital.wsjtx.only_cq = true;
+    let ctx = egui::Context::default();
+    let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+        crate::gui::wsjtx_window::render_wsjtx_window(&mut app, ui.ctx());
+    });
+    output.textures_delta.clear();
+    assert!(app.digital.wsjtx.show_window);
+    assert_eq!(app.digital.wsjtx.decodes.len(), 2);
+}

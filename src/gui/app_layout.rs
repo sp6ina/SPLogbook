@@ -504,6 +504,7 @@ impl SpLogApp {
         render_contest_window(self, ctx);
         render_custom_contest_editor(self, ctx);
         render_cw_macros_window(self, ctx);
+        crate::gui::wsjtx_window::render_wsjtx_window(self, ctx);
         render_station_ledger_window(self, ctx);
         render_welcome_wizard(self, ctx);
         render_cat_settings_window(self, ctx);

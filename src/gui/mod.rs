@@ -68,6 +68,7 @@ pub mod welcome_wizard;
 pub mod wol_dialog;
 pub mod workspace_profiles;
 pub mod world_map;
+pub mod wsjtx_window;
 pub mod wspr_panel;
 
 /// Pomocnik rysujący mały przycisk "↗" (Odepnij do osobnego okna OS) bezpośrednio na pasku tytułowym okna egui.
