@@ -6,6 +6,7 @@ pub mod app;
 pub mod astronomy_dialog;
 pub mod awards_matrix;
 pub mod bandmap;
+pub mod bandplan_editor;
 pub mod cat_settings;
 pub mod changelog;
 pub mod clubs_editor;

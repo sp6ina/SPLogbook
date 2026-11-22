@@ -5321,3 +5321,34 @@ async fn s9_rotor_stays_still_by_default() {
     app.tune_to_cluster_spot(&s9_spot("SP9ABC", 14_025.0, ""));
     assert!((app.cat.rotor_state.azimuth_deg - before).abs() < f32::EPSILON);
 }
+
+#[test]
+fn applied_band_plan_drives_spot_modes_and_the_built_in_plan_is_stored_as_none() {
+    use crate::cluster::spot_info::{self, SpotMode};
+    use crate::core::bandplan::{BandPlan, PlanSegment, SegmentMode};
+    let mut app = s2_app();
+    assert_eq!(
+        spot_info::spot_mode("", 14_250_000, false, app.config.active_bandplan()),
+        Some(SpotMode::Ssb)
+    );
+    let mut plan = BandPlan::iaru_region1().clone();
+    plan.band_mut("20m").unwrap().segments = vec![PlanSegment {
+        label: "CW".to_string(),
+        start_hz: 14_000_000,
+        end_hz: 14_350_000,
+        mode: SegmentMode::Cw,
+    }];
+    app.apply_bandplan(plan.clone());
+    assert_eq!(app.config.bandplan.as_ref(), Some(&plan));
+    assert_eq!(
+        spot_info::spot_mode("", 14_250_000, false, app.config.active_bandplan()),
+        Some(SpotMode::Cw)
+    );
+
+    app.open_bandplan_editor();
+    assert!(app.gui.dialogs.bandplan_editor.is_open);
+    assert_eq!(app.gui.dialogs.bandplan_editor.draft(), &plan);
+
+    app.apply_bandplan(BandPlan::iaru_region1().clone());
+    assert_eq!(app.config.bandplan, None);
+}

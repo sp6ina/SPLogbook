@@ -37,6 +37,7 @@ pub struct DialogState {
     pub sota_dialog: SotaDialog,
     pub csv_export_dialog: CsvExportDialog,
     pub waterfall_panel: WaterfallPanel,
+    pub bandplan_editor: crate::gui::bandplan_editor::BandPlanEditor,
 }
 
 impl Default for DialogState {
@@ -58,6 +59,7 @@ impl Default for DialogState {
             sota_dialog: SotaDialog::new(),
             csv_export_dialog: CsvExportDialog::new(),
             waterfall_panel: WaterfallPanel::new(),
+            bandplan_editor: crate::gui::bandplan_editor::BandPlanEditor::default(),
         }
     }
 }

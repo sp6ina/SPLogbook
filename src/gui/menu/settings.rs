@@ -65,6 +65,14 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
         backup_settings_menu(app, ui);
 
+        if ui
+            .button(icons::BANDMAP.label(tr(key::BANDPLAN_MENU, lang)))
+            .clicked()
+        {
+            app.open_bandplan_editor();
+            ui.close();
+        }
+
         ui.separator();
 
         // Skala czcionki / UI

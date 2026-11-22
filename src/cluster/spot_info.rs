@@ -6,6 +6,8 @@
 //! Komentarz jest dzielony na słowa, więc `UP` w `GROUP` ani `CW` w `CWOPS` niczego nie
 //! oznaczają. Emisję bez podpowiedzi w komentarzu wyznacza segment planu pasma.
 
+use crate::core::bandplan::BandPlan;
+
 /// Emisja stacji ze spotu.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SpotMode {
@@ -73,13 +75,17 @@ pub enum SpotCategory {
 
 /// Kategoria spotu; w segmencie danych planu pasma spot jest cyfrowy, nawet gdy nie
 /// wiadomo, jaką emisją.
-pub fn spot_category(comment: &str, freq_hz: u64, is_ft8: bool) -> Option<SpotCategory> {
-    match spot_mode(comment, freq_hz, is_ft8) {
+pub fn spot_category(
+    comment: &str,
+    freq_hz: u64,
+    is_ft8: bool,
+    plan: &BandPlan,
+) -> Option<SpotCategory> {
+    match spot_mode(comment, freq_hz, is_ft8, plan) {
         Some(SpotMode::Cw) => Some(SpotCategory::Cw),
         Some(SpotMode::Ssb | SpotMode::Fm | SpotMode::Am) => Some(SpotCategory::Phone),
         Some(SpotMode::Digital(_)) => Some(SpotCategory::Digital),
-        None => (crate::core::bandplan::get_suggested_mode(freq_hz) == Some("FT8"))
-            .then_some(SpotCategory::Digital),
+        None => (plan.suggested_mode(freq_hz) == Some("FT8")).then_some(SpotCategory::Digital),
     }
 }
 
@@ -106,7 +112,7 @@ fn mode_word(word: &str) -> Option<SpotMode> {
 }
 
 /// Emisja spotu: najpierw słowo w komentarzu, potem segment planu pasma.
-pub fn spot_mode(comment: &str, freq_hz: u64, is_ft8: bool) -> Option<SpotMode> {
+pub fn spot_mode(comment: &str, freq_hz: u64, is_ft8: bool, plan: &BandPlan) -> Option<SpotMode> {
     if is_ft8 {
         return Some(SpotMode::Digital("FT8".to_string()));
     }
@@ -114,7 +120,7 @@ pub fn spot_mode(comment: &str, freq_hz: u64, is_ft8: bool) -> Option<SpotMode> 
         return Some(mode);
     }
     // Segment danych nie mówi, która to emisja cyfrowa — wtedy emisja pozostaje nieznana.
-    match crate::core::bandplan::get_suggested_mode(freq_hz)? {
+    match plan.suggested_mode(freq_hz)? {
         "CW" => Some(SpotMode::Cw),
         "USB" | "LSB" => Some(SpotMode::Ssb),
         "FM" => Some(SpotMode::Fm),
@@ -220,25 +226,39 @@ mod tests {
     #[test]
     fn mode_comes_from_whole_words_then_from_the_band_plan() {
         assert_eq!(
-            spot_mode("CW 25 WPM", 14_200_000, false),
+            spot_mode("CW 25 WPM", 14_200_000, false, BandPlan::iaru_region1()),
             Some(SpotMode::Cw)
         );
-        assert_eq!(spot_mode("up 5 ssb", 7_020_000, false), Some(SpotMode::Ssb));
         assert_eq!(
-            spot_mode("", 14_074_000, true),
+            spot_mode("up 5 ssb", 7_020_000, false, BandPlan::iaru_region1()),
+            Some(SpotMode::Ssb)
+        );
+        assert_eq!(
+            spot_mode("", 14_074_000, true, BandPlan::iaru_region1()),
             Some(SpotMode::Digital("FT8".into()))
         );
         assert_eq!(
-            spot_mode("rtty test", 14_085_000, false),
+            spot_mode("rtty test", 14_085_000, false, BandPlan::iaru_region1()),
             Some(SpotMode::Digital("RTTY".into()))
         );
         // „CWOPS”, „GROUP” i „UP” to nie emisje: decyduje segment pasma.
         assert_eq!(
-            spot_mode("CWOPS member UP 2", 14_025_000, false),
+            spot_mode(
+                "CWOPS member UP 2",
+                14_025_000,
+                false,
+                BandPlan::iaru_region1()
+            ),
             Some(SpotMode::Cw)
         );
-        assert_eq!(spot_mode("GROUP", 14_250_000, false), Some(SpotMode::Ssb));
-        assert_eq!(spot_mode("", 14_080_000, false), None);
+        assert_eq!(
+            spot_mode("GROUP", 14_250_000, false, BandPlan::iaru_region1()),
+            Some(SpotMode::Ssb)
+        );
+        assert_eq!(
+            spot_mode("", 14_080_000, false, BandPlan::iaru_region1()),
+            None
+        );
     }
 
     #[test]
@@ -256,19 +276,19 @@ mod tests {
     #[test]
     fn categories_for_the_spot_filter() {
         assert_eq!(
-            spot_category("UP 2", 14_025_000, false),
+            spot_category("UP 2", 14_025_000, false, BandPlan::iaru_region1()),
             Some(SpotCategory::Cw)
         );
         assert_eq!(
-            spot_category("5/9", 14_250_000, false),
+            spot_category("5/9", 14_250_000, false, BandPlan::iaru_region1()),
             Some(SpotCategory::Phone)
         );
         assert_eq!(
-            spot_category("", 14_080_000, false),
+            spot_category("", 14_080_000, false, BandPlan::iaru_region1()),
             Some(SpotCategory::Digital)
         );
         assert_eq!(
-            spot_category("FT4", 14_250_000, false),
+            spot_category("FT4", 14_250_000, false, BandPlan::iaru_region1()),
             Some(SpotCategory::Digital)
         );
         assert_eq!(spot_freq_hz(14_025.5), 14_025_500);

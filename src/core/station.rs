@@ -716,6 +716,10 @@ pub struct AppConfig {
 
     #[serde(default)]
     pub cluster_spots: ClusterSpotSettings,
+
+    /// Plan pasm użytkownika; `None` oznacza wbudowany plan IARU Region 1.
+    #[serde(default)]
+    pub bandplan: Option<crate::core::bandplan::BandPlan>,
 }
 
 impl std::fmt::Debug for AppConfig {
@@ -840,6 +844,7 @@ impl std::fmt::Debug for AppConfig {
             .field("cw", &self.cw)
             .field("wsjtx", &self.wsjtx)
             .field("cluster_spots", &self.cluster_spots)
+            .field("bandplan", &self.bandplan.is_some())
             .finish()
     }
 }
@@ -1505,11 +1510,30 @@ impl Default for AppConfig {
             cw: CwConfig::default(),
             wsjtx: crate::digital::wsjtx::WsjtxSettings::default(),
             cluster_spots: ClusterSpotSettings::default(),
+            bandplan: None,
         }
     }
 }
 
 impl AppConfig {
+    /// Plan pasm w użyciu.
+    pub fn active_bandplan(&self) -> &crate::core::bandplan::BandPlan {
+        self.bandplan
+            .as_ref()
+            .unwrap_or_else(|| crate::core::bandplan::BandPlan::iaru_region1())
+    }
+
+    /// Odrzuca zapisany plan pasm, który nie przechodzi walidacji (np. ręcznie
+    /// zmieniony plik); wtedy obowiązuje plan IARU Region 1.
+    pub fn discard_invalid_bandplan(&mut self) {
+        if let Some(plan) = &self.bandplan
+            && let Err(e) = plan.validate()
+        {
+            log::warn!("band plan in the configuration ignored: {e}");
+            self.bandplan = None;
+        }
+    }
+
     pub fn load_from_file(path: &std::path::Path) -> Result<Self, std::io::Error> {
         Self::load_with_store(path, &super::credentials::SystemCredentialStore)
     }
@@ -1846,5 +1870,30 @@ mod tests {
         );
         assert_eq!(reloaded.distance_unit, source.distance_unit);
         assert_eq!(reloaded.lan_sync_port, source.lan_sync_port);
+    }
+
+    #[test]
+    fn stored_band_plan_survives_reload_and_an_invalid_one_is_dropped() {
+        use crate::core::bandplan::BandPlan;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_file = temp_dir.path().join("station_config.json");
+        let mut plan = BandPlan::iaru_region1().clone();
+        plan.band_mut("20m").unwrap().segments.truncate(1);
+        let mut source = AppConfig {
+            bandplan: Some(plan.clone()),
+            ..AppConfig::default()
+        };
+        source.save_to_file(&config_file).unwrap();
+        let reloaded = AppConfig::load_from_file(&config_file).unwrap();
+        assert_eq!(reloaded.bandplan.as_ref(), Some(&plan));
+        assert_eq!(reloaded.active_bandplan(), &plan);
+
+        // Ręcznie zepsuty plik: wycinek 20 m sięga 99 MHz.
+        plan.band_mut("20m").unwrap().segments[0].end_hz = 99_000_000;
+        source.bandplan = Some(plan);
+        source.save_to_file(&config_file).unwrap();
+        let reloaded = AppConfig::load_from_file(&config_file).unwrap();
+        assert_eq!(reloaded.bandplan, None);
+        assert_eq!(reloaded.active_bandplan(), BandPlan::iaru_region1());
     }
 }

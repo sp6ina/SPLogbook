@@ -285,6 +285,13 @@ pub(crate) const COMMANDS: &[Command] = &[
         },
     },
     Command {
+        label_key: key::BANDPLAN_MENU,
+        keywords: "band plan segments bandplan",
+        run: |app| {
+            app.open_bandplan_editor();
+        },
+    },
+    Command {
         label_key: key::CMD_WIZARD,
         keywords: "wizard setup",
         run: |app| {

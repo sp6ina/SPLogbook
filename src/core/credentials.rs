@@ -337,6 +337,7 @@ impl AppConfig {
             ));
         }
         let _ = crate::cat::config::migrate_legacy_cat_config(&mut config);
+        config.discard_invalid_bandplan();
         config
             .validate()
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;

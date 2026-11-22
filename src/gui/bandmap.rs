@@ -4,6 +4,7 @@
 use crate::core::bandplan::{AMATEUR_BANDS, SegmentMode, get_band_by_freq, get_band_by_name};
 use crate::core::i18n::{key, tr};
 use crate::gui::app::SpLogApp;
+use crate::gui::icons;
 use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
@@ -139,6 +140,20 @@ pub fn render_bandmap_window(app: &mut SpLogApp, ctx: &egui::Context) {
     }
 }
 
+/// Fill and text colour of a band plan segment.
+pub fn segment_colors(
+    colors: &crate::gui::theme::SegmentColors,
+    mode: SegmentMode,
+) -> (egui::Color32, egui::Color32) {
+    match mode {
+        SegmentMode::Cw => (colors.cw, colors.cw_text),
+        SegmentMode::Data => (colors.data, colors.data_text),
+        SegmentMode::Ssb => (colors.phone, colors.phone_text),
+        SegmentMode::Fm => (colors.fm, colors.fm_text),
+        SegmentMode::Beacon => (colors.beacon, colors.beacon_text),
+    }
+}
+
 pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let palette = ui.palette();
     let lang = app.gui.appearance.language;
@@ -188,6 +203,12 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .color(palette.accent),
         );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui
+                .small_button(icons::EDIT.label(tr(key::BANDPLAN_MENU, lang)))
+                .clicked()
+            {
+                app.open_bandplan_editor();
+            }
             ui.label(
                 egui::RichText::new(tr(key::BANDMAP_LEGEND_STATUS, lang))
                     .size(11.0)
@@ -221,8 +242,14 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
             egui::StrokeKind::Inside,
         );
 
-        // Wycinki pasma wg IARU
-        for seg in current_band_def.segments {
+        // Wycinki pasma wg planu pasm użytkownika
+        let segments = app
+            .config
+            .active_bandplan()
+            .band(current_band_def.name)
+            .map(|band| band.segments.clone())
+            .unwrap_or_default();
+        for seg in &segments {
             let seg_start_frac =
                 ((seg.start_hz.saturating_sub(min_freq)) as f32 / freq_span).clamp(0.0, 1.0);
             let seg_end_frac =
@@ -236,19 +263,13 @@ pub fn render_bandmap_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 egui::pos2(seg_x2, rect.min.y + 24.0),
             );
 
-            let (color, text_color) = match seg.mode {
-                SegmentMode::Cw => (palette.segments.cw, palette.segments.cw_text),
-                SegmentMode::Data => (palette.segments.data, palette.segments.data_text),
-                SegmentMode::Ssb => (palette.segments.phone, palette.segments.phone_text),
-                SegmentMode::Fm => (palette.segments.fm, palette.segments.fm_text),
-                SegmentMode::Beacon => (palette.segments.beacon, palette.segments.beacon_text),
-            };
+            let (color, text_color) = segment_colors(&palette.segments, seg.mode);
 
             painter.rect_filled(seg_rect, 2.0, color);
             painter.text(
                 seg_rect.center(),
                 egui::Align2::CENTER_CENTER,
-                seg.label,
+                &seg.label,
                 egui::FontId::monospace(10.0),
                 text_color,
             );

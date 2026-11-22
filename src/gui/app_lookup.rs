@@ -372,7 +372,12 @@ impl SpLogApp {
     /// tylko kraj i pasmo.
     pub fn cluster_spot_badge(&mut self, spot: &DxSpot) -> SpotBadgeKind {
         let freq_hz = spot_info::spot_freq_hz(spot.frequency_khz);
-        let mode = spot_info::spot_mode(&spot.comment, freq_hz, spot.is_ft8);
+        let mode = spot_info::spot_mode(
+            &spot.comment,
+            freq_hz,
+            spot.is_ft8,
+            self.config.active_bandplan(),
+        );
         let mode_name = mode.as_ref().map(SpotMode::log_mode);
         let key = format!(
             "{}|{}|{}",
@@ -436,8 +441,13 @@ impl SpLogApp {
             Some(SplitHint::Tx(tx_hz)) => Some(tx_hz),
             _ => None,
         };
-        let mode = spot_info::spot_mode(&spot.comment, rx_hz, spot.is_ft8)
-            .map(|m| m.log_mode().to_string());
+        let mode = spot_info::spot_mode(
+            &spot.comment,
+            rx_hz,
+            spot.is_ft8,
+            self.config.active_bandplan(),
+        )
+        .map(|m| m.log_mode().to_string());
         let color_argb = match self.cluster_spot_badge(spot) {
             SpotBadgeKind::NewDxcc => spot_info::SDR_COLOR_NEW_DXCC,
             SpotBadgeKind::NewBand => spot_info::SDR_COLOR_NEW_BAND,
@@ -485,7 +495,12 @@ impl SpLogApp {
             return;
         }
         let mode = if settings.tune_sets_mode {
-            spot_info::spot_mode(&spot.comment, freq_hz, spot.is_ft8)
+            spot_info::spot_mode(
+                &spot.comment,
+                freq_hz,
+                spot.is_ft8,
+                self.config.active_bandplan(),
+            )
         } else {
             None
         };

@@ -605,6 +605,12 @@ impl SpLogApp {
             .clubs_editor
             .show(ctx, self.gui.appearance.language);
         self.handle_clubs_action(clubs_action);
+        let bandplan_action = self
+            .gui
+            .dialogs
+            .bandplan_editor
+            .show(ctx, self.gui.appearance.language);
+        self.handle_bandplan_action(bandplan_action);
 
         // 2. Położenie Księżyca i Słońca (EME / Kalkulator astronomiczny)
         let my_grid = self.config.station.gridsquare.clone();

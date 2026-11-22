@@ -502,6 +502,7 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             &spot.comment,
             crate::cluster::spot_info::spot_freq_hz(spot.frequency_khz),
             spot.is_ft8,
+            app.config.active_bandplan(),
         );
         let mode_skip = match filter_mode_sel.as_str() {
             "CW" => category != Some(SpotCategory::Cw),
