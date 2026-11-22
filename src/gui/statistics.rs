@@ -5,82 +5,80 @@
 
 use crate::core::i18n::{Msg, key, tr};
 use crate::gui::app::{DrillFilter, QslDrillStatus, SpLogApp};
+use crate::gui::state::Tile;
 use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 pub fn render_statistics_window(app: &mut SpLogApp, ctx: &egui::Context) {
-    if !app.log_view.show_statistics_window {
-        return;
-    }
     let lang = app.gui.appearance.language;
-    let mut is_open = app.log_view.show_statistics_window;
-
-    egui::Window::new(
+    let window = egui::Window::new(
         egui::RichText::new(format!("📊 {}", tr(key::STATS_WINDOW_TITLE, lang)))
             .size(12.0)
             .strong(),
     )
-    .open(&mut is_open)
     .default_size([780.0, 580.0])
     .min_size([500.0, 400.0])
-    .resizable(true)
-    .show(ctx, |ui| {
-        let palette = ui.palette();
-        ui.horizontal(|ui| {
-            ui.heading(
-                egui::RichText::new(tr(key::STATS_CENTER_TITLE, lang))
-                    .size(15.0)
-                    .color(palette.accent),
-            );
-        });
-        ui.add_space(2.0);
+    .resizable(true);
+    app.show_module_window(ctx, Tile::Statistics, window, render_statistics_body);
+}
 
-        // Zakładki statystyk
-        ui.horizontal(|ui| {
-            ui.selectable_value(
-                &mut app.log_view.stats_tab,
-                0,
-                format!("📅 {}", tr(key::STATS_TAB_MONTHLY, lang)),
-            );
-            ui.selectable_value(
-                &mut app.log_view.stats_tab,
-                1,
-                format!("📻 {}", tr(key::STATS_TAB_BANDS, lang)),
-            );
-            ui.selectable_value(
-                &mut app.log_view.stats_tab,
-                2,
-                format!("📡 {}", tr(key::STATS_TAB_MODES, lang)),
-            );
-            ui.selectable_value(
-                &mut app.log_view.stats_tab,
-                3,
-                format!("⏰ {}", tr(key::STATS_TAB_HOURLY, lang)),
-            );
-            ui.selectable_value(
-                &mut app.log_view.stats_tab,
-                4,
-                format!("🌍 {}", tr(key::STATS_TAB_COUNTRIES, lang)),
-            );
-            ui.selectable_value(
-                &mut app.log_view.stats_tab,
-                5,
-                format!("📬 {}", tr(key::STATS_TAB_QSL, lang)),
-            );
-        });
-        ui.separator();
+/// Treść modułu statystyk: okno albo kafelek pulpitu.
+pub fn render_statistics_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
+    let lang = app.gui.appearance.language;
 
-        match app.log_view.stats_tab {
-            0 => render_tab_monthly(app, ui),
-            1 => render_tab_bands(app, ui),
-            2 => render_tab_modes(app, ui),
-            3 => render_tab_hourly(app, ui),
-            4 => render_tab_countries(app, ui),
-            _ => render_tab_qsl(app, ui),
-        }
+    let palette = ui.palette();
+    ui.horizontal(|ui| {
+        ui.heading(
+            egui::RichText::new(tr(key::STATS_CENTER_TITLE, lang))
+                .size(15.0)
+                .color(palette.accent),
+        );
     });
+    ui.add_space(2.0);
 
-    app.log_view.show_statistics_window = is_open;
+    // Zakładki statystyk
+    ui.horizontal(|ui| {
+        ui.selectable_value(
+            &mut app.log_view.stats_tab,
+            0,
+            format!("📅 {}", tr(key::STATS_TAB_MONTHLY, lang)),
+        );
+        ui.selectable_value(
+            &mut app.log_view.stats_tab,
+            1,
+            format!("📻 {}", tr(key::STATS_TAB_BANDS, lang)),
+        );
+        ui.selectable_value(
+            &mut app.log_view.stats_tab,
+            2,
+            format!("📡 {}", tr(key::STATS_TAB_MODES, lang)),
+        );
+        ui.selectable_value(
+            &mut app.log_view.stats_tab,
+            3,
+            format!("⏰ {}", tr(key::STATS_TAB_HOURLY, lang)),
+        );
+        ui.selectable_value(
+            &mut app.log_view.stats_tab,
+            4,
+            format!("🌍 {}", tr(key::STATS_TAB_COUNTRIES, lang)),
+        );
+        ui.selectable_value(
+            &mut app.log_view.stats_tab,
+            5,
+            format!("📬 {}", tr(key::STATS_TAB_QSL, lang)),
+        );
+    });
+    ui.separator();
+
+    match app.log_view.stats_tab {
+        0 => render_tab_monthly(app, ui),
+        1 => render_tab_bands(app, ui),
+        2 => render_tab_modes(app, ui),
+        3 => render_tab_hourly(app, ui),
+        4 => render_tab_countries(app, ui),
+        _ => render_tab_qsl(app, ui),
+    }
 }
 
 #[derive(Clone, PartialEq, Eq)]

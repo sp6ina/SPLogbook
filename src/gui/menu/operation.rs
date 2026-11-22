@@ -141,14 +141,14 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .button(icons::CW_KEYER.label(tr(key::TOOLS_CW_MACROS, lang)))
             .clicked()
         {
-            app.cw.show_window = true;
+            app.open_tile(crate::gui::state::Tile::CwMacros);
             ui.close();
         }
         if ui
             .button(icons::ANTENNA_TUNER.label(tr(key::WSJTX_OPEN_WINDOW, lang)))
             .clicked()
         {
-            app.digital.wsjtx.show_window = true;
+            app.open_tile(crate::gui::state::Tile::Wsjtx);
             ui.close();
         }
         if ui
@@ -199,7 +199,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .button(icons::FLAG.label(tr(key::TOOLS_CONTEST_MODULE, lang)))
             .clicked()
         {
-            app.contest.show_window = true;
+            app.open_tile(crate::gui::state::Tile::Contest);
             ui.close();
         }
         if ui

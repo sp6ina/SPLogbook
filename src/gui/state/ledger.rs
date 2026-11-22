@@ -6,7 +6,6 @@ use crate::core::station::EquipmentCategory;
 /// Stan księgi sprzętowej stacji oraz formularzy dodawania/edycji sprzętu.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EquipmentLedgerState {
-    pub show_window: bool,
     pub new_model: String,
     pub editing_id: Option<String>,
     pub edit_cat: EquipmentCategory,
@@ -24,7 +23,6 @@ pub struct EquipmentLedgerState {
 impl Default for EquipmentLedgerState {
     fn default() -> Self {
         Self {
-            show_window: false,
             new_model: String::new(),
             editing_id: None,
             edit_cat: EquipmentCategory::Transceiver,
@@ -54,7 +52,6 @@ mod tests {
     #[test]
     fn default_matches_initial_values() {
         let state = EquipmentLedgerState::default();
-        assert!(!state.show_window);
         assert_eq!(state.new_model, "");
         assert_eq!(state.editing_id, None);
         assert_eq!(state.edit_cat, EquipmentCategory::Transceiver);

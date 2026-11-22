@@ -3015,7 +3015,7 @@ fn escape_does_not_clear_form_when_dialog_or_contest_is_open() {
         match variant {
             0 => app.gui.dialogs.send_spot_dialog.is_open = true,
             1 => app.gui.chrome.show_shortcuts_window = true,
-            _ => app.contest.show_window = true,
+            _ => app.open_tile(crate::gui::state::Tile::Contest),
         }
 
         run_qso_form_frame(
@@ -3052,7 +3052,7 @@ fn escape_closing_open_popup_does_not_clear_form() {
 #[test]
 fn contest_enter_goes_through_contest_save_qso_action_and_saves() {
     let mut app = qso_form_test_app();
-    app.contest.show_window = true;
+    app.open_tile(crate::gui::state::Tile::Contest);
     // Nieznany kontest => tryb „sam RST” bez wymaganej wymiany.
     app.contest.name = "Etap2 Test Contest".to_string();
     ready_to_save(&mut app, "SP9CON");
@@ -3577,7 +3577,7 @@ fn contest_entry_row_fits_in_long_languages() {
     for lang in [Language::De, Language::Fr, Language::Pl] {
         let mut app = qso_form_test_app();
         app.gui.appearance.language = lang;
-        app.contest.show_window = true;
+        app.open_tile(crate::gui::state::Tile::Contest);
         let ctx = egui::Context::default();
         let mut texts = Vec::new();
         let width = 640.0;
@@ -3621,18 +3621,10 @@ fn every_tile_supports_undock_floating_redock_cycle() {
         let mut app = qso_form_test_app();
         // Wszystkie kafelki widoczne i zadokowane.
         app.views = crate::gui::state::ViewsState::from_config(&AppConfig::default());
-        for tile in SpLogApp::all_tile_ids() {
-            match tile {
-                "vfo" => app.views.panel_vfo.visible = true,
-                "qso" => app.views.panel_qso.visible = true,
-                "log" => app.views.panel_log.visible = true,
-                "cluster" => app.views.panel_cluster.visible = true,
-                "bandmap" => app.views.panel_bandmap.visible = true,
-                "solar" => app.views.panel_solar.visible = true,
-                "satellites" => app.views.panel_satellites.visible = true,
-                "world_map" => app.views.panel_world_map.visible = true,
-                _ => app.views.panel_waterfall.visible = true,
-            }
+        for tile in crate::gui::state::Tile::ALL {
+            let panel = app.views.panel_mut(tile);
+            panel.visible = true;
+            panel.floating = false;
         }
         app.rebuild_dock_state_from_panels();
         assert!(
@@ -4504,7 +4496,7 @@ fn s7_app() -> (tempfile::TempDir, Box<SpLogApp>) {
 }
 
 fn s7_render_contest_window(app: &mut SpLogApp) {
-    app.contest.show_window = true;
+    app.open_tile(crate::gui::state::Tile::Contest);
     let ctx = egui::Context::default();
     let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
         crate::gui::contest::render_contest_window(app, ui.ctx());
@@ -5124,14 +5116,14 @@ fn s8_decodes_window_renders_rows_and_settings() {
             WsjtxMessage::Decode(s8_decode("WSJT-X", "SP9ABC SP3XYZ -05")),
         ],
     );
-    app.digital.wsjtx.show_window = true;
+    app.open_tile(crate::gui::state::Tile::Wsjtx);
     app.digital.wsjtx.only_cq = true;
     let ctx = egui::Context::default();
     let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
         crate::gui::wsjtx_window::render_wsjtx_window(&mut app, ui.ctx());
     });
     output.textures_delta.clear();
-    assert!(app.digital.wsjtx.show_window);
+    assert!(app.views.panel(crate::gui::state::Tile::Wsjtx).visible);
     assert_eq!(app.digital.wsjtx.decodes.len(), 2);
 }
 
@@ -5351,4 +5343,161 @@ fn applied_band_plan_drives_spot_modes_and_the_built_in_plan_is_stored_as_none()
 
     app.apply_bandplan(BandPlan::iaru_region1().clone());
     assert_eq!(app.config.bandplan, None);
+}
+
+// ======================================================================================
+// Moduły na pulpicie (S12a): kontest, WSJT-X, makra CW, statystyki, dyplomy, ewidencja
+// ======================================================================================
+
+fn s12_modules() -> impl Iterator<Item = crate::gui::state::Tile> {
+    crate::gui::state::Tile::ALL
+        .into_iter()
+        .filter(|t| t.is_module())
+}
+
+#[test]
+fn docked_module_joins_the_logbook_leaf() {
+    use crate::gui::state::Tile;
+    for tile in s12_modules() {
+        let mut app = qso_form_test_app();
+        app.views = crate::gui::state::ViewsState::from_config(&AppConfig::default());
+        app.rebuild_dock_state_from_panels();
+        let docked_before = app.views.visible_count();
+        app.open_tile(tile);
+        app.sync_dock_state();
+        assert_eq!(
+            app.views.visible_count(),
+            docked_before,
+            "{tile:?}: okno nie zajmuje pulpitu"
+        );
+        assert!(
+            app.gui
+                .workspace
+                .dock_state
+                .find_tab(&tile.id().to_string())
+                .is_none(),
+            "{tile:?}: otwarty moduł jest najpierw oknem"
+        );
+        app.dock_tile(tile.id());
+        app.sync_dock_state();
+        let dock = &app.gui.workspace.dock_state;
+        let module = dock
+            .find_tab(&tile.id().to_string())
+            .expect("moduł zadokowany");
+        let log = dock
+            .find_tab(&Tile::Log.id().to_string())
+            .expect("dziennik w układzie");
+        assert_eq!(
+            module.node_path(),
+            log.node_path(),
+            "{tile:?}: obok dziennika"
+        );
+        assert_eq!(app.views.visible_count(), docked_before + 1);
+
+        app.close_tile(tile.id());
+        app.sync_dock_state();
+        assert!(!app.views.panel(tile).visible);
+        assert!(
+            app.gui
+                .workspace
+                .dock_state
+                .find_tab(&tile.id().to_string())
+                .is_none()
+        );
+    }
+}
+
+#[test]
+fn module_toggle_and_close_side_effects() {
+    use crate::gui::state::Tile;
+    let mut app = qso_form_test_app();
+    app.toggle_tile(Tile::Wsjtx);
+    assert!(app.views.panel(Tile::Wsjtx).visible);
+    app.digital.wsjtx.draft = Some(app.config.wsjtx.clone());
+    app.toggle_tile(Tile::Wsjtx);
+    assert!(!app.views.panel(Tile::Wsjtx).visible);
+    // Niezastosowane ustawienia znikają razem z oknem, jak dotąd.
+    assert!(app.digital.wsjtx.draft.is_none());
+    // Zamknięcie nie zmienia miejsca modułu: po ponownym otwarciu wraca zadokowany.
+    app.open_tile(Tile::Statistics);
+    app.dock_tile(Tile::Statistics.id());
+    app.close_tile(Tile::Statistics.id());
+    app.open_tile(Tile::Statistics);
+    assert!(!app.views.panel(Tile::Statistics).floating);
+}
+
+#[test]
+fn module_layout_survives_config_save_and_profiles() {
+    use crate::gui::state::Tile;
+    let mut app = qso_form_test_app();
+    app.open_tile(Tile::Contest);
+    app.dock_tile(Tile::Contest.id());
+    app.open_tile(Tile::Awards);
+
+    let cfg = app.snapshot_config();
+    assert_eq!(
+        cfg.module_panels
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["awards", "contest"]
+    );
+    let text = serde_json::to_string(&cfg).unwrap();
+    let back: AppConfig = serde_json::from_str(&text).unwrap();
+    let views = crate::gui::state::ViewsState::from_config(&back);
+    assert!(views.panel(Tile::Contest).visible && !views.panel(Tile::Contest).floating);
+    assert!(views.panel(Tile::Awards).visible && views.panel(Tile::Awards).floating);
+    assert!(!views.panel(Tile::Ledger).visible);
+
+    let profile = crate::gui::workspace_profiles::capture_profile(&app, "Contest");
+    app.close_tile(Tile::Contest.id());
+    app.close_tile(Tile::Awards.id());
+    crate::gui::workspace_profiles::apply_profile(&mut app, &profile);
+    assert!(app.views.panel(Tile::Contest).visible);
+    assert!(app.views.panel(Tile::Awards).visible);
+    assert!(
+        app.gui
+            .workspace
+            .dock_state
+            .find_tab(&Tile::Contest.id().to_string())
+            .is_some()
+    );
+
+    // Profil sprzed v1.4 (bez modułów) zamyka moduły.
+    let mut old = profile.clone();
+    old.module_panels.clear();
+    crate::gui::workspace_profiles::apply_profile(&mut app, &old);
+    assert!(!app.views.panel(Tile::Contest).visible);
+}
+
+#[tokio::test]
+async fn every_module_renders_as_a_window_and_as_a_tile() {
+    use egui_dock::TabViewer;
+    for tile in s12_modules() {
+        let mut app = qso_form_test_app();
+        app.open_tile(tile);
+        let ctx = egui::Context::default();
+        for _ in 0..2 {
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                app.render_advanced_module_windows(ui.ctx());
+            });
+            output.textures_delta.clear();
+        }
+        assert!(
+            app.views.panel(tile).visible,
+            "{tile:?}: okno zostaje otwarte"
+        );
+        app.dock_tile(tile.id());
+        for _ in 0..2 {
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                let mut tab = tile.id().to_string();
+                TabViewer::ui(&mut app, ui, &mut tab);
+                assert_eq!(
+                    TabViewer::title(&mut app, &mut tab).text(),
+                    app.tile_title(tile.id())
+                );
+            });
+            output.textures_delta.clear();
+        }
+    }
 }

@@ -25,7 +25,7 @@ impl SpLogApp {
     #[must_use]
     pub fn main_qso_escape_allowed(&self, ctx: &egui::Context) -> bool {
         !self.is_modal_context_open(ctx)
-            && !self.contest.show_window
+            && !self.views.panel(crate::gui::state::Tile::Contest).visible
             && self
                 .active_focus_context_override
                 .is_none_or(|c| c == ActiveFocusContext::MainQsoEntry)
@@ -69,7 +69,7 @@ impl SpLogApp {
         let is_contest_focused =
             ctx.memory(|m| m.has_focus(contest_call_id) || m.has_focus(contest_exch_id));
         if is_contest_focused
-            || (self.contest.show_window
+            || (self.views.panel(crate::gui::state::Tile::Contest).visible
                 && ctx.memory(|m| m.has_focus(egui::Id::new("splogbook_contest_window"))))
         {
             return ActiveFocusContext::ContestQsoEntry;
@@ -175,7 +175,7 @@ impl SpLogApp {
             match action {
                 AppAction::Undo => self.perform_undo(),
                 AppAction::Redo => self.perform_redo(),
-                AppAction::OpenStats => self.log_view.show_statistics_window = true,
+                AppAction::OpenStats => self.open_tile(crate::gui::state::Tile::Statistics),
                 AppAction::ToggleShortcutsHelp => {
                     self.gui.chrome.show_shortcuts_window = !self.gui.chrome.show_shortcuts_window;
                 }
@@ -243,7 +243,7 @@ impl SpLogApp {
                     self.world_map.show_window = true;
                 }
                 AppAction::ToggleCwTerminal => {
-                    self.cw.show_window = !self.cw.show_window;
+                    self.toggle_tile(crate::gui::state::Tile::CwMacros);
                 }
                 AppAction::OpenProfiles => {
                     self.gui.windows.show_station_profiles_window =

@@ -5,7 +5,7 @@
 
 use egui_dock::{DockState, NodeIndex};
 
-use super::views::ViewsState;
+use super::views::{Tile, ViewsState};
 use crate::core::station::ViewPanelConfig;
 
 /// Session state for the dockable workspace layout and tiles.
@@ -35,31 +35,27 @@ impl DockWorkspace {
     }
 
     /// Canonical order of tile identifiers used when building or synchronizing the dock tree.
-    pub fn all_tile_ids() -> [&'static str; 9] {
-        [
-            "vfo",
-            "qso",
-            "log",
-            "cluster",
-            "bandmap",
-            "solar",
-            "satellites",
-            "world_map",
-            "waterfall",
-        ]
+    pub fn all_tile_ids() -> [&'static str; 15] {
+        Tile::ALL.map(Tile::id)
     }
 
     pub fn panel_config<'a>(views: &'a ViewsState, id: &str) -> &'a ViewPanelConfig {
-        match id {
-            "qso" => &views.panel_qso,
-            "log" => &views.panel_log,
-            "cluster" => &views.panel_cluster,
-            "bandmap" => &views.panel_bandmap,
-            "solar" => &views.panel_solar,
-            "satellites" => &views.panel_satellites,
-            "world_map" => &views.panel_world_map,
-            "waterfall" => &views.panel_waterfall,
-            _ => &views.panel_vfo,
+        views.panel(Tile::from_id(id).unwrap_or(Tile::Vfo))
+    }
+
+    /// Dokuje kartę: moduł dołącza do liścia dziennika (środkowa kolumna), panel do
+    /// pierwszego liścia.
+    fn add_tab(&mut self, tile: Tile) {
+        let anchor = if tile.is_module() {
+            self.dock_state.find_tab(&Tile::Log.id().to_string())
+        } else {
+            None
+        };
+        if let Some(leaf) = anchor.and_then(|path| self.dock_state.leaf_mut(path.node_path()).ok())
+        {
+            leaf.append_tab(tile.id().to_string());
+        } else {
+            self.dock_state.push_to_first_leaf(tile.id().to_string());
         }
     }
 
@@ -163,7 +159,9 @@ impl DockWorkspace {
                     self.dock_state.remove_tab(s);
                 }
                 (true, None) => {
-                    self.dock_state.push_to_first_leaf(id.to_string());
+                    if let Some(tile) = Tile::from_id(id) {
+                        self.add_tab(tile);
+                    }
                 }
                 _ => {}
             }

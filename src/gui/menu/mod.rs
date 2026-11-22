@@ -130,7 +130,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 )
                 .on_hover_text(tr(key::WSJTX_OPEN_WINDOW, lang));
             if indicator.clicked() {
-                app.digital.wsjtx.show_window = true;
+                app.open_tile(crate::gui::state::Tile::Wsjtx);
             }
         }
 
@@ -278,7 +278,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .on_hover_text(tr(key::TOOLBAR_AWARDS_TOOLTIP, lang))
                 .clicked()
         {
-            app.gui.windows.show_awards_matrix_window = !app.gui.windows.show_awards_matrix_window;
+            app.toggle_tile(crate::gui::state::Tile::Awards);
         }
 
         if app.config.quick_access.show_cw
@@ -308,7 +308,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .on_hover_text(tr(key::TOOLBAR_CONTEST_TOOLTIP, lang))
                 .clicked()
         {
-            app.contest.show_window = !app.contest.show_window;
+            app.toggle_tile(crate::gui::state::Tile::Contest);
         }
 
         if app.config.quick_access.show_equipment
@@ -317,7 +317,7 @@ pub fn render_main_toolbar(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .on_hover_text(tr(key::TOOLBAR_EQUIPMENT_TOOLTIP, lang))
                 .clicked()
         {
-            app.ledger.show_window = !app.ledger.show_window;
+            app.toggle_tile(crate::gui::state::Tile::Ledger);
         }
 
         if app.config.quick_access.show_eme

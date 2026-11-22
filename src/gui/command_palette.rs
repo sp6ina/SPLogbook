@@ -107,14 +107,14 @@ pub(crate) const COMMANDS: &[Command] = &[
         label_key: key::CMD_AWARDS_MATRIX,
         keywords: "awards dxcc waz was matrix",
         run: |app| {
-            app.gui.windows.show_awards_matrix_window = true;
+            app.open_tile(crate::gui::state::Tile::Awards);
         },
     },
     Command {
         label_key: key::CMD_STATISTICS,
         keywords: "statistics stats charts",
         run: |app| {
-            app.log_view.show_statistics_window = true;
+            app.open_tile(crate::gui::state::Tile::Statistics);
         },
     },
     Command {
@@ -190,14 +190,14 @@ pub(crate) const COMMANDS: &[Command] = &[
         label_key: key::CMD_CONTEST_MODULE,
         keywords: "contest cabrillo",
         run: |app| {
-            app.contest.show_window = true;
+            app.open_tile(crate::gui::state::Tile::Contest);
         },
     },
     Command {
         label_key: key::CMD_CW_TERMINAL,
         keywords: "cw terminal macros keyer",
         run: |app| {
-            app.cw.show_window = true;
+            app.open_tile(crate::gui::state::Tile::CwMacros);
         },
     },
     Command {

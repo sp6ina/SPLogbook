@@ -33,7 +33,6 @@ pub struct ContestCache {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ContestState {
-    pub show_window: bool,
     pub name: String,
     pub stx: u32,
     pub show_custom_editor: bool,
@@ -51,7 +50,6 @@ pub struct ContestState {
 impl Default for ContestState {
     fn default() -> Self {
         Self {
-            show_window: false,
             name: "SP DX Contest".to_string(),
             stx: 1,
             show_custom_editor: false,
@@ -72,7 +70,6 @@ mod tests {
     #[test]
     fn default_matches_initial_values() {
         let state = ContestState::default();
-        assert!(!state.show_window);
         assert_eq!(state.name, "SP DX Contest");
         assert_eq!(state.stx, 1);
         assert!(!state.show_custom_editor);

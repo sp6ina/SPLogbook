@@ -65,7 +65,6 @@ pub struct LogViewState {
     pub page_size: usize,
     pub selected_qso_ids: Vec<i64>,
     pub confirm_bulk_delete: bool,
-    pub show_statistics_window: bool,
     pub stats_tab: usize,
     pub undo_stack: VecDeque<UndoAction>,
     pub redo_stack: VecDeque<UndoAction>,
@@ -90,7 +89,6 @@ impl Default for LogViewState {
             page_size: 50,
             selected_qso_ids: Vec::new(),
             confirm_bulk_delete: false,
-            show_statistics_window: false,
             stats_tab: 0,
             undo_stack: VecDeque::new(),
             redo_stack: VecDeque::new(),
@@ -378,7 +376,6 @@ mod tests {
         assert_eq!(state.page_size, 50);
         assert_eq!(state.selected_qso_ids, [] as [i64; 0]);
         assert!(!state.confirm_bulk_delete);
-        assert!(!state.show_statistics_window);
         assert_eq!(state.stats_tab, 0);
         assert_eq!(state.undo_stack.len(), 0);
         assert_eq!(state.redo_stack.len(), 0);

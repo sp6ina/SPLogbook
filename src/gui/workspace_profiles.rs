@@ -333,7 +333,7 @@ fn import_profile(app: &mut SpLogApp) {
 }
 
 /// Zbiera bieżący stan paneli do profilu.
-fn capture_profile(app: &SpLogApp, name: &str) -> WorkspaceProfile {
+pub(crate) fn capture_profile(app: &SpLogApp, name: &str) -> WorkspaceProfile {
     let mut profile = WorkspaceProfile {
         id: String::new(),
         name: name.to_string(),
@@ -347,6 +347,7 @@ fn capture_profile(app: &SpLogApp, name: &str) -> WorkspaceProfile {
         panel_satellites: app.views.panel_satellites.clone(),
         panel_world_map: app.views.panel_world_map.clone(),
         panel_waterfall: app.views.panel_waterfall.clone(),
+        module_panels: app.views.module_panels(),
         theme_preset: Some(app.gui.appearance.theme_preset.id().to_string()),
         enabled_plugins: Vec::new(),
         cat_profile: None,
@@ -387,6 +388,7 @@ pub(crate) fn apply_profile(app: &mut SpLogApp, p: &WorkspaceProfile) {
     app.views.panel_satellites = p.panel_satellites.clone();
     app.views.panel_world_map = p.panel_world_map.clone();
     app.views.panel_waterfall = p.panel_waterfall.clone();
+    app.views.set_module_panels(&p.module_panels);
 
     // Synchronizacja okien pływających (popout) dla paneli z obsługą ↗.
     app.gui.windows.show_bandmap_window = p.panel_bandmap.visible && p.panel_bandmap.floating;

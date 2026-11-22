@@ -680,6 +680,10 @@ pub struct AppConfig {
     pub panel_satellites: ViewPanelConfig,
     pub panel_world_map: ViewPanelConfig,
     pub panel_waterfall: ViewPanelConfig,
+    /// Okna modułów (kontest, WSJT-X, makra CW, statystyki, dyplomy, ewidencja sprzętu)
+    /// według identyfikatora kafelka; brak wpisu oznacza moduł zamknięty, jako okno.
+    #[serde(default)]
+    pub module_panels: std::collections::BTreeMap<String, ViewPanelConfig>,
 
     /// Tryb zakładek w kolumnach dokowanego układu: true = kafelki w kolumnie
     /// prezentowane jako zakładki (jedna aktywna na raz), false = układ pionowy.
@@ -834,6 +838,7 @@ impl std::fmt::Debug for AppConfig {
             .field("panel_satellites", &self.panel_satellites)
             .field("panel_world_map", &self.panel_world_map)
             .field("panel_waterfall", &self.panel_waterfall)
+            .field("module_panels", &self.module_panels)
             .field("tabbed_columns", &self.tabbed_columns)
             .field("dock_layout", &self.dock_layout)
             .field("logbook_columns", &self.logbook_columns)
@@ -1005,6 +1010,19 @@ pub struct ViewPanelConfig {
     pub saved_size: Option<[f32; 2]>,
 }
 
+impl ViewPanelConfig {
+    /// Moduł przed pierwszym otwarciem: zamknięty, jako okno; zadokowany trafia do
+    /// środkowej kolumny za dziennikiem.
+    pub const MODULE_DEFAULT: Self = Self {
+        visible: false,
+        floating: true,
+        column: 1,
+        order: 10,
+        saved_pos: None,
+        saved_size: None,
+    };
+}
+
 impl Default for ViewPanelConfig {
     fn default() -> Self {
         Self {
@@ -1040,6 +1058,9 @@ pub struct WorkspaceProfile {
     pub panel_satellites: ViewPanelConfig,
     pub panel_world_map: ViewPanelConfig,
     pub panel_waterfall: ViewPanelConfig,
+    /// Okna modułów; profil bez wpisu zamyka moduł.
+    #[serde(default)]
+    pub module_panels: std::collections::BTreeMap<String, ViewPanelConfig>,
     #[serde(default)]
     pub theme_preset: Option<String>,
     /// Wtyczki Rhai, które mają być włączone w tym profilu (przyszłe
@@ -1295,6 +1316,7 @@ fn wp(
         panel_satellites: satellites,
         panel_world_map: world_map,
         panel_waterfall: waterfall,
+        module_panels: std::collections::BTreeMap::new(),
         theme_preset: theme.map(std::string::ToString::to_string),
         enabled_plugins: Vec::new(),
         cat_profile: None,
@@ -1493,6 +1515,7 @@ impl Default for AppConfig {
                 saved_pos: None,
                 saved_size: None,
             },
+            module_panels: std::collections::BTreeMap::new(),
 
             schema_version: default_schema_version(),
             tabbed_columns: false,

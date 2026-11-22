@@ -4,120 +4,118 @@
 use crate::core::awards::US_STATES;
 use crate::core::i18n::{Language, Msg, key, tr};
 use crate::gui::app::SpLogApp;
+use crate::gui::state::Tile;
 use crate::gui::theme::ThemeExt;
 use eframe::egui;
 
 /// Okno matrycy dyplomowej (DXCC, WAZ, WAS, WAC, WPX, VUCC, IOTA, SOTA, POTA, PGA)
 pub fn render_awards_matrix_window(app: &mut SpLogApp, ctx: &egui::Context) {
-    if !app.gui.windows.show_awards_matrix_window {
-        return;
-    }
-
     let lang = app.gui.appearance.language;
-    let mut is_open = app.gui.windows.show_awards_matrix_window;
-    let mut close_req = false;
-
-    egui::Window::new(
+    let window = egui::Window::new(
         egui::RichText::new(format!("🏆 {}", tr(key::AWARDS_MATRIX_TITLE, lang)))
             .size(12.0)
             .strong(),
     )
-    .open(&mut is_open)
     .default_size([720.0, 560.0])
     .min_size([500.0, 360.0])
-    .resizable(true)
-    .show(ctx, |ui| {
-        let palette = ui.palette();
-        ui.vertical(|ui| {
-            ui.horizontal(|ui| {
-                ui.heading(
-                    egui::RichText::new(tr(key::AWARDS_ACHIEVEMENT_CENTER, lang))
-                        .size(15.0)
-                        .color(palette.accent),
-                );
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    crate::gui::user_manual::help_button(app, ui, "awards");
-                });
+    .resizable(true);
+    app.show_module_window(ctx, Tile::Awards, window, render_awards_matrix_body);
+}
+
+/// Treść modułu dyplomów: okno albo kafelek pulpitu.
+pub fn render_awards_matrix_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
+    let lang = app.gui.appearance.language;
+    let mut close_req = false;
+
+    let palette = ui.palette();
+    ui.vertical(|ui| {
+        ui.horizontal(|ui| {
+            ui.heading(
+                egui::RichText::new(tr(key::AWARDS_ACHIEVEMENT_CENTER, lang))
+                    .size(15.0)
+                    .color(palette.accent),
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                crate::gui::user_manual::help_button(app, ui, "awards");
             });
+        });
 
-            ui.add_space(2.0);
+        ui.add_space(2.0);
 
-            // Zakładki dyplomów
-            ui.horizontal(|ui| {
-                ui.selectable_value(
-                    &mut app.gui.windows.awards_matrix_tab,
-                    0,
-                    tr(key::AWARDS_TAB_DXCC, lang),
-                );
-                ui.selectable_value(
-                    &mut app.gui.windows.awards_matrix_tab,
-                    1,
-                    tr(key::AWARDS_TAB_WAZ, lang),
-                );
-                ui.selectable_value(
-                    &mut app.gui.windows.awards_matrix_tab,
-                    2,
-                    tr(key::AWARDS_TAB_WAS, lang),
-                );
-                ui.selectable_value(
-                    &mut app.gui.windows.awards_matrix_tab,
-                    3,
-                    tr(key::AWARDS_TAB_WAC, lang),
-                );
-                ui.selectable_value(
-                    &mut app.gui.windows.awards_matrix_tab,
-                    4,
-                    tr(key::AWARDS_TAB_OTHER, lang),
-                );
-                ui.selectable_value(
-                    &mut app.gui.windows.awards_matrix_tab,
-                    5,
-                    tr(key::AWARDS_TAB_SP_DX, lang),
-                );
-                ui.selectable_value(
-                    &mut app.gui.windows.awards_matrix_tab,
-                    6,
-                    tr(key::AWARDS_TAB_WAE, lang),
-                );
-            });
+        // Zakładki dyplomów
+        ui.horizontal(|ui| {
+            ui.selectable_value(
+                &mut app.gui.windows.awards_matrix_tab,
+                0,
+                tr(key::AWARDS_TAB_DXCC, lang),
+            );
+            ui.selectable_value(
+                &mut app.gui.windows.awards_matrix_tab,
+                1,
+                tr(key::AWARDS_TAB_WAZ, lang),
+            );
+            ui.selectable_value(
+                &mut app.gui.windows.awards_matrix_tab,
+                2,
+                tr(key::AWARDS_TAB_WAS, lang),
+            );
+            ui.selectable_value(
+                &mut app.gui.windows.awards_matrix_tab,
+                3,
+                tr(key::AWARDS_TAB_WAC, lang),
+            );
+            ui.selectable_value(
+                &mut app.gui.windows.awards_matrix_tab,
+                4,
+                tr(key::AWARDS_TAB_OTHER, lang),
+            );
+            ui.selectable_value(
+                &mut app.gui.windows.awards_matrix_tab,
+                5,
+                tr(key::AWARDS_TAB_SP_DX, lang),
+            );
+            ui.selectable_value(
+                &mut app.gui.windows.awards_matrix_tab,
+                6,
+                tr(key::AWARDS_TAB_WAE, lang),
+            );
+        });
 
-            ui.separator();
+        ui.separator();
 
-            let awards = app
-                .services
-                .awards_engine
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let awards = app
+            .services
+            .awards_engine
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-            match app.gui.windows.awards_matrix_tab {
-                0 => render_tab_dxcc(app, ui, &awards, lang),
-                1 => render_tab_waz(ui, &awards, lang),
-                2 => render_tab_was(ui, &awards, lang),
-                3 => render_tab_wac(ui, &awards, lang),
-                5 => render_tab_sp_dx(ui, &awards, lang),
-                6 => render_tab_wae(ui, &awards, lang),
-                _ => render_tab_other(
-                    &mut app.gui.windows.awards_other_subtab,
-                    &mut app.gui.windows.awards_other_search,
-                    ui,
-                    &awards,
-                    lang,
-                ),
+        match app.gui.windows.awards_matrix_tab {
+            0 => render_tab_dxcc(app, ui, &awards, lang),
+            1 => render_tab_waz(ui, &awards, lang),
+            2 => render_tab_was(ui, &awards, lang),
+            3 => render_tab_wac(ui, &awards, lang),
+            5 => render_tab_sp_dx(ui, &awards, lang),
+            6 => render_tab_wae(ui, &awards, lang),
+            _ => render_tab_other(
+                &mut app.gui.windows.awards_other_subtab,
+                &mut app.gui.windows.awards_other_search,
+                ui,
+                &awards,
+                lang,
+            ),
+        }
+
+        ui.separator();
+        ui.horizontal(|ui| {
+            if ui.button(tr(key::BTN_CLOSE, lang)).clicked() {
+                close_req = true;
             }
-
-            ui.separator();
-            ui.horizontal(|ui| {
-                if ui.button(tr(key::BTN_CLOSE, lang)).clicked() {
-                    close_req = true;
-                }
-            });
         });
     });
 
     if close_req {
-        is_open = false;
+        app.close_tile(Tile::Awards.id());
     }
-    app.gui.windows.show_awards_matrix_window = is_open;
 }
 
 fn render_legend(ui: &mut egui::Ui, lang: Language) {

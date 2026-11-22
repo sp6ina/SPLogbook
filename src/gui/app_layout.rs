@@ -3,11 +3,13 @@
 
 // Układ dokowania i kafelki.
 use super::*;
+use crate::gui::state::Tile;
+use crate::gui::theme::ThemeExt;
 
 impl SpLogApp {
     /// Kolejność paneli (identyfikatorów kafelków) używana przy budowaniu
     /// układu dokowania oraz przy synchronizacji widoczności.
-    pub fn all_tile_ids() -> [&'static str; 9] {
+    pub fn all_tile_ids() -> [&'static str; 15] {
         crate::gui::state::DockWorkspace::all_tile_ids()
     }
 
@@ -128,86 +130,110 @@ impl SpLogApp {
     }
 
     pub fn popout_tile(&mut self, tile_id: &str) {
-        match tile_id {
-            "vfo" => self.views.panel_vfo.floating = true,
-            "qso" => self.views.panel_qso.floating = true,
-            "log" => self.views.panel_log.floating = true,
-            "cluster" => self.views.panel_cluster.floating = true,
-            "bandmap" => {
-                self.views.panel_bandmap.floating = true;
-                self.gui.windows.show_bandmap_window = true;
-            }
-            "solar" => self.views.panel_solar.floating = true,
-            "satellites" => {
-                self.views.panel_satellites.floating = true;
-                self.satellites.show_window = true;
-            }
-            "world_map" => {
-                self.views.panel_world_map.floating = true;
-                self.world_map.show_window = true;
-            }
-            "waterfall" => {
-                self.views.panel_waterfall.floating = true;
-            }
+        let Some(tile) = Tile::from_id(tile_id) else {
+            return;
+        };
+        self.views.panel_mut(tile).floating = true;
+        match tile {
+            Tile::Bandmap => self.gui.windows.show_bandmap_window = true,
+            Tile::Satellites => self.satellites.show_window = true,
+            Tile::WorldMap => self.world_map.show_window = true,
             _ => {}
         }
     }
 
     /// Zadokowuje odpięty kafelek z powrotem do pulpitu (odwrotność [`Self::popout_tile`]).
     pub fn dock_tile(&mut self, tile_id: &str) {
-        match tile_id {
-            "vfo" => self.views.panel_vfo.floating = false,
-            "qso" => self.views.panel_qso.floating = false,
-            "log" => self.views.panel_log.floating = false,
-            "cluster" => self.views.panel_cluster.floating = false,
-            "bandmap" => self.views.panel_bandmap.floating = false,
-            "solar" => self.views.panel_solar.floating = false,
-            "satellites" => self.views.panel_satellites.floating = false,
-            "world_map" => self.views.panel_world_map.floating = false,
-            "waterfall" => self.views.panel_waterfall.floating = false,
-            _ => {}
+        if let Some(tile) = Tile::from_id(tile_id) {
+            self.views.panel_mut(tile).floating = false;
         }
     }
 
     pub fn close_tile(&mut self, tile_id: &str) {
-        match tile_id {
-            "vfo" => self.views.panel_vfo.visible = false,
-            "qso" => self.views.panel_qso.visible = false,
-            "log" => self.views.panel_log.visible = false,
-            "cluster" => self.views.panel_cluster.visible = false,
-            "bandmap" => {
-                self.views.panel_bandmap.visible = false;
-                self.gui.windows.show_bandmap_window = false;
-            }
-            "solar" => self.views.panel_solar.visible = false,
-            "satellites" => {
-                self.views.panel_satellites.visible = false;
-                self.satellites.show_window = false;
-            }
-            "world_map" => {
-                self.views.panel_world_map.visible = false;
-                self.world_map.show_window = false;
-            }
-            "waterfall" => {
-                self.views.panel_waterfall.visible = false;
-            }
+        let Some(tile) = Tile::from_id(tile_id) else {
+            return;
+        };
+        self.views.panel_mut(tile).visible = false;
+        match tile {
+            Tile::Bandmap => self.gui.windows.show_bandmap_window = false,
+            Tile::Satellites => self.satellites.show_window = false,
+            Tile::WorldMap => self.world_map.show_window = false,
+            Tile::Wsjtx => self.digital.wsjtx.draft = None,
             _ => {}
+        }
+    }
+
+    /// Otwiera moduł tam, gdzie był ostatnio: zadokowany albo jako okno.
+    pub fn open_tile(&mut self, tile: Tile) {
+        self.views.panel_mut(tile).visible = true;
+    }
+
+    /// Otwiera albo zamyka moduł (menu, skróty klawiszowe).
+    pub fn toggle_tile(&mut self, tile: Tile) {
+        if self.views.panel(tile).visible {
+            self.close_tile(tile.id());
+        } else {
+            self.open_tile(tile);
         }
     }
 
     pub fn tile_title(&self, tile_id: &str) -> String {
         let lang = self.gui.appearance.language;
-        match tile_id {
-            "vfo" => icons::RADIO.label("TRANSCEIVER VFO"),
-            "qso" => icons::NEW_QSO.label(tr(key::TAB_NEW_QSO, lang)),
-            "log" => icons::LOGBOOK.label(tr(key::TAB_LOGBOOK, lang)),
-            "cluster" => icons::CLUSTER.label(tr(key::CLUSTER_TITLE, lang)),
-            "bandmap" => icons::BANDMAP.label(tr(key::BANDMAP_TITLE, lang)),
-            "solar" => icons::SOLAR.label(tr(key::SOLAR_TITLE, lang)),
-            "satellites" => icons::SATELLITE.label(tr(key::SAT_TITLE, lang)),
-            "world_map" => icons::WORLD_MAP.label(tr(key::MAP_WORLD_TITLE, lang)),
-            "waterfall" => icons::SIGNAL_UP.label(tr(key::VIEW_PANEL_WATERFALL, lang)),
-            _ => tile_id.to_string(),
+        let Some(tile) = Tile::from_id(tile_id) else {
+            return tile_id.to_string();
+        };
+        match tile {
+            Tile::Vfo => icons::RADIO.label("TRANSCEIVER VFO"),
+            Tile::Qso => icons::NEW_QSO.label(tr(key::TAB_NEW_QSO, lang)),
+            Tile::Log => icons::LOGBOOK.label(tr(key::TAB_LOGBOOK, lang)),
+            Tile::Cluster => icons::CLUSTER.label(tr(key::CLUSTER_TITLE, lang)),
+            Tile::Bandmap => icons::BANDMAP.label(tr(key::BANDMAP_TITLE, lang)),
+            Tile::Solar => icons::SOLAR.label(tr(key::SOLAR_TITLE, lang)),
+            Tile::Satellites => icons::SATELLITE.label(tr(key::SAT_TITLE, lang)),
+            Tile::WorldMap => icons::WORLD_MAP.label(tr(key::MAP_WORLD_TITLE, lang)),
+            Tile::Waterfall => icons::SIGNAL_UP.label(tr(key::VIEW_PANEL_WATERFALL, lang)),
+            Tile::Contest => icons::MEDAL.label(tr(key::CONTEST_WINDOW_TITLE, lang)),
+            Tile::Wsjtx => icons::SIGNAL_DOWN.label(tr(key::WSJTX_WINDOW_TITLE, lang)),
+            Tile::CwMacros => icons::CW_KEYER.label(tr(key::CW_MACROS_TITLE, lang)),
+            Tile::Statistics => icons::STATS.label(tr(key::STATS_WINDOW_TITLE, lang)),
+            Tile::Awards => icons::AWARDS.label(tr(key::AWARDS_MATRIX_TITLE, lang)),
+            Tile::Ledger => icons::DOCUMENT.label(tr(key::LEDGER_TITLE, lang)),
+        }
+    }
+
+    /// Moduł odpięty jako okno wewnątrz okna głównego, z przyciskiem zadokowania.
+    pub fn show_module_window(
+        &mut self,
+        ctx: &egui::Context,
+        tile: Tile,
+        window: egui::Window<'_>,
+        body: fn(&mut Self, &mut egui::Ui),
+    ) {
+        let panel = self.views.panel(tile);
+        if !panel.visible || !panel.floating {
+            return;
+        }
+        let lang = self.gui.appearance.language;
+        let mut open = true;
+        let mut dock = false;
+        window.open(&mut open).show(ctx, |ui| {
+            let palette = ui.palette();
+            ui.horizontal(|ui| {
+                dock = crate::gui::theme::dock_button(
+                    ui,
+                    &palette,
+                    tr(key::WINDOW_DOCK, lang),
+                    tr(key::WINDOW_DOCK_TOOLTIP, lang),
+                )
+                .clicked();
+            });
+            body(self, ui);
+        });
+        if dock {
+            self.dock_tile(tile.id());
+        }
+        if !open {
+            self.close_tile(tile.id());
         }
     }
 
@@ -321,7 +347,21 @@ impl SpLogApp {
             "satellites" => crate::gui::satellites::render_satellites_content(self, ui),
             "world_map" => crate::gui::world_map::render_world_map_content(self, ui),
             "waterfall" => crate::gui::waterfall_panel::render_waterfall_body(self, ui),
-            _ => {}
+            module => {
+                let body: fn(&mut Self, &mut egui::Ui) = match Tile::from_id(module) {
+                    Some(Tile::Contest) => crate::gui::contest::render_contest_body,
+                    Some(Tile::Wsjtx) => crate::gui::wsjtx_window::render_wsjtx_body,
+                    Some(Tile::CwMacros) => crate::gui::cw_macros::render_cw_macros_body,
+                    Some(Tile::Statistics) => crate::gui::statistics::render_statistics_body,
+                    Some(Tile::Awards) => crate::gui::awards_matrix::render_awards_matrix_body,
+                    Some(Tile::Ledger) => crate::gui::station_ledger::render_station_ledger_body,
+                    _ => return,
+                };
+                egui::ScrollArea::both()
+                    .id_salt(("module_tile", module))
+                    .auto_shrink(false)
+                    .show(ui, |ui| body(self, ui));
+            }
         }
     }
 

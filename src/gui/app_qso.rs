@@ -521,7 +521,7 @@ impl SpLogApp {
     /// okno Contest, ustawia tylko flagę fokusu (pole znaku Contest ją odbiera).
     pub fn focus_qso_entry(&mut self) {
         self.entry.focus_callsign_requested = true;
-        if self.contest.show_window {
+        if self.views.panel(crate::gui::state::Tile::Contest).visible {
             return;
         }
         let dock = &mut self.gui.workspace.dock_state;

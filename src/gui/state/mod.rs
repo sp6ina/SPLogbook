@@ -56,7 +56,7 @@ pub use solar::{SolarFetchSlot, SolarState};
 pub use sync_ui::SyncUiState;
 pub use toast::{Toast, ToastQueue, ToastSeverity};
 pub use updates::UpdateState;
-pub use views::ViewsState;
+pub use views::{Tile, ViewsState};
 pub use voice_keyer::VoiceKeyerState;
 pub use windows::WindowState;
 pub use workspace::DockWorkspace;

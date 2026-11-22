@@ -40,7 +40,6 @@ pub struct WsjtxLinkState {
     pub marks: HashMap<(String, String), WsjtxMark>,
     /// Stan nagród się zmienił (nowe QSO) — oceny i wyróżnienia trzeba przeliczyć.
     pub marks_stale: bool,
-    pub show_window: bool,
     pub only_cq: bool,
     /// Edytowane ustawienia; trafiają do konfiguracji dopiero po zastosowaniu.
     pub draft: Option<WsjtxSettings>,

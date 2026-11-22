@@ -125,7 +125,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         }
         ui.separator();
         ui.checkbox(
-            &mut app.gui.windows.show_awards_matrix_window,
+            &mut app.views.panel_mut(crate::gui::state::Tile::Awards).visible,
             icons::AWARDS.label(tr(key::VIEW_AWARDS_MATRIX, lang)),
         );
         if ui

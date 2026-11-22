@@ -14,7 +14,6 @@ pub struct WindowState {
     pub show_cat_settings_window: bool,
     pub show_workspace_profiles_window: bool,
     pub show_multi_op_window: bool,
-    pub show_awards_matrix_window: bool,
     pub awards_matrix_tab: usize,
     pub awards_other_subtab: usize,
     pub awards_other_search: String,
@@ -36,7 +35,6 @@ impl Default for WindowState {
             show_cat_settings_window: false,
             show_workspace_profiles_window: false,
             show_multi_op_window: false,
-            show_awards_matrix_window: false,
             awards_matrix_tab: 0,
             awards_other_subtab: 0,
             awards_other_search: String::new(),
@@ -64,7 +62,6 @@ mod tests {
         assert!(!ws.show_cat_settings_window);
         assert!(!ws.show_workspace_profiles_window);
         assert!(!ws.show_multi_op_window);
-        assert!(!ws.show_awards_matrix_window);
         assert_eq!(ws.awards_matrix_tab, 0);
         assert_eq!(ws.awards_other_subtab, 0);
         assert_eq!(ws.awards_other_search, "");

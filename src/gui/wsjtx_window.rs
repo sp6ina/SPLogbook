@@ -7,6 +7,7 @@
 use crate::core::i18n::{Language as Lang, Msg, key, tr};
 use crate::digital::wsjtx::{WsjtxMark, WsjtxSettings};
 use crate::gui::app::SpLogApp;
+use crate::gui::state::Tile;
 use crate::gui::state::digital::WsjtxLinkState;
 use crate::gui::theme::{Palette, ThemeExt};
 use eframe::egui;
@@ -180,22 +181,15 @@ pub fn render_wsjtx_contents(
 }
 
 pub fn render_wsjtx_window(app: &mut SpLogApp, ctx: &egui::Context) {
-    if !app.digital.wsjtx.show_window {
-        return;
-    }
     let lang = app.gui.appearance.language;
-    let mut open = true;
-    let mut actions = Vec::new();
-    egui::Window::new(tr(key::WSJTX_WINDOW_TITLE, lang))
-        .open(&mut open)
-        .default_size([680.0, 440.0])
-        .show(ctx, |ui| {
-            actions = render_wsjtx_contents(ui, &mut app.digital.wsjtx, &app.config.wsjtx, lang);
-        });
-    if !open {
-        app.digital.wsjtx.show_window = false;
-        app.digital.wsjtx.draft = None;
-    }
+    let window = egui::Window::new(tr(key::WSJTX_WINDOW_TITLE, lang)).default_size([680.0, 440.0]);
+    app.show_module_window(ctx, Tile::Wsjtx, window, render_wsjtx_body);
+}
+
+/// Treść okna dekodów WSJT-X: okno albo kafelek pulpitu.
+pub fn render_wsjtx_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
+    let lang = app.gui.appearance.language;
+    let actions = render_wsjtx_contents(ui, &mut app.digital.wsjtx, &app.config.wsjtx, lang);
     for action in actions {
         match action {
             WsjtxWindowAction::Reply(index) => app.reply_to_wsjtx_decode(index),

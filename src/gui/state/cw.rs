@@ -9,7 +9,6 @@ pub use crate::core::station::default_cw_macros;
 /// Stan makr telegraficznych CW i prędkości kluczowania.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CwMacroState {
-    pub show_window: bool,
     /// Makra F1..F8 (zawsze [`CW_MACRO_COUNT`] pozycji).
     pub macros: Vec<String>,
 }
@@ -17,7 +16,6 @@ pub struct CwMacroState {
 impl Default for CwMacroState {
     fn default() -> Self {
         Self {
-            show_window: false,
             macros: default_cw_macros(),
         }
     }
@@ -36,10 +34,7 @@ impl CwMacroState {
         while macros.len() < CW_MACRO_COUNT {
             macros.push(defaults[macros.len()].clone());
         }
-        Self {
-            show_window: false,
-            macros,
-        }
+        Self { macros }
     }
 }
 
@@ -50,7 +45,6 @@ mod tests {
     #[test]
     fn default_matches_initial_values() {
         let state = CwMacroState::default();
-        assert!(!state.show_window);
         assert_eq!(state.macros.len(), CW_MACRO_COUNT);
         assert_eq!(state.macros[0], "CQ TEST %MYCALL% %MYCALL% TEST");
         assert_eq!(state.macros[1], "%HISCALL% 5NN %SERIAL%");

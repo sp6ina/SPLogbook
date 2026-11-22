@@ -38,14 +38,14 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .button(icons::AWARDS.label(tr(key::TOOLS_AWARDS_MATRIX, lang)))
             .clicked()
         {
-            app.gui.windows.show_awards_matrix_window = true;
+            app.open_tile(crate::gui::state::Tile::Awards);
             ui.close();
         }
         if ui
             .button(icons::STATS.label(tr(key::TOOLS_STATISTICS, lang)))
             .clicked()
         {
-            app.log_view.show_statistics_window = true;
+            app.open_tile(crate::gui::state::Tile::Statistics);
             ui.close();
         }
         if ui
@@ -139,7 +139,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         );
         ui.separator();
         if ui.button(tr(key::STATION_EQUIPMENT, lang)).clicked() {
-            app.ledger.show_window = true;
+            app.open_tile(crate::gui::state::Tile::Ledger);
             ui.close();
         }
         if ui
