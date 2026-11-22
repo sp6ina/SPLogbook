@@ -24,6 +24,19 @@ use crate::cat::rig::RigCommand;
 use crate::cat::routing::{RigId, RigTarget, RoutedRigEvent};
 use crate::cat::service::RigService;
 
+/// Aktywny odbiornik huba jako cel sekwencji strojenia.
+struct ActiveRxSink<'a>(&'a mut RigHub);
+
+impl crate::cat::tune::CommandSink for ActiveRxSink<'_> {
+    type Error = RigHubError;
+
+    async fn execute(&mut self, command: RigCommand) -> Result<(), RigHubError> {
+        self.0
+            .execute_on_active_rx(command, Duration::from_millis(1500))
+            .await
+    }
+}
+
 /// Błędy środowiska wykonawczego CAT ([`CatRuntime`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CatRuntimeError {
@@ -368,6 +381,17 @@ impl CatRuntime {
             {
                 log::warn!("[CatRuntime] Błąd przestawienia modulacji: {e}");
             }
+        });
+    }
+
+    /// Strojenie na stację jedną sekwencją: częstotliwość, emisja, split
+    /// (zob. [`crate::cat::tune::apply_tune`]).
+    pub fn tune(&self, request: crate::cat::tune::TuneRequest) {
+        let hub_ref = Arc::clone(&self.hub);
+        tokio::spawn(async move {
+            let mut hub = hub_ref.lock().await;
+            let mut active = ActiveRxSink(&mut hub);
+            crate::cat::tune::apply_tune(&mut active, request).await;
         });
     }
 

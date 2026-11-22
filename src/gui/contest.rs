@@ -140,7 +140,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let mut save_clicked = false;
     let mut session_action = SessionAction::None;
     let mut macro_clicked: Option<usize> = None;
-    let mut spot_fill_target: Option<(String, f64, String, bool)> = None;
+    let mut spot_fill_target: Option<crate::cluster::telnet::DxSpot> = None;
 
     // Is it a custom contest?
     let mut is_custom = false;
@@ -593,7 +593,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 egui::CollapsingHeader::new(tr(key::CONTEST_SPOT_LIST, lang))
                     .default_open(false)
                     .show(ui, |ui| {
-                        let mut tune: Option<(String, f64, String, bool)> = None;
+                        let mut tune: Option<crate::cluster::telnet::DxSpot> = None;
                         egui::ScrollArea::vertical()
                             .max_height(180.0)
                             .show(ui, |ui| {
@@ -664,20 +664,15 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                 )
                                                 .clicked()
                                             {
-                                                tune = Some((
-                                                    spot.dx_call.clone(),
-                                                    spot.frequency_khz,
-                                                    spot.band.clone(),
-                                                    spot.is_ft8,
-                                                ));
+                                                tune = Some(spot.clone());
                                             }
                                             ui.end_row();
                                         }
                                     });
                             });
 
-                        if let Some((call, freq_khz, band, is_ft8)) = tune {
-                            spot_fill_target = Some((call, freq_khz, band, is_ft8));
+                        if tune.is_some() {
+                            spot_fill_target = tune;
                         }
                     });
 
@@ -698,11 +693,9 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
             });
         });
 
-    if let Some((call, freq_khz, band, is_ft8)) = spot_fill_target {
-        app.tune_to_spot(&call, freq_khz, &band);
-        if is_ft8 {
-            app.entry.mode = "FT8".to_string();
-        }
+    if let Some(spot) = spot_fill_target {
+        app.tune_to_cluster_spot(&spot);
+        let call = spot.dx_call;
         // Uzupełnij wymianę z wcześniejszego QSO z tą stacją (jeśli istnieje).
         if let Some(prev) = app
             .log_view

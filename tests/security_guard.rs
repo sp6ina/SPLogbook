@@ -9732,7 +9732,7 @@ fn p1_f19_import_export_round_trip_is_verified_guard() {
 fn p1_f19_spot_and_activation_perspective_guard() {
     let cluster = p1_f16_read("src/gui/cluster_panel.rs");
     let spot_block = cluster
-        .split("if let Some((dx_call, freq_khz, band, pota, sota)) = tune_target")
+        .split("if let Some((spot, pota, sota)) = tune_target")
         .nth(1)
         .expect("F-19: the spot-to-entry block must exist");
     let spot_block = &spot_block[..spot_block.len().min(600)];

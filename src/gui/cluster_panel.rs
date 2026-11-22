@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
+use crate::cluster::spot_info::SpotCategory;
 use crate::cluster::telnet::{CLUSTER_PRESETS, DxSpot};
 use crate::core::i18n::{Msg, key, tr};
+use crate::core::station::ClusterSpotSettings;
 use crate::gui::app::SpLogApp;
 use crate::gui::theme::ThemeExt;
 use eframe::egui;
@@ -495,34 +497,15 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             continue;
         }
 
-        let comment_upper = spot.comment.to_uppercase();
-        let freq_hz = (spot.frequency_khz * 1000.0).round() as u64;
-        let inferred_mode = crate::core::bandplan::get_suggested_mode(freq_hz);
-        let is_digi = spot.is_ft8
-            || comment_upper.contains("FT8")
-            || comment_upper.contains("FT4")
-            || comment_upper.contains("RTTY")
-            || comment_upper.contains("PSK")
-            || inferred_mode == Some("FT8")
-            || inferred_mode == Some("RTTY");
-        let is_cw = !is_digi
-            && (comment_upper.contains("CW")
-                || comment_upper.contains("UP")
-                || (!comment_upper.contains("SSB")
-                    && !comment_upper.contains("USB")
-                    && !comment_upper.contains("LSB")
-                    && inferred_mode == Some("CW")));
-        let is_ssb = !is_digi
-            && (comment_upper.contains("SSB")
-                || comment_upper.contains("USB")
-                || comment_upper.contains("LSB")
-                || (!comment_upper.contains("CW")
-                    && matches!(inferred_mode, Some("USB" | "LSB" | "SSB" | "FM"))));
-
+        let category = crate::cluster::spot_info::spot_category(
+            &spot.comment,
+            crate::cluster::spot_info::spot_freq_hz(spot.frequency_khz),
+            spot.is_ft8,
+        );
         let mode_skip = match filter_mode_sel.as_str() {
-            "CW" => !is_cw,
-            "SSB" => !is_ssb,
-            "DIGI" => !is_digi,
+            "CW" => category != Some(SpotCategory::Cw),
+            "SSB" => category != Some(SpotCategory::Phone),
+            "DIGI" => category != Some(SpotCategory::Digital),
             _ => false,
         };
         if mode_skip {
@@ -558,7 +541,8 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
     let total_spots = app.cluster.spots.len();
     let shown_spots = filtered_spots.len();
-    let mut tune_target: Option<(String, f64, String, Option<String>, Option<String>)> = None;
+    let mut tune_target: Option<(DxSpot, Option<String>, Option<String>)> = None;
+    let mut save_settings = false;
 
     ui.horizontal(|ui| {
         // Boczny panel filtrów
@@ -678,6 +662,14 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         app.cluster.filter_source = "ALL".to_string();
                         app.cluster.filter_pota_sota_only = false;
                     }
+
+                    ui.add_space(6.0);
+                    egui::CollapsingHeader::new(tr(key::CLUSTER_SPOT_SETTINGS, lang))
+                        .id_salt("cluster_spot_settings")
+                        .show(ui, |ui| {
+                            save_settings |=
+                                render_spot_settings(ui, &mut app.config.cluster_spots, lang);
+                        });
                 });
             });
             ui.separator();
@@ -701,8 +693,7 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         ui.end_row();
 
                         for (spot, pota_ref, sota_ref) in &filtered_spots {
-                            let badge =
-                                app.cluster_spot_badge(&spot.dx_call, &spot.band, spot.is_ft8);
+                            let badge = app.cluster_spot_badge(spot);
                             let palette = ui.palette();
                             let call_color = badge.color(&palette);
 
@@ -719,13 +710,8 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                                 .on_hover_text(tr(key::CLUSTER_TUNE_TOOLTIP, lang))
                                 .clicked()
                             {
-                                tune_target = Some((
-                                    spot.dx_call.clone(),
-                                    spot.frequency_khz,
-                                    spot.band.clone(),
-                                    pota_ref.clone(),
-                                    sota_ref.clone(),
-                                ));
+                                tune_target =
+                                    Some((spot.clone(), pota_ref.clone(), sota_ref.clone()));
                             }
 
                             ui.label(format!("{:.1} kHz", spot.frequency_khz));
@@ -774,8 +760,12 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             });
     });
 
-    if let Some((dx_call, freq_khz, band, pota, sota)) = tune_target {
-        app.tune_to_spot(&dx_call, freq_khz, &band);
+    if save_settings {
+        app.prune_cluster_spots(jiff::Timestamp::now().as_second());
+        app.save_station_config();
+    }
+    if let Some((spot, pota, sota)) = tune_target {
+        app.tune_to_cluster_spot(&spot);
         // F-19: spot opisuje stację *spotowaną*, więc jej referencja należy do
         // strony korespondenta. Referencja własnej stacji (`my_*`) jest
         // kontekstem aktywacji i nigdy nie jest nadpisywana spotem.
@@ -892,6 +882,51 @@ pub fn render_add_cluster_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
     });
 
     app.cluster.show_add_cluster_dialog = is_open;
+}
+
+/// Ustawienia spotów; zwraca `true`, gdy coś się zmieniło.
+fn render_spot_settings(
+    ui: &mut egui::Ui,
+    settings: &mut ClusterSpotSettings,
+    lang: crate::core::i18n::Language,
+) -> bool {
+    let mut changed = false;
+    ui.label(tr(key::CLUSTER_MAX_AGE, lang));
+    changed |= ui
+        .add(
+            egui::DragValue::new(&mut settings.max_age_minutes)
+                .range(ClusterSpotSettings::AGE_RANGE),
+        )
+        .changed();
+    ui.label(tr(key::CLUSTER_MAX_SPOTS, lang));
+    changed |= ui
+        .add(egui::DragValue::new(&mut settings.max_spots).range(ClusterSpotSettings::COUNT_RANGE))
+        .changed();
+    changed |= ui
+        .checkbox(
+            &mut settings.tune_sets_mode,
+            tr(key::CLUSTER_TUNE_SETS_MODE, lang),
+        )
+        .changed();
+    changed |= ui
+        .checkbox(
+            &mut settings.tune_sets_split,
+            tr(key::CLUSTER_TUNE_SETS_SPLIT, lang),
+        )
+        .changed();
+    changed |= ui
+        .checkbox(
+            &mut settings.rotor_follows_spot,
+            tr(key::CLUSTER_ROTOR_FOLLOWS, lang),
+        )
+        .on_hover_text(tr(key::CLUSTER_ROTOR_FOLLOWS_HINT, lang))
+        .changed();
+    ui.label(
+        egui::RichText::new(tr(key::CLUSTER_BADGE_LEGEND, lang))
+            .size(10.0)
+            .color(ui.palette().text_muted),
+    );
+    changed
 }
 
 #[cfg(test)]

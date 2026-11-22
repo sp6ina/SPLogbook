@@ -8,6 +8,10 @@ use std::collections::HashMap;
 pub enum SpotBadgeKind {
     NewDxcc,
     NewBand,
+    /// Kraj zrobiony, ale jeszcze nigdy tą emisją.
+    NewMode,
+    /// Ta stacja jest już w dzienniku na tym paśmie i tą emisją.
+    Worked,
     Standard,
 }
 
@@ -16,6 +20,8 @@ impl SpotBadgeKind {
         match self {
             SpotBadgeKind::NewDxcc => " ⭐",
             SpotBadgeKind::NewBand => " ✨",
+            SpotBadgeKind::NewMode => " ◆",
+            SpotBadgeKind::Worked => " ✓",
             SpotBadgeKind::Standard => "",
         }
     }
@@ -24,6 +30,8 @@ impl SpotBadgeKind {
         match self {
             SpotBadgeKind::NewDxcc => palette.accent_alt,
             SpotBadgeKind::NewBand => palette.success,
+            SpotBadgeKind::NewMode => palette.info,
+            SpotBadgeKind::Worked => palette.dupe,
             SpotBadgeKind::Standard => palette.accent,
         }
     }

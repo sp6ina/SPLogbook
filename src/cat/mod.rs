@@ -27,6 +27,7 @@ pub mod so2r;
 pub mod supervisor;
 pub mod tci;
 mod tcp;
+pub mod tune;
 pub mod tx_arbiter;
 pub mod winkeyer;
 

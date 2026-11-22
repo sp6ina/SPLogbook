@@ -360,10 +360,11 @@ impl SpLogApp {
             self.entry.band = band_def.name.to_string();
         }
         self.cat.runtime.set_frequency(freq_hz);
-        self.gui.chrome.status_message = Some(format!(
-            "VFO dostrojone do: {:.3} kHz",
-            (freq_hz as f64) / 1000.0
-        ));
+        self.gui.chrome.status_message = Some(
+            Msg::new(key::CAT_VFO_TUNED)
+                .arg("freq", format!("{:.3}", (freq_hz as f64) / 1000.0))
+                .text(self.gui.appearance.language),
+        );
     }
 
     pub fn step_vfo(&mut self, step_hz: i64) {
@@ -378,7 +379,11 @@ impl SpLogApp {
         self.cat
             .runtime
             .set_mode(mode.to_string(), self.cat.rig_state.passband_hz);
-        self.gui.chrome.status_message = Some(format!("Emisja zmieniona na: {mode}"));
+        self.gui.chrome.status_message = Some(
+            Msg::new(key::CAT_MODE_CHANGED)
+                .arg("mode", mode)
+                .text(self.gui.appearance.language),
+        );
     }
 
     pub fn set_vfo_split(&mut self, enabled: bool) {

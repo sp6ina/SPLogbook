@@ -396,12 +396,18 @@ impl SpLogApp {
                         );
                     }
                     ClusterEvent::Spot(spot) => {
-                        let is_duplicate = self.cluster.spots.iter().take(30).any(|s| {
+                        // Ponowne zgłoszenie tej samej stacji odświeża spot (wiek, komentarz,
+                        // zgłaszający) zamiast go pomijać — inaczej aktywna stacja znikałaby
+                        // z listy po upływie czasu od pierwszego zgłoszenia.
+                        let previous = self.cluster.spots.iter().position(|s| {
                             s.dx_call == spot.dx_call
                                 && s.band == spot.band
                                 && (s.frequency_khz - spot.frequency_khz).abs() < 2.0
                         });
-                        if !is_duplicate {
+                        if let Some(index) = previous {
+                            self.cluster.spots.remove(index);
+                            self.cluster.spots.insert(0, spot);
+                        } else {
                             let is_atno = if let Some(info) =
                                 self.services.prefix_matcher.lookup(&spot.dx_call)
                             {
@@ -430,10 +436,11 @@ impl SpLogApp {
                                 crate::media::sounds::play_new_dxcc_alert();
                                 self.gui.chrome.push_status_toast(
                                     crate::gui::state::ToastSeverity::Info,
-                                    format!(
-                                        "⭐ ATNO DXCC: {} na pasmie {} ({:.1} kHz)!",
-                                        spot.dx_call, spot.band, spot.frequency_khz
-                                    ),
+                                    Msg::new(key::CLUSTER_ATNO_ALERT)
+                                        .arg("call", &spot.dx_call)
+                                        .arg("band", &spot.band)
+                                        .arg("freq", format!("{:.1}", spot.frequency_khz))
+                                        .text(self.gui.appearance.language),
                                 );
                             }
 
@@ -466,21 +473,25 @@ impl SpLogApp {
             }
         }
 
-        let now_ts = jiff::Timestamp::now().as_second();
-        let spot_max_age_secs: i64 = 60 * 60;
+        self.prune_cluster_spots(jiff::Timestamp::now().as_second());
+    }
+
+    /// Usuwa spoty starsze niż limit z ustawień i przycina listę do limitu liczby.
+    pub fn prune_cluster_spots(&mut self, now_ts: i64) {
+        let max_age = self.config.cluster_spots.max_age_secs();
         if self
             .cluster
             .spots
             .iter()
-            .any(|s| now_ts - s.received_at > spot_max_age_secs)
+            .any(|s| now_ts - s.received_at > max_age)
         {
             self.cluster
                 .spots
-                .retain(|s| now_ts - s.received_at <= spot_max_age_secs);
+                .retain(|s| now_ts - s.received_at <= max_age);
         }
-        if self.cluster.spots.len() > 200 {
-            self.cluster.spots.truncate(200);
-        }
+        self.cluster
+            .spots
+            .truncate(self.config.cluster_spots.max_count());
     }
 
     /// Odbiór asynchronicznych danych korespondenta z Callbook / HamQTH / Callook / QRZ

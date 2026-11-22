@@ -5134,3 +5134,190 @@ fn s8_decodes_window_renders_rows_and_settings() {
     assert!(app.digital.wsjtx.show_window);
     assert_eq!(app.digital.wsjtx.decodes.len(), 2);
 }
+
+// ── STAGE-V140-S9: spoty klastra — emisja, split, odświeżanie, odznaki, rotator ──
+
+fn s9_spot(call: &str, frequency_khz: f64, comment: &str) -> crate::cluster::telnet::DxSpot {
+    crate::cluster::telnet::DxSpot {
+        spotter: "SP6INA".to_string(),
+        frequency_khz,
+        dx_call: call.to_string(),
+        comment: comment.to_string(),
+        time_utc: "1200".to_string(),
+        band: crate::core::bandplan::freq_khz_to_band(frequency_khz)
+            .unwrap_or("OTHER")
+            .to_string(),
+        is_ft8: false,
+        is_skimmer: false,
+        received_at: jiff::Timestamp::now().as_second(),
+    }
+}
+
+#[tokio::test]
+async fn s9_ssb_spot_with_up_sets_mode_split_and_filter_width() {
+    let (_dir, mut app) = s7_app();
+    app.entry.mode = "CW".to_string();
+    app.tune_to_cluster_spot(&s9_spot("SP9ABC", 14_195.0, "UP 5-10 ssb"));
+    assert_eq!(app.entry.callsign, "SP9ABC");
+    assert_eq!(app.entry.band, "20m");
+    assert_eq!(app.entry.mode, "SSB");
+    assert_eq!(app.cat.rig_state.frequency_hz, 14_195_000);
+    assert_eq!(app.cat.rig_state.mode, "USB");
+    assert_eq!(app.cat.rig_state.passband_hz, 2700);
+    assert!(app.cat.rig_state.split_enabled && app.cat.vfo_split);
+    let status = app.gui.chrome.status_message.clone().unwrap();
+    assert!(status.contains("14200.0"), "{status}");
+}
+
+#[tokio::test]
+async fn s9_cw_spot_on_40m_and_plain_spot_switch_split_off() {
+    let (_dir, mut app) = s7_app();
+    app.cat.rig_state.split_enabled = true;
+    app.cat.vfo_split = true;
+    app.tune_to_cluster_spot(&s9_spot("SP3XYZ", 7_012.0, "tnx qso"));
+    assert_eq!(app.entry.mode, "CW", "the CW segment decides the mode");
+    assert_eq!(app.cat.rig_state.mode, "CW");
+    assert_eq!(app.cat.rig_state.passband_hz, 500);
+    assert!(!app.cat.rig_state.split_enabled && !app.cat.vfo_split);
+}
+
+#[tokio::test]
+async fn s9_up_without_a_frequency_warns_instead_of_guessing() {
+    let (_dir, mut app) = s7_app();
+    app.tune_to_cluster_spot(&s9_spot("SP9ABC", 14_025.0, "listening UP"));
+    assert!(!app.cat.rig_state.split_enabled);
+    assert!(app.gui.chrome.toasts.iter().any(|t| {
+        t.severity == crate::gui::state::ToastSeverity::Warning
+            && t.message == tr(key::CLUSTER_SPLIT_UNSPECIFIED, app.gui.appearance.language)
+    }));
+}
+
+#[tokio::test]
+async fn s9_digital_spots_leave_the_rig_mode_to_the_digital_program() {
+    let (_dir, mut app) = s7_app();
+    app.cat.rig_state.mode = "USB".to_string();
+    let mut spot = s9_spot("SP9ABC", 14_074.0, "");
+    spot.is_ft8 = true;
+    app.tune_to_cluster_spot(&spot);
+    assert_eq!(app.entry.mode, "FT8");
+    assert_eq!(app.cat.rig_state.mode, "USB");
+}
+
+#[tokio::test]
+async fn s9_switched_off_settings_keep_mode_and_split() {
+    let (_dir, mut app) = s7_app();
+    app.config.cluster_spots.tune_sets_mode = false;
+    app.config.cluster_spots.tune_sets_split = false;
+    app.entry.mode = "RTTY".to_string();
+    app.cat.rig_state.split_enabled = true;
+    app.tune_to_cluster_spot(&s9_spot("SP9ABC", 14_195.0, "UP 5 SSB"));
+    assert_eq!(app.entry.mode, "RTTY");
+    assert!(app.cat.rig_state.split_enabled);
+}
+
+#[test]
+fn s9_respot_refreshes_the_existing_spot() {
+    let (_dir, mut app) = s7_app();
+    app.solar.band_alert_enabled = false;
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.cluster.event_rx = Some(rx);
+    let mut first = s9_spot("SP9ABC", 14_025.0, "CQ");
+    first.received_at = jiff::Timestamp::now().as_second() - 50 * 60;
+    let mut other = s9_spot("SP3XYZ", 7_012.0, "");
+    other.received_at = first.received_at;
+    let mut respot = s9_spot("SP9ABC", 14_025.5, "UP 2");
+    respot.spotter = "SP1AAA".to_string();
+    tx.send(crate::cluster::telnet::ClusterEvent::Spot(first))
+        .unwrap();
+    tx.send(crate::cluster::telnet::ClusterEvent::Spot(other))
+        .unwrap();
+    tx.send(crate::cluster::telnet::ClusterEvent::Spot(respot.clone()))
+        .unwrap();
+    app.poll_cluster_events();
+    let spots = &app.cluster.spots;
+    assert_eq!(spots.len(), 2);
+    assert_eq!(spots[0].dx_call, "SP9ABC");
+    assert_eq!(spots[0].comment, "UP 2");
+    assert_eq!(spots[0].spotter, "SP1AAA");
+    assert_eq!(spots[0].received_at, respot.received_at);
+}
+
+#[test]
+fn s9_spot_retention_follows_the_settings() {
+    let (_dir, mut app) = s7_app();
+    let now = 2_000_000_000;
+    for minutes in [1, 10, 30] {
+        let mut spot = s9_spot(&format!("SP{minutes}A"), 14_025.0, "");
+        spot.received_at = now - minutes * 60;
+        app.cluster.spots.push(spot);
+    }
+    app.config.cluster_spots.max_age_minutes = 15;
+    app.prune_cluster_spots(now);
+    assert_eq!(app.cluster.spots.len(), 2);
+    // Wartości spoza zakresu są przycinane: 0 minut działa jak 5 minut.
+    app.config.cluster_spots.max_age_minutes = 0;
+    app.prune_cluster_spots(now);
+    assert_eq!(app.cluster.spots.len(), 1);
+}
+
+#[tokio::test]
+async fn s9_badges_use_the_mode_of_the_spot() {
+    use crate::gui::state::cluster::SpotBadgeKind;
+    let (_dir, mut app) = s7_app();
+    let mut qso = QsoRecord::new("SP3XYZ", "20m", "CW");
+    qso.qso_date = "20261122".to_string();
+    qso.time_on = "120000".to_string();
+    qso.freq = Some(14.025);
+    app.handle_wsjtx_qso(qso);
+
+    assert_eq!(
+        app.cluster_spot_badge(&s9_spot("SP3XYZ", 14_025.0, "CW")),
+        SpotBadgeKind::Worked
+    );
+    assert_eq!(
+        app.cluster_spot_badge(&s9_spot("SP9ABC", 14_025.0, "")),
+        SpotBadgeKind::Standard
+    );
+    assert_eq!(
+        app.cluster_spot_badge(&s9_spot("SP9ABC", 14_250.0, "SSB")),
+        SpotBadgeKind::NewMode
+    );
+    assert_eq!(
+        app.cluster_spot_badge(&s9_spot("SP9ABC", 7_012.0, "CW")),
+        SpotBadgeKind::NewBand
+    );
+}
+
+#[tokio::test]
+async fn s9_rotor_follows_the_spot_through_a_virtual_rotctld() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+    let (_dir, mut app) = s7_app();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    app.config.rotor_host = "127.0.0.1".to_string();
+    app.config.rotor_port = listener.local_addr().unwrap().port();
+    app.config.station.gridsquare = "FN42AA".to_string();
+    app.config.cluster_spots.rotor_follows_spot = true;
+
+    let expected = app.bearing_to_callsign("SP9ABC").expect("bearing");
+    app.tune_to_cluster_spot(&s9_spot("SP9ABC", 14_025.0, ""));
+
+    let (stream, _) = tokio::time::timeout(std::time::Duration::from_secs(5), listener.accept())
+        .await
+        .unwrap()
+        .unwrap();
+    let mut stream = tokio::io::BufReader::new(stream);
+    let mut line = String::new();
+    stream.read_line(&mut line).await.unwrap();
+    stream.get_mut().write_all(b"RPRT 0\n").await.unwrap();
+    assert_eq!(line, format!("P {:.1} 0.0\n", expected.round()));
+    assert!((app.cat.rotor_state.azimuth_deg - expected.round()).abs() < f32::EPSILON);
+}
+
+#[tokio::test]
+async fn s9_rotor_stays_still_by_default() {
+    let (_dir, mut app) = s7_app();
+    app.config.station.gridsquare = "JO81LC".to_string();
+    let before = app.cat.rotor_state.azimuth_deg;
+    app.tune_to_cluster_spot(&s9_spot("SP9ABC", 14_025.0, ""));
+    assert!((app.cat.rotor_state.azimuth_deg - before).abs() < f32::EPSILON);
+}

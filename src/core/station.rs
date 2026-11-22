@@ -713,6 +713,9 @@ pub struct AppConfig {
 
     #[serde(default)]
     pub wsjtx: crate::digital::wsjtx::WsjtxSettings,
+
+    #[serde(default)]
+    pub cluster_spots: ClusterSpotSettings,
 }
 
 impl std::fmt::Debug for AppConfig {
@@ -836,7 +839,54 @@ impl std::fmt::Debug for AppConfig {
             .field("ui_state", &self.ui_state)
             .field("cw", &self.cw)
             .field("wsjtx", &self.wsjtx)
+            .field("cluster_spots", &self.cluster_spots)
             .finish()
+    }
+}
+
+/// Spoty klastra: jak długo je trzymać i co robi kliknięcie spotu.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct ClusterSpotSettings {
+    /// Spot starszy niż tyle minut (od ostatniego zgłoszenia) znika z listy.
+    pub max_age_minutes: u32,
+    /// Najwięcej spotów na liście (najnowsze zostają).
+    pub max_spots: usize,
+    /// Kliknięcie spotu ustawia emisję z komentarza albo planu pasma.
+    pub tune_sets_mode: bool,
+    /// Kliknięcie spotu ustawia split z komentarza (`UP 2`, `QSX 14025`).
+    pub tune_sets_split: bool,
+    /// Kliknięcie spotu obraca antenę na stację (wymaga rotctld).
+    pub rotor_follows_spot: bool,
+}
+
+impl Default for ClusterSpotSettings {
+    fn default() -> Self {
+        Self {
+            max_age_minutes: 60,
+            max_spots: 500,
+            tune_sets_mode: true,
+            tune_sets_split: true,
+            rotor_follows_spot: false,
+        }
+    }
+}
+
+impl ClusterSpotSettings {
+    pub const AGE_RANGE: std::ops::RangeInclusive<u32> = 5..=360;
+    pub const COUNT_RANGE: std::ops::RangeInclusive<usize> = 50..=5000;
+
+    /// Wiek spotu w sekundach po przycięciu do dozwolonego zakresu.
+    pub fn max_age_secs(&self) -> i64 {
+        let minutes = self
+            .max_age_minutes
+            .clamp(*Self::AGE_RANGE.start(), *Self::AGE_RANGE.end());
+        i64::from(minutes) * 60
+    }
+
+    pub fn max_count(&self) -> usize {
+        self.max_spots
+            .clamp(*Self::COUNT_RANGE.start(), *Self::COUNT_RANGE.end())
     }
 }
 
@@ -1451,6 +1501,7 @@ impl Default for AppConfig {
             ui_state: UiStateConfig::default(),
             cw: CwConfig::default(),
             wsjtx: crate::digital::wsjtx::WsjtxSettings::default(),
+            cluster_spots: ClusterSpotSettings::default(),
         }
     }
 }

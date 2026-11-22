@@ -2,6 +2,9 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use super::*;
+use crate::cat::tune::{SplitRequest, TuneRequest};
+use crate::cluster::spot_info::{self, SplitHint, SpotMode};
+use crate::cluster::telnet::DxSpot;
 use crate::core::awards::AwardsEngine;
 use crate::core::geo::{calculate_bearing_deg, calculate_distance_km, locator_to_coordinates};
 
@@ -362,24 +365,34 @@ impl SpLogApp {
         );
     }
 
-    /// Zwraca rodzaj odznaki (⭐ nowe DXCC, ✨ nowe pasmo) dla spotu klastra,
+    /// Zwraca rodzaj odznaki spotu klastra (nowe DXCC, nowe pasmo, nowa emisja, zrobiona),
     /// korzystając z cache, aby nie przeliczać prefiksu i statusu nagród co klatkę.
-    pub fn cluster_spot_badge(&mut self, dx_call: &str, band: &str, is_ft8: bool) -> SpotBadgeKind {
-        let key = format!("{dx_call}|{band}|{is_ft8}");
+    /// Emisja pochodzi z komentarza albo planu pasma; gdy jest nieznana, oceniane są
+    /// tylko kraj i pasmo.
+    pub fn cluster_spot_badge(&mut self, spot: &DxSpot) -> SpotBadgeKind {
+        let freq_hz = spot_info::spot_freq_hz(spot.frequency_khz);
+        let mode = spot_info::spot_mode(&spot.comment, freq_hz, spot.is_ft8);
+        let mode_name = mode.as_ref().map(SpotMode::log_mode);
+        let key = format!(
+            "{}|{}|{}",
+            spot.dx_call,
+            spot.band,
+            mode_name.unwrap_or_default()
+        );
         if let Some(&badge) = self.cluster.badge_cache.get(&key) {
             return badge;
         }
 
-        let badge = if let Some(info) = self.services.prefix_matcher.lookup(dx_call) {
+        let badge = if let Some(info) = self.services.prefix_matcher.lookup(&spot.dx_call) {
             let awards = self
                 .services
                 .awards_engine
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             let st = awards.check_status_full(
-                dx_call,
-                band,
-                if is_ft8 { "FT8" } else { "CW" },
+                &spot.dx_call,
+                &spot.band,
+                mode_name.unwrap_or_default(),
                 Some(info.dxcc),
                 None,
                 Some(info.cqz),
@@ -391,6 +404,10 @@ impl SpLogApp {
                 SpotBadgeKind::NewDxcc
             } else if st.is_new_band {
                 SpotBadgeKind::NewBand
+            } else if mode_name.is_some() && st.is_new_mode {
+                SpotBadgeKind::NewMode
+            } else if mode_name.is_some() && st.is_worked_b4 {
+                SpotBadgeKind::Worked
             } else {
                 SpotBadgeKind::Standard
             }
@@ -400,6 +417,99 @@ impl SpLogApp {
 
         self.cluster.badge_cache.insert(key, badge);
         badge
+    }
+
+    /// Azymut z lokatora stacji na stację DX (z pliku krajów); `None` bez lokatora stacji
+    /// albo dla nieznanego prefiksu.
+    pub fn bearing_to_callsign(&self, callsign: &str) -> Option<f32> {
+        let info = self.services.prefix_matcher.lookup(callsign)?;
+        let mine = locator_to_coordinates(&self.config.station.gridsquare).ok()?;
+        let dx = crate::core::geo::Coordinates::new(info.latitude, info.longitude);
+        let bearing = calculate_bearing_deg(mine, dx) as f32;
+        bearing.is_finite().then_some(bearing)
+    }
+
+    /// Strojenie na spot klastra: znak i pasmo do formularza, częstotliwość, emisja i split
+    /// do radia jedną sekwencją, opcjonalnie obrót anteny.
+    pub fn tune_to_cluster_spot(&mut self, spot: &DxSpot) {
+        let settings = self.config.cluster_spots.clone();
+        let freq_hz = spot_info::spot_freq_hz(spot.frequency_khz);
+        if freq_hz == 0 {
+            return;
+        }
+        let mode = if settings.tune_sets_mode {
+            spot_info::spot_mode(&spot.comment, freq_hz, spot.is_ft8)
+        } else {
+            None
+        };
+        let split = if settings.tune_sets_split {
+            spot_info::split_hint(&spot.comment, freq_hz)
+        } else {
+            None
+        };
+        let rig_setting = mode.as_ref().and_then(|m| m.rig_setting(freq_hz));
+        let split_request = match split {
+            Some(SplitHint::Tx(tx_hz)) => SplitRequest::On(tx_hz),
+            _ if settings.tune_sets_split && self.cat.rig_state.split_enabled => SplitRequest::Off,
+            _ => SplitRequest::Keep,
+        };
+
+        self.entry.callsign.clone_from(&spot.dx_call);
+        self.entry.band = crate::core::bandplan::get_band_by_freq(freq_hz)
+            .map_or_else(|| spot.band.clone(), |band| band.name.to_string());
+        if let Some(mode) = &mode {
+            self.entry.mode = mode.log_mode().to_string();
+        }
+        // Stan lokalny do czasu odczytu z radia.
+        self.cat.rig_state.frequency_hz = freq_hz;
+        if let Some((rig_mode, passband_hz)) = rig_setting {
+            self.cat.rig_state.mode = rig_mode.to_string();
+            self.cat.rig_state.passband_hz = passband_hz;
+        }
+        match split_request {
+            SplitRequest::On(_) => {
+                self.cat.rig_state.split_enabled = true;
+                self.cat.vfo_split = true;
+            }
+            SplitRequest::Off => {
+                self.cat.rig_state.split_enabled = false;
+                self.cat.vfo_split = false;
+            }
+            SplitRequest::Keep => {}
+        }
+        self.cat.runtime.tune(TuneRequest {
+            frequency_hz: freq_hz,
+            mode: rig_setting.map(|(m, passband)| (m.to_string(), passband)),
+            split: split_request,
+        });
+
+        self.on_callsign_changed();
+        self.focus_qso_entry();
+        let lang = self.gui.appearance.language;
+        let mut status = Msg::new(key::CLUSTER_AUTO_TUNE_STATUS)
+            .arg("call", &spot.dx_call)
+            .arg("freq", format!("{:.1}", spot.frequency_khz))
+            .text(lang);
+        if let SplitRequest::On(tx_hz) = split_request {
+            status.push_str(" · ");
+            status.push_str(
+                &Msg::new(key::CLUSTER_SPLIT_TX)
+                    .arg("freq", format!("{:.1}", tx_hz as f64 / 1000.0))
+                    .text(lang),
+            );
+        }
+        self.gui.chrome.status_message = Some(status);
+        if split == Some(SplitHint::UpUnspecified) {
+            self.gui.chrome.push_status_toast(
+                crate::gui::state::ToastSeverity::Warning,
+                tr(key::CLUSTER_SPLIT_UNSPECIFIED, lang).to_string(),
+            );
+        }
+        if settings.rotor_follows_spot
+            && let Some(azimuth) = self.bearing_to_callsign(&spot.dx_call)
+        {
+            self.rotate_antenna_to(azimuth.round());
+        }
     }
 
     /// Czyści cache odznak spotów klastra po zmianie stanu nagród (nowe/usunięte QSO)

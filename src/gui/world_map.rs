@@ -872,15 +872,14 @@ pub fn render_world_map_content(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     );
 
                     if clicked {
-                        tune_target =
-                            Some((spot.dx_call.clone(), spot.frequency_khz, spot.band.clone()));
+                        tune_target = Some(spot.clone());
                     }
                 }
             }
         }
 
-        if let Some((dx_call, freq, band)) = tune_target {
-            app.tune_to_spot(&dx_call, freq, &band);
+        if let Some(spot) = tune_target {
+            app.tune_to_cluster_spot(&spot);
         }
 
         // QSO markers: one per locator (cached per log revision), drawn only when visible and
