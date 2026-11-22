@@ -74,6 +74,8 @@ pub enum AppAction {
     EscapeCloseContext,
     ContestSaveQso,
     ContestWipeQso,
+    /// Makro CW F1..F8 w oknie zawodów (indeks od zera).
+    ContestMacro(u8),
 }
 
 /// Jawne konteksty fokusu interfejsu użytkownika (GUI-001).
@@ -851,6 +853,32 @@ impl ShortcutRegistry {
             "Esc",
             "Wipe contest fields",
         ));
+
+        // F1..F8 w oknie zawodów nadają makra CW (jak w loggerach zawodniczych);
+        // priorytet 10 wyprzedza globalne znaczenie tych klawiszy. F7 jest zarezerwowany
+        // dla intencji PTT (F-17), więc makro F7 jest dostępne tylko przyciskiem.
+        let macro_keys = [
+            (Key::F1, "F1", "Send contest macro F1 (CQ)"),
+            (Key::F2, "F2", "Send contest macro F2 (exchange)"),
+            (Key::F3, "F3", "Send contest macro F3 (TU)"),
+            (Key::F4, "F4", "Send contest macro F4 (my call)"),
+            (Key::F5, "F5", "Send contest macro F5"),
+            (Key::F6, "F6", "Send contest macro F6"),
+            (Key::F8, "F8", "Send contest macro F8"),
+        ];
+        for (key, label, description) in macro_keys {
+            let index = label[1..].parse::<u8>().unwrap_or(1) - 1;
+            self.register(ShortcutBinding::new(
+                AppAction::ContestMacro(index),
+                KeyboardShortcut::new(none, key),
+                ShortcutContext::Contest,
+                10,
+                ConflictPolicy::AllowInTextEditing,
+                RepeatPolicy::SingleTrigger,
+                label,
+                description,
+            ));
+        }
 
         // --- KONTEKST MODALNY I ESCAPE ZAMYKAJĄCY ---
         self.register(ShortcutBinding::new(

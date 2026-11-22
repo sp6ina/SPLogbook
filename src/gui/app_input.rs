@@ -254,6 +254,7 @@ impl SpLogApp {
                 AppAction::CycleTheme => self.cycle_theme(),
                 AppAction::FocusLog => self.views.panel_log.visible = true,
                 AppAction::ContestSaveQso => self.contest.save_requested = true,
+                AppAction::ContestMacro(index) => self.contest_macro(usize::from(index)),
                 AppAction::ContestWipeQso => {
                     self.entry.callsign.clear();
                     self.entry.rst_rcvd.clear();

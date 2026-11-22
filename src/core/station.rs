@@ -424,6 +424,8 @@ pub struct UiStateConfig {
     pub contest_name: String,
     /// Następny numer seryjny w zawodach; nie zaczyna się od 001 po każdym restarcie.
     pub contest_next_serial: u32,
+    /// Sesja zawodów trwa także po restarcie programu.
+    pub contest_session: Option<crate::core::contest_session::ContestSession>,
 }
 
 impl Default for UiStateConfig {
@@ -439,6 +441,7 @@ impl Default for UiStateConfig {
             duplicates_match_date: true,
             contest_name: "SP DX Contest".to_string(),
             contest_next_serial: 1,
+            contest_session: None,
         }
     }
 }

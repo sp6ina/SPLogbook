@@ -7,12 +7,17 @@ use crate::core::i18n::{Msg, key, tr};
 
 impl SpLogApp {
     pub fn export_cabrillo(&mut self) {
+        // Cabrillo to log zawodów: wyłącznie QSO z sesji, nigdy cały dziennik.
+        let Some(session) = self.contest.session.clone() else {
+            self.warn(Msg::new(key::CONTEST_NO_SESSION_EXPORT));
+            return;
+        };
         if let Some(path) = rfd::FileDialog::new()
-            .add_filter("Pliki Cabrillo (*.cbr, *.log)", &["cbr", "log"])
+            .add_filter("Cabrillo (*.cbr, *.log)", &["cbr", "log"])
             .set_file_name(format!(
                 "{}_{}.cbr",
-                self.config.station.callsign,
-                self.contest.name.replace(' ', "_")
+                self.config.station.callsign.replace('/', "-"),
+                session.contest_id
             ))
             .set_title(tr(
                 key::EXPORT_CABRILLO_SAVE_TITLE,
@@ -20,7 +25,7 @@ impl SpLogApp {
             ))
             .save_file()
         {
-            let qsos = match self.services.log_db.lock() {
+            let journal = match self.services.log_db.lock() {
                 Ok(db) => match db.get_all_qsos_for_journal(&self.active_journal.id) {
                     Ok(list) => list,
                     Err(e) => {
@@ -41,42 +46,39 @@ impl SpLogApp {
                     return;
                 }
             };
+            let qsos = session.qsos(&journal);
 
             let my_dxcc: u32 = self
                 .services
                 .prefix_matcher
                 .lookup(&self.config.station.callsign)
-                .and_then(|m| if m.dxcc > 0 { Some(m.dxcc) } else { None })
-                .unwrap_or(269);
+                .map_or(0, |m| m.dxcc);
             let my_cqzone = self.config.station.cq_zone as u8;
+            let scoreboard = self.contest_score(&qsos, my_dxcc, my_cqzone);
 
-            let scoreboard = crate::core::contest_stats::compute_scoreboard(
-                &self.contest.name,
-                &self.config.custom_contests,
-                &qsos,
-                my_dxcc,
-                my_cqzone,
-            );
-
-            let input = crate::core::cabrillo::CabrilloInput {
-                contest_name: &self.contest.name,
-                callsign: &self.config.station.callsign,
-                operator: &self.config.station.operator,
-                city: &self.config.station.city,
-                country: &self.config.station.country,
+            let station = &self.config.station;
+            let address: Vec<String> = [station.city.trim(), station.country.trim()]
+                .into_iter()
+                .filter(|line| !line.is_empty())
+                .map(str::to_string)
+                .collect();
+            let created_by = format!("SPLogbook {}", env!("CARGO_PKG_VERSION"));
+            let log = crate::core::cabrillo::CabrilloLog {
+                contest_id: &session.contest_id,
+                callsign: &station.callsign,
+                name: &station.operator,
+                address: &address,
+                grid_locator: &station.gridsquare,
+                email: "",
                 claimed_score: scoreboard.total,
+                categories: &session.categories,
+                created_by: &created_by,
                 qsos: &qsos,
-                transmitter_category: Some(crate::core::cabrillo::CabrilloTransmitterCategory::One),
-                operator_category: Some(crate::core::cabrillo::CabrilloOperatorCategory::SingleOp),
             };
-            let out = match crate::core::cabrillo::build(&input) {
+            let out = match crate::core::cabrillo::build_contest_log(&log) {
                 Ok(s) => s,
                 Err(err) => {
-                    self.gui.chrome.status_message = Some(
-                        Msg::new(key::EXPORT_ERR_SAVE_CABRILLO)
-                            .arg("err", &err)
-                            .text(self.gui.appearance.language),
-                    );
+                    self.fail(Msg::new(key::EXPORT_ERR_SAVE_CABRILLO).arg("err", &err));
                     return;
                 }
             };

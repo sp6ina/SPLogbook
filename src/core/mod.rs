@@ -13,6 +13,7 @@ pub mod callbook;
 pub mod callsign_correction;
 pub mod clubs;
 pub mod contest_rules;
+pub mod contest_session;
 pub mod contest_stats;
 pub mod credentials;
 pub mod csv_export;

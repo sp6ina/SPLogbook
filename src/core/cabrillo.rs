@@ -212,6 +212,48 @@ pub fn resolve_rcvd_exchange(qso: &QsoRecord, default_fallback: &str) -> String 
     default_fallback.to_string()
 }
 
+/// Wiersz `QSO:` (Cabrillo 3.0): częstotliwość, emisja, data i czas UTC, znaki, raporty
+/// i wymiany. Data i czas są walidowane — nigdy nie są brane z zegara.
+fn write_qso_line(
+    out: &mut String,
+    my_callsign: &str,
+    qso: &QsoRecord,
+    my_exch: &str,
+    his_exch: &str,
+) -> Result<(), ContestError> {
+    let freq_khz = qso.freq.map_or_else(
+        || band_to_cabrillo_freq(&qso.band),
+        |f| (f * 1000.0).round() as u64,
+    );
+    let with_call = |err: ContestError| match err {
+        ContestError::InvalidQsoTimestamp { detail, .. } => ContestError::InvalidQsoTimestamp {
+            callsign: qso.callsign.clone(),
+            detail,
+        },
+        other => other,
+    };
+    let date_str = format_and_validate_cabrillo_date(&qso.qso_date).map_err(with_call)?;
+    let time_str = format_and_validate_cabrillo_time(&qso.time_on).map_err(with_call)?;
+    let mode_cab = cabrillo_mode(&qso.mode);
+    let my_rst = format_and_validate_rst(&qso.rst_sent, mode_cab)?;
+    let his_rst = format_and_validate_rst(&qso.rst_rcvd, mode_cab)?;
+    let _ = writeln!(
+        out,
+        "QSO: {:5} {:2} {} {} {:10} {:3} {:4} {:10} {:3} {}",
+        freq_khz,
+        mode_cab,
+        date_str,
+        time_str,
+        my_callsign,
+        my_rst,
+        my_exch,
+        qso.callsign,
+        his_rst,
+        his_exch
+    );
+    Ok(())
+}
+
 /// Dane wejściowe do wygenerowania raportu zawodów w formacie Cabrillo 3.0.
 #[derive(Debug, Clone)]
 pub struct CabrilloInput<'a> {
@@ -247,7 +289,8 @@ pub fn cabrillo_mode(mode: &str) -> &'static str {
             } else if m.contains("FM") {
                 "FM"
             } else {
-                "PH"
+                // Pozostałe emisje (OLIVIA, CONTESTIA, VARA, MFSK…) są cyfrowe.
+                "DG"
             }
         }
     }
@@ -437,61 +480,182 @@ pub fn build(input: &CabrilloInput) -> Result<String, ContestError> {
     let _ = writeln!(out, "OPERATORS: {}", input.callsign);
     let _ = writeln!(out, "NAME: {}", input.operator);
     let _ = writeln!(out, "ADDRESS: {}, {}", input.city, input.country);
-    out.push_str("CREATED-BY: SPLogbook by SP6INA (GPLv3)\n");
-    out.push_str("SOAPBOX: Created with SPLogbook by SP6INA (GPLv3)\n");
+    let _ = writeln!(out, "CREATED-BY: SPLogbook {}", env!("CARGO_PKG_VERSION"));
 
     // Kopiujemy i sortujemy łączności w kanonicznym porządku chronologicznym rosnącym (DATA-001 / FUNC-001 / F-21)
     let mut sorted_qsos = input.qsos.to_vec();
     sorted_qsos.sort_by_key(canonical_qso_sort_key);
 
     for (idx, qso) in sorted_qsos.iter().enumerate() {
-        let freq_khz = qso.freq.map_or_else(
-            || band_to_cabrillo_freq(&qso.band),
-            |f| (f * 1000.0).round() as u64,
-        );
-
-        let date_str =
-            format_and_validate_cabrillo_date(&qso.qso_date).map_err(|err| match err {
-                ContestError::InvalidQsoTimestamp { detail, .. } => {
-                    ContestError::InvalidQsoTimestamp {
-                        callsign: qso.callsign.clone(),
-                        detail,
-                    }
-                }
-                other => other,
-            })?;
-
-        let time_str =
-            format_and_validate_cabrillo_time(&qso.time_on).map_err(|err| match err {
-                ContestError::InvalidQsoTimestamp { detail, .. } => {
-                    ContestError::InvalidQsoTimestamp {
-                        callsign: qso.callsign.clone(),
-                        detail,
-                    }
-                }
-                other => other,
-            })?;
-
-        let mode_cab = cabrillo_mode(&qso.mode);
-        let my_rst = format_and_validate_rst(&qso.rst_sent, mode_cab)?;
-        let his_rst = format_and_validate_rst(&qso.rst_rcvd, mode_cab)?;
         let my_exch = resolve_sent_exchange(qso, idx + 1);
         let his_exch = resolve_rcvd_exchange(qso, "001");
+        write_qso_line(&mut out, input.callsign, qso, &my_exch, &his_exch)?;
+    }
+    out.push_str("END-OF-LOG:\n");
+    Ok(out)
+}
 
+/// Log sesji zawodów do wysłania organizatorowi (STAGE-V140-S7).
+#[derive(Debug, Clone)]
+pub struct CabrilloLog<'a> {
+    /// Identyfikator zawodów w `CONTEST:` (A-Z, 0-9, `-`).
+    pub contest_id: &'a str,
+    pub callsign: &'a str,
+    pub name: &'a str,
+    /// Wiersze adresu (najwyżej 6, po 45 znaków).
+    pub address: &'a [String],
+    pub grid_locator: &'a str,
+    pub email: &'a str,
+    pub claimed_score: u32,
+    pub categories: &'a crate::core::contest_session::CabrilloCategories,
+    /// Program i wersja w `CREATED-BY:`.
+    pub created_by: &'a str,
+    pub qsos: &'a [QsoRecord],
+}
+
+fn check_category(tag: &str, value: &str, allowed: &[&str]) -> Result<(), ContestError> {
+    if allowed.contains(&value) {
+        Ok(())
+    } else {
+        Err(ContestError::UnsupportedContestCategory(format!(
+            "{tag}: {value}"
+        )))
+    }
+}
+
+/// Dzieli tekst na wiersze `TAG: ...` o długości najwyżej `width` znaków wartości.
+fn wrapped_lines(out: &mut String, tag: &str, text: &str, width: usize) {
+    let mut line = String::new();
+    for word in text.split_whitespace() {
+        if !line.is_empty() && line.chars().count() + 1 + word.chars().count() > width {
+            let _ = writeln!(out, "{tag}: {line}");
+            line.clear();
+        }
+        if !line.is_empty() {
+            line.push(' ');
+        }
+        line.push_str(word);
+    }
+    if !line.is_empty() {
+        let _ = writeln!(out, "{tag}: {line}");
+    }
+}
+
+fn exchange_or_error(
+    value: Option<String>,
+    callsign: &str,
+    side: &str,
+) -> Result<String, ContestError> {
+    value.ok_or_else(|| ContestError::InvalidContestExchange {
+        contest: "Cabrillo",
+        detail: format!("{callsign}: missing {side} exchange"),
+    })
+}
+
+fn sent_exchange(qso: &QsoRecord) -> Option<String> {
+    match qso.stx_string.as_deref().map(str::trim) {
+        Some(s) if !s.is_empty() => Some(s.to_string()),
+        _ => qso.stx.map(|stx| format!("{stx:03}")),
+    }
+}
+
+fn rcvd_exchange(qso: &QsoRecord) -> Option<String> {
+    match qso.srx_string.as_deref().map(str::trim) {
+        Some(s) if !s.is_empty() => Some(s.to_string()),
+        _ => qso.srx.map(|srx| format!("{srx:03}")),
+    }
+}
+
+/// Buduje log Cabrillo 3.0 sesji zawodów. W odróżnieniu od [`build`] niczego nie
+/// dopowiada: brak wymiany nadanej albo odebranej w którymś QSO jest błędem z nazwą
+/// korespondenta, a kategorie muszą mieć wartości ze specyfikacji WWROF.
+pub fn build_contest_log(log: &CabrilloLog) -> Result<String, ContestError> {
+    use crate::core::contest_session::allowed;
+    let c = log.categories;
+    check_category("CATEGORY-OPERATOR", &c.operator, allowed::OPERATOR)?;
+    let transmitter = CabrilloTransmitterCategory::parse(&c.transmitter).ok_or_else(|| {
+        ContestError::UnsupportedContestCategory(format!("CATEGORY-TRANSMITTER: {}", c.transmitter))
+    })?;
+    validate_transmitter_category(transmitter)?;
+    check_category("CATEGORY-POWER", &c.power, allowed::POWER)?;
+    check_category("CATEGORY-BAND", &c.band, allowed::BAND)?;
+    check_category("CATEGORY-MODE", &c.mode, allowed::MODE)?;
+    check_category("CATEGORY-STATION", &c.station, allowed::STATION)?;
+    check_category("CATEGORY-ASSISTED", &c.assisted, allowed::ASSISTED)?;
+    check_category("CATEGORY-OVERLAY", &c.overlay, allowed::OVERLAY)?;
+    let contest_id = log.contest_id.trim();
+    if contest_id.is_empty()
+        || contest_id.len() > 32
+        || !contest_id
+            .chars()
+            .all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit() || ch == '-')
+    {
+        return Err(ContestError::UnsupportedContestCategory(format!(
+            "CONTEST: {contest_id}"
+        )));
+    }
+
+    let mut out = String::new();
+    out.push_str("START-OF-LOG: 3.0\n");
+    let _ = writeln!(out, "CREATED-BY: {}", log.created_by);
+    let _ = writeln!(out, "CONTEST: {contest_id}");
+    let callsign = log.callsign.trim().to_ascii_uppercase();
+    let _ = writeln!(out, "CALLSIGN: {callsign}");
+    if !c.location.trim().is_empty() {
+        let _ = writeln!(out, "LOCATION: {}", c.location.trim());
+    }
+    let _ = writeln!(out, "CATEGORY-OPERATOR: {}", c.operator);
+    let _ = writeln!(out, "CATEGORY-ASSISTED: {}", c.assisted);
+    let _ = writeln!(out, "CATEGORY-BAND: {}", c.band);
+    let _ = writeln!(out, "CATEGORY-MODE: {}", c.mode);
+    let _ = writeln!(out, "CATEGORY-POWER: {}", c.power);
+    let _ = writeln!(out, "CATEGORY-STATION: {}", c.station);
+    let _ = writeln!(out, "CATEGORY-TRANSMITTER: {}", transmitter.as_str());
+    if !c.overlay.is_empty() {
+        let _ = writeln!(out, "CATEGORY-OVERLAY: {}", c.overlay);
+    }
+    if !log.grid_locator.trim().is_empty() {
         let _ = writeln!(
             out,
-            "QSO: {:5} {:2} {} {} {:10} {:3} {:4} {:10} {:3} {}",
-            freq_khz,
-            mode_cab,
-            date_str,
-            time_str,
-            input.callsign,
-            my_rst,
-            my_exch,
-            qso.callsign,
-            his_rst,
-            his_exch
+            "GRID-LOCATOR: {}",
+            log.grid_locator.trim().to_ascii_uppercase()
         );
+    }
+    let _ = writeln!(out, "CLAIMED-SCORE: {}", log.claimed_score);
+    if !c.club.trim().is_empty() {
+        let _ = writeln!(out, "CLUB: {}", c.club.trim());
+    }
+    let operators = if c.operators.trim().is_empty() {
+        log.callsign.trim().to_ascii_uppercase()
+    } else {
+        c.operators.trim().to_ascii_uppercase()
+    };
+    wrapped_lines(&mut out, "OPERATORS", &operators, 64);
+    if !log.name.trim().is_empty() {
+        let name: String = log.name.trim().chars().take(75).collect();
+        let _ = writeln!(out, "NAME: {name}");
+    }
+    for line in log
+        .address
+        .iter()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty())
+        .take(6)
+    {
+        let line: String = line.chars().take(45).collect();
+        let _ = writeln!(out, "ADDRESS: {line}");
+    }
+    if !log.email.trim().is_empty() {
+        let _ = writeln!(out, "EMAIL: {}", log.email.trim());
+    }
+    wrapped_lines(&mut out, "SOAPBOX", &c.soapbox, 64);
+
+    let mut sorted_qsos = log.qsos.to_vec();
+    sorted_qsos.sort_by_key(canonical_qso_sort_key);
+    for qso in &sorted_qsos {
+        let my_exch = exchange_or_error(sent_exchange(qso), &qso.callsign, "sent")?;
+        let his_exch = exchange_or_error(rcvd_exchange(qso), &qso.callsign, "received")?;
+        write_qso_line(&mut out, &callsign, qso, &my_exch, &his_exch)?;
     }
     out.push_str("END-OF-LOG:\n");
     Ok(out)
@@ -500,6 +664,144 @@ pub fn build(input: &CabrilloInput) -> Result<String, ContestError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn s7_session_qso(call: &str, time: &str, stx: &str, srx: Option<&str>) -> QsoRecord {
+        let mut q = sample_qso(call, "20m", "CW", "599", "599");
+        q.time_on = time.to_string();
+        q.stx_string = Some(stx.to_string());
+        q.srx_string = srx.map(str::to_string);
+        q
+    }
+
+    fn s7_log<'a>(
+        qsos: &'a [QsoRecord],
+        categories: &'a crate::core::contest_session::CabrilloCategories,
+        address: &'a [String],
+    ) -> CabrilloLog<'a> {
+        CabrilloLog {
+            contest_id: "CQ-WPX-CW",
+            callsign: "sp6ina",
+            name: "Mariusz",
+            address,
+            grid_locator: "jo81lc",
+            email: "",
+            claimed_score: 42,
+            categories,
+            created_by: "SPLogbook 1.4.0",
+            qsos,
+        }
+    }
+
+    #[test]
+    fn contest_log_header_uses_the_session_categories() {
+        let qsos = vec![s7_session_qso("K1ABC", "120000", "001", Some("015"))];
+        let mut categories = crate::core::contest_session::CabrilloCategories::default();
+        categories.power = "LOW".to_string();
+        categories.mode = "CW".to_string();
+        categories.band = "20M".to_string();
+        categories.location = "DX".to_string();
+        categories.club = "SP6 Contest Club".to_string();
+        categories.soapbox = "Great conditions on 20m all weekend.".to_string();
+        let address = vec!["Wroclaw".to_string(), "Poland".to_string()];
+        let text = build_contest_log(&s7_log(&qsos, &categories, &address)).unwrap();
+        for line in [
+            "START-OF-LOG: 3.0\n",
+            "CREATED-BY: SPLogbook 1.4.0\n",
+            "CONTEST: CQ-WPX-CW\n",
+            "CALLSIGN: SP6INA\n",
+            "LOCATION: DX\n",
+            "CATEGORY-OPERATOR: SINGLE-OP\n",
+            "CATEGORY-ASSISTED: NON-ASSISTED\n",
+            "CATEGORY-BAND: 20M\n",
+            "CATEGORY-MODE: CW\n",
+            "CATEGORY-POWER: LOW\n",
+            "CATEGORY-STATION: FIXED\n",
+            "CATEGORY-TRANSMITTER: ONE\n",
+            "GRID-LOCATOR: JO81LC\n",
+            "CLAIMED-SCORE: 42\n",
+            "CLUB: SP6 Contest Club\n",
+            "OPERATORS: SP6INA\n",
+            "ADDRESS: Wroclaw\nADDRESS: Poland\n",
+            "SOAPBOX: Great conditions on 20m all weekend.\n",
+        ] {
+            assert!(text.contains(line), "missing {line:?} in\n{text}");
+        }
+        assert!(
+            text.contains("QSO: 14000 CW 2026-04-04 1200 SP6INA     599 001  K1ABC      599 015\n")
+        );
+        assert!(text.ends_with("END-OF-LOG:\n"));
+        assert!(
+            !text.contains("CATEGORY-OVERLAY"),
+            "empty overlay is omitted"
+        );
+    }
+
+    #[test]
+    fn contest_log_never_invents_a_missing_exchange() {
+        let qsos = vec![
+            s7_session_qso("K1ABC", "120000", "001", Some("015")),
+            s7_session_qso("W1AW", "120100", "002", None),
+        ];
+        let categories = crate::core::contest_session::CabrilloCategories::default();
+        let err = build_contest_log(&s7_log(&qsos, &categories, &[])).unwrap_err();
+        assert!(err.to_string().contains("W1AW"), "{err}");
+    }
+
+    #[test]
+    fn contest_log_rejects_values_outside_the_cabrillo_lists() {
+        let qsos = vec![s7_session_qso("K1ABC", "120000", "001", Some("015"))];
+        for (field, value) in [
+            ("power", "MEDIUM"),
+            ("mode", "PHONE"),
+            ("transmitter", "TWO"),
+            ("station", "HOME"),
+        ] {
+            let mut categories = crate::core::contest_session::CabrilloCategories::default();
+            match field {
+                "power" => categories.power = value.to_string(),
+                "mode" => categories.mode = value.to_string(),
+                "transmitter" => categories.transmitter = value.to_string(),
+                _ => categories.station = value.to_string(),
+            }
+            assert!(
+                build_contest_log(&s7_log(&qsos, &categories, &[])).is_err(),
+                "{field} = {value} must be rejected"
+            );
+        }
+        let categories = crate::core::contest_session::CabrilloCategories::default();
+        let mut log = s7_log(&qsos, &categories, &[]);
+        log.contest_id = "cq ww";
+        assert!(
+            build_contest_log(&log).is_err(),
+            "CONTEST: allows A-Z, 0-9 and '-' only"
+        );
+    }
+
+    #[test]
+    fn long_operator_and_soapbox_texts_are_wrapped_into_several_lines() {
+        let qsos = vec![s7_session_qso("K1ABC", "120000", "001", Some("015"))];
+        let mut categories = crate::core::contest_session::CabrilloCategories::default();
+        categories.operator = "MULTI-OP".to_string();
+        categories.operators = (1..=12)
+            .map(|i| format!("SP6A{i:02}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let text = build_contest_log(&s7_log(&qsos, &categories, &[])).unwrap();
+        let lines: Vec<&str> = text
+            .lines()
+            .filter(|l| l.starts_with("OPERATORS: "))
+            .collect();
+        assert!(lines.len() >= 2, "{text}");
+        assert!(lines.iter().all(|l| l.chars().count() <= 75));
+    }
+
+    #[test]
+    fn unknown_digital_modes_map_to_dg() {
+        assert_eq!(cabrillo_mode("OLIVIA"), "DG");
+        assert_eq!(cabrillo_mode("VARA"), "DG");
+        assert_eq!(cabrillo_mode("AM"), "PH");
+        assert_eq!(cabrillo_mode("USB"), "PH");
+    }
     use crate::core::contest_rules::{score_cqww, score_sp_dx};
     use crate::core::contest_stats::compute_scoreboard;
 
@@ -573,8 +875,14 @@ mod tests {
         assert!(text.contains("OPERATORS: SP6INA\n"));
         assert!(text.contains("NAME: Mariusz\n"));
         assert!(text.contains("ADDRESS: Opole, Poland\n"));
-        assert!(text.contains("CREATED-BY: SPLogbook by SP6INA (GPLv3)\n"));
-        assert!(text.contains("SOAPBOX: Created with SPLogbook by SP6INA (GPLv3)\n"));
+        assert!(text.contains(&format!(
+            "CREATED-BY: SPLogbook {}\n",
+            env!("CARGO_PKG_VERSION")
+        )));
+        assert!(
+            !text.contains("SOAPBOX:"),
+            "no advertising in the operator's log"
+        );
 
         // Linia QSO: 14025 CW 2026-04-04 1200 SP6INA     599 001  DL1XYZ     599 042
         assert!(

@@ -138,6 +138,8 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let mut export_clicked = false;
     let mut reset_clicked = false;
     let mut save_clicked = false;
+    let mut session_action = SessionAction::None;
+    let mut macro_clicked: Option<usize> = None;
     let mut spot_fill_target: Option<(String, f64, String, bool)> = None;
 
     // Is it a custom contest?
@@ -210,6 +212,11 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
         custom_contests_len: app.config.custom_contests.len(),
         my_dxcc,
         my_cqzone,
+        session: app
+            .contest
+            .session
+            .as_ref()
+            .map(|s| (s.contest_id.clone(), s.started_at, s.ended_at)),
     };
 
     let cache_hit = app.contest.cache.key.as_ref() == Some(&current_key);
@@ -229,23 +236,28 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
             .as_deref()
             .unwrap_or(&app.log_view.recent_qsos);
 
-        let scoreboard = crate::core::contest_stats::compute_scoreboard(
-            &app.contest.name,
-            &app.config.custom_contests,
-            journal_qsos,
-            my_dxcc,
-            my_cqzone,
-        );
+        // Wynik obejmuje wyłącznie QSO sesji zawodów, nie cały dziennik.
+        let mut session_qsos = app
+            .contest
+            .session
+            .as_ref()
+            .map(|session| session.qsos(journal_qsos))
+            .unwrap_or_default();
+        // Tempo i kontrola duplikatów zakładają kolejność od najnowszego QSO.
+        session_qsos
+            .sort_by_key(|q| std::cmp::Reverse(crate::core::database::schema::chrono_key(q)));
+
+        let scoreboard = app.contest_score(&session_qsos, my_dxcc, my_cqzone);
 
         let mult_matrix = if mult_kind != MultKind::None && !rule_bands.is_empty() {
             let band_refs: Vec<&str> = rule_bands.iter().map(std::string::String::as_str).collect();
-            compute_mult_matrix(mult_kind, &band_refs, journal_qsos)
+            compute_mult_matrix(mult_kind, &band_refs, &session_qsos)
         } else {
             MultMatrix::default()
         };
 
         let mut bands = std::collections::HashMap::new();
-        for qso in journal_qsos {
+        for qso in &session_qsos {
             *bands.entry(qso.band.clone()).or_insert(0) += 1;
         }
         let mut band_vec: Vec<_> = bands.into_iter().collect();
@@ -254,6 +266,7 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
         app.contest.cache.scoreboard = scoreboard;
         app.contest.cache.mult_matrix = mult_matrix;
         app.contest.cache.band_breakdown = band_vec;
+        app.contest.cache.session_qsos = session_qsos;
         app.contest.cache.key = Some(current_key);
     }
 
@@ -262,12 +275,8 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
         .unwrap_or_default()
         .as_secs() as i64;
     if !cache_hit || app.contest.cache.rate_cached_at_sec != now_secs {
-        let rows = &app.log_view.recent_qsos;
-        let window = if app.log_view.buffer_is_filtered {
-            rows.len()
-        } else {
-            crate::core::contest_stats::rate_window_len(rows, now_secs)
-        };
+        let rows = &app.contest.cache.session_qsos;
+        let window = crate::core::contest_stats::rate_window_len(rows, now_secs);
         app.contest.cache.rate = compute_rate(rows.get(..window).unwrap_or(rows), now_secs);
         app.contest.cache.rate_cached_at_sec = now_secs;
     }
@@ -330,6 +339,8 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 if unknown_contest_rule {
                     ui.colored_label(palette.danger, tr(key::CONTEST_UNKNOWN_RULES_WARNING, lang));
                 }
+
+                session_action = render_session_bar(app, ui, lang);
 
                 ui.separator();
 
@@ -455,23 +466,22 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                 ..Default::default()
                             };
 
+                            // Duplikat liczy się tylko w obrębie sesji zawodów: stacja zrobiona
+                            // rok temu na tym paśmie nie jest duplikatem w nowych zawodach.
+                            let session_qsos = &app.contest.cache.session_qsos;
                             let is_dupe = if is_custom {
-                                app.log_view.recent_qsos.iter().any(|q| {
+                                session_qsos.iter().any(|q| {
                                     q.callsign.eq_ignore_ascii_case(&dummy_qso.callsign)
                                         && q.band.eq_ignore_ascii_case(&dummy_qso.band)
                                 })
                             } else if let Some(rule_idx) =
                                 RULES.iter().position(|r| r.name == app.contest.name)
                             {
-                                detect_duplicate(
-                                    &RULES[rule_idx],
-                                    &dummy_qso,
-                                    &app.log_view.recent_qsos,
-                                )
+                                detect_duplicate(&RULES[rule_idx], &dummy_qso, session_qsos)
                             } else {
                                 // Nieznane reguły kontestu: prosta kontrola duplikatu wg znaku+pasma
                                 // zamiast cichego zastosowania reguł innego (pierwszego) kontestu.
-                                app.log_view.recent_qsos.iter().any(|q| {
+                                session_qsos.iter().any(|q| {
                                     q.callsign.eq_ignore_ascii_case(&dummy_qso.callsign)
                                         && q.band.eq_ignore_ascii_case(&dummy_qso.band)
                                 })
@@ -511,15 +521,18 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     .id(egui::Id::new("contest_entry_exchange"))
                                     .desired_width(ui.available_width().clamp(120.0, 240.0)),
                             );
+                            if std::mem::take(&mut app.contest.focus_exchange_requested) {
+                                exch_resp.request_focus();
+                            }
                             ui.end_row();
 
                             // `Enter` zwykle trafia tu przez `AppAction::ContestSaveQso`; jednowierszowe
                             // `TextEdit` oddaje fokus przy Enter, więc zapasowo sprawdzamy `lost_focus()`.
                             let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter));
-                            if (call_resp.lost_focus() || exch_resp.lost_focus()) && enter_pressed {
-                                save_clicked = true;
-                            }
-                            if std::mem::take(&mut app.contest.save_requested) {
+                            let enter = std::mem::take(&mut app.contest.save_requested)
+                                || ((call_resp.lost_focus() || exch_resp.lost_focus())
+                                    && enter_pressed);
+                            if enter && app.contest_enter() {
                                 save_clicked = true;
                             }
 
@@ -535,11 +548,26 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                     if !exchange_hint.is_empty() {
                         ui.label(
-                            egui::RichText::new(format!("Format wymiany: {exchange_hint}"))
-                                .italics()
-                                .weak(),
+                            egui::RichText::new(
+                                Msg::new(key::CONTEST_EXCHANGE_FORMAT)
+                                    .arg("format", &exchange_hint)
+                                    .text(lang),
+                            )
+                            .italics()
+                            .weak(),
                         );
                     }
+                    ui.horizontal_wrapped(|ui| {
+                        for (index, text) in app.cw.macros.iter().enumerate() {
+                            if ui
+                                .small_button(format!("F{}", index + 1))
+                                .on_hover_text(text)
+                                .clicked()
+                            {
+                                macro_clicked = Some(index);
+                            }
+                        }
+                    });
                     // Podgląd / walidacja parsowania na żywo.
                     if !app.entry.exchange.trim().is_empty()
                         && let Some(fields) = &exchange_fields
@@ -708,8 +736,11 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     .text(lang),
             );
         } else {
+            if app.active_contest_session().is_none() {
+                app.start_contest_session();
+            }
             let mut new_qso = QsoRecord::new(&app.entry.callsign, &app.entry.band, &app.entry.mode);
-            new_qso.stx = Some(app.contest.stx);
+            let uses_serial = app.tag_contest_qso(&mut new_qso);
             new_qso.journal_id = Some(app.active_journal.id.clone());
             if !app.config.station.gridsquare.trim().is_empty() {
                 new_qso.my_gridsquare = Some(app.config.station.gridsquare.clone());
@@ -759,13 +790,15 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         }
                         app.invalidate_cluster_badges();
                         app.apply_post_effects(&outcome);
-                        app.contest.stx += 1;
+                        if uses_serial {
+                            app.contest.stx += 1;
+                        }
                         app.gui.chrome.push_status_toast(
                             crate::gui::state::ToastSeverity::Success,
                             Msg::new(key::CONTEST_QSO_SAVED)
                                 .arg("call", &outcome.qso.callsign)
-                                .arg("rst", &outcome.qso.band)
-                                .arg("exch", &outcome.qso.mode)
+                                .arg("rst", &outcome.qso.rst_rcvd)
+                                .arg("exch", outcome.qso.srx_string.as_deref().unwrap_or(""))
                                 .text(lang),
                         );
                         app.entry.callsign.clear();
@@ -820,6 +853,168 @@ pub fn render_contest_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if reset_clicked {
         app.contest.stx = 1;
     }
+    if let Some(index) = macro_clicked {
+        app.contest_macro(index);
+    }
+    match session_action {
+        SessionAction::None => {}
+        SessionAction::Start => app.start_contest_session(),
+        SessionAction::End => app.end_contest_session(),
+        SessionAction::Resume => app.resume_contest_session(),
+        SessionAction::Changed => app.save_station_config(),
+    }
+}
+
+/// Działanie z paska sesji zawodów (wykonywane po narysowaniu okna).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SessionAction {
+    None,
+    Start,
+    End,
+    Resume,
+    Changed,
+}
+
+/// Pasek sesji: start/koniec, tryb Run/S&P, ESM, wymiana nadawana i kategorie Cabrillo.
+fn render_session_bar(
+    app: &mut SpLogApp,
+    ui: &mut egui::Ui,
+    lang: crate::core::i18n::Language,
+) -> SessionAction {
+    use crate::core::contest_session::{OperatingMode, allowed};
+    let palette = ui.palette();
+    let mut action = SessionAction::None;
+    let selected = app.contest.name.clone();
+    let Some(session) = app
+        .contest
+        .session
+        .as_mut()
+        .filter(|s| s.contest_name == selected)
+    else {
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(tr(key::CONTEST_SESSION_NONE, lang))
+                    .italics()
+                    .color(palette.text_muted),
+            );
+            if ui.button(tr(key::CONTEST_SESSION_START, lang)).clicked() {
+                action = SessionAction::Start;
+            }
+        });
+        return action;
+    };
+
+    let started = jiff::Timestamp::from_second(session.started_at)
+        .map(|t| t.strftime("%Y-%m-%d %H:%M UTC").to_string())
+        .unwrap_or_default();
+    ui.horizontal_wrapped(|ui| {
+        if session.is_active() {
+            ui.label(
+                egui::RichText::new(
+                    Msg::new(key::CONTEST_SESSION_ACTIVE)
+                        .arg("id", &session.contest_id)
+                        .arg("since", &started)
+                        .text(lang),
+                )
+                .color(palette.success)
+                .strong(),
+            );
+            if ui.button(tr(key::CONTEST_SESSION_END, lang)).clicked() {
+                action = SessionAction::End;
+            }
+        } else {
+            ui.label(
+                egui::RichText::new(
+                    Msg::new(key::CONTEST_SESSION_ENDED)
+                        .arg("id", &session.contest_id)
+                        .arg("since", &started)
+                        .text(lang),
+                )
+                .color(palette.warning),
+            );
+            if ui.button(tr(key::CONTEST_SESSION_RESUME, lang)).clicked() {
+                action = SessionAction::Resume;
+            }
+            if ui.button(tr(key::CONTEST_SESSION_NEW, lang)).clicked() {
+                action = SessionAction::Start;
+            }
+        }
+    });
+
+    let mut changed = false;
+    ui.horizontal_wrapped(|ui| {
+        changed |= ui
+            .selectable_value(&mut session.mode, OperatingMode::Run, "RUN")
+            .on_hover_text(tr(key::CONTEST_MODE_RUN_HINT, lang))
+            .changed();
+        changed |= ui
+            .selectable_value(&mut session.mode, OperatingMode::SearchAndPounce, "S&P")
+            .on_hover_text(tr(key::CONTEST_MODE_SP_HINT, lang))
+            .changed();
+        changed |= ui
+            .checkbox(&mut session.esm, tr(key::CONTEST_ESM, lang))
+            .on_hover_text(tr(key::CONTEST_ESM_HINT, lang))
+            .changed();
+        ui.label(tr(key::CONTEST_SENT_EXCHANGE, lang));
+        changed |= ui
+            .add(egui::TextEdit::singleline(&mut session.sent_exchange).desired_width(70.0))
+            .on_hover_text(tr(key::CONTEST_SENT_EXCHANGE_HINT, lang))
+            .lost_focus();
+    });
+
+    egui::CollapsingHeader::new(tr(key::CONTEST_CABRILLO_CATEGORIES, lang))
+        .id_salt("contest_cabrillo_categories")
+        .show(ui, |ui| {
+            egui::Grid::new("contest_categories_grid")
+                .num_columns(2)
+                .spacing([8.0, 4.0])
+                .show(ui, |ui| {
+                    let c = &mut session.categories;
+                    let rows: [(&str, &mut String, &[&str]); 7] = [
+                        ("CATEGORY-OPERATOR", &mut c.operator, allowed::OPERATOR),
+                        ("CATEGORY-POWER", &mut c.power, allowed::POWER),
+                        ("CATEGORY-BAND", &mut c.band, allowed::BAND),
+                        ("CATEGORY-MODE", &mut c.mode, allowed::MODE),
+                        ("CATEGORY-STATION", &mut c.station, allowed::STATION),
+                        ("CATEGORY-ASSISTED", &mut c.assisted, allowed::ASSISTED),
+                        ("CATEGORY-OVERLAY", &mut c.overlay, allowed::OVERLAY),
+                    ];
+                    for (tag, value, options) in rows {
+                        ui.label(tag);
+                        egui::ComboBox::from_id_salt(tag)
+                            .selected_text(value.as_str())
+                            .show_ui(ui, |ui| {
+                                for option in options {
+                                    changed |= ui
+                                        .selectable_value(value, (*option).to_string(), *option)
+                                        .changed();
+                                }
+                            });
+                        ui.end_row();
+                    }
+                    for (tag, value) in [
+                        ("CONTEST", &mut session.contest_id),
+                        ("LOCATION", &mut session.categories.location),
+                        ("CLUB", &mut session.categories.club),
+                        ("OPERATORS", &mut session.categories.operators),
+                        ("SOAPBOX", &mut session.categories.soapbox),
+                    ] {
+                        ui.label(tag);
+                        changed |= ui.text_edit_singleline(value).lost_focus();
+                        ui.end_row();
+                    }
+                });
+            ui.label(
+                egui::RichText::new(tr(key::CONTEST_CATEGORIES_HINT, lang))
+                    .small()
+                    .color(palette.text_muted),
+            );
+        });
+
+    if changed && action == SessionAction::None {
+        action = SessionAction::Changed;
+    }
+    action
 }
 
 // Re-eksport okna Multi-Op przeniesionego do multi_op_window.rs (SYNC-6)

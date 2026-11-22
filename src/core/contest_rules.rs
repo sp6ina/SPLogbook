@@ -858,21 +858,83 @@ fn score_vhf(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u3
     (pts, mult_count, pts * mult_count)
 }
 
-fn score_iaru(qsos: &[QsoRecord], _my_dxcc: u32, my_cqzone: u8) -> (u32, u32, u32) {
-    let mut pts = 0;
+/// Wariant dla tablicy reguł: bez strefy ITU i kontynentu operatora (okno zawodów
+/// i eksport liczą IARU HF przez [`score_iaru_hf`] z danymi stacji i bazą prefiksów).
+fn score_iaru(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u32) {
+    score_iaru_hf(qsos, 0, "", |_| None)
+}
+
+/// Odebrana wymiana IARU HF: strefa ITU albo skrót stacji HQ / urzędnika IARU.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum IaruMult {
+    Zone(u32),
+    Hq(String),
+}
+
+fn iaru_mult(q: &QsoRecord) -> Option<IaruMult> {
+    if let Some(zone) = q.ituz.filter(|z| (1..=90).contains(z)) {
+        return Some(IaruMult::Zone(zone));
+    }
+    let token = q
+        .srx_string
+        .as_deref()
+        .and_then(|s| s.split_whitespace().last())?
+        .trim()
+        .to_ascii_uppercase();
+    if token.is_empty() {
+        return None;
+    }
+    if let Ok(zone) = token.parse::<u32>() {
+        return (1..=90).contains(&zone).then_some(IaruMult::Zone(zone));
+    }
+    Some(IaruMult::Hq(token))
+}
+
+/// IARU HF Championship (regulamin ARRL/IARU): QSO we własnej strefie ITU albo ze stacją
+/// HQ / urzędnikiem IARU = 1 pkt, inna strefa na tym samym kontynencie = 3 pkt, inna strefa
+/// i inny kontynent = 5 pkt. Mnożniki: strefy ITU oraz stacje HQ i urzędnicy IARU, liczone
+/// osobno na każdym paśmie (nie emisji). Ta sama stacja liczy się raz na paśmie i emisji.
+/// `continent_of` podaje kontynent korespondenta (np. z bazy prefiksów); bez niego QSO
+/// spoza własnej strefy liczy się jak z innego kontynentu tylko wtedy, gdy kontynent jest
+/// znany — w przeciwnym razie jak z tego samego (3 pkt), żeby nie zawyżać wyniku.
+pub fn score_iaru_hf(
+    qsos: &[QsoRecord],
+    my_ituz: u32,
+    my_continent: &str,
+    continent_of: impl Fn(&QsoRecord) -> Option<String>,
+) -> (u32, u32, u32) {
+    let mut seen = HashSet::new();
     let mut mults = HashSet::new();
+    let mut points = 0u32;
     for q in qsos {
-        if q.cqz == Some(my_cqzone as u32) {
-            pts += 1;
-        } else {
-            pts += 3;
+        let mode_group = crate::core::cabrillo::cabrillo_mode(&q.mode);
+        let key = (
+            q.callsign.trim().to_ascii_uppercase(),
+            q.band.to_ascii_lowercase(),
+            mode_group,
+        );
+        if !seen.insert(key) {
+            continue;
         }
-        if let Some(z) = q.cqz {
-            mults.insert(z.to_string());
-        }
+        let Some(mult) = iaru_mult(q) else {
+            continue;
+        };
+        points += match &mult {
+            IaruMult::Hq(_) => 1,
+            IaruMult::Zone(z) if *z == my_ituz => 1,
+            IaruMult::Zone(_) => match continent_of(q) {
+                Some(cont)
+                    if !my_continent.is_empty() && !cont.eq_ignore_ascii_case(my_continent) =>
+                {
+                    5
+                }
+                _ => 3,
+            },
+        };
+        mults.insert((q.band.to_ascii_lowercase(), mult));
     }
     let mult_count = mults.len() as u32;
-    (pts, mult_count, pts * mult_count)
+    (points, mult_count, points * mult_count)
 }
 
 fn score_1pt_dxcc(qsos: &[QsoRecord], _my_dxcc: u32, _my_cqzone: u8) -> (u32, u32, u32) {
@@ -1180,6 +1242,55 @@ pub const RULES: &[ContestRule] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn iaru_qso(call: &str, band: &str, mode: &str, ituz: Option<u32>, srx: &str) -> QsoRecord {
+        let mut q = QsoRecord::new(call, band, mode);
+        q.ituz = ituz;
+        q.srx_string = Some(srx.to_string());
+        q
+    }
+
+    #[test]
+    fn iaru_hf_points_follow_zone_continent_and_hq_rules() {
+        // Operator w strefie ITU 28 (Europa).
+        let continent = |q: &QsoRecord| -> Option<String> {
+            Some(
+                match q.callsign.as_str() {
+                    "DL1ABC" | "OK1XYZ" => "EU",
+                    _ => "NA",
+                }
+                .to_string(),
+            )
+        };
+        let qsos = vec![
+            iaru_qso("DL1ABC", "20m", "CW", Some(28), "28"), // własna strefa: 1
+            iaru_qso("OK1XYZ", "20m", "CW", Some(29), "29"), // inna strefa, ten sam kontynent: 3
+            iaru_qso("K1ABC", "20m", "CW", Some(8), "8"),    // inna strefa i kontynent: 5
+            iaru_qso("DA0HQ", "20m", "CW", None, "DARC"),    // HQ: 1
+            iaru_qso("DA0HQ", "20m", "CW", None, "DARC"),    // dupe na paśmie i emisji
+            iaru_qso("DA0HQ", "40m", "CW", None, "DARC"),    // HQ na innym paśmie: 1
+        ];
+        let (points, mults, total) = score_iaru_hf(&qsos, 28, "EU", continent);
+        assert_eq!(points, 1 + 3 + 5 + 1 + 1);
+        // Mnożniki na pasmo: 20m: 28, 29, 8, DARC; 40m: DARC.
+        assert_eq!(mults, 5);
+        assert_eq!(total, points * mults);
+    }
+
+    #[test]
+    fn iaru_hf_uses_itu_not_cq_zones() {
+        let mut q = iaru_qso("K1ABC", "20m", "SSB", None, "8");
+        q.cqz = Some(5);
+        let (_, mults, _) = score_iaru_hf(&[q], 28, "EU", |_| Some("NA".to_string()));
+        assert_eq!(mults, 1);
+        let (points, _, _) = score_iaru_hf(
+            &[iaru_qso("K1ABC", "20m", "SSB", Some(8), "8")],
+            28,
+            "EU",
+            |_| None,
+        );
+        assert_eq!(points, 3, "an unknown continent never inflates the score");
+    }
 
     fn make_qso(
         call: &str,

@@ -120,6 +120,9 @@ impl SpLogApp {
             }
         }
 
+        // W trakcie sesji zawodów także QSO z głównego formularza należą do zawodów.
+        let uses_serial = self.tag_contest_qso(&mut qso);
+
         let outcome = match self.services.ingestor.ingest(qso, QsoOrigin::Form) {
             Ok(outcome) => outcome,
             Err(e) => {
@@ -154,6 +157,9 @@ impl SpLogApp {
 
         self.invalidate_cluster_badges();
         self.apply_post_effects(&outcome);
+        if uses_serial {
+            self.contest.stx += 1;
+        }
 
         let success_msg = Msg::new(key::MSG_QSO_SAVED)
             .arg("callsign", &outcome.qso.callsign)
@@ -321,9 +327,14 @@ impl SpLogApp {
             qso.time_on = now.strftime("%H%M").to_string();
         }
         qso.journal_id = Some(self.active_journal.id.clone());
+        // Zawody cyfrowe (np. FT8 Roundup): QSO z WSJT-X należą do trwającej sesji.
+        let uses_serial = qso.contest_id.is_none() && self.tag_contest_qso(&mut qso);
 
         match self.services.ingestor.ingest(qso, QsoOrigin::WsjtX) {
             Ok(outcome) => {
+                if uses_serial {
+                    self.contest.stx += 1;
+                }
                 self.invalidate_cluster_badges();
                 self.apply_post_effects(&outcome);
                 if let Some(ref issue) = outcome.advisory_issue {

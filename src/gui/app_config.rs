@@ -78,6 +78,7 @@ impl SpLogApp {
             duplicates_match_date: self.duplicates.match_date,
             contest_name: self.contest.name.clone(),
             contest_next_serial: self.contest.stx,
+            contest_session: self.contest.session.clone(),
         }
     }
 
@@ -111,6 +112,10 @@ impl SpLogApp {
         self.duplicates.match_date = state.duplicates_match_date;
         self.contest.name = or_default(&state.contest_name, &defaults.contest_name);
         self.contest.stx = state.contest_next_serial.max(1);
+        self.contest.session = state
+            .contest_session
+            .clone()
+            .filter(|s| !s.contest_id.is_empty());
     }
 
     /// Tworzy zaktualizowaną strukturę [`AppConfig`] odzwierciedlającą bieżący stan aplikacji.

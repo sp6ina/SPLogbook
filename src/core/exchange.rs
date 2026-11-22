@@ -273,9 +273,13 @@ pub fn apply_to_qso(parsed: &ParsedExchange, qso: &mut QsoRecord) {
     if let Some(qth) = &parsed.qth {
         qso.qth = Some(qth.clone());
     }
-    // Pełna, oryginalna wymiana trafia do SRX_STRING (ADIF) jako zapas.
-    if qso.srx_string.is_none() && !parsed.raw.is_empty() {
-        qso.srx_string = Some(parsed.raw.clone());
+    // Wymiana odebrana bez raportu RST trafia do SRX_STRING (ADIF) — w Cabrillo raport ma
+    // osobną kolumnę i nie może się powtórzyć w polu wymiany.
+    if qso.srx_string.is_none() {
+        let exchange = exchange_without_rst(&parsed.raw, parsed.rst.as_deref());
+        if !exchange.is_empty() {
+            qso.srx_string = Some(exchange);
+        }
     }
     // Dodatkowe, nie-ADIF pola (moc/wiek/rok/czas/HQ/kategoria) — do komentarza.
     let extras = extra_fields_summary(parsed);
@@ -285,6 +289,21 @@ pub fn apply_to_qso(parsed: &ParsedExchange, qso: &mut QsoRecord) {
             _ => extras,
         });
     }
+}
+
+/// Wymiana bez początkowego raportu RST (także w sklejonej formie `599042`).
+fn exchange_without_rst(raw: &str, rst: Option<&str>) -> String {
+    let mut tokens: Vec<&str> = raw.split_whitespace().collect();
+    if let (Some(rst), Some(first)) = (rst, tokens.first().copied()) {
+        if first.eq_ignore_ascii_case(rst) {
+            tokens.remove(0);
+        } else if let Some(rest) = first.strip_prefix(rst)
+            && !rest.is_empty()
+        {
+            tokens[0] = rest;
+        }
+    }
+    tokens.join(" ")
 }
 
 /// Czytelne podsumowanie sparsowanej wymiany (do podglądu w UI).
@@ -411,7 +430,7 @@ fn field_label(field: ExchangeField) -> &'static str {
         ExchangeField::Rst => "RST",
         ExchangeField::Serial => "numer (serial)",
         ExchangeField::Zone => "strefa CQ",
-        ExchangeField::ZoneOrHq => "strefa CQ / skrót HQ",
+        ExchangeField::ZoneOrHq => "strefa ITU / skrót HQ",
         ExchangeField::StateOrPower => "stan/prowincja lub moc",
         ExchangeField::ItuZone => "strefa ITU",
         ExchangeField::Grid => "lokator (grid)",
@@ -489,10 +508,11 @@ fn match_token(field: ExchangeField, token: &str, out: &mut ParsedExchange) -> b
             }
         }
         ExchangeField::ZoneOrHq => {
-            if is_zone(token) {
-                out.zone = token.parse::<u32>().ok();
+            // IARU HF: strefa ITU (1-90) albo skrót stacji HQ / urzędnika IARU (AC, R1…).
+            if is_itu_zone(token) {
+                out.ituz = token.parse::<u32>().ok();
                 true
-            } else if is_hq(token) {
+            } else if is_hq(token) || is_iaru_official(token) {
                 out.hq = Some(token.to_string());
                 true
             } else {
@@ -738,6 +758,10 @@ fn is_time(token: &str) -> bool {
     hh < 24 && mm < 60
 }
 
+fn is_iaru_official(token: &str) -> bool {
+    matches!(token, "AC" | "R1" | "R2" | "R3")
+}
+
 fn is_hq(token: &str) -> bool {
     token.len() >= 2 && token.len() <= 6 && token.bytes().all(|b| b.is_ascii_alphabetic())
 }
@@ -857,7 +881,9 @@ mod tests {
         let p = parse_exchange(&[ExchangeField::Rst, ExchangeField::ZoneOrHq], "599 ARRL").unwrap();
         assert_eq!(p.hq.as_deref(), Some("ARRL"));
         let p = parse_exchange(&[ExchangeField::Rst, ExchangeField::ZoneOrHq], "599 33").unwrap();
-        assert_eq!(p.zone, Some(33));
+        assert_eq!(p.ituz, Some(33), "IARU HF exchanges an ITU zone");
+        let p = parse_exchange(&[ExchangeField::Rst, ExchangeField::ZoneOrHq], "599 R1").unwrap();
+        assert_eq!(p.hq.as_deref(), Some("R1"));
     }
 
     #[test]
@@ -908,7 +934,11 @@ mod tests {
         apply_to_qso(&p, &mut q);
         assert_eq!(q.rst_rcvd, "599");
         assert_eq!(q.srx, Some(42));
-        assert_eq!(q.srx_string.as_deref(), Some("599 042"));
+        assert_eq!(
+            q.srx_string.as_deref(),
+            Some("042"),
+            "the RST has its own column"
+        );
     }
 
     #[test]

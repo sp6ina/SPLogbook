@@ -718,6 +718,8 @@ mod app_backup;
 mod app_cat;
 #[path = "app_config.rs"]
 mod app_config;
+#[path = "app_contest.rs"]
+mod app_contest;
 #[path = "app_cw.rs"]
 mod app_cw;
 #[path = "app_files.rs"]

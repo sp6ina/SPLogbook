@@ -28,6 +28,17 @@ fn test_prefix_matcher() -> PrefixMatcher {
     PrefixMatcher::empty()
 }
 
+/// Unikalna ścieżka konfiguracji w katalogu tymczasowym: test, który zapisze konfigurację
+/// (np. przez start sesji zawodów), nie zostawi pliku w katalogu repozytorium.
+fn test_config_path() -> std::path::PathBuf {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    std::env::temp_dir().join(format!(
+        "splogbook-test-config-{}-{n}.json",
+        std::process::id()
+    ))
+}
+
 fn test_deps() -> AppDeps {
     AppDeps {
         log_db: Arc::new(Mutex::new(LogDatabase::open_in_memory().unwrap())),
@@ -66,7 +77,7 @@ fn build_loads_active_journal_and_qso_numbers() {
 
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -85,7 +96,7 @@ fn build_with_empty_database() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -98,7 +109,7 @@ fn build_does_not_start_background_services() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -155,7 +166,7 @@ fn gui_import_adif_content_success_duplicates_and_state_refresh() {
     let scp = Arc::clone(&deps.scp_engine);
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -233,7 +244,7 @@ fn form_qso_save_success_and_side_effects() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -285,7 +296,7 @@ fn form_qso_validation_error_aborts_without_side_effects() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -317,7 +328,7 @@ fn contest_qso_ingest_success_and_stx_increment() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -354,7 +365,7 @@ fn contest_qso_validation_error_does_not_increment_stx() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -374,7 +385,7 @@ fn contest_stx_increments_only_on_contest_save() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -407,7 +418,7 @@ fn wsjtx_qso_ingest_advisory_issue_persists_and_registers() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -448,7 +459,7 @@ fn js8call_qso_ingest_handles_batch_and_errors() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -491,7 +502,7 @@ fn lan_peer_qso_ingest_no_broadcast_loop() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -542,7 +553,7 @@ fn post_effects_execution_matches_flags() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -595,7 +606,7 @@ fn propagation_accuracy_pct_is_displayed_in_gui() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -626,7 +637,7 @@ fn propagation_accuracy_handles_empty_samples_safely() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -640,7 +651,7 @@ fn solar_panel_displays_na_without_samples() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -658,7 +669,7 @@ fn solar_panel_displays_zero_percent_only_for_measured_zero() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -692,7 +703,7 @@ fn solar_panel_does_not_present_zero_as_measurement_without_samples() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -707,7 +718,7 @@ fn clear_qso_form_resets_all_entry_fields() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -737,7 +748,7 @@ fn on_callsign_changed_fills_prefix_and_previous_qso_data() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -770,7 +781,7 @@ async fn debounce_fires_after_600ms() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -993,7 +1004,7 @@ fn ctrl_shortcuts_trigger_while_callsign_input_has_focus() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -1026,7 +1037,7 @@ fn ctrl_w_in_qso_callsign_follows_explicit_qso_contract() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -1063,7 +1074,7 @@ fn ctrl_w_in_main_qso_field_follows_explicit_qso_contract() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -1101,7 +1112,7 @@ fn ctrl_w_in_settings_text_edit_does_not_wipe_qso() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -1135,7 +1146,7 @@ fn ctrl_w_in_filter_does_not_wipe_qso() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -1169,7 +1180,7 @@ fn ctrl_w_in_modal_does_not_reach_background_qso() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -1203,7 +1214,7 @@ fn ctrl_w_in_operator_assistant_does_not_wipe_background_qso() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -1237,7 +1248,7 @@ fn ctrl_w_is_consumed_exactly_once() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -1325,7 +1336,7 @@ fn qso_enter_validates_before_save() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -1368,7 +1379,7 @@ fn failed_qso_save_preserves_form() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -1394,7 +1405,7 @@ fn successful_qso_save_moves_focus_by_contract() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -1458,7 +1469,7 @@ fn qso_focus_id_is_stable_across_frames() {
     let deps = test_deps();
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -1557,7 +1568,7 @@ fn idle_repaint_test_does_not_depend_on_wall_clock_boundary() {
     config.is_configured = true;
     let init = AppInit {
         config,
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -1617,7 +1628,7 @@ fn idle_gui_does_not_request_continuous_repaint() {
     config.is_configured = true;
     let init = AppInit {
         config,
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -1686,7 +1697,7 @@ fn cat_event_requests_repaint() {
     config.is_configured = true;
     let init = AppInit {
         config,
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -1727,7 +1738,7 @@ fn unchanged_cat_state_does_not_cause_repaint_storm() {
     config.is_configured = true;
     let init = AppInit {
         config,
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -1834,7 +1845,7 @@ fn background_error_becomes_visible_without_continuous_polling() {
     config.is_configured = true;
     let init = AppInit {
         config,
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -1884,7 +1895,7 @@ fn cache_is_reused_when_inputs_are_unchanged() {
     config.is_configured = true;
     let init = AppInit {
         config,
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -1932,7 +1943,7 @@ fn cache_is_invalidated_on_qso_change() {
     config.is_configured = true;
     let init = AppInit {
         config,
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -1964,7 +1975,7 @@ fn cache_is_invalidated_on_filter_change() {
     config.is_configured = true;
     let init = AppInit {
         config,
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -1997,7 +2008,7 @@ fn cache_is_invalidated_on_sort_change() {
     config.is_configured = true;
     let init = AppInit {
         config,
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -2028,7 +2039,7 @@ fn cache_is_scoped_to_log_identity() {
     config.is_configured = true;
     let init = AppInit {
         config,
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -2049,7 +2060,7 @@ fn cache_is_scoped_to_active_rig_when_required() {
     config.is_configured = true;
     let init = AppInit {
         config,
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -2087,7 +2098,7 @@ fn stale_cache_never_crosses_profiles() {
     config.is_configured = true;
     let init = AppInit {
         config,
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -2113,7 +2124,7 @@ fn initial_rig_state_when_disconnected_reports_s0_and_zero_power() {
     config.is_configured = true;
     let init = AppInit {
         config,
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -2134,7 +2145,7 @@ fn gui_state_lock_is_released_before_render() {
     config.is_configured = true;
     let init = AppInit {
         config,
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -2201,7 +2212,7 @@ fn gui_does_not_hold_lock_during_cat_command() {
     config.is_configured = true;
     let init = AppInit {
         config,
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -2232,7 +2243,7 @@ fn slow_background_task_does_not_block_gui_state_access() {
     config.is_configured = true;
     let init = AppInit {
         config,
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -2324,7 +2335,7 @@ impl F17Harness {
         let deps = test_deps();
         let init = AppInit {
             config: AppConfig::default(),
-            config_file_path: std::path::PathBuf::from("config.json"),
+            config_file_path: test_config_path(),
             active_db_path: std::path::PathBuf::from("db.sqlite"),
             shutdown_policy: ShutdownPolicy::None,
         };
@@ -2793,7 +2804,7 @@ fn f17_gui_state_never_shows_tx_after_a_denied_or_failed_request() {
 fn qso_form_test_app() -> SpLogApp {
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -3931,7 +3942,7 @@ fn toast_overlay_does_not_duplicate_the_severity_icon() {
 fn s2_app() -> SpLogApp {
     let init = AppInit {
         config: AppConfig::default(),
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -4175,7 +4186,7 @@ fn s5_file_backed_app(dir: &std::path::Path) -> SpLogApp {
 fn s5_app_from_config(config: AppConfig) -> SpLogApp {
     let init = AppInit {
         config,
-        config_file_path: std::path::PathBuf::from("config.json"),
+        config_file_path: test_config_path(),
         active_db_path: std::path::PathBuf::from("db.sqlite"),
         shutdown_policy: ShutdownPolicy::None,
     };
@@ -4477,4 +4488,209 @@ fn s6_cw_macros_and_keyer_settings_survive_a_restart() {
     );
     assert_eq!(restarted.config.cw.keyer.port, "COM9");
     assert_eq!(restarted.config.cw.keyer.wpm, 31);
+}
+
+// ======================================================================================
+// STAGE-V140-S7: sesja zawodów, wynik tylko z sesji, ESM, makra F1..F8
+// ======================================================================================
+
+/// Aplikacja testowa z konfiguracją w katalogu tymczasowym (sesja zawodów zapisuje config).
+/// Aplikacja leży na stercie: w testach asynchronicznych jest częścią stanu future.
+fn s7_app() -> (tempfile::TempDir, Box<SpLogApp>) {
+    let temp = tempfile::tempdir().unwrap();
+    let mut app = Box::new(qso_form_test_app());
+    app.paths.config_file_path = temp.path().join("station_config.json");
+    (temp, app)
+}
+
+fn s7_render_contest_window(app: &mut SpLogApp) {
+    app.contest.show_window = true;
+    let ctx = egui::Context::default();
+    let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+        crate::gui::contest::render_contest_window(app, ui.ctx());
+    });
+    output.textures_delta.clear();
+}
+
+#[tokio::test]
+async fn s7_only_session_qsos_count_towards_the_contest_score() {
+    let (_config_dir, mut app) = s7_app();
+    app.config.station.callsign = "SP6INA".to_string();
+    app.contest.name = "CQ WPX Contest (CW)".to_string();
+
+    // QSO sprzed lat z tym samym identyfikatorem zawodów i zwykłe QSO z dziennika.
+    let mut old = QsoRecord::new("K1OLD", "20m", "CW");
+    old.qso_date = "20200328".to_string();
+    old.time_on = "1200".to_string();
+    old.contest_id = Some("CQ-WPX-CW".to_string());
+    let mut plain = QsoRecord::new("DL1ABC", "20m", "CW");
+    plain.qso_date = "20200328".to_string();
+    plain.time_on = "1300".to_string();
+    {
+        let db = app.services.log_db.lock().unwrap();
+        db.insert_qso(&old).unwrap();
+        db.insert_qso(&plain).unwrap();
+    }
+    app.rebuild_awards_full();
+
+    app.start_contest_session();
+    app.entry.callsign = "W1AW".to_string();
+    app.entry.band = "20m".to_string();
+    app.entry.mode = "CW".to_string();
+    app.save_qso();
+
+    let saved = app
+        .log_view
+        .recent_qsos
+        .iter()
+        .find(|q| q.callsign == "W1AW")
+        .cloned()
+        .unwrap();
+    assert_eq!(saved.contest_id.as_deref(), Some("CQ-WPX-CW"));
+    assert_eq!(saved.stx_string.as_deref(), Some("001"));
+    assert_eq!(
+        app.contest.stx, 2,
+        "the serial advances after a saved contest QSO"
+    );
+
+    s7_render_contest_window(&mut app);
+    let calls: Vec<&str> = app
+        .contest
+        .cache
+        .session_qsos
+        .iter()
+        .map(|q| q.callsign.as_str())
+        .collect();
+    assert_eq!(
+        calls,
+        vec!["W1AW"],
+        "old and untagged QSOs are not part of the session"
+    );
+    assert_eq!(app.contest.cache.scoreboard.qsos, 1);
+}
+
+#[tokio::test]
+async fn s7_station_worked_before_the_session_is_not_a_contest_dupe() {
+    let (_config_dir, mut app) = s7_app();
+    app.contest.name = "CQ WPX Contest (CW)".to_string();
+    let mut earlier = QsoRecord::new("W1AW", "20m", "CW");
+    earlier.qso_date = "20240101".to_string();
+    earlier.time_on = "1200".to_string();
+    app.services
+        .log_db
+        .lock()
+        .unwrap()
+        .insert_qso(&earlier)
+        .unwrap();
+    app.rebuild_awards_full();
+    app.start_contest_session();
+    app.entry.callsign = "W1AW".to_string();
+    app.entry.band = "20m".to_string();
+    app.entry.mode = "CW".to_string();
+    s7_render_contest_window(&mut app);
+    assert!(
+        !app.contest
+            .cache
+            .session_qsos
+            .iter()
+            .any(|q| q.callsign == "W1AW"),
+        "the earlier QSO is outside the session, so W1AW is not flagged as a dupe"
+    );
+}
+
+async fn s7_sent(device: &mut tokio::io::DuplexStream, expected: &str) {
+    use tokio::io::AsyncReadExt;
+    let mut buf = vec![0u8; expected.len()];
+    device.read_exact(&mut buf).await.unwrap();
+    assert_eq!(String::from_utf8(buf).unwrap(), expected);
+}
+
+#[tokio::test]
+async fn s7_esm_in_run_mode_sends_cq_then_the_exchange_then_tu() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let (_config_dir, mut app) = s7_app();
+    app.config.station.callsign = "SP6INA".to_string();
+    app.contest.name = "CQ WPX Contest (CW)".to_string();
+    app.start_contest_session();
+    let (host, mut device) = tokio::io::duplex(512);
+    app.gui.dialogs.cw_terminal_dialog.keyer = Some(crate::cat::cw_keyer::spawn_winkeyer(
+        host,
+        app.config.cw.keyer.clone(),
+    ));
+    let mut open = [0u8; 2];
+    device.read_exact(&mut open).await.unwrap();
+    device.write_all(&[31]).await.unwrap();
+    let mut setup = [0u8; 6];
+    device.read_exact(&mut setup).await.unwrap();
+
+    // Puste pole znaku: CQ, bez zapisu.
+    assert!(!app.contest_enter());
+    s7_sent(&mut device, "CQ TEST SP6INA SP6INA TEST ").await;
+
+    // Znak bez wymiany: wymiana i przejście do pola wymiany.
+    app.entry.callsign = "W1AW".to_string();
+    assert!(!app.contest_enter());
+    assert!(app.contest.focus_exchange_requested);
+    s7_sent(&mut device, "W1AW 5NN 001 ").await;
+
+    // Znak i wymiana: TU i zapis.
+    app.entry.exchange = "599 123".to_string();
+    assert!(app.contest_enter());
+    s7_sent(&mut device, "TU SP6INA TEST ").await;
+
+    // S&P: znak bez wymiany wysyła mój znak.
+    app.toggle_contest_mode();
+    app.entry.exchange.clear();
+    assert!(!app.contest_enter());
+    s7_sent(&mut device, "SP6INA ").await;
+}
+
+#[tokio::test]
+async fn s7_without_a_keyer_enter_just_saves() {
+    let (_config_dir, mut app) = s7_app();
+    app.contest.name = "CQ WPX Contest (CW)".to_string();
+    app.start_contest_session();
+    assert!(
+        app.contest_enter(),
+        "ESM needs a keyer; otherwise Enter logs the QSO"
+    );
+}
+
+#[test]
+fn s7_contest_function_keys_send_macros_only_in_the_contest_context() {
+    let registry = crate::gui::ShortcutRegistry::default();
+    assert_eq!(registry.find_conflicts().len(), 0);
+    let contest_f1 = registry
+        .bindings()
+        .iter()
+        .find(|b| b.action == crate::gui::AppAction::ContestMacro(0))
+        .expect("F1 contest macro binding");
+    assert_eq!(contest_f1.shortcut.logical_key, egui::Key::F1);
+    assert_eq!(contest_f1.context, crate::gui::ShortcutContext::Contest);
+    assert_eq!(
+        registry.label_for_action(crate::gui::AppAction::SaveQso),
+        Some("F2"),
+        "outside the contest window F2 still saves the QSO"
+    );
+}
+
+#[test]
+fn s7_contest_session_survives_a_restart() {
+    let temp = tempfile::tempdir().unwrap();
+    let cfg_path = temp.path().join("station_config.json");
+    let mut app = s5_app_from_config(AppConfig::default());
+    app.paths.config_file_path = cfg_path.clone();
+    app.contest.name = "IARU HF Championship".to_string();
+    app.config.station.itu_zone = 28;
+    app.start_contest_session();
+    app.contest.session.as_mut().unwrap().categories.power = "LOW".to_string();
+    app.save_station_config();
+
+    let restarted = s5_app_from_config(AppConfig::load_from_file(&cfg_path).unwrap());
+    let session = restarted.contest.session.as_ref().unwrap();
+    assert_eq!(session.contest_id, "IARU-HF");
+    assert_eq!(session.sent_exchange, "28", "IARU HF sends the ITU zone");
+    assert_eq!(session.categories.power, "LOW");
+    assert!(session.is_active());
 }

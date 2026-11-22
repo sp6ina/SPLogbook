@@ -14,12 +14,16 @@ pub struct ContestCacheKey {
     pub custom_contests_len: usize,
     pub my_dxcc: u32,
     pub my_cqzone: u8,
+    /// Identyfikator, początek i koniec sesji zawodów, z której liczony jest wynik.
+    pub session: Option<(String, i64, Option<i64>)>,
 }
 
 /// Pamięć podręczna punktacji, mnożników i tempa zawodów (PERF-002).
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct ContestCache {
     pub key: Option<ContestCacheKey>,
+    /// QSO bieżącej sesji (od najnowszego), podstawa wyniku, tempa i kontroli duplikatów.
+    pub session_qsos: Vec<crate::core::qso::QsoRecord>,
     pub scoreboard: crate::core::contest_stats::Scoreboard,
     pub mult_matrix: crate::core::contest_stats::MultMatrix,
     pub band_breakdown: Vec<(String, usize)>,
@@ -27,7 +31,7 @@ pub struct ContestCache {
     pub rate: crate::core::contest_stats::RateStats,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ContestState {
     pub show_window: bool,
     pub name: String,
@@ -38,6 +42,10 @@ pub struct ContestState {
     pub cache: ContestCache,
     /// Skrót `Enter` (`AppAction::ContestSaveQso`) prosi okno Contest o zapis QSO.
     pub save_requested: bool,
+    /// Bieżąca albo ostatnia sesja zawodów.
+    pub session: Option<crate::core::contest_session::ContestSession>,
+    /// ESM: po nadaniu makra kursor przechodzi do pola wymiany.
+    pub focus_exchange_requested: bool,
 }
 
 impl Default for ContestState {
@@ -51,6 +59,8 @@ impl Default for ContestState {
             custom_draft: CustomContest::default(),
             cache: ContestCache::default(),
             save_requested: false,
+            session: None,
+            focus_exchange_requested: false,
         }
     }
 }
