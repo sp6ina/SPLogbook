@@ -567,11 +567,14 @@ impl SpLogApp {
         }
 
         if self.gui.dialogs.cw_terminal_dialog.is_open {
-            let my_call = self.config.station.callsign.clone();
-            self.gui
-                .dialogs
-                .cw_terminal_dialog
-                .render(ctx, &my_call, self.gui.appearance.language);
+            let macros = self.cw.macros.clone();
+            let actions = self.gui.dialogs.cw_terminal_dialog.render(
+                ctx,
+                &mut self.config.cw.keyer,
+                &macros,
+                self.gui.appearance.language,
+            );
+            self.apply_cw_terminal_actions(actions);
         }
 
         if self.gui.dialogs.qsl_designer_dialog.is_open {

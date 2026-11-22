@@ -61,6 +61,7 @@ impl SpLogApp {
         cfg.panel_world_map = self.views.panel_world_map.clone();
         cfg.panel_waterfall = self.views.panel_waterfall.clone();
         cfg.ui_state = self.ui_state_snapshot();
+        cfg.cw.macros.clone_from(&self.cw.macros);
         cfg
     }
 

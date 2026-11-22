@@ -344,6 +344,40 @@ impl Default for BackupSettings {
     }
 }
 
+/// Domyślne makra F1..F8.
+pub fn default_cw_macros() -> Vec<String> {
+    [
+        "CQ TEST %MYCALL% %MYCALL% TEST",
+        "%HISCALL% 5NN %SERIAL%",
+        "TU %MYCALL% TEST",
+        "%MYCALL%",
+        "%HISCALL%",
+        "QTH %MYQTH% LOC %MYLOC%",
+        "%SERIAL%",
+        "?",
+    ]
+    .iter()
+    .map(|m| (*m).to_string())
+    .collect()
+}
+
+/// Klucz CW i makra F1..F8 (STAGE-V140-S6).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CwConfig {
+    pub keyer: crate::cat::cw_keyer::CwKeyerSettings,
+    pub macros: Vec<String>,
+}
+
+impl Default for CwConfig {
+    fn default() -> Self {
+        Self {
+            keyer: crate::cat::cw_keyer::CwKeyerSettings::default(),
+            macros: default_cw_macros(),
+        }
+    }
+}
+
 /// Ustawienia wodospadu audio zapamiętywane między uruchomieniami.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -670,6 +704,9 @@ pub struct AppConfig {
 
     #[serde(default)]
     pub ui_state: UiStateConfig,
+
+    #[serde(default)]
+    pub cw: CwConfig,
 }
 
 impl std::fmt::Debug for AppConfig {
@@ -791,6 +828,7 @@ impl std::fmt::Debug for AppConfig {
             .field("custom_contests", &self.custom_contests)
             .field("backup", &self.backup)
             .field("ui_state", &self.ui_state)
+            .field("cw", &self.cw)
             .finish()
     }
 }
@@ -1404,6 +1442,7 @@ impl Default for AppConfig {
             custom_contests: vec![],
             backup: BackupSettings::default(),
             ui_state: UiStateConfig::default(),
+            cw: CwConfig::default(),
         }
     }
 }

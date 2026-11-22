@@ -1,49 +1,86 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
-// Interaktywny terminal telegraficzny CW z buforem i obsługą Winkeyera / portu COM
+// Terminal telegraficzny CW: wybór klucza, makra F1..F8, bufor nadawania i podgląd postępu.
 
-use crate::cat::winkeyer::{CwTerminalBuffer, WinkeyerConfig};
-use crate::core::i18n::{Msg, key, tr};
+use crate::cat::cw_keyer::{CwKeyerHandle, CwKeyerKind, CwKeyerSettings};
+use crate::cat::winkeyer::CwTerminalBuffer;
+use crate::core::i18n::{Language, key, tr};
 use crate::gui::theme::ThemeExt;
 use eframe::egui;
+
+/// Działanie wybrane w terminalu; wykonuje je aplikacja.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CwTerminalAction {
+    Connect,
+    Disconnect,
+    Send(String),
+    /// Makro F1..F8 (indeks od zera).
+    Macro(usize),
+    Abort,
+    SetSpeed(u8),
+    /// Zmieniono ustawienia klucza (do zapisania w konfiguracji).
+    SettingsChanged,
+}
 
 pub struct CwTerminalDialog {
     pub is_open: bool,
     pub buffer: CwTerminalBuffer,
     pub input_text: String,
-    pub config: WinkeyerConfig,
-    pub is_connected: bool,
     pub status_text: String,
+    /// Działający klucz; `None`, gdy klucz nie jest podłączony.
+    pub keyer: Option<CwKeyerHandle>,
+    /// Klucz potwierdził gotowość.
+    pub ready: bool,
 }
 
 impl Default for CwTerminalDialog {
     fn default() -> Self {
         Self {
             is_open: false,
-            buffer: CwTerminalBuffer::new(26),
+            buffer: CwTerminalBuffer::new(24),
             input_text: String::new(),
-            config: WinkeyerConfig::default(),
-            is_connected: false,
-            status_text: "Ready to transmit. Type text and press Enter.".to_string(),
+            status_text: String::new(),
+            keyer: None,
+            ready: false,
         }
     }
 }
 
+pub fn keyer_kind_label(kind: CwKeyerKind, lang: Language) -> &'static str {
+    match kind {
+        CwKeyerKind::WinKeyer => "WinKeyer (K1EL)",
+        CwKeyerKind::SerialDtr => tr(key::CW_TERM_KIND_DTR, lang),
+        CwKeyerKind::SerialRts => tr(key::CW_TERM_KIND_RTS, lang),
+        CwKeyerKind::Hamlib => tr(key::CW_TERM_KIND_HAMLIB, lang),
+    }
+}
+
+/// Etykieta przycisku makra: numer klawisza i początek treści.
+fn macro_button_label(index: usize, text: &str) -> String {
+    let preview: String = text.chars().take(14).collect();
+    let ellipsis = if text.chars().count() > 14 { "…" } else { "" };
+    format!("F{}: {preview}{ellipsis}", index + 1)
+}
+
 impl CwTerminalDialog {
+    pub fn is_connected(&self) -> bool {
+        self.keyer.is_some()
+    }
+
     pub fn render(
         &mut self,
         ctx: &egui::Context,
-        my_callsign: &str,
-        lang: crate::core::i18n::Language,
-    ) {
+        settings: &mut CwKeyerSettings,
+        macros: &[String],
+        lang: Language,
+    ) -> Vec<CwTerminalAction> {
+        let mut actions = Vec::new();
         if !self.is_open {
-            return;
+            return actions;
         }
 
-        // Obsługa klawisza ESC do natychmiastowego przerwania (Abort)
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-            self.buffer.abort();
-            self.status_text = "⚠ Transmission aborted (ESC / Abort)!".to_string();
+            actions.push(CwTerminalAction::Abort);
         }
 
         let mut open = self.is_open;
@@ -52,86 +89,165 @@ impl CwTerminalDialog {
             .open(&mut open)
             .collapsible(false)
             .resizable(true)
-            .default_width(600.0)
+            .default_width(620.0)
             .show(ctx, |ui| {
+                let palette = ui.palette();
+                let connected = self.is_connected();
+
+                ui.horizontal(|ui| {
+                    ui.add_enabled_ui(!connected, |ui| {
+                        egui::ComboBox::from_id_salt("cw_keyer_kind")
+                            .selected_text(keyer_kind_label(settings.kind, lang))
+                            .show_ui(ui, |ui| {
+                                for kind in [
+                                    CwKeyerKind::WinKeyer,
+                                    CwKeyerKind::SerialDtr,
+                                    CwKeyerKind::SerialRts,
+                                    CwKeyerKind::Hamlib,
+                                ] {
+                                    if ui
+                                        .selectable_value(
+                                            &mut settings.kind,
+                                            kind,
+                                            keyer_kind_label(kind, lang),
+                                        )
+                                        .changed()
+                                    {
+                                        actions.push(CwTerminalAction::SettingsChanged);
+                                    }
+                                }
+                            });
+                        if settings.kind != CwKeyerKind::Hamlib {
+                            ui.label(tr(key::CW_TERM_KEY_PORT, lang));
+                            if ui
+                                .add(
+                                    egui::TextEdit::singleline(&mut settings.port)
+                                        .desired_width(110.0)
+                                        .hint_text("COM3, /dev/ttyUSB0"),
+                                )
+                                .lost_focus()
+                            {
+                                actions.push(CwTerminalAction::SettingsChanged);
+                            }
+                        }
+                    });
+
+                    let label = if connected {
+                        tr(key::CW_TERM_DISCONNECT, lang)
+                    } else {
+                        tr(key::CW_TERM_CONNECT, lang)
+                    };
+                    if ui.button(label).clicked() {
+                        actions.push(if connected {
+                            CwTerminalAction::Disconnect
+                        } else {
+                            CwTerminalAction::Connect
+                        });
+                    }
+                    let (dot, color) = match (connected, self.ready) {
+                        (true, true) => ("●", palette.success),
+                        (true, false) => ("◐", palette.warning),
+                        _ => ("○", palette.text_muted),
+                    };
+                    ui.colored_label(color, dot);
+                });
+
                 ui.horizontal(|ui| {
                     ui.label(tr(key::CW_TERM_SPEED, lang));
-                    let mut wpm = self.buffer.current_wpm;
-                    if ui
-                        .add(egui::Slider::new(&mut wpm, 5..=50).text("WPM"))
-                        .changed()
-                    {
-                        self.buffer.current_wpm = wpm;
-                        self.config.speed_wpm = wpm;
+                    let mut wpm = settings.wpm;
+                    let response = ui.add(egui::Slider::new(&mut wpm, 5..=60).text("WPM"));
+                    if response.changed() {
+                        settings.wpm = wpm;
+                        actions.push(CwTerminalAction::SetSpeed(wpm));
                     }
+                    if response.drag_stopped() || (response.changed() && !response.dragged()) {
+                        actions.push(CwTerminalAction::SettingsChanged);
+                    }
+                });
 
-                    ui.separator();
-                    ui.label(tr(key::CW_TERM_KEY_PORT, lang));
-                    ui.text_edit_singleline(&mut self.config.port);
+                egui::CollapsingHeader::new(tr(key::CW_TERM_OPTIONS, lang))
+                    .id_salt("cw_keyer_options")
+                    .show(ui, |ui| {
+                        ui.add_enabled_ui(!connected, |ui| {
+                            let mut changed = false;
+                            match settings.kind {
+                                CwKeyerKind::WinKeyer => {
+                                    ui.horizontal(|ui| {
+                                        ui.label(tr(key::CW_TERM_SIDETONE, lang));
+                                        changed |= ui
+                                            .add(
+                                                egui::DragValue::new(&mut settings.sidetone_hz)
+                                                    .range(400..=4000)
+                                                    .suffix(" Hz"),
+                                            )
+                                            .changed();
+                                    });
+                                }
+                                CwKeyerKind::SerialDtr | CwKeyerKind::SerialRts => {
+                                    changed |= ui
+                                        .checkbox(
+                                            &mut settings.line_ptt,
+                                            tr(key::CW_TERM_LINE_PTT, lang),
+                                        )
+                                        .changed();
+                                    ui.horizontal(|ui| {
+                                        ui.label(tr(key::CW_TERM_PTT_LEAD, lang));
+                                        changed |= ui
+                                            .add(
+                                                egui::DragValue::new(&mut settings.ptt_lead_ms)
+                                                    .range(0..=500)
+                                                    .suffix(" ms"),
+                                            )
+                                            .changed();
+                                        ui.label(tr(key::CW_TERM_PTT_TAIL, lang));
+                                        changed |= ui
+                                            .add(
+                                                egui::DragValue::new(&mut settings.ptt_tail_ms)
+                                                    .range(0..=2000)
+                                                    .suffix(" ms"),
+                                            )
+                                            .changed();
+                                    });
+                                }
+                                CwKeyerKind::Hamlib => {
+                                    ui.label(
+                                        egui::RichText::new(tr(key::CW_TERM_HAMLIB_HINT, lang))
+                                            .small()
+                                            .color(palette.text_muted),
+                                    );
+                                }
+                            }
+                            if changed {
+                                actions.push(CwTerminalAction::SettingsChanged);
+                            }
+                        });
+                    });
 
-                    if ui
-                        .button(if self.is_connected {
-                            tr(key::CW_TERM_DISCONNECT, lang)
-                        } else {
-                            tr(key::CW_TERM_CONNECT, lang)
-                        })
-                        .clicked()
-                    {
-                        self.is_connected = !self.is_connected;
-                        if self.is_connected {
-                            let _ = crate::cat::winkeyer::WinkeyerProtocol::host_open();
-                            let _ = crate::cat::winkeyer::WinkeyerProtocol::set_speed(
-                                self.config.speed_wpm,
-                            );
-                            self.status_text = Msg::new(key::CW_TERM_CONNECTED)
-                                .arg("port", &self.config.port)
-                                .text(lang);
-                        } else {
-                            let _ = crate::cat::winkeyer::WinkeyerProtocol::host_close();
-                            self.status_text = tr(key::CW_TERM_DISCONNECTED, lang).to_string();
+                ui.separator();
+
+                ui.horizontal_wrapped(|ui| {
+                    for (index, text) in macros.iter().enumerate() {
+                        if ui
+                            .button(macro_button_label(index, text))
+                            .on_hover_text(text)
+                            .clicked()
+                        {
+                            actions.push(CwTerminalAction::Macro(index));
                         }
                     }
-                });
-
-                ui.separator();
-
-                // Makra telegraficzne F1..F8
-                ui.horizontal_wrapped(|ui| {
-                    if ui.button("F1: CQ").clicked() {
-                        let msg = format!("CQ CQ DE {my_callsign} K ");
-                        self.buffer.append_to_queue(&msg);
-                    }
-                    if ui.button("F2: TEST").clicked() {
-                        let msg = format!("TEST {my_callsign} ");
-                        self.buffer.append_to_queue(&msg);
-                    }
-                    if ui.button("F3: 599 TU").clicked() {
-                        self.buffer.append_to_queue("5NN TU ");
-                    }
-                    if ui.button("F4: 73").clicked() {
-                        let msg = format!("73 EE {my_callsign} ");
-                        self.buffer.append_to_queue(&msg);
-                    }
-                    if ui.button("F5: ZNAK").clicked() {
-                        let msg = format!("{my_callsign} ");
-                        self.buffer.append_to_queue(&msg);
-                    }
-                    if ui.button("F6: AGN?").clicked() {
-                        self.buffer.append_to_queue("AGN? ");
-                    }
-                    if ui.button("F7: CFM").clicked() {
-                        self.buffer.append_to_queue("CFM TU ");
-                    }
-                    if ui.button("⛔ ESC: PRZERWIJ (ABORT)").clicked() {
-                        self.buffer.abort();
-                        self.status_text = "⚠ Przerwano bufor nadawania!".to_string();
+                    if ui
+                        .button(
+                            egui::RichText::new(format!("⛔ {}", tr(key::CW_TERM_ABORT, lang)))
+                                .color(palette.danger),
+                        )
+                        .clicked()
+                    {
+                        actions.push(CwTerminalAction::Abort);
                     }
                 });
 
                 ui.separator();
 
-                // Okno podglądu bufora nadawania (wieloliniowe)
-                let palette = ui.palette();
                 ui.label(egui::RichText::new(tr(key::CW_TERM_BUFFER_PREVIEW, lang)).strong());
                 ui.group(|ui| {
                     ui.horizontal_wrapped(|ui| {
@@ -164,18 +280,10 @@ impl CwTerminalDialog {
                     && ctx.input(|i| i.key_pressed(egui::Key::Enter))
                     && !self.input_text.trim().is_empty()
                 {
-                    let to_send = format!("{} ", self.input_text.trim().to_uppercase());
-                    self.buffer.append_to_queue(&to_send);
-                    self.status_text = format!("Dodano do bufora: {to_send}");
+                    let text = format!("{} ", self.input_text.trim().to_uppercase());
+                    actions.push(CwTerminalAction::Send(text));
                     self.input_text.clear();
                     response.request_focus();
-                }
-
-                // W tle symuluj stopniowe wysyłanie znaków
-                if !self.buffer.queued_text.is_empty() {
-                    // W tempie WPM przesuwaj bufor
-                    self.buffer.advance_sent(1);
-                    ctx.request_repaint_after(std::time::Duration::from_millis(150));
                 }
 
                 ui.separator();
@@ -196,5 +304,20 @@ impl CwTerminalDialog {
             open = false;
         }
         self.is_open = open;
+        actions
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn macro_labels_show_the_key_and_a_short_preview() {
+        assert_eq!(macro_button_label(0, "CQ TEST"), "F1: CQ TEST");
+        assert_eq!(
+            macro_button_label(7, "QTH WROCLAW LOC JO81LC"),
+            "F8: QTH WROCLAW LO…"
+        );
     }
 }

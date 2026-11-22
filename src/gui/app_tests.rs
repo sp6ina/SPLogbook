@@ -4383,3 +4383,98 @@ fn s5_ui_state_survives_a_restart_and_bad_values_fall_back_to_defaults() {
         crate::core::station::WaterfallSettings::default()
     );
 }
+
+// ======================================================================================
+// STAGE-V140-S6: nadawanie CW przez prawdziwy klucz (wirtualny port WinKeyera)
+// ======================================================================================
+
+#[tokio::test]
+async fn s6_cw_without_a_keyer_warns_instead_of_pretending_to_send() {
+    let mut app = qso_form_test_app();
+    app.transmit_cw_macro("CQ TEST");
+    assert_eq!(app.gui.dialogs.cw_terminal_dialog.buffer.queued_text, "");
+    assert_eq!(
+        app.gui.chrome.toasts.latest().map(|t| t.severity),
+        Some(crate::gui::state::ToastSeverity::Warning)
+    );
+}
+
+#[tokio::test]
+async fn s6_macro_goes_to_the_winkeyer_and_progress_follows_the_echo() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let mut app = qso_form_test_app();
+    app.config.station.callsign = "SP6INA".to_string();
+    app.entry.callsign = "DL1ABC".to_string();
+    app.contest.stx = 7;
+    let (host, mut device) = tokio::io::duplex(256);
+    app.gui.dialogs.cw_terminal_dialog.keyer = Some(crate::cat::cw_keyer::spawn_winkeyer(
+        host,
+        app.config.cw.keyer.clone(),
+    ));
+
+    let mut open = [0u8; 2];
+    device.read_exact(&mut open).await.unwrap();
+    device.write_all(&[31]).await.unwrap();
+    let mut setup = [0u8; 6];
+    device.read_exact(&mut setup).await.unwrap();
+
+    app.apply_cw_terminal_actions(vec![crate::gui::cw_terminal::CwTerminalAction::Macro(1)]);
+    let expected = b"DL1ABC 5NN 007 ";
+    let mut sent = vec![0u8; expected.len()];
+    device.read_exact(&mut sent).await.unwrap();
+    assert_eq!(&sent, expected, "%HISCALL% 5NN %SERIAL% resolved and keyed");
+    assert_eq!(
+        app.gui.dialogs.cw_terminal_dialog.buffer.queued_text,
+        "DL1ABC 5NN 007 "
+    );
+
+    // WinKeyer nadał pierwsze trzy litery.
+    device.write_all(&[0xC4, b'D', b'L', b'1']).await.unwrap();
+    for _ in 0..500 {
+        app.poll_cw_keyer();
+        if app.gui.dialogs.cw_terminal_dialog.buffer.sent_text == "DL1" {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+    }
+    let terminal = &app.gui.dialogs.cw_terminal_dialog;
+    assert!(terminal.ready, "Ready event received");
+    assert_eq!(terminal.buffer.sent_text, "DL1");
+    assert_eq!(terminal.buffer.queued_text, "ABC 5NN 007 ");
+
+    // Przerwanie: Clear Buffer na porcie, bufor terminala pusty.
+    app.apply_cw_terminal_actions(vec![crate::gui::cw_terminal::CwTerminalAction::Abort]);
+    let mut abort = [0u8; 1];
+    device.read_exact(&mut abort).await.unwrap();
+    assert_eq!(abort, [0x0A]);
+    assert_eq!(app.gui.dialogs.cw_terminal_dialog.buffer.queued_text, "");
+
+    // Odłączenie zamyka WinKeyera (Clear Buffer + Host Close).
+    app.disconnect_cw_keyer();
+    let mut close = [0u8; 3];
+    device.read_exact(&mut close).await.unwrap();
+    assert_eq!(close, [0x0A, 0x00, 0x03]);
+}
+
+#[test]
+fn s6_cw_macros_and_keyer_settings_survive_a_restart() {
+    let temp = tempfile::tempdir().unwrap();
+    let cfg_path = temp.path().join("station_config.json");
+    let mut app = s5_app_from_config(AppConfig::default());
+    app.paths.config_file_path = cfg_path.clone();
+    app.cw.macros[0] = "CQ CQ DE %MYCALL% K".to_string();
+    app.config.cw.keyer.kind = crate::cat::cw_keyer::CwKeyerKind::SerialRts;
+    app.config.cw.keyer.port = "COM9".to_string();
+    app.config.cw.keyer.wpm = 31;
+    app.save_station_config();
+
+    let restarted = s5_app_from_config(AppConfig::load_from_file(&cfg_path).unwrap());
+    assert_eq!(restarted.cw.macros[0], "CQ CQ DE %MYCALL% K");
+    assert_eq!(
+        restarted.config.cw.keyer.kind,
+        crate::cat::cw_keyer::CwKeyerKind::SerialRts
+    );
+    assert_eq!(restarted.config.cw.keyer.port, "COM9");
+    assert_eq!(restarted.config.cw.keyer.wpm, 31);
+}

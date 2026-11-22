@@ -24,6 +24,7 @@ impl SpLogApp {
         self.poll_solar_fetch();
         self.poll_background_notices();
         self.poll_backup_results();
+        self.poll_cw_keyer();
         self.run_backup_schedule(std::time::Instant::now());
     }
 

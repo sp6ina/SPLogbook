@@ -16,7 +16,8 @@
 //! - "XIT_OFFSET": format `xit_offset:RECEIVER,OFFSET;` (przesunięcie częstotliwości XIT w Hz)
 //! - "DRIVE": format `drive:RECEIVER,VALUE;` (poziom mocy RF 0-100%)
 //! - "SPOT": format `spot:CALLSIGN,FREQ,COLOR,TEXT;` (naniesienie spotu DX na wodospad)
-//! - "CW_MACROS": format `cw_macros:SPEED,TEXT;` (nadawanie tekstu CW)
+//! - "CW_MACROS": format `cw_macros:TRX,TEXT;` (nadawanie tekstu CW; TCI 1.6: `:` → `^`,
+//!   `,` → `~`, `;` → `*` w tekście), prędkość osobno: `cw_macros_speed:WPM;`
 
 use std::collections::VecDeque;
 use std::time::Duration;
@@ -59,10 +60,33 @@ pub enum TciMessage {
         color: u32,
         text: String,
     },
-    /// Makro CW (`cw_macros:speed_wpm,text;`).
-    CwMacro { speed_wpm: u8, text: String },
+    /// Makro CW (`cw_macros:trx,text;`), tekst po zdjęciu zastępników znaków.
+    CwMacro { trx: u8, text: String },
     /// Nieznana lub niewspierana instrukcja TCI.
     Unknown(String),
+}
+
+fn escape_cw_text(text: &str) -> String {
+    text.chars()
+        .filter(|c| !c.is_control())
+        .map(|c| match c {
+            ':' => '^',
+            ',' => '~',
+            ';' => '*',
+            other => other,
+        })
+        .collect()
+}
+
+fn unescape_cw_text(text: &str) -> String {
+    text.chars()
+        .map(|c| match c {
+            '^' => ':',
+            '~' => ',',
+            '*' => ';',
+            other => other,
+        })
+        .collect()
 }
 
 /// Kodek protokołu TCI: podział ramki tekstowej, parsowanie i formatowanie poleceń.
@@ -127,9 +151,21 @@ impl TciCodec {
         )
     }
 
-    /// Formatuje polecenie nadania tekstu CW.
-    pub fn cmd_send_cw(speed_wpm: u8, text: &str) -> String {
-        format!("cw_macros:{speed_wpm},{text};")
+    /// Polecenie nadania tekstu CW na transceiverze `trx` (TCI 1.6). Znaki zastrzeżone
+    /// protokołu są zastępowane: `:` → `^`, `,` → `~`, `;` → `*`; serwer zamienia je z
+    /// powrotem.
+    pub fn cmd_send_cw(trx: u8, text: &str) -> String {
+        format!("cw_macros:{trx},{};", escape_cw_text(text))
+    }
+
+    /// Prędkość makr CW w WPM (`cw_macros_speed:WPM;`).
+    pub fn cmd_cw_speed(wpm: u8) -> String {
+        format!("cw_macros_speed:{wpm};")
+    }
+
+    /// Przerwanie nadawania makra CW.
+    pub fn cmd_cw_stop() -> &'static str {
+        "cw_macros_stop;"
     }
 
     /// Tłumaczy domenową nazwę trybu [`RigState`] na nazwę protokołu TCI.
@@ -435,16 +471,16 @@ impl TciCodec {
         }
 
         if let Some(rest) = trimmed.strip_prefix("cw_macros:") {
-            let parts: Vec<&str> = rest.split(',').collect();
-            if parts.len() >= 2 {
-                let speed_wpm = parts[0]
+            let parts: Vec<&str> = rest.splitn(2, ',').collect();
+            if parts.len() == 2 {
+                let trx = parts[0]
                     .trim()
                     .parse::<u8>()
                     .map_err(|e| RigError::Protocol {
-                        detail: format!("invalid speed in cw_macros: {e}"),
+                        detail: format!("invalid transceiver index in cw_macros: {e}"),
                     })?;
-                let text = parts[1].to_string();
-                return Ok(TciMessage::CwMacro { speed_wpm, text });
+                let text = unescape_cw_text(parts[1]);
+                return Ok(TciMessage::CwMacro { trx, text });
             }
             return Err(RigError::Protocol {
                 detail: format!("cw_macros instruction requires at least 2 arguments: '{trimmed}'"),
@@ -1355,6 +1391,30 @@ impl RigBackend for TciBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cw_macro_commands_follow_tci_1_6() {
+        // TCI 1.6: cw_macros:<numer transceivera>,<tekst>; znaki zastrzeżone zastępowane.
+        assert_eq!(
+            TciCodec::cmd_send_cw(0, "TU RA6LH 599: 004, K; |SK|"),
+            "cw_macros:0,TU RA6LH 599^ 004~ K* |SK|;"
+        );
+        assert_eq!(TciCodec::cmd_send_cw(1, "CQ\nTEST"), "cw_macros:1,CQTEST;");
+        assert_eq!(TciCodec::cmd_cw_speed(28), "cw_macros_speed:28;");
+        assert_eq!(TciCodec::cmd_cw_stop(), "cw_macros_stop;");
+    }
+
+    #[test]
+    fn cw_macro_is_parsed_with_the_transceiver_index_and_unescaped_text() {
+        let parsed = TciCodec::decode_instruction("cw_macros:0,TU 599^ 004~ K").unwrap();
+        assert_eq!(
+            parsed,
+            TciMessage::CwMacro {
+                trx: 0,
+                text: "TU 599: 004, K".to_string()
+            }
+        );
+    }
     use std::future::Future;
     use tokio_tungstenite::tungstenite::Message;
 

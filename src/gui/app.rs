@@ -360,7 +360,7 @@ impl SpLogApp {
 
             contest: crate::gui::state::ContestState::default(),
 
-            cw: crate::gui::state::CwMacroState::default(),
+            cw: crate::gui::state::CwMacroState::from_config(&init.config.cw),
 
             ledger: crate::gui::state::EquipmentLedgerState::default(),
 
@@ -718,6 +718,8 @@ mod app_backup;
 mod app_cat;
 #[path = "app_config.rs"]
 mod app_config;
+#[path = "app_cw.rs"]
+mod app_cw;
 #[path = "app_files.rs"]
 mod app_files;
 #[path = "app_lookup.rs"]

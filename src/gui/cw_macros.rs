@@ -26,7 +26,14 @@ pub fn render_cw_macros_window(app: &mut SpLogApp, ctx: &egui::Context) {
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
                     ui.label(tr(key::CW_SPEED_LABEL, lang));
-                    let s_resp = ui.add(egui::Slider::new(&mut app.cw.wpm, 10..=50).text("WPM"));
+                    let mut wpm = app.config.cw.keyer.wpm;
+                    let s_resp = ui.add(egui::Slider::new(&mut wpm, 5..=60).text("WPM"));
+                    if s_resp.changed() {
+                        app.config.cw.keyer.wpm = wpm;
+                        if let Some(keyer) = app.gui.dialogs.cw_terminal_dialog.keyer.as_ref() {
+                            keyer.send(crate::cat::cw_keyer::CwCommand::SetSpeed(wpm));
+                        }
+                    }
                     if s_resp.drag_stopped() || (s_resp.changed() && !s_resp.dragged()) {
                         config_changed = true;
                     }
@@ -39,62 +46,25 @@ pub fn render_cw_macros_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         .color(palette.accent),
                 );
 
-                render_macro_row(
-                    ui,
-                    tr(key::CW_MACRO_F1_LABEL, lang),
-                    &mut app.cw.macro_f1,
-                    &mut macro_to_transmit,
-                    &mut config_changed,
-                );
-                render_macro_row(
-                    ui,
-                    tr(key::CW_MACRO_F2_LABEL, lang),
-                    &mut app.cw.macro_f2,
-                    &mut macro_to_transmit,
-                    &mut config_changed,
-                );
-                render_macro_row(
-                    ui,
-                    tr(key::CW_MACRO_F3_LABEL, lang),
-                    &mut app.cw.macro_f3,
-                    &mut macro_to_transmit,
-                    &mut config_changed,
-                );
-                render_macro_row(
-                    ui,
-                    tr(key::CW_MACRO_F4_LABEL, lang),
-                    &mut app.cw.macro_f4,
-                    &mut macro_to_transmit,
-                    &mut config_changed,
-                );
-                render_macro_row(
-                    ui,
-                    tr(key::CW_MACRO_F5_LABEL, lang),
-                    &mut app.cw.macro_f5,
-                    &mut macro_to_transmit,
-                    &mut config_changed,
-                );
-                render_macro_row(
-                    ui,
-                    tr(key::CW_MACRO_F6_LABEL, lang),
-                    &mut app.cw.macro_f6,
-                    &mut macro_to_transmit,
-                    &mut config_changed,
-                );
-                render_macro_row(
-                    ui,
-                    tr(key::CW_MACRO_F7_LABEL, lang),
-                    &mut app.cw.macro_f7,
-                    &mut macro_to_transmit,
-                    &mut config_changed,
-                );
-                render_macro_row(
-                    ui,
-                    tr(key::CW_MACRO_F8_LABEL, lang),
-                    &mut app.cw.macro_f8,
-                    &mut macro_to_transmit,
-                    &mut config_changed,
-                );
+                let labels = [
+                    key::CW_MACRO_F1_LABEL,
+                    key::CW_MACRO_F2_LABEL,
+                    key::CW_MACRO_F3_LABEL,
+                    key::CW_MACRO_F4_LABEL,
+                    key::CW_MACRO_F5_LABEL,
+                    key::CW_MACRO_F6_LABEL,
+                    key::CW_MACRO_F7_LABEL,
+                    key::CW_MACRO_F8_LABEL,
+                ];
+                for (label, macro_text) in labels.iter().zip(app.cw.macros.iter_mut()) {
+                    render_macro_row(
+                        ui,
+                        tr(*label, lang),
+                        macro_text,
+                        &mut macro_to_transmit,
+                        &mut config_changed,
+                    );
+                }
 
                 ui.separator();
                 ui.label(tr(key::CW_MACROS_LEGEND, lang));
@@ -139,7 +109,7 @@ fn render_macro_row(
         }
         let resp =
             ui.add(egui::TextEdit::singleline(macro_text).desired_width(ui.available_width()));
-        if resp.lost_focus() || resp.changed() {
+        if resp.lost_focus() {
             *config_changed = true;
         }
     });

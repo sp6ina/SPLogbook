@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
-// K1EL Winkeyer (WK2 / WK3) and Serial CW Keyer Driver
+// K1EL WinKeyer (WK2 / WK3): ramki protokołu hosta.
+//
+// Źródło: K1EL "WinKeyer3 IC Interface & Operation Manual" rev 1.3 (2019-03-19):
+// tabela poleceń hosta (Table 18), mapowanie prosignów ASCII (Table 17), sidetone
+// (Tables 6-7), rejestr trybu (Table 12), znaczniki bajtów statusu i potencjometru.
 
 use log::info;
 
@@ -70,10 +74,16 @@ impl WinkeyerProtocol {
         vec![0x00, 0x03]
     }
 
-    /// Ustawienie prędkości WPM (0x02, wpm)
+    /// Ustawienie prędkości WPM (0x02, wpm); WinKeyer przyjmuje 5..=99 WPM.
     pub fn set_speed(wpm: u8) -> Vec<u8> {
-        let clamped = wpm.clamp(5, 55);
+        let clamped = wpm.clamp(crate::cat::morse::MIN_WPM, crate::cat::morse::MAX_WPM);
         vec![0x02, clamped]
+    }
+
+    /// Rejestr trybu (0x0E): iambic B, echo znaków nadanych z hosta (bit 2), dzięki
+    /// któremu program wie, ile tekstu już poszło w eter.
+    pub fn set_mode_serial_echo() -> Vec<u8> {
+        vec![0x0E, 0x04]
     }
 
     /// Alias dla set_speed zwracający ramkę WPM
@@ -91,15 +101,7 @@ impl WinkeyerProtocol {
             return Err(WinkeyerError::OversizedMacro(trimmed.len()));
         }
 
-        // Zamiana znanych prosignów telegraficznych
-        let sanitized = trimmed
-            .replace("<BT>", "=")
-            .replace("<AR>", "+")
-            .replace("<SK>", "%")
-            .replace("<AS>", "&")
-            .replace("<KN>", "(");
-
-        Ok(Self::encode_text(&sanitized))
+        Ok(Self::encode_text(trimmed))
     }
 
     /// Wyczyszczenie bufora / natychmiastowe przerwanie nadawania (Clear Buffer: 0x0A)
@@ -107,23 +109,114 @@ impl WinkeyerProtocol {
         vec![0x0A]
     }
 
-    /// Ustawienie częstotliwości podsłuchu (0x01, 0x04, sidetone_code)
-    pub fn set_sidetone(hz: u16) -> Vec<u8> {
-        // Kod sidetone wg K1EL WK spec: 1..=10 (4000 / hz)
-        let code = 4000u16.checked_div(hz).map_or(5, |c| c.clamp(1, 10) as u8);
-        vec![0x01, 0x04, code]
+    /// Częstotliwość podsłuchu (0x01, n). W trybie WK3: n = 62500 / f dla 500..=4000 Hz.
+    /// W trybie WK1/WK2: n = 1..=10 z tabeli 4000 / n Hz (najbliższa wartość).
+    pub fn set_sidetone(hz: u16, wk3_mode: bool) -> Vec<u8> {
+        let hz = u32::from(hz.clamp(400, 4000));
+        let n = if wk3_mode {
+            (62_500 / hz.max(500)).clamp(15, 125)
+        } else {
+            ((4000 + hz / 2) / hz).clamp(1, 10)
+        };
+        vec![0x01, n as u8]
     }
 
-    /// Kodowanie ciągu tekstowego na bajty do wysłania do Winkeyera
+    /// Tekst do bufora WinKeyera. Prosigny `<BT>`, `<AR>`, `<SK>`, `<KN>`, `<AS>` są
+    /// zamieniane na znaki ASCII, które WinKeyer mapuje na te prosigny (Table 17).
+    /// Odrzucane są: bajty sterujące poniżej 0x20 (to polecenia, nie tekst), znaki,
+    /// które WinKeyer ignoruje (`! # % & *`), znaki powyżej 0x5D poza `|` (pół kropki
+    /// przerwy) oraz znaki spoza ASCII.
     pub fn encode_text(text: &str) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        for ch in text.to_uppercase().chars() {
-            if ch.is_ascii() {
-                bytes.push(ch as u8);
+        let upper = text.to_uppercase();
+        let mut bytes = Vec::with_capacity(upper.len());
+        let mut rest = upper.as_str();
+        while let Some(c) = rest.chars().next() {
+            if c == '<'
+                && let Some(end) = rest.find('>')
+                && let Some(mapped) = prosign_byte(&rest[1..end])
+            {
+                bytes.push(mapped);
+                rest = &rest[end + 1..];
+                continue;
             }
+            if c == '\n' || c == '\t' {
+                bytes.push(b' ');
+            } else if c.is_ascii() && is_sendable(c as u8) {
+                bytes.push(c as u8);
+            }
+            rest = &rest[c.len_utf8()..];
         }
         bytes
     }
+
+    /// Rodzaj bajtu odebranego od WinKeyera.
+    pub fn classify(byte: u8) -> WinkeyerByte {
+        if byte & 0xC0 == 0xC0 {
+            WinkeyerByte::Status(WinkeyerStatus(byte))
+        } else if byte & 0xC0 == 0x80 {
+            WinkeyerByte::SpeedPot(byte & 0x3F)
+        } else {
+            WinkeyerByte::Echo(byte)
+        }
+    }
+}
+
+/// Bajt odebrany od WinKeyera.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WinkeyerByte {
+    Status(WinkeyerStatus),
+    /// Położenie potencjometru prędkości (0..=31 względem minimum).
+    SpeedPot(u8),
+    /// Echo znaku, który właśnie został nadany.
+    Echo(u8),
+}
+
+/// Bajt statusu WinKeyera (znacznik 0b110 w trzech najstarszych bitach).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WinkeyerStatus(pub u8);
+
+impl WinkeyerStatus {
+    /// Bufor wejściowy zapełniony w ponad 2/3 — host wstrzymuje wysyłanie.
+    pub fn xoff(self) -> bool {
+        self.0 & 0x01 != 0
+    }
+    /// Operator kluczuje manipulatorem (break-in).
+    pub fn break_in(self) -> bool {
+        self.0 & 0x02 != 0
+    }
+    /// WinKeyer nadaje.
+    pub fn busy(self) -> bool {
+        self.0 & 0x04 != 0
+    }
+    /// W trybie WK2 bit 3 oznacza bajt stanu przycisków, nie status klucza.
+    pub fn is_pushbutton(self) -> bool {
+        self.0 & 0x08 != 0
+    }
+}
+
+fn prosign_byte(name: &str) -> Option<u8> {
+    Some(match name {
+        "BT" => b'=',
+        "AR" => b'+',
+        "SK" => b'>',
+        "KN" => b'(',
+        "AS" => b'[',
+        _ => return None,
+    })
+}
+
+fn is_sendable(b: u8) -> bool {
+    match b {
+        b'!' | b'#' | b'%' | b'&' | b'*' => false,
+        b'|' | 0x20..=0x5D => true,
+        _ => false,
+    }
+}
+
+impl WinkeyerProtocol {
+    /// Liczba bajtów, które można mieć wysłane i jeszcze nienadane. Bufor WinKeyera ma
+    /// 160 znaków, a XOFF pojawia się przy 2/3 — zostawiamy zapas.
+    pub const MAX_IN_FLIGHT: usize = 64;
 }
 
 /// Mock transportu dla WinKeyera izolujący testy od fizycznego portu COM i nadajnika
@@ -237,8 +330,9 @@ mod tests {
         let frame_clamped_low = WinkeyerProtocol::encode_wpm_frame(2);
         assert_eq!(frame_clamped_low, vec![0x02, 5]);
 
-        let frame_clamped_high = WinkeyerProtocol::encode_wpm_frame(60);
-        assert_eq!(frame_clamped_high, vec![0x02, 55]);
+        // Zakres WinKeyera to 5..=99 WPM (Table 18, „Speed”).
+        assert_eq!(WinkeyerProtocol::encode_wpm_frame(60), vec![0x02, 60]);
+        assert_eq!(WinkeyerProtocol::encode_wpm_frame(120), vec![0x02, 99]);
     }
 
     #[test]
@@ -252,6 +346,52 @@ mod tests {
         // Prosigny <BT>, <AR>, <SK> oraz znaki przestankowe
         let frame = WinkeyerProtocol::encode_macro_frame("TEST <BT> 599 <AR> ? /").unwrap();
         assert_eq!(frame, b"TEST = 599 + ? /".to_vec());
+    }
+
+    #[test]
+    fn prosigns_use_the_winkeyer_ascii_mapping() {
+        // Table 17: SK = '>', AS = '[', KN = '('. '%' i '&' WinKeyer ignoruje.
+        assert_eq!(
+            WinkeyerProtocol::encode_text("TU <SK> <AS> <KN>"),
+            b"TU > [ (".to_vec()
+        );
+    }
+
+    #[test]
+    fn control_bytes_and_ignored_characters_never_reach_the_keyer() {
+        // Bajt 0x0A to „Clear Buffer”, 0x02 „Set speed”: w tekście byłyby poleceniami.
+        let text = "CQ\u{2}\u{a}\u{1b}DE!#%&*~`{} SP6INA|ŁÓ\tK";
+        assert_eq!(
+            WinkeyerProtocol::encode_text(text),
+            b"CQ DE SP6INA| K".to_vec()
+        );
+        for b in WinkeyerProtocol::encode_text(text) {
+            assert!(b >= 0x20, "control byte {b:#04x} leaked");
+        }
+    }
+
+    #[test]
+    fn sidetone_frames_follow_the_datasheet() {
+        // WK3: n = 62500 / f, np. 62 dla 1000 Hz.
+        assert_eq!(WinkeyerProtocol::set_sidetone(1000, true), vec![0x01, 62]);
+        assert_eq!(WinkeyerProtocol::set_sidetone(500, true), vec![0x01, 125]);
+        // WK2: tabela 4000 / n.
+        assert_eq!(WinkeyerProtocol::set_sidetone(800, false), vec![0x01, 5]);
+        assert_eq!(WinkeyerProtocol::set_sidetone(700, false), vec![0x01, 6]);
+        assert_eq!(WinkeyerProtocol::set_sidetone(4000, false), vec![0x01, 1]);
+    }
+
+    #[test]
+    fn incoming_bytes_are_classified_by_their_tags() {
+        assert_eq!(
+            WinkeyerProtocol::classify(0xC4),
+            WinkeyerByte::Status(WinkeyerStatus(0xC4))
+        );
+        assert!(WinkeyerStatus(0xC4).busy());
+        assert!(WinkeyerStatus(0xC1).xoff());
+        assert!(!WinkeyerStatus(0xC0).busy());
+        assert_eq!(WinkeyerProtocol::classify(0x85), WinkeyerByte::SpeedPot(5));
+        assert_eq!(WinkeyerProtocol::classify(b'K'), WinkeyerByte::Echo(b'K'));
     }
 
     #[test]
