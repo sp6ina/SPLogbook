@@ -53,19 +53,46 @@ impl Default for RigState {
     }
 }
 
+/// Spot DX do wyświetlenia na panoramie odbiornika SDR (TCI, FlexRadio).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PanadapterSpot {
+    pub callsign: String,
+    pub rx_hz: u64,
+    /// Częstotliwość nadawania przy pracy split.
+    pub tx_hz: Option<u64>,
+    /// Emisja ze spotu (`CW`, `SSB`, `FT8`…), jeśli znana.
+    pub mode: Option<String>,
+    /// Kolor znaku w formacie ARGB.
+    pub color_argb: u32,
+    pub spotter: String,
+    pub comment: String,
+    /// Po tylu sekundach radio samo usuwa spot (0 = bez limitu), jeśli to obsługuje.
+    pub lifetime_secs: u32,
+}
+
 /// Domenowe polecenia sterowania transceiverem.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RigCommand {
     SetFrequency(u64),
     SetSplitFrequency(u64),
-    SetMode { mode: String, passband_hz: u32 },
+    SetMode {
+        mode: String,
+        passband_hz: u32,
+    },
     SetPassband(u32),
-    SetSplit { enabled: bool, tx_vfo: String },
+    SetSplit {
+        enabled: bool,
+        tx_vfo: String,
+    },
     SetPtt(bool),
     SetVfo(String),
     SetRit(i32),
     SetXit(i32),
     SetPower(f32),
+    /// Nanosi spot na panoramę odbiornika SDR.
+    ShowSpot(Box<PanadapterSpot>),
+    /// Usuwa z panoramy wszystkie spoty.
+    ClearSpots,
 }
 
 /// Deklaracja możliwości technicznych danego backendu CAT.
@@ -82,6 +109,8 @@ pub struct RigCapabilities {
     pub xit: bool,
     pub power: bool,
     pub s_meter: bool,
+    /// Wyświetlanie spotów DX na panoramie (SDR).
+    pub spots: bool,
 }
 
 impl RigCapabilities {
@@ -97,6 +126,7 @@ impl RigCapabilities {
         xit: true,
         power: true,
         s_meter: true,
+        spots: true,
     };
 
     pub const NONE: Self = Self {
@@ -111,6 +141,7 @@ impl RigCapabilities {
         xit: false,
         power: false,
         s_meter: false,
+        spots: false,
     };
 
     pub const fn all() -> Self {
@@ -134,6 +165,7 @@ impl RigCapabilities {
             RigCommand::SetRit(_) => self.rit,
             RigCommand::SetXit(_) => self.xit,
             RigCommand::SetPower(_) => self.power,
+            RigCommand::ShowSpot(_) | RigCommand::ClearSpots => self.spots,
         }
     }
 }
@@ -234,6 +266,29 @@ pub struct RigStatus {
 mod tests {
     use super::*;
     use crate::core::i18n::Language;
+
+    #[test]
+    fn spot_commands_need_the_spots_capability() {
+        let show = RigCommand::ShowSpot(Box::new(PanadapterSpot {
+            callsign: "SP9ABC".to_string(),
+            rx_hz: 14_025_000,
+            tx_hz: None,
+            mode: None,
+            color_argb: 0,
+            spotter: String::new(),
+            comment: String::new(),
+            lifetime_secs: 0,
+        }));
+        for command in [show, RigCommand::ClearSpots] {
+            assert!(RigCapabilities::ALL.supports(&command));
+            assert!(!RigCapabilities::NONE.supports(&command));
+            let only_frequency = RigCapabilities {
+                frequency: true,
+                ..RigCapabilities::NONE
+            };
+            assert!(!only_frequency.supports(&command));
+        }
+    }
 
     #[test]
     fn rig_state_default_unchanged() {

@@ -521,6 +521,10 @@ impl RigBackend for YaesuBackend {
             }
 
             match command {
+                RigCommand::ShowSpot(_) | RigCommand::ClearSpots => Err(RigError::Unsupported {
+                    backend: CatBackendKind::Yaesu,
+                    command: "ShowSpot",
+                }),
                 RigCommand::SetFrequency(hz) => {
                     let transport = self.transport.as_mut().ok_or(RigError::NotConnected)?;
                     let cmd =

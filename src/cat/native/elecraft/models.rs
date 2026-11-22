@@ -206,6 +206,7 @@ pub static ELECRAFT_K3_PROFILE: ElecraftModelProfile = ElecraftModelProfile {
         // K3 raportuje S-metr w surowych słupkach LCD (0000..0015 / 0021).
         // Brak fabrycznej kalibracji dBm/S-unit w instrukcji Programmer's Ref.
         s_meter: false,
+        spots: false,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: true,
@@ -257,6 +258,7 @@ pub static ELECRAFT_K3S_PROFILE: ElecraftModelProfile = ElecraftModelProfile {
         xit: true,
         power: true,
         s_meter: false,
+        spots: false,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: true,
@@ -310,6 +312,7 @@ pub static ELECRAFT_KX2_PROFILE: ElecraftModelProfile = ElecraftModelProfile {
         xit: true,
         power: true,
         s_meter: false,
+        spots: false,
     },
     extended_capabilities: NativeRigCapabilities {
         // KX2 obsługuje DSP dual-watch w jednym paśmie (MENU:DUAL RX, SB1;)
@@ -364,6 +367,7 @@ pub static ELECRAFT_KX3_PROFILE: ElecraftModelProfile = ElecraftModelProfile {
         xit: true,
         power: true,
         s_meter: false,
+        spots: false,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: true,
@@ -416,6 +420,7 @@ pub static ELECRAFT_K4_PROFILE: ElecraftModelProfile = ElecraftModelProfile {
         power: true,
         // K4 udostępnia skalibrowany odczyt sygnału w dBm przez rozkaz SMH / SMH$
         s_meter: true,
+        spots: false,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: true,
@@ -467,6 +472,7 @@ pub static ELECRAFT_K4D_PROFILE: ElecraftModelProfile = ElecraftModelProfile {
         xit: true,
         power: true,
         s_meter: true,
+        spots: false,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: true,
@@ -518,6 +524,7 @@ pub static ELECRAFT_K4HD_PROFILE: ElecraftModelProfile = ElecraftModelProfile {
         xit: true,
         power: true,
         s_meter: true,
+        spots: false,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: true,

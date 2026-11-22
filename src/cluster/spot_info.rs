@@ -46,6 +46,14 @@ impl SpotMode {
     }
 }
 
+/// Kolory spotów na panoramie SDR (ARGB): nowe DXCC, nowe pasmo, nowa emisja,
+/// stacja zrobiona i pozostałe.
+pub const SDR_COLOR_NEW_DXCC: u32 = 0xFFFF_3B30;
+pub const SDR_COLOR_NEW_BAND: u32 = 0xFFFF_A500;
+pub const SDR_COLOR_NEW_MODE: u32 = 0xFF4A_A3FF;
+pub const SDR_COLOR_WORKED: u32 = 0xFF8C_8C8C;
+pub const SDR_COLOR_OTHER: u32 = 0xFFFF_FFFF;
+
 /// Częstotliwość spotu (kHz) w Hz.
 pub fn spot_freq_hz(frequency_khz: f64) -> u64 {
     if frequency_khz.is_finite() && frequency_khz > 0.0 {

@@ -1349,6 +1349,7 @@ mod tests {
                 xit: false,
                 power: false,
                 s_meter: false,
+                spots: false,
             }
         }
 

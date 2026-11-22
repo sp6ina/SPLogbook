@@ -858,6 +858,8 @@ pub struct ClusterSpotSettings {
     pub tune_sets_split: bool,
     /// Kliknięcie spotu obraca antenę na stację (wymaga rotctld).
     pub rotor_follows_spot: bool,
+    /// Spoty z bieżącego pasma trafiają na panoramę odbiornika SDR (TCI, FlexRadio).
+    pub show_on_sdr: bool,
 }
 
 impl Default for ClusterSpotSettings {
@@ -868,6 +870,7 @@ impl Default for ClusterSpotSettings {
             tune_sets_mode: true,
             tune_sets_split: true,
             rotor_follows_spot: false,
+            show_on_sdr: false,
         }
     }
 }

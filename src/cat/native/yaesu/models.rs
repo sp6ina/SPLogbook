@@ -93,6 +93,7 @@ pub fn create_custom_yaesu_profile(model_id: &str, baud_rate: u32) -> RigModelPr
             // Oficjalne instrukcje Yaesu nie definiują kalibracji SM na dBm/S-unit.
             // Backend udostępnia odczyt surowy przez raw_smeter(), nie fabrykując jednostek w RigState.
             s_meter: false,
+            spots: false,
         },
         extended_capabilities: NativeRigCapabilities {
             dualwatch: model_id.contains("101") || model_id.contains("DX10"),

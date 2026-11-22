@@ -1571,6 +1571,8 @@
   "cluster.rotor_follows": "Поворачивать антенну на станцию из спота",
   "cluster.rotor_follows_hint": "Нужны rotctld (Hamlib) и локатор станции в профиле.",
   "cluster.badge_legend": "⭐ новая страна · ✨ новый диапазон · ◆ новый вид излучения · ✓ сработана",
+  "cluster.show_on_sdr": "Показывать споты диапазона на панораме SDR",
+  "cluster.show_on_sdr_hint": "Для CAT через TCI (ExpertSDR, Thetis) или FlexRadio SmartSDR 2.3+. Цвет как у значка спота.",
   "vfo.manual_transceiver": "Трансивер (ручной)",
   "map.locator_grid": "Сетка локаторов",
   "waterfall.start_btn": "Старт",

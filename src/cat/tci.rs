@@ -140,15 +140,41 @@ impl TciCodec {
         format!("drive:{receiver},{value};")
     }
 
-    /// Formatuje polecenie naniesienia spotu DX na wodospad SDR.
-    pub fn cmd_add_spot(callsign: &str, freq_hz: u64, color_argb: u32, text: &str) -> String {
+    /// Spot DX na panoramie (TCI 1.6: `SPOT:callsign,mode,frequency,ARGB,text;`).
+    /// Separatory protokołu (`:`, `,`, `;`) w polach tekstowych są zastępowane spacją.
+    pub fn cmd_add_spot(spot: &crate::cat::rig::PanadapterSpot) -> String {
+        let clean = |text: &str| -> String {
+            text.chars()
+                .map(|c| {
+                    if matches!(c, ':' | ',' | ';') || c.is_control() {
+                        ' '
+                    } else {
+                        c
+                    }
+                })
+                .collect::<String>()
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        let text = if spot.spotter.is_empty() {
+            clean(&spot.comment)
+        } else {
+            clean(&format!("{} de {}", spot.comment, spot.spotter))
+        };
         format!(
-            "spot:{},{},{},{};",
-            callsign.trim().to_uppercase(),
-            freq_hz,
-            color_argb,
-            text.trim()
+            "spot:{},{},{},{},{};",
+            clean(&spot.callsign).to_uppercase(),
+            clean(spot.mode.as_deref().unwrap_or_default()).to_uppercase(),
+            spot.rx_hz,
+            spot.color_argb,
+            text
         )
+    }
+
+    /// Usuwa wszystkie spoty z panoramy (TCI 1.6: `SPOT_CLEAR;`).
+    pub fn cmd_clear_spots() -> &'static str {
+        "spot_clear;"
     }
 
     /// Polecenie nadania tekstu CW na transceiverze `trx` (TCI 1.6). Znaki zastrzeżone
@@ -1189,6 +1215,8 @@ impl TciBackend {
                     command: "SetPassband",
                 });
             }
+            RigCommand::ShowSpot(spot) => TciCodec::cmd_add_spot(spot),
+            RigCommand::ClearSpots => TciCodec::cmd_clear_spots().to_string(),
         };
 
         let Some(mut stream) = self.ws_stream.take() else {
@@ -1350,6 +1378,7 @@ impl RigBackend for TciBackend {
             xit: true,
             power: true,
             s_meter: false,
+            spots: true,
         }
     }
 
@@ -1391,6 +1420,54 @@ impl RigBackend for TciBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn tci_backend_sends_spot_and_clear_frames_to_the_sdr() {
+        let (frames_tx, mut frames_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        let (port, server_handle) = spawn_mock_tci_server(move |mut ws| async move {
+            ws.send(Message::Text("ready;".into()))
+                .await
+                .expect("send ready");
+            while let Some(Ok(Message::Text(text))) = ws.next().await {
+                let _ = frames_tx.send(text.to_string());
+            }
+        })
+        .await;
+
+        let mut backend = TciBackend::with_timeout("127.0.0.1", port, Duration::from_millis(500));
+        backend.connect().await.expect("connect");
+        assert!(backend.capabilities().spots);
+        let spot = crate::cat::rig::PanadapterSpot {
+            callsign: "SP9ABC".to_string(),
+            rx_hz: 14_025_000,
+            tx_hz: None,
+            mode: Some("CW".to_string()),
+            color_argb: 0xFFFF_3B30,
+            spotter: String::new(),
+            comment: "CQ".to_string(),
+            lifetime_secs: 3600,
+        };
+        backend
+            .execute(&RigCommand::ShowSpot(Box::new(spot)))
+            .await
+            .expect("spot");
+        backend
+            .execute(&RigCommand::ClearSpots)
+            .await
+            .expect("clear");
+        let first = tokio::time::timeout(Duration::from_secs(2), frames_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let second = tokio::time::timeout(Duration::from_secs(2), frames_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(first, "spot:SP9ABC,CW,14025000,4294916912,CQ;");
+        assert_eq!(second, "spot_clear;");
+        backend.disconnect().await;
+        server_handle.await.expect("server completed");
+    }
 
     #[test]
     fn cw_macro_commands_follow_tci_1_6() {
@@ -1447,10 +1524,21 @@ mod tests {
         );
         assert_eq!(TciProtocol::cmd_set_mode(0, "usb"), "modulation:0,USB;");
         assert_eq!(TciProtocol::cmd_set_trx(0, true), "trx:0,true;");
+        let spot = crate::cat::rig::PanadapterSpot {
+            callsign: "sp6ina".to_string(),
+            rx_hz: 14_025_000,
+            tx_hz: Some(14_027_000),
+            mode: Some("cw".to_string()),
+            color_argb: 0x00FF_0000,
+            spotter: "SP3XYZ".to_string(),
+            comment: "UP 2, tnx; QSX: 14027".to_string(),
+            lifetime_secs: 3600,
+        };
         assert_eq!(
-            TciProtocol::cmd_add_spot("SP6INA", 14_025_000, 0xFFFF_0000, "599 SP"),
-            "spot:SP6INA,14025000,4294901760,599 SP;"
+            TciProtocol::cmd_add_spot(&spot),
+            "spot:SP6INA,CW,14025000,16711680,UP 2 tnx QSX 14027 de SP3XYZ;"
         );
+        assert_eq!(TciProtocol::cmd_clear_spots(), "spot_clear;");
     }
 
     #[test]

@@ -495,6 +495,8 @@ impl RigBackend for IcomCiVBackend {
                     backend: CatBackendKind::IcomCiV,
                     command: match command {
                         RigCommand::SetFrequency(_) => "SetFrequency",
+                        RigCommand::ShowSpot(_) => "ShowSpot",
+                        RigCommand::ClearSpots => "ClearSpots",
                         RigCommand::SetSplitFrequency(_) => "SetSplitFrequency",
                         RigCommand::SetMode { .. } => "SetMode",
                         RigCommand::SetPassband(_) => "SetPassband",
@@ -509,6 +511,12 @@ impl RigBackend for IcomCiVBackend {
             }
 
             match command {
+                RigCommand::ShowSpot(_) | RigCommand::ClearSpots => {
+                    return Err(RigError::Unsupported {
+                        backend: CatBackendKind::IcomCiV,
+                        command: "ShowSpot",
+                    });
+                }
                 RigCommand::SetFrequency(hz) => {
                     let bcd = IcomCiVCodec::encode_frequency_bcd(*hz, self.profile.frequency_bytes)
                         .map_err(|e| RigError::Protocol {

@@ -62,6 +62,7 @@ pub static FLEX_6300: RigModelProfile = RigModelProfile {
         xit: true,
         power: true,
         s_meter: false,
+        spots: true,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: true,
@@ -113,6 +114,7 @@ pub static FLEX_6400: RigModelProfile = RigModelProfile {
         xit: true,
         power: true,
         s_meter: false,
+        spots: true,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: true,
@@ -164,6 +166,7 @@ pub static FLEX_6400M: RigModelProfile = RigModelProfile {
         xit: true,
         power: true,
         s_meter: false,
+        spots: true,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: true,
@@ -215,6 +218,7 @@ pub static FLEX_6500: RigModelProfile = RigModelProfile {
         xit: true,
         power: true,
         s_meter: false,
+        spots: true,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: true,
@@ -266,6 +270,7 @@ pub static FLEX_6600: RigModelProfile = RigModelProfile {
         xit: true,
         power: true,
         s_meter: false,
+        spots: true,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: true,
@@ -317,6 +322,7 @@ pub static FLEX_6600M: RigModelProfile = RigModelProfile {
         xit: true,
         power: true,
         s_meter: false,
+        spots: true,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: true,
@@ -368,6 +374,7 @@ pub static FLEX_6700: RigModelProfile = RigModelProfile {
         xit: true,
         power: true,
         s_meter: false,
+        spots: true,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: true,
@@ -419,6 +426,7 @@ pub static FLEX_8400: RigModelProfile = RigModelProfile {
         xit: true,
         power: true,
         s_meter: false,
+        spots: true,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: true,
@@ -470,6 +478,7 @@ pub static FLEX_8400M: RigModelProfile = RigModelProfile {
         xit: true,
         power: true,
         s_meter: false,
+        spots: true,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: true,
@@ -521,6 +530,7 @@ pub static FLEX_8600: RigModelProfile = RigModelProfile {
         xit: true,
         power: true,
         s_meter: false,
+        spots: true,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: true,
@@ -572,6 +582,7 @@ pub static FLEX_8600M: RigModelProfile = RigModelProfile {
         xit: true,
         power: true,
         s_meter: false,
+        spots: true,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: true,
@@ -624,6 +635,7 @@ pub static FLEX_GENERIC: RigModelProfile = RigModelProfile {
         xit: false,
         power: false,
         s_meter: false,
+        spots: true,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: false,

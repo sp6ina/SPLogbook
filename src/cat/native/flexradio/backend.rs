@@ -882,6 +882,50 @@ impl Drop for FlexRadioBackend {
     }
 }
 
+/// Pole wartości w poleceniu SmartSDR: spacje kodowane jako 0x7F (wymóg API), znaki `=`
+/// i sterujące usunięte, żeby nie rozbiły składni `klucz=wartość`.
+fn flex_field(text: &str) -> String {
+    text.split_whitespace()
+        .collect::<Vec<_>>()
+        .join("\u{7f}")
+        .chars()
+        .filter(|c| *c != '=' && (*c == '\u{7f}' || !c.is_control()))
+        .collect()
+}
+
+/// `spot add` SmartSDR (od wersji 2.3): częstotliwości w MHz, kolor `#AARRGGBB`.
+fn flex_spot_add(spot: &crate::cat::rig::PanadapterSpot) -> String {
+    let mhz = |hz: u64| hz as f64 / 1_000_000.0;
+    let mut parts = vec![
+        "spot add".to_string(),
+        format!("rx_freq={:.6}", mhz(spot.rx_hz)),
+        format!("callsign={}", flex_field(&spot.callsign.to_uppercase())),
+    ];
+    if let Some(tx_hz) = spot.tx_hz {
+        parts.push(format!("tx_freq={:.6}", mhz(tx_hz)));
+    }
+    if let Some(mode) = spot
+        .mode
+        .as_deref()
+        .map(flex_field)
+        .filter(|m| !m.is_empty())
+    {
+        parts.push(format!("mode={}", mode.to_lowercase()));
+    }
+    parts.push(format!("color=#{:08X}", spot.color_argb));
+    parts.push("source=SPLogbook".to_string());
+    let spotter = flex_field(&spot.spotter);
+    if !spotter.is_empty() {
+        parts.push(format!("spotter_callsign={spotter}"));
+    }
+    parts.push(format!("lifetime_seconds={}", spot.lifetime_secs));
+    let comment = flex_field(&spot.comment);
+    if !comment.is_empty() {
+        parts.push(format!("comment={comment}"));
+    }
+    parts.join(" ")
+}
+
 impl RigBackend for FlexRadioBackend {
     fn kind(&self) -> CatBackendKind {
         CatBackendKind::FlexRadio
@@ -1318,6 +1362,18 @@ impl RigBackend for FlexRadioBackend {
                         command: "SetVfo",
                     });
                 }
+                RigCommand::ShowSpot(spot) => {
+                    self.send_and_await_ack(flex_spot_add(spot), &endpoint)
+                        .await?;
+                }
+                RigCommand::ClearSpots => {
+                    // SmartSDR nie ma polecenia czyszczenia; spoty wygasają same
+                    // (`lifetime_seconds`).
+                    return Err(RigError::Unsupported {
+                        backend: CatBackendKind::FlexRadio,
+                        command: "ClearSpots",
+                    });
+                }
                 RigCommand::SetRit(rit_hz) => {
                     let slice = select_write_slice(
                         &self.slices,
@@ -1436,6 +1492,38 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
     use tokio::sync::Mutex;
+
+    #[test]
+    fn flex_spot_add_follows_the_smartsdr_api() {
+        let spot = crate::cat::rig::PanadapterSpot {
+            callsign: "sp9abc".to_string(),
+            rx_hz: 14_025_000,
+            tx_hz: Some(14_027_000),
+            mode: Some("CW".to_string()),
+            color_argb: 0xFFFF_3B30,
+            spotter: "SP3XYZ".to_string(),
+            comment: "UP 2 a=b\ttnx".to_string(),
+            lifetime_secs: 3600,
+        };
+        assert_eq!(
+            flex_spot_add(&spot),
+            "spot add rx_freq=14.025000 callsign=SP9ABC tx_freq=14.027000 mode=cw \
+             color=#FFFF3B30 source=SPLogbook spotter_callsign=SP3XYZ lifetime_seconds=3600 \
+             comment=UP\u{7f}2\u{7f}ab\u{7f}tnx"
+        );
+        let plain = crate::cat::rig::PanadapterSpot {
+            mode: None,
+            tx_hz: None,
+            spotter: String::new(),
+            comment: String::new(),
+            ..spot
+        };
+        assert_eq!(
+            flex_spot_add(&plain),
+            "spot add rx_freq=14.025000 callsign=SP9ABC color=#FFFF3B30 source=SPLogbook \
+             lifetime_seconds=3600"
+        );
+    }
 
     async fn setup_mock_flex_radio() -> (TcpListener, u16) {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind mock");

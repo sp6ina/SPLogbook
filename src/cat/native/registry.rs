@@ -40,6 +40,7 @@ pub static ICOM_IC7300: RigModelProfile = RigModelProfile {
         xit: true,
         power: true,
         s_meter: true,
+        spots: false,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: false,
@@ -75,6 +76,7 @@ pub static ICOM_IC7610: RigModelProfile = RigModelProfile {
         xit: true,
         power: true,
         s_meter: true,
+        spots: false,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: true,
@@ -110,6 +112,7 @@ pub static ICOM_IC705: RigModelProfile = RigModelProfile {
         xit: true,
         power: true,
         s_meter: true,
+        spots: false,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: false,
@@ -145,6 +148,7 @@ pub static ICOM_IC706MKIIG: RigModelProfile = RigModelProfile {
         xit: false,
         power: false,
         s_meter: true,
+        spots: false,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: false,
@@ -182,6 +186,7 @@ pub static KENWOOD_TS590S: RigModelProfile = RigModelProfile {
         xit: true,
         power: true,
         s_meter: true,
+        spots: false,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: false,
@@ -217,6 +222,7 @@ pub static KENWOOD_TS590SG: RigModelProfile = RigModelProfile {
         xit: true,
         power: true,
         s_meter: true,
+        spots: false,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: false,
@@ -252,6 +258,7 @@ pub static KENWOOD_TS890S: RigModelProfile = RigModelProfile {
         xit: true,
         power: true,
         s_meter: true,
+        spots: false,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: false,
@@ -287,6 +294,7 @@ pub static KENWOOD_TS990S: RigModelProfile = RigModelProfile {
         xit: true,
         power: true,
         s_meter: true,
+        spots: false,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: true,
@@ -324,6 +332,7 @@ pub static YAESU_FT891: RigModelProfile = RigModelProfile {
         xit: true,
         power: false,
         s_meter: false,
+        spots: false,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: false,
@@ -359,6 +368,7 @@ pub static YAESU_FT991A: RigModelProfile = RigModelProfile {
         xit: true,
         power: false,
         s_meter: false,
+        spots: false,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: false,
@@ -394,6 +404,7 @@ pub static YAESU_FT710: RigModelProfile = RigModelProfile {
         xit: true,
         power: false,
         s_meter: false,
+        spots: false,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: false,
@@ -429,6 +440,7 @@ pub static YAESU_FTDX10: RigModelProfile = RigModelProfile {
         xit: true,
         power: false,
         s_meter: false,
+        spots: false,
     },
     extended_capabilities: NativeRigCapabilities {
         dualwatch: false,

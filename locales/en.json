@@ -1571,6 +1571,8 @@
   "cluster.rotor_follows": "Turn the antenna towards the spotted station",
   "cluster.rotor_follows_hint": "Requires rotctld (Hamlib) and the station locator in the profile.",
   "cluster.badge_legend": "⭐ new DXCC · ✨ new band · ◆ new mode · ✓ worked",
+  "cluster.show_on_sdr": "Show spots of the band on the SDR panadapter",
+  "cluster.show_on_sdr_hint": "For a CAT link via TCI (ExpertSDR, Thetis) or FlexRadio SmartSDR 2.3+. The colour matches the spot badge.",
   "vfo.manual_transceiver": "Manual Transceiver",
   "map.locator_grid": "Locator grid",
   "waterfall.start_btn": "Start",

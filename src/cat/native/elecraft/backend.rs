@@ -591,6 +591,10 @@ impl RigBackend for ElecraftBackend {
             }
 
             match command {
+                RigCommand::ShowSpot(_) | RigCommand::ClearSpots => Err(RigError::Unsupported {
+                    backend: CatBackendKind::Elecraft,
+                    command: "ShowSpot",
+                }),
                 RigCommand::SetFrequency(hz) => {
                     if !self.profile.capabilities.frequency {
                         return Err(RigError::Unsupported {

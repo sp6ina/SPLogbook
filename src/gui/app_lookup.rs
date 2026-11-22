@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use super::*;
+use crate::cat::rig::{PanadapterSpot, RigCommand};
 use crate::cat::tune::{SplitRequest, TuneRequest};
 use crate::cluster::spot_info::{self, SplitHint, SpotMode};
 use crate::cluster::telnet::DxSpot;
@@ -417,6 +418,52 @@ impl SpLogApp {
 
         self.cluster.badge_cache.insert(key, badge);
         badge
+    }
+
+    /// Nanosi spot z bieżącego pasma na panoramę SDR (TCI, FlexRadio), jeśli włączono to
+    /// w ustawieniach spotów. Kolor odpowiada odznace spotu.
+    pub fn show_spot_on_sdr(&mut self, spot: &DxSpot) {
+        let settings = &self.config.cluster_spots;
+        if !settings.show_on_sdr || spot.band != self.entry.band {
+            return;
+        }
+        let lifetime_secs = u32::try_from(settings.max_age_secs()).unwrap_or(u32::MAX);
+        let rx_hz = spot_info::spot_freq_hz(spot.frequency_khz);
+        if rx_hz == 0 {
+            return;
+        }
+        let tx_hz = match spot_info::split_hint(&spot.comment, rx_hz) {
+            Some(SplitHint::Tx(tx_hz)) => Some(tx_hz),
+            _ => None,
+        };
+        let mode = spot_info::spot_mode(&spot.comment, rx_hz, spot.is_ft8)
+            .map(|m| m.log_mode().to_string());
+        let color_argb = match self.cluster_spot_badge(spot) {
+            SpotBadgeKind::NewDxcc => spot_info::SDR_COLOR_NEW_DXCC,
+            SpotBadgeKind::NewBand => spot_info::SDR_COLOR_NEW_BAND,
+            SpotBadgeKind::NewMode => spot_info::SDR_COLOR_NEW_MODE,
+            SpotBadgeKind::Worked => spot_info::SDR_COLOR_WORKED,
+            SpotBadgeKind::Standard => spot_info::SDR_COLOR_OTHER,
+        };
+        self.cat
+            .runtime
+            .execute_cmd(RigCommand::ShowSpot(Box::new(PanadapterSpot {
+                callsign: spot.dx_call.clone(),
+                rx_hz,
+                tx_hz,
+                mode,
+                color_argb,
+                spotter: spot.spotter.clone(),
+                comment: spot.comment.clone(),
+                lifetime_secs,
+            })));
+    }
+
+    /// Usuwa spoty z panoramy SDR razem z listą klastra.
+    pub fn clear_sdr_spots(&self) {
+        if self.config.cluster_spots.show_on_sdr {
+            self.cat.runtime.execute_cmd(RigCommand::ClearSpots);
+        }
     }
 
     /// Azymut z lokatora stacji na stację DX (z pliku krajów); `None` bez lokatora stacji

@@ -1026,6 +1026,10 @@ impl FlrigBackend {
         }
 
         match command {
+            RigCommand::ShowSpot(_) | RigCommand::ClearSpots => Err(RigError::Unsupported {
+                backend: CatBackendKind::Flrig,
+                command: "ShowSpot",
+            }),
             RigCommand::SetFrequency(hz) => self.client.set_vfo_typed(*hz).await,
             RigCommand::SetMode { mode, .. } => self.client.set_mode_typed(mode).await,
             RigCommand::SetPtt(ptt) => self.client.set_ptt_typed(*ptt).await,
@@ -1067,6 +1071,7 @@ impl RigBackend for FlrigBackend {
             xit: false,
             power: true,
             s_meter: true,
+            spots: false,
         }
     }
 
@@ -1588,6 +1593,7 @@ mod tests {
             xit: false,
             power: true,
             s_meter: true,
+            spots: false,
         };
         assert_eq!(caps, expected);
 

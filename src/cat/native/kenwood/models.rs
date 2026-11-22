@@ -156,6 +156,7 @@ pub fn create_custom_kenwood_profile(model_id: &str, baud_rate: u32) -> RigModel
             xit: true,
             power: true,
             s_meter: true,
+            spots: false,
         },
         extended_capabilities: NativeRigCapabilities {
             dualwatch: is_lan_supported(model_id),

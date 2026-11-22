@@ -566,6 +566,12 @@ impl HamlibBackend {
         }
 
         let cmd_str = match command {
+            RigCommand::ShowSpot(_) | RigCommand::ClearSpots => {
+                return Err(RigError::Unsupported {
+                    backend: CatBackendKind::Hamlib,
+                    command: "ShowSpot",
+                });
+            }
             RigCommand::SetFrequency(hz) => format!("F {hz}\n"),
             RigCommand::SetSplitFrequency(hz) => format!("\\set_split_freq {hz}\n"),
             RigCommand::SetMode { mode, passband_hz } => format!("M {mode} {passband_hz}\n"),

@@ -373,103 +373,109 @@ impl SpLogApp {
 
     /// Odbiór zdarzeń i spotów z klastra DX Telnet
     pub fn poll_cluster_events(&mut self) {
-        if let Some(ref rx) = self.cluster.event_rx {
-            while let Ok(evt) = rx.try_recv() {
-                match evt {
-                    ClusterEvent::Connected(msg) => {
-                        self.cluster.connected = true;
-                        self.cluster.connecting = false;
-                        self.cluster.status_text.clone_from(&msg);
-                        self.gui
-                            .chrome
-                            .push_status_toast(crate::gui::state::ToastSeverity::Info, msg);
-                        self.services.event_bus.publish(
-                            crate::core::events::AppEvent::ClusterStatus { connected: true },
-                        );
-                    }
-                    ClusterEvent::Disconnected(msg) => {
-                        self.cluster.connected = false;
-                        self.cluster.connecting = false;
-                        self.cluster.status_text = msg;
-                        self.services.event_bus.publish(
-                            crate::core::events::AppEvent::ClusterStatus { connected: false },
-                        );
-                    }
-                    ClusterEvent::Spot(spot) => {
-                        // Ponowne zgłoszenie tej samej stacji odświeża spot (wiek, komentarz,
-                        // zgłaszający) zamiast go pomijać — inaczej aktywna stacja znikałaby
-                        // z listy po upływie czasu od pierwszego zgłoszenia.
-                        let previous = self.cluster.spots.iter().position(|s| {
-                            s.dx_call == spot.dx_call
-                                && s.band == spot.band
-                                && (s.frequency_khz - spot.frequency_khz).abs() < 2.0
-                        });
-                        if let Some(index) = previous {
-                            self.cluster.spots.remove(index);
-                            self.cluster.spots.insert(0, spot);
-                        } else {
-                            let is_atno = if let Some(info) =
-                                self.services.prefix_matcher.lookup(&spot.dx_call)
-                            {
-                                let awards = self
-                                    .services
-                                    .awards_engine
-                                    .lock()
-                                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                                let st = awards.check_status_full(
-                                    &spot.dx_call,
-                                    &spot.band,
-                                    if spot.is_ft8 { "FT8" } else { "CW" },
-                                    Some(info.dxcc),
-                                    None,
-                                    Some(info.cqz),
-                                    None,
-                                    Some(&info.continent),
-                                    None,
-                                );
-                                st.is_new_dxcc
-                            } else {
-                                false
-                            };
-
-                            if is_atno && self.solar.band_alert_enabled {
-                                crate::media::sounds::play_new_dxcc_alert();
-                                self.gui.chrome.push_status_toast(
-                                    crate::gui::state::ToastSeverity::Info,
-                                    Msg::new(key::CLUSTER_ATNO_ALERT)
-                                        .arg("call", &spot.dx_call)
-                                        .arg("band", &spot.band)
-                                        .arg("freq", format!("{:.1}", spot.frequency_khz))
-                                        .text(self.gui.appearance.language),
-                                );
-                            }
-
-                            self.services.event_bus.publish(
-                                crate::core::events::AppEvent::DxSpot {
-                                    spotter: spot.spotter.clone(),
-                                    dx_call: spot.dx_call.clone(),
-                                    frequency_khz: spot.frequency_khz,
-                                    band: spot.band.clone(),
-                                    comment: spot.comment.clone(),
-                                    time_utc: spot.time_utc.clone(),
-                                    is_ft8: spot.is_ft8,
-                                    is_skimmer: spot.is_skimmer,
-                                },
-                            );
-                            self.cluster.spots.insert(0, spot.clone());
-                            // Hook pluginów Rhai na nowy spot DX.
-                            self.services.plugin_engine.run_on_dx_spot(
-                                &spot.spotter,
+        let events: Vec<ClusterEvent> = self
+            .cluster
+            .event_rx
+            .as_ref()
+            .map(|rx| rx.try_iter().collect())
+            .unwrap_or_default();
+        for evt in events {
+            match evt {
+                ClusterEvent::Connected(msg) => {
+                    self.cluster.connected = true;
+                    self.cluster.connecting = false;
+                    self.cluster.status_text.clone_from(&msg);
+                    self.gui
+                        .chrome
+                        .push_status_toast(crate::gui::state::ToastSeverity::Info, msg);
+                    self.services
+                        .event_bus
+                        .publish(crate::core::events::AppEvent::ClusterStatus { connected: true });
+                }
+                ClusterEvent::Disconnected(msg) => {
+                    self.cluster.connected = false;
+                    self.cluster.connecting = false;
+                    self.cluster.status_text = msg;
+                    self.services
+                        .event_bus
+                        .publish(crate::core::events::AppEvent::ClusterStatus { connected: false });
+                }
+                ClusterEvent::Spot(spot) => {
+                    // Ponowne zgłoszenie tej samej stacji odświeża spot (wiek, komentarz,
+                    // zgłaszający) zamiast go pomijać — inaczej aktywna stacja znikałaby
+                    // z listy po upływie czasu od pierwszego zgłoszenia.
+                    let previous = self.cluster.spots.iter().position(|s| {
+                        s.dx_call == spot.dx_call
+                            && s.band == spot.band
+                            && (s.frequency_khz - spot.frequency_khz).abs() < 2.0
+                    });
+                    if let Some(index) = previous {
+                        self.cluster.spots.remove(index);
+                        self.show_spot_on_sdr(&spot);
+                        self.cluster.spots.insert(0, spot);
+                    } else {
+                        let is_atno = if let Some(info) =
+                            self.services.prefix_matcher.lookup(&spot.dx_call)
+                        {
+                            let awards = self
+                                .services
+                                .awards_engine
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner);
+                            let st = awards.check_status_full(
                                 &spot.dx_call,
-                                spot.frequency_khz,
                                 &spot.band,
-                                &spot.comment,
-                                spot.is_ft8,
+                                if spot.is_ft8 { "FT8" } else { "CW" },
+                                Some(info.dxcc),
+                                None,
+                                Some(info.cqz),
+                                None,
+                                Some(&info.continent),
+                                None,
+                            );
+                            st.is_new_dxcc
+                        } else {
+                            false
+                        };
+
+                        if is_atno && self.solar.band_alert_enabled {
+                            crate::media::sounds::play_new_dxcc_alert();
+                            self.gui.chrome.push_status_toast(
+                                crate::gui::state::ToastSeverity::Info,
+                                Msg::new(key::CLUSTER_ATNO_ALERT)
+                                    .arg("call", &spot.dx_call)
+                                    .arg("band", &spot.band)
+                                    .arg("freq", format!("{:.1}", spot.frequency_khz))
+                                    .text(self.gui.appearance.language),
                             );
                         }
+
+                        self.services
+                            .event_bus
+                            .publish(crate::core::events::AppEvent::DxSpot {
+                                spotter: spot.spotter.clone(),
+                                dx_call: spot.dx_call.clone(),
+                                frequency_khz: spot.frequency_khz,
+                                band: spot.band.clone(),
+                                comment: spot.comment.clone(),
+                                time_utc: spot.time_utc.clone(),
+                                is_ft8: spot.is_ft8,
+                                is_skimmer: spot.is_skimmer,
+                            });
+                        self.show_spot_on_sdr(&spot);
+                        self.cluster.spots.insert(0, spot.clone());
+                        // Hook pluginów Rhai na nowy spot DX.
+                        self.services.plugin_engine.run_on_dx_spot(
+                            &spot.spotter,
+                            &spot.dx_call,
+                            spot.frequency_khz,
+                            &spot.band,
+                            &spot.comment,
+                            spot.is_ft8,
+                        );
                     }
-                    ClusterEvent::RawLine(_) => {}
                 }
+                ClusterEvent::RawLine(_) => {}
             }
         }
 

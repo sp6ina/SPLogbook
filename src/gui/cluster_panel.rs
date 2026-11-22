@@ -472,6 +472,7 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .clicked()
             {
                 app.cluster.spots.clear();
+                app.clear_sdr_spots();
             }
         });
     });
@@ -913,6 +914,13 @@ fn render_spot_settings(
             &mut settings.tune_sets_split,
             tr(key::CLUSTER_TUNE_SETS_SPLIT, lang),
         )
+        .changed();
+    changed |= ui
+        .checkbox(
+            &mut settings.show_on_sdr,
+            tr(key::CLUSTER_SHOW_ON_SDR, lang),
+        )
+        .on_hover_text(tr(key::CLUSTER_SHOW_ON_SDR_HINT, lang))
         .changed();
     changed |= ui
         .checkbox(

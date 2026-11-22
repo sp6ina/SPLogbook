@@ -30,6 +30,7 @@ pub fn create_custom_icom_profile(_model: &str, address: u8, baud_rate: u32) -> 
             xit: true,
             power: true,
             s_meter: true,
+            spots: false,
         },
         extended_capabilities: NativeRigCapabilities {
             dualwatch: false,

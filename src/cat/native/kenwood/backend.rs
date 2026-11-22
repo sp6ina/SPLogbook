@@ -743,6 +743,10 @@ impl RigBackend for KenwoodBackend {
             }
 
             match command {
+                RigCommand::ShowSpot(_) | RigCommand::ClearSpots => Err(RigError::Unsupported {
+                    backend: CatBackendKind::Kenwood,
+                    command: "ShowSpot",
+                }),
                 RigCommand::SetFrequency(hz) => {
                     let cmd = KenwoodCat::set_freq_cmd(false, *hz);
                     self.roundtrip_command(&cmd, "FA").await?;
