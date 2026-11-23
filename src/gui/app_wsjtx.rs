@@ -149,6 +149,26 @@ impl SpLogApp {
         {
             self.highlight_wsjtx_call(&decode.id, call, mark);
         }
+        if self.services.plugin_engine.has_hook("on_wsjtx_decode") {
+            let dial = self
+                .digital
+                .wsjtx
+                .clients
+                .get(&decode.id)
+                .map_or(0, |status| status.dial_freq);
+            let freq_hz = dial.saturating_add(u64::from(decode.delta_freq));
+            self.services
+                .plugin_engine
+                .run_on_wsjtx_decode(&crate::plugins::DecodeHookContext {
+                    callsign: call.clone().unwrap_or_default(),
+                    grid: decode.grid().unwrap_or_default().to_string(),
+                    snr: i64::from(decode.snr),
+                    freq_hz: i64::try_from(freq_hz).unwrap_or(i64::MAX),
+                    message: decode.message.clone(),
+                    is_cq: decode.cq_caller().is_some(),
+                    mark: mark.id().to_string(),
+                });
+        }
         let decodes = &mut self.digital.wsjtx.decodes;
         decodes.push_front(WsjtxDecodeRow {
             decode,

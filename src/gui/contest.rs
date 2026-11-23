@@ -765,6 +765,16 @@ pub fn render_contest_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         if uses_serial {
                             app.contest.stx += 1;
                         }
+                        app.services.plugin_engine.run_on_contest_qso(
+                            &crate::plugins::ContestQsoHookContext {
+                                callsign: outcome.qso.callsign.clone(),
+                                band: outcome.qso.band.clone(),
+                                mode: outcome.qso.mode.clone(),
+                                sent: outcome.qso.stx_string.clone().unwrap_or_default(),
+                                received: outcome.qso.srx_string.clone().unwrap_or_default(),
+                                contest: app.contest.name.clone(),
+                            },
+                        );
                         app.gui.chrome.push_status_toast(
                             crate::gui::state::ToastSeverity::Success,
                             Msg::new(key::CONTEST_QSO_SAVED)

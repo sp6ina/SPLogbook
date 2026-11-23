@@ -1145,7 +1145,7 @@
   "export.cabrillo_toast": "Cabrillo 3.0 gespeichert: {file}",
   "plugins.window_title": "🧩 Plugin-Manager (Rhai)",
   "plugins.heading": "🧩 Benutzer-Plugin-System — Rhai",
-  "plugins.description": "Sichere, eingebettete Rhai-Sprache. Skripte definieren Hooks: on_startup(), on_qso_logged(call_sign, band, mode, freq_mhz, is_atno) und on_band_opened(band). Verfügbare API-Funktionen: log(text), notify(text), qso_count().",
+  "plugins.description": "Sichere, eingebettete Rhai-Sprache. Hooks: on_startup(), on_qso_logged(call_sign, band, mode, freq_mhz, is_atno), on_dx_spot(spotter, dx_call, freq_khz, band, comment, is_ft8), on_spot_badge(dx_call, band, freq_khz, badge), on_rig_state(freq_mhz, mode, connected), on_band_opened(band), on_workspace_changed(name), on_pota_info(reference, name, active), on_sota_info(reference, name, points), on_contest_qso(call_sign, band, mode, sent, received, contest), on_wsjtx_decode(call_sign, grid, snr, freq_hz, message, is_cq, mark). Funktionen: log(text), notify(text), qso_count(), qso_field(name), worked_before(call), worked_before(call, band, mode), dxcc_of(call), band_of(freq_mhz), bandplan_mode(freq_mhz), language(), utc_date(), utc_time(), utc_hour(), memory_get(key), memory_set(key, value), switch_page(name). Jeder Hook-Aufruf hat ein Zeit- und Abfragelimit.",
   "plugins.enabled": "Aktiviert",
   "plugins.directory": "Verzeichnis:",
   "plugins.reload": "🔄 Neu laden",

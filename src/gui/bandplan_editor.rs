@@ -573,6 +573,7 @@ impl SpLogApp {
 
     /// Stores the applied plan; the built-in plan is stored as "no user plan".
     pub fn apply_bandplan(&mut self, plan: BandPlan) {
+        self.services.plugin_engine.set_bandplan(plan.clone());
         self.config.bandplan = (plan != *BandPlan::iaru_region1()).then_some(plan);
         self.save_station_config();
         self.gui.dialogs.bandplan_editor.mark_applied();

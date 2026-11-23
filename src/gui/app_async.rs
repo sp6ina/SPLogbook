@@ -11,6 +11,9 @@ impl SpLogApp {
     pub fn poll_early_async_events(&mut self) {
         // Plugin Rhai: odśwież migawkę stanu, wykonaj polecenia i odbierz wyniki zapytań
         if self.config.plugins_enabled {
+            self.services
+                .plugin_engine
+                .set_language(self.gui.appearance.language.code());
             self.refresh_plugin_snapshot();
             self.process_plugin_commands();
             self.poll_plugin_lookup();
@@ -473,6 +476,15 @@ impl SpLogApp {
                             &spot.comment,
                             spot.is_ft8,
                         );
+                        if self.services.plugin_engine.has_hook("on_spot_badge") {
+                            let badge = self.cluster_spot_badge(&spot).id();
+                            self.services.plugin_engine.run_on_spot_badge(
+                                &spot.dx_call,
+                                &spot.band,
+                                spot.frequency_khz,
+                                badge,
+                            );
+                        }
                     }
                 }
                 ClusterEvent::RawLine(_) => {}

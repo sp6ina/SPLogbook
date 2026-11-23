@@ -483,6 +483,7 @@ impl SpLogApp {
                 .plugin_engine
                 .set_enabled(self.config.plugins_enabled);
             self.services.plugin_engine.load_dir(&dir);
+            self.connect_plugin_api();
             let total = self.log_view.qso_numbers.len() as i64;
             self.services.plugin_engine.set_qso_count(total);
             self.services.plugin_engine.run_startup();

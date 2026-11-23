@@ -382,6 +382,37 @@ impl LogDatabase {
         collect_qsos(&mut stmt, params![journal_id, limit as i64, offset as i64])
     }
 
+    /// Czy znak był już zrobiony w którymkolwiek dzienniku; z pasmem i emisją — czy był
+    /// zrobiony na tym paśmie tą emisją. Korzysta z indeksu `(callsign, band, mode)`.
+    pub fn worked_before(
+        &self,
+        callsign: &str,
+        band: Option<&str>,
+        mode: Option<&str>,
+    ) -> Result<bool> {
+        let call = callsign.trim().to_uppercase();
+        let found = match (band, mode) {
+            (Some(band), Some(mode)) => self
+                .conn
+                .query_row(
+                    "SELECT 1 FROM qso_records WHERE callsign = ?1 \
+                     AND band = ?2 COLLATE NOCASE AND mode = ?3 COLLATE NOCASE LIMIT 1",
+                    params![call, band.trim(), mode.trim()],
+                    |_| Ok(()),
+                )
+                .optional()?,
+            _ => self
+                .conn
+                .query_row(
+                    "SELECT 1 FROM qso_records WHERE callsign = ?1 LIMIT 1",
+                    params![call],
+                    |_| Ok(()),
+                )
+                .optional()?,
+        };
+        Ok(found.is_some())
+    }
+
     /// Wszystkie unikalne, niepuste znaki wywoławcze ze wszystkich dzienników — źródło
     /// podpowiedzi SCP i korekty rozmytej. Bez limitu: limit z `ORDER BY callsign`
     /// pomijał znaki z dalszej części alfabetu w dużych dziennikach.

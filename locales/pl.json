@@ -1145,7 +1145,7 @@
   "export.cabrillo_toast": "Zapisano Cabrillo 3.0: {file}",
   "plugins.window_title": "🧩 Menedżer pluginów (Rhai)",
   "plugins.heading": "🧩 System pluginów użytkownika — Rhai",
-  "plugins.description": "Bezpieczny, osadzony język Rhai. Skrypty definiują haki: on_startup(), on_qso_logged(call_sign, band, mode, freq_mhz, is_atno) oraz on_band_opened(band). Dostępne funkcje API: log(text), notify(text), qso_count().",
+  "plugins.description": "Bezpieczny, osadzony język Rhai. Haki: on_startup(), on_qso_logged(call_sign, band, mode, freq_mhz, is_atno), on_dx_spot(spotter, dx_call, freq_khz, band, comment, is_ft8), on_spot_badge(dx_call, band, freq_khz, badge), on_rig_state(freq_mhz, mode, connected), on_band_opened(band), on_workspace_changed(name), on_pota_info(reference, name, active), on_sota_info(reference, name, points), on_contest_qso(call_sign, band, mode, sent, received, contest), on_wsjtx_decode(call_sign, grid, snr, freq_hz, message, is_cq, mark). Funkcje: log(text), notify(text), qso_count(), qso_field(name), worked_before(call), worked_before(call, band, mode), dxcc_of(call), band_of(freq_mhz), bandplan_mode(freq_mhz), language(), utc_date(), utc_time(), utc_hour(), memory_get(key), memory_set(key, value), switch_page(name). Każde wywołanie haka ma limit czasu i liczby zapytań.",
   "plugins.enabled": "Włączony",
   "plugins.directory": "Katalog:",
   "plugins.reload": "🔄 Przeładuj",

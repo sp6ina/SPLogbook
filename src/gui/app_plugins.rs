@@ -1,7 +1,49 @@
 use super::SpLogApp;
 use crate::core::i18n::{Msg, key};
 
+/// Odpowiedzi aplikacji dla funkcji pluginów `worked_before` i `dxcc_of`. Baza jest
+/// pytana bez czekania: zajęta baza daje odpowiedź „nie wiadomo”, a interfejs nie
+/// zatrzymuje się na zapytaniu pluginu.
+pub(crate) struct AppPluginQueries {
+    pub log_db: std::sync::Arc<std::sync::Mutex<crate::core::database::LogDatabase>>,
+    pub prefix_matcher: std::sync::Arc<crate::core::prefix::PrefixMatcher>,
+}
+
+impl crate::plugins::api::PluginQueries for AppPluginQueries {
+    fn worked_before(
+        &self,
+        callsign: &str,
+        band: Option<&str>,
+        mode: Option<&str>,
+    ) -> Option<bool> {
+        let db = self.log_db.try_lock().ok()?;
+        db.worked_before(callsign, band, mode).ok()
+    }
+
+    fn dxcc_of(&self, callsign: &str) -> Option<crate::plugins::api::DxccInfo> {
+        let info = self.prefix_matcher.lookup(callsign)?;
+        Some(crate::plugins::api::DxccInfo {
+            country: info.country,
+            dxcc: i64::from(info.dxcc),
+            continent: info.continent,
+            cq_zone: i64::from(info.cqz),
+            itu_zone: i64::from(info.ituz),
+        })
+    }
+}
+
 impl SpLogApp {
+    /// Podłącza do silnika pluginów odpowiedzi aplikacji, plan pasm i język.
+    pub fn connect_plugin_api(&self) {
+        let engine = &self.services.plugin_engine;
+        engine.set_queries(std::sync::Arc::new(AppPluginQueries {
+            log_db: std::sync::Arc::clone(&self.services.log_db),
+            prefix_matcher: std::sync::Arc::clone(&self.services.prefix_matcher),
+        }));
+        engine.set_bandplan(self.config.active_bandplan().clone());
+        engine.set_language(self.gui.appearance.language.code());
+    }
+
     /// Buduje migawkę stanu (radio, rotor, nagrody, ostatnia łączność) widoczną
     /// dla getterów pluginów Rhai. Wywoływana co klatkę oraz po zapisie łączności.
     pub fn refresh_plugin_snapshot(&mut self) {
@@ -200,6 +242,16 @@ impl SpLogApp {
                     self.gui
                         .chrome
                         .push_status_toast(crate::gui::state::ToastSeverity::Info, message);
+                }
+                crate::plugins::bridge::PluginCommand::SwitchPage { name } => {
+                    let wanted = name.trim().to_lowercase();
+                    if let Some(index) = self
+                        .workspace_pages()
+                        .iter()
+                        .position(|page| page.name.to_lowercase() == wanted)
+                    {
+                        self.switch_workspace_page(index);
+                    }
                 }
             }
         }

@@ -6001,3 +6001,54 @@ fn status_bar_settings_window_renders_and_saves() {
             .is_visible(StatusItem::Solar)
     );
 }
+
+// ======================================================================================
+// API wtyczek (S14a): odpowiedzi aplikacji i polecenia
+// ======================================================================================
+
+#[test]
+fn plugin_queries_answer_from_the_log_and_switch_pages() {
+    use crate::plugins::api::PluginQueries;
+    let mut app = qso_form_test_app();
+    {
+        let db = app.services.log_db.lock().unwrap();
+        let mut qso = QsoRecord::new("SP9ABC", "20m", "CW");
+        qso.qso_date = "20261120".to_string();
+        qso.time_on = "120000".to_string();
+        db.insert_qso(&qso).unwrap();
+    }
+    let queries = crate::gui::app::app_plugins::AppPluginQueries {
+        log_db: std::sync::Arc::clone(&app.services.log_db),
+        prefix_matcher: std::sync::Arc::clone(&app.services.prefix_matcher),
+    };
+    assert_eq!(queries.worked_before("SP9ABC", None, None), Some(true));
+    assert_eq!(
+        queries.worked_before("SP9ABC", Some("20M"), Some("cw")),
+        Some(true)
+    );
+    assert_eq!(
+        queries.worked_before("SP9ABC", Some("40m"), Some("CW")),
+        Some(false)
+    );
+    assert_eq!(queries.worked_before("SP1XYZ", None, None), Some(false));
+    {
+        let _busy = app.services.log_db.lock().unwrap();
+        assert_eq!(
+            queries.worked_before("SP9ABC", None, None),
+            None,
+            "zajęta baza nie blokuje interfejsu"
+        );
+    }
+
+    app.rebuild_dock_state_from_panels();
+    app.add_workspace_page();
+    app.rename_workspace_page(0, "HF");
+    app.rename_workspace_page(1, "VHF");
+    app.switch_workspace_page(0);
+    app.services
+        .plugin_engine
+        .eval(r#"switch_page("vhf");"#)
+        .unwrap();
+    app.process_plugin_commands();
+    assert_eq!(app.active_workspace_page(), 1);
+}

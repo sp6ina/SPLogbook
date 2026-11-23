@@ -53,6 +53,8 @@ pub enum PluginCommand {
     SotaLookup { reference: String },
     /// Wyświetl powiadomienie/toast w aplikacji.
     Notify { message: String },
+    /// Przełącz stronę pulpitu o podanej nazwie (bez rozróżniania wielkości liter).
+    SwitchPage { name: String },
 }
 
 /// Statystyki nagród widoczne dla pluginów (gettery `*_worked`/`*_confirmed`).

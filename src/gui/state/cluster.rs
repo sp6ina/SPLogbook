@@ -16,6 +16,17 @@ pub enum SpotBadgeKind {
 }
 
 impl SpotBadgeKind {
+    /// Nazwa odznaki przekazywana pluginom (`on_spot_badge`).
+    pub const fn id(self) -> &'static str {
+        match self {
+            SpotBadgeKind::NewDxcc => "new_dxcc",
+            SpotBadgeKind::NewBand => "new_band",
+            SpotBadgeKind::NewMode => "new_mode",
+            SpotBadgeKind::Worked => "worked",
+            SpotBadgeKind::Standard => "standard",
+        }
+    }
+
     pub fn suffix(self) -> &'static str {
         match self {
             SpotBadgeKind::NewDxcc => " ⭐",

@@ -10,6 +10,7 @@
 //! `on_startup()`, `on_qso_logged(call, band, mode, freq_mhz, is_atno)`
 //! oraz `on_band_opened(band)`.
 
+pub mod api;
 pub mod bridge;
 pub mod lookups;
 pub mod marketplace;
@@ -75,6 +76,7 @@ pub struct PluginEngine {
     /// Metadane o każdym pliku w katalogu pluginów (także o błędach).
     infos: Vec<PluginInfo>,
     enabled: bool,
+    api: Arc<api::ApiState>,
 }
 
 /// Dane przekazywane do haka `on_qso_logged`.
@@ -118,6 +120,8 @@ impl PluginEngine {
         engine.set_max_call_levels(32);
 
         let state = Arc::new(PluginState::default());
+        let api = Arc::new(api::ApiState::default());
+        api::register(&mut engine, &api);
 
         // Bezpieczne API udostępniane skryptom
         let log_state = Arc::clone(&state);
@@ -308,6 +312,15 @@ impl PluginEngine {
             );
         });
         let cmd = Arc::clone(&state);
+        engine.register_fn("switch_page", move |name: &str| {
+            push_command(
+                &cmd,
+                PluginCommand::SwitchPage {
+                    name: name.to_string(),
+                },
+            );
+        });
+        let cmd = Arc::clone(&state);
         engine.register_fn("sota_lookup", move |reference: &str| {
             push_command(
                 &cmd,
@@ -323,6 +336,7 @@ impl PluginEngine {
             scripts: HashMap::new(),
             infos: Vec::new(),
             enabled: true,
+            api,
         }
     }
 
@@ -468,12 +482,15 @@ impl PluginEngine {
             if !ast.iter_functions().any(|f| f.name == hook) {
                 continue;
             }
-            if let Err(e) = self.engine.call_fn::<rhai::Dynamic>(
+            self.api.begin_call(name);
+            let result = self.engine.call_fn::<rhai::Dynamic>(
                 &mut rhai::Scope::new(),
                 ast,
                 hook,
                 args.to_vec(),
-            ) {
+            );
+            self.api.end_call();
+            if let Err(e) = result {
                 let mut log = self
                     .state
                     .log
@@ -559,6 +576,76 @@ impl PluginEngine {
         );
     }
 
+    /// Answers for `worked_before` and `dxcc_of`.
+    pub fn set_queries(&self, queries: Arc<dyn api::PluginQueries>) {
+        self.api.set_queries(queries);
+    }
+
+    /// Band plan used by `bandplan_mode`.
+    pub fn set_bandplan(&self, plan: crate::core::bandplan::BandPlan) {
+        self.api.set_bandplan(plan);
+    }
+
+    /// Interface language code returned by `language()`.
+    pub fn set_language(&self, code: &str) {
+        self.api.set_language(code);
+    }
+
+    /// Whether any loaded script defines `hook`; lets callers skip preparing arguments.
+    pub fn has_hook(&self, hook: &str) -> bool {
+        self.enabled
+            && self
+                .scripts
+                .values()
+                .any(|ast| ast.iter_functions().any(|f| f.name == hook))
+    }
+
+    /// Wywołuje hak `on_contest_qso(call_sign, band, mode, sent, received, contest)` po
+    /// zapisie łączności w module zawodów.
+    pub fn run_on_contest_qso(&self, ctx: &ContestQsoHookContext) {
+        self.run_hook(
+            "on_contest_qso",
+            &[
+                ctx.callsign.clone().into(),
+                ctx.band.clone().into(),
+                ctx.mode.clone().into(),
+                ctx.sent.clone().into(),
+                ctx.received.clone().into(),
+                ctx.contest.clone().into(),
+            ],
+        );
+    }
+
+    /// Wywołuje hak `on_wsjtx_decode(call_sign, grid, snr, freq_hz, message, is_cq, mark)`.
+    pub fn run_on_wsjtx_decode(&self, ctx: &DecodeHookContext) {
+        self.run_hook(
+            "on_wsjtx_decode",
+            &[
+                ctx.callsign.clone().into(),
+                ctx.grid.clone().into(),
+                ctx.snr.into(),
+                ctx.freq_hz.into(),
+                ctx.message.clone().into(),
+                ctx.is_cq.into(),
+                ctx.mark.clone().into(),
+            ],
+        );
+    }
+
+    /// Wywołuje hak `on_spot_badge(dx_call, band, freq_khz, badge)` dla nowego spotu;
+    /// `badge` to `new_dxcc`, `new_band`, `new_mode`, `worked` albo `standard`.
+    pub fn run_on_spot_badge(&self, dx_call: &str, band: &str, freq_khz: f64, badge: &str) {
+        self.run_hook(
+            "on_spot_badge",
+            &[
+                dx_call.to_string().into(),
+                band.to_string().into(),
+                freq_khz.into(),
+                badge.to_string().into(),
+            ],
+        );
+    }
+
     /// Wywołuje hak `on_sota_info(reference, name, points)` po zapytaniu SOTA.
     pub fn run_on_sota_info(&self, reference: &str, name: &str, points: i64) {
         self.run_hook(
@@ -570,6 +657,30 @@ impl PluginEngine {
             ],
         );
     }
+}
+
+/// Dane przekazywane do haka `on_contest_qso`.
+#[derive(Debug, Clone, Default)]
+pub struct ContestQsoHookContext {
+    pub callsign: String,
+    pub band: String,
+    pub mode: String,
+    pub sent: String,
+    pub received: String,
+    pub contest: String,
+}
+
+/// Dane przekazywane do haka `on_wsjtx_decode`; `mark` to `new_dxcc`, `new_band`,
+/// `worked` albo `other`.
+#[derive(Debug, Clone, Default)]
+pub struct DecodeHookContext {
+    pub callsign: String,
+    pub grid: String,
+    pub snr: i64,
+    pub freq_hz: i64,
+    pub message: String,
+    pub is_cq: bool,
+    pub mark: String,
 }
 
 impl Default for PluginEngine {
@@ -661,6 +772,164 @@ mod tests {
         let info = &engine.infos()[0];
         assert!(!info.loaded);
         assert!(info.error.is_some());
+    }
+
+    struct FakeLog;
+
+    impl api::PluginQueries for FakeLog {
+        fn worked_before(
+            &self,
+            callsign: &str,
+            band: Option<&str>,
+            _mode: Option<&str>,
+        ) -> Option<bool> {
+            Some(callsign == "SP9ABC" && band.is_none_or(|b| b == "20m"))
+        }
+
+        fn dxcc_of(&self, callsign: &str) -> Option<api::DxccInfo> {
+            callsign.starts_with("SP").then(|| api::DxccInfo {
+                country: "Poland".to_string(),
+                dxcc: 269,
+                continent: "EU".to_string(),
+                cq_zone: 15,
+                itu_zone: 28,
+            })
+        }
+    }
+
+    fn engine_with(name: &str, source: &str) -> PluginEngine {
+        let path = temp_plugin(&format!("{name}.rhai"), source);
+        let mut engine = PluginEngine::new();
+        engine.load_script(name, &path);
+        assert!(engine.infos()[0].loaded, "{:?}", engine.infos()[0].error);
+        engine
+    }
+
+    #[test]
+    fn new_hooks_receive_their_arguments() {
+        let engine = engine_with(
+            "hooks",
+            r#"
+                fn on_contest_qso(call_sign, band, mode, sent, received, contest) {
+                    log("contest " + call_sign + " " + band + " " + mode + " " + sent + " " + received + " " + contest);
+                }
+                fn on_wsjtx_decode(call_sign, grid, snr, freq_hz, message, is_cq, mark) {
+                    log("decode " + call_sign + " " + grid + " " + snr + " " + freq_hz + " " + is_cq + " " + mark);
+                }
+                fn on_spot_badge(dx_call, band, freq_khz, badge) {
+                    log("badge " + dx_call + " " + band + " " + badge);
+                }
+            "#,
+        );
+        assert!(engine.has_hook("on_wsjtx_decode"));
+        assert!(!engine.has_hook("on_startup"));
+        engine.run_on_contest_qso(&ContestQsoHookContext {
+            callsign: "SP9ABC".into(),
+            band: "20m".into(),
+            mode: "CW".into(),
+            sent: "001".into(),
+            received: "015".into(),
+            contest: "SP-DX".into(),
+        });
+        engine.run_on_wsjtx_decode(&DecodeHookContext {
+            callsign: "K1ABC".into(),
+            grid: "FN42".into(),
+            snr: -12,
+            freq_hz: 14_075_500,
+            message: "CQ K1ABC FN42".into(),
+            is_cq: true,
+            mark: "new_dxcc".into(),
+        });
+        engine.run_on_spot_badge("JA1ABC", "15m", 21_025.0, "new_band");
+        assert_eq!(
+            engine.drain_log(),
+            [
+                "contest SP9ABC 20m CW 001 015 SP-DX",
+                "decode K1ABC FN42 -12 14075500 true new_dxcc",
+                "badge JA1ABC 15m new_band",
+            ]
+        );
+    }
+
+    #[test]
+    fn read_only_functions_and_memory_work_from_scripts() {
+        let engine = engine_with(
+            "api",
+            r#"
+                fn on_band_opened(band) {
+                    let n = memory_get("seen");
+                    let count = if n == "" { 1 } else { parse_int(n) + 1 };
+                    memory_set("seen", count.to_string());
+                    let info = dxcc_of("SP9ABC");
+                    log(band_of(14.074) + " " + bandplan_mode(14.025) + " " + language()
+                        + " " + worked_before("sp9abc") + " " + worked_before("SP9ABC", "40m", "CW")
+                        + " " + info.dxcc + " " + count + " " + utc_date().len() + " " + utc_time().len());
+                }
+            "#,
+        );
+        engine.set_queries(Arc::new(FakeLog));
+        engine.set_language("en");
+        engine.run_on_band_opened("20m");
+        engine.run_on_band_opened("20m");
+        assert_eq!(
+            engine.drain_log(),
+            [
+                "20m CW en true false 269 1 10 8",
+                "20m CW en true false 269 2 10 8",
+            ]
+        );
+    }
+
+    #[test]
+    fn memory_is_kept_apart_between_plugins() {
+        let mut engine = PluginEngine::new();
+        for (name, value) in [("a", "1"), ("b", "2")] {
+            let source = format!(
+                r#"
+                    fn on_startup() {{
+                        if memory_get("v") == "" {{ memory_set("v", "{value}"); }}
+                        log("{name}=" + memory_get("v"));
+                    }}
+                "#
+            );
+            let path = temp_plugin(&format!("{name}.rhai"), &source);
+            engine.load_script(name, &path);
+        }
+        engine.run_startup();
+        engine.run_startup();
+        let mut log = engine.drain_log();
+        log.sort();
+        assert_eq!(log, ["a=1", "a=1", "b=2", "b=2"]);
+    }
+
+    #[test]
+    fn switch_page_is_a_queued_command() {
+        let engine = engine_with("page", r#"fn on_band_opened(band) { switch_page("VHF"); }"#);
+        engine.run_on_band_opened("6m");
+        let commands = engine.drain_commands();
+        assert!(matches!(
+            commands.as_slice(),
+            [bridge::PluginCommand::SwitchPage { name }] if name == "VHF"
+        ));
+    }
+
+    #[test]
+    fn runaway_script_is_stopped_and_logged() {
+        let engine = engine_with(
+            "runaway",
+            r"
+                fn on_startup() {
+                    let x = 0;
+                    loop { x += 1; }
+                }
+            ",
+        );
+        let started = std::time::Instant::now();
+        engine.run_startup();
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        let log = engine.drain_log();
+        assert_eq!(log.len(), 1);
+        assert!(log[0].starts_with("[runaway] on_startup:"), "{log:?}");
     }
 
     #[test]

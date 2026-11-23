@@ -526,6 +526,16 @@ pub enum WsjtxMark {
 }
 
 impl WsjtxMark {
+    /// Nazwa oznaczenia przekazywana pluginom (`on_wsjtx_decode`).
+    pub const fn id(self) -> &'static str {
+        match self {
+            WsjtxMark::NewDxcc => "new_dxcc",
+            WsjtxMark::NewBand => "new_band",
+            WsjtxMark::WorkedBefore => "worked",
+            WsjtxMark::Other => "other",
+        }
+    }
+
     /// Kolory (tło, tekst) polecenia HighlightCallsign; `None` oznacza brak wyróżnienia.
     pub fn colors(self) -> Option<(Option<Rgb>, Option<Rgb>)> {
         match self {
