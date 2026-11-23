@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
-use crate::core::i18n::{key, tr};
+use crate::core::i18n::{Msg, key, tr};
 use crate::gui::app::SpLogApp;
 use crate::gui::theme::ThemeExt;
 use eframe::egui;
@@ -286,11 +286,12 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
         match db.find_duplicate_qsos(&app.active_journal.id, app.duplicates.match_date) {
             Ok(groups) => {
                 let total_dups: usize = groups.iter().map(std::vec::Vec::len).sum();
-                app.duplicates.status = Some(format!(
-                    "Found {} duplicate groups (total {} records)",
-                    groups.len(),
-                    total_dups
-                ));
+                app.duplicates.status = Some(
+                    Msg::new(key::DUPLICATES_FOUND)
+                        .arg("groups", groups.len())
+                        .arg("records", total_dups)
+                        .text(app.gui.appearance.language),
+                );
                 app.duplicates.groups = groups;
                 app.duplicates.selected_ids.clear();
             }
@@ -326,7 +327,11 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     );
                     app.log_view.redo_stack.clear();
                 }
-                app.duplicates.status = Some(format!("Deleted {deleted} duplicates"));
+                app.duplicates.status = Some(
+                    Msg::new(key::DUPLICATES_DELETED)
+                        .arg("count", deleted)
+                        .text(app.gui.appearance.language),
+                );
                 app.duplicates.selected_ids.clear();
                 if let Ok(groups) =
                     db.find_duplicate_qsos(&app.active_journal.id, app.duplicates.match_date)

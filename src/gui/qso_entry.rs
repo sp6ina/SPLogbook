@@ -659,13 +659,15 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 .text(lang);
             ui.colored_label(prop_color, egui::RichText::new(text).strong())
                 .on_hover_text(format!(
-                    "HF VOACAP-lite:\nREL: {}%\nS-Meter: {}\nLayer: {}\nMUF: {:.1} MHz\nLUF: {:.1} MHz\nFOT/OWF: {:.1} MHz\nStatus: {}",
+                    "HF VOACAP-lite:\nREL: {}%\nS-Meter: {}\n{}: {}\nMUF: {:.1} MHz\nLUF: {:.1} MHz\nFOT/OWF: {:.1} MHz\n{}: {}",
                     prop.reliability_pct,
                     prop.signal_s_units,
+                    tr(key::PROP_LAYER, lang),
                     prop.layer,
                     prop.muf_mhz,
                     prop.luf_mhz,
                     prop.fot_mhz,
+                    tr(key::ASSISTANT_COL_STATUS, lang),
                     prop.status.as_str()
                 ));
         });

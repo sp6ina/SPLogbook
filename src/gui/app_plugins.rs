@@ -155,7 +155,9 @@ impl SpLogApp {
                 crate::plugins::bridge::PluginLookupResult::Error(msg) => {
                     self.gui.chrome.push_status_toast(
                         crate::gui::state::ToastSeverity::Error,
-                        format!("Plugin: {msg}"),
+                        crate::core::i18n::Msg::new(crate::core::i18n::key::PLUGINS_LOOKUP_ERROR)
+                            .arg("err", &msg)
+                            .text(self.gui.appearance.language),
                     );
                 }
             }
@@ -277,7 +279,10 @@ impl SpLogApp {
         self.cluster.spots.insert(0, spot);
         self.gui.chrome.push_status_toast(
             crate::gui::state::ToastSeverity::Info,
-            format!("Spot (plugin): {dx_call} na {freq_khz:.1} kHz"),
+            crate::core::i18n::Msg::new(crate::core::i18n::key::PLUGINS_LOCAL_SPOT)
+                .arg("call", dx_call)
+                .arg("freq", format!("{freq_khz:.1}"))
+                .text(self.gui.appearance.language),
         );
     }
 

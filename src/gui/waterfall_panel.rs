@@ -177,7 +177,7 @@ pub struct WaterfallPanel {
     ring: Arc<SampleRing>,
     running_flag: Arc<AtomicBool>,
     capture_thread: Option<std::thread::JoinHandle<()>>,
-    error_slot: Arc<Mutex<Option<String>>>,
+    error_slot: Arc<Mutex<Option<WaterfallAudioError>>>,
     device_names: Vec<String>,
     selected_device: usize,
     fft_idx: usize,
@@ -315,7 +315,7 @@ impl WaterfallPanel {
                         *error_slot
                             .lock()
                             .unwrap_or_else(std::sync::PoisonError::into_inner) =
-                            Some(format!("Stream playback error: {e}"));
+                            Some(WaterfallAudioError::Playback(e.to_string()));
                     }
                     while thread_running.load(Ordering::Relaxed) {
                         std::thread::sleep(std::time::Duration::from_millis(20));
@@ -325,7 +325,7 @@ impl WaterfallPanel {
                     log::error!("Failed to start audio capture: {e}");
                     *error_slot
                         .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(e.to_string());
+                        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(e);
                 }
             }
         });
@@ -547,7 +547,7 @@ impl WaterfallPanel {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
         {
-            ui.colored_label(ui.palette().danger, format!("⚠ {err}"));
+            ui.colored_label(ui.palette().danger, format!("⚠ {}", err.msg().text(lang)));
         }
 
         self.sync_engine();
@@ -986,7 +986,7 @@ impl WaterfallPanel {
 /// Nazwa palety w interfejsie (nazwy własne bez tłumaczenia; wysoki kontrast — z katalogu).
 fn palette_name(palette: WaterfallPalette, lang: crate::core::i18n::Language) -> String {
     match palette {
-        WaterfallPalette::Classic => "Classic".to_string(),
+        WaterfallPalette::Classic => tr(key::WATERFALL_PALETTE_CLASSIC, lang).to_string(),
         WaterfallPalette::Inferno => "Inferno".to_string(),
         WaterfallPalette::Viridis => "Viridis".to_string(),
         WaterfallPalette::IcomBlue => "Icom Blue".to_string(),
@@ -1041,7 +1041,10 @@ pub fn render_waterfall_window(app: &mut SpLogApp, ctx: &egui::Context) {
     let ((), captured_geo) = app.show_floating_viewport(
         ctx,
         egui::ViewportId::from_hash_of("waterfall_viewport"),
-        "Widmo / Waterfall (SDR) - SPLogbook".to_string(),
+        format!(
+            "{} - SPLogbook",
+            tr(key::VIEW_PANEL_WATERFALL, app.gui.appearance.language)
+        ),
         [720.0, 480.0],
         [480.0, 320.0],
         app.views.panel_waterfall.saved_pos,
@@ -1106,6 +1109,24 @@ pub enum WaterfallAudioError {
     DefaultConfig(String),
     UnsupportedSampleFormat(String),
     BuildStream(String),
+    Playback(String),
+}
+
+impl WaterfallAudioError {
+    pub fn msg(&self) -> crate::core::i18n::Msg {
+        use crate::core::i18n::Msg;
+        match self {
+            Self::ListDevices(e) => Msg::new(key::WATERFALL_ERR_LIST_DEVICES).arg("err", e),
+            Self::NoDevicesFound => Msg::new(key::WATERFALL_ERR_NO_DEVICES),
+            Self::DeviceNotFound => Msg::new(key::WATERFALL_ERR_DEVICE_NOT_FOUND),
+            Self::DefaultConfig(e) => Msg::new(key::WATERFALL_ERR_DEFAULT_CONFIG).arg("err", e),
+            Self::UnsupportedSampleFormat(f) => {
+                Msg::new(key::WATERFALL_ERR_SAMPLE_FORMAT).arg("format", f)
+            }
+            Self::BuildStream(e) => Msg::new(key::WATERFALL_ERR_BUILD_STREAM).arg("err", e),
+            Self::Playback(e) => Msg::new(key::WATERFALL_ERR_PLAYBACK).arg("err", e),
+        }
+    }
 }
 
 impl std::fmt::Display for WaterfallAudioError {
@@ -1117,6 +1138,7 @@ impl std::fmt::Display for WaterfallAudioError {
             Self::DefaultConfig(e) => write!(f, "No default input configuration: {e}"),
             Self::UnsupportedSampleFormat(fmt) => write!(f, "Unsupported sample format: {fmt}"),
             Self::BuildStream(e) => write!(f, "Failed to build input stream: {e}"),
+            Self::Playback(e) => write!(f, "Stream playback error: {e}"),
         }
     }
 }

@@ -308,7 +308,10 @@ impl SpLogApp {
                     let filename = path.file_name().unwrap_or_default().to_string_lossy();
                     self.gui.chrome.push_status_toast(
                         crate::gui::state::ToastSeverity::Success,
-                        format!("Wyeksportowano {row_count} QSO do PDF: {filename}"),
+                        crate::core::i18n::Msg::new(crate::core::i18n::key::EXPORT_PDF_DONE)
+                            .arg("count", row_count)
+                            .arg("file", &filename)
+                            .text(self.gui.appearance.language),
                     );
                     let _ = open::that(&path);
                 }
@@ -397,7 +400,10 @@ impl SpLogApp {
                     let filename = path.file_name().unwrap_or_default().to_string_lossy();
                     self.gui.chrome.push_status_toast(
                         crate::gui::state::ToastSeverity::Success,
-                        format!("Wyeksportowano {row_count} QSO do GPX: {filename}"),
+                        crate::core::i18n::Msg::new(crate::core::i18n::key::EXPORT_GPX_DONE)
+                            .arg("count", row_count)
+                            .arg("file", &filename)
+                            .text(self.gui.appearance.language),
                     );
                     let _ = open::that(&path);
                 }

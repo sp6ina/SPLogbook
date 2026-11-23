@@ -54,7 +54,7 @@ impl DrillFilter {
     }
 
     /// Krótka, czytelna etykieta aktywnego filtra (dla paska w tabeli logu).
-    pub fn label(&self) -> String {
+    pub fn label(&self, lang: crate::core::i18n::Language) -> String {
         match self {
             DrillFilter::Band(b) => format!("📻 {b}"),
             DrillFilter::Mode(m) => format!("📡 {m}"),
@@ -64,7 +64,10 @@ impl DrillFilter {
             DrillFilter::Qsl(QslDrillStatus::Lotw) => "📬 LoTW".to_string(),
             DrillFilter::Qsl(QslDrillStatus::Eqsl) => "📬 eQSL".to_string(),
             DrillFilter::Qsl(QslDrillStatus::Paper) => "📬 QSL".to_string(),
-            DrillFilter::Qsl(QslDrillStatus::None) => "📬 Brak".to_string(),
+            DrillFilter::Qsl(QslDrillStatus::None) => format!(
+                "📬 {}",
+                crate::core::i18n::tr(crate::core::i18n::key::STATS_QSL_NONE, lang)
+            ),
         }
     }
 }
@@ -156,20 +159,45 @@ mod tests {
 
     #[test]
     fn test_drill_filter_labels() {
-        assert_eq!(DrillFilter::Band("20m".to_string()).label(), "📻 20m");
-        assert_eq!(DrillFilter::Mode("CW".to_string()).label(), "📡 CW");
         assert_eq!(
-            DrillFilter::Country("Poland".to_string()).label(),
+            DrillFilter::Band("20m".to_string()).label(crate::core::i18n::Language::Pl),
+            "📻 20m"
+        );
+        assert_eq!(
+            DrillFilter::Mode("CW".to_string()).label(crate::core::i18n::Language::Pl),
+            "📡 CW"
+        );
+        assert_eq!(
+            DrillFilter::Country("Poland".to_string()).label(crate::core::i18n::Language::Pl),
             "🌍 Poland"
         );
         assert_eq!(
-            DrillFilter::Month("2026-10".to_string()).label(),
+            DrillFilter::Month("2026-10".to_string()).label(crate::core::i18n::Language::Pl),
             "📅 2026-10"
         );
-        assert_eq!(DrillFilter::Hour(9).label(), "⏰ 09:00");
-        assert_eq!(DrillFilter::Qsl(QslDrillStatus::Lotw).label(), "📬 LoTW");
-        assert_eq!(DrillFilter::Qsl(QslDrillStatus::Eqsl).label(), "📬 eQSL");
-        assert_eq!(DrillFilter::Qsl(QslDrillStatus::Paper).label(), "📬 QSL");
-        assert_eq!(DrillFilter::Qsl(QslDrillStatus::None).label(), "📬 Brak");
+        assert_eq!(
+            DrillFilter::Hour(9).label(crate::core::i18n::Language::Pl),
+            "⏰ 09:00"
+        );
+        assert_eq!(
+            DrillFilter::Qsl(QslDrillStatus::Lotw).label(crate::core::i18n::Language::Pl),
+            "📬 LoTW"
+        );
+        assert_eq!(
+            DrillFilter::Qsl(QslDrillStatus::Eqsl).label(crate::core::i18n::Language::Pl),
+            "📬 eQSL"
+        );
+        assert_eq!(
+            DrillFilter::Qsl(QslDrillStatus::Paper).label(crate::core::i18n::Language::Pl),
+            "📬 QSL"
+        );
+        assert_eq!(
+            DrillFilter::Qsl(QslDrillStatus::None).label(crate::core::i18n::Language::Pl),
+            "📬 Brak"
+        );
+        assert_eq!(
+            DrillFilter::Qsl(QslDrillStatus::None).label(crate::core::i18n::Language::En),
+            "📬 None"
+        );
     }
 }

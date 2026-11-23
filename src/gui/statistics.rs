@@ -703,8 +703,8 @@ fn render_tab_qsl(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let bar_data = vec![
         ("LoTW".to_string(), lotw),
         ("eQSL".to_string(), eqsl),
-        ("Papier".to_string(), paper),
-        ("Brak".to_string(), unconfirmed),
+        (tr(key::STATS_QSL_PAPER, lang).to_string(), paper),
+        (tr(key::STATS_QSL_NONE, lang).to_string(), unconfirmed),
     ];
     if let Some(i) =
         bar_chart_clickable(ui, &bar_data, palette.accent, tr(key::LOG_NO_RESULTS, lang))

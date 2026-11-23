@@ -75,7 +75,9 @@ impl SpLogApp {
                 self.gui.chrome.status_message = Some(msg);
                 self.gui.chrome.push_status_toast(
                     crate::gui::state::ToastSeverity::Success,
-                    format!("Zaimportowano {inserted} QSO"),
+                    crate::core::i18n::Msg::new(crate::core::i18n::key::IMPORT_DONE_TOAST)
+                        .arg("count", inserted)
+                        .text(self.gui.appearance.language),
                 );
             }
             Err(e) => {
@@ -90,8 +92,17 @@ impl SpLogApp {
 
     pub fn trigger_import_adif(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
-            .add_filter("Pliki ADIF (*.adi, *.adif)", &["adi", "adif"])
-            .set_title("Wybierz plik ADIF do zaimportowania")
+            .add_filter(
+                crate::core::i18n::tr(
+                    crate::core::i18n::key::FILE_FILTER_ADIF,
+                    self.gui.appearance.language,
+                ),
+                &["adi", "adif"],
+            )
+            .set_title(crate::core::i18n::tr(
+                crate::core::i18n::key::FILE_PICK_ADIF_IMPORT,
+                self.gui.appearance.language,
+            ))
             .pick_file()
         {
             match std::fs::read(&path) {
@@ -113,9 +124,18 @@ impl SpLogApp {
 
     pub fn trigger_export_adif(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
-            .add_filter("Pliki ADIF (*.adi, *.adif)", &["adi", "adif"])
+            .add_filter(
+                crate::core::i18n::tr(
+                    crate::core::i18n::key::FILE_FILTER_ADIF,
+                    self.gui.appearance.language,
+                ),
+                &["adi", "adif"],
+            )
             .set_file_name("SPLogbook_export.adi")
-            .set_title("Zapisz eksport bazy do pliku ADIF")
+            .set_title(crate::core::i18n::tr(
+                crate::core::i18n::key::FILE_SAVE_ADIF_EXPORT,
+                self.gui.appearance.language,
+            ))
             .save_file()
         {
             let qsos = {
@@ -162,9 +182,18 @@ impl SpLogApp {
 
     pub fn trigger_export_adx(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
-            .add_filter("Pliki ADX (*.adx, *.xml)", &["adx", "xml"])
+            .add_filter(
+                crate::core::i18n::tr(
+                    crate::core::i18n::key::FILE_FILTER_ADX,
+                    self.gui.appearance.language,
+                ),
+                &["adx", "xml"],
+            )
             .set_file_name("SPLogbook_export.adx")
-            .set_title("Zapisz eksport bazy do pliku ADX (XML)")
+            .set_title(crate::core::i18n::tr(
+                crate::core::i18n::key::FILE_SAVE_ADX_EXPORT,
+                self.gui.appearance.language,
+            ))
             .save_file()
         {
             let qsos = {
@@ -247,10 +276,25 @@ impl SpLogApp {
         }
 
         if let Some(path) = rfd::FileDialog::new()
-            .add_filter("Pliki CSV (*.csv, *.tsv)", &["csv", "tsv"])
-            .add_filter("Wszystkie pliki (*.*)", &["*"])
+            .add_filter(
+                crate::core::i18n::tr(
+                    crate::core::i18n::key::FILE_FILTER_CSV,
+                    self.gui.appearance.language,
+                ),
+                &["csv", "tsv"],
+            )
+            .add_filter(
+                crate::core::i18n::tr(
+                    crate::core::i18n::key::FILE_FILTER_ALL,
+                    self.gui.appearance.language,
+                ),
+                &["*"],
+            )
             .set_file_name("SPLogbook_export.csv")
-            .set_title("Zapisz eksport dziennika do pliku CSV")
+            .set_title(crate::core::i18n::tr(
+                crate::core::i18n::key::FILE_SAVE_CSV_EXPORT,
+                self.gui.appearance.language,
+            ))
             .save_file()
         {
             let csv_text = crate::core::csv_export::export_csv(

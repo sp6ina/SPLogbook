@@ -160,14 +160,12 @@ impl SpLogApp {
                 let _ = tx.send((format!("{prefix}: {}", ok_parts.join(", ")), true));
             } else {
                 let prefix = tr(key::UPDATER_DB_UPDATE_PARTIAL, lang);
-                let _ = tx.send((
-                    format!(
-                        "{prefix}: OK [{}], Err [{}]",
-                        ok_parts.join(", "),
-                        err_parts.join("; ")
-                    ),
-                    true,
-                ));
+                let text = crate::core::i18n::Msg::new(key::UPDATER_DB_UPDATE_PARTIAL_DETAIL)
+                    .arg("prefix", prefix)
+                    .arg("ok", ok_parts.join(", "))
+                    .arg("err", err_parts.join("; "))
+                    .text(lang);
+                let _ = tx.send((text, true));
             }
         });
 
@@ -180,8 +178,13 @@ impl SpLogApp {
 
     /// Sprawdza najnowsze wydanie na GitHub w tle i zapisuje wynik do odbiornika.
     pub fn trigger_update_check(&mut self) {
-        self.updates.update_check_status =
-            Some("Sprawdzanie najnowszej wersji na GitHub…".to_string());
+        self.updates.update_check_status = Some(
+            crate::core::i18n::tr(
+                crate::core::i18n::key::UPDATE_CHECKING,
+                self.gui.appearance.language,
+            )
+            .to_string(),
+        );
         self.updates.update_available = None;
         let (tx, rx) = std::sync::mpsc::channel::<crate::cloud::updater::UpdateCheckOutcome>();
         self.updates.update_check_rx = Some(rx);
@@ -210,12 +213,16 @@ impl SpLogApp {
         };
         let verified_asset = release.verified_asset.clone();
 
-        self.updates.update_install_status = Some(format!(
-            "Pobieranie aktualizacji do v{} ({}: {:.1} MB)…",
-            release.tag,
-            verified_asset.filename(),
-            verified_asset.declared_size() as f64 / 1_048_576.0
-        ));
+        self.updates.update_install_status = Some(
+            crate::core::i18n::Msg::new(crate::core::i18n::key::UPDATE_DOWNLOADING)
+                .arg("version", &release.tag)
+                .arg("file", verified_asset.filename())
+                .arg(
+                    "mb",
+                    format!("{:.1}", verified_asset.declared_size() as f64 / 1_048_576.0),
+                )
+                .text(self.gui.appearance.language),
+        );
 
         let (tx, rx) = std::sync::mpsc::channel::<String>();
         self.updates.update_install_rx = Some(rx);

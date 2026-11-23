@@ -269,9 +269,13 @@ pub fn render_multi_op_window(app: &mut SpLogApp, ctx: &egui::Context) {
 
                 ui.add_space(4.0);
                 ui.label(
-                    egui::RichText::new(format!("Status: {}", app.sync_ui.status))
-                        .strong()
-                        .color(palette.accent),
+                    egui::RichText::new(
+                        Msg::new(key::MULTI_OP_STATUS_LINE)
+                            .arg("status", &app.sync_ui.status)
+                            .text(lang),
+                    )
+                    .strong()
+                    .color(palette.accent),
                 );
 
                 ui.separator();

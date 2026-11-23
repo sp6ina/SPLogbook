@@ -377,10 +377,9 @@ impl SpLogApp {
                 }
                 self.gui.chrome.push_status_toast(
                     crate::gui::state::ToastSeverity::Success,
-                    format!(
-                        "JS8Call: Automatycznie dodano QSO z {}!",
-                        outcome.qso.callsign
-                    ),
+                    crate::core::i18n::Msg::new(crate::core::i18n::key::JS8_QSO_ADDED)
+                        .arg("call", &outcome.qso.callsign)
+                        .text(self.gui.appearance.language),
                 );
                 self.apply_stored_qso(&outcome.qso);
             }
@@ -407,14 +406,21 @@ impl SpLogApp {
                         issue.msg().text(self.gui.appearance.language)
                     );
                 }
-                let log_entry = format!(
-                    "Odebrano z LAN: {} ({} {})",
-                    outcome.qso.callsign, outcome.qso.band, outcome.qso.mode
-                );
+                let log_entry =
+                    crate::core::i18n::Msg::new(crate::core::i18n::key::MULTI_OP_RECEIVED)
+                        .arg("call", &outcome.qso.callsign)
+                        .arg("band", &outcome.qso.band)
+                        .arg("mode", &outcome.qso.mode)
+                        .text(self.gui.appearance.language);
                 self.sync_ui.push_log(log_entry);
                 self.gui.chrome.push_status_toast(
                     crate::gui::state::ToastSeverity::Success,
-                    format!("🌐 Multi-Op LAN: Dodano QSO z {}!", outcome.qso.callsign),
+                    format!(
+                        "🌐 {}",
+                        crate::core::i18n::Msg::new(crate::core::i18n::key::MULTI_OP_QSO_ADDED)
+                            .arg("call", &outcome.qso.callsign)
+                            .text(self.gui.appearance.language)
+                    ),
                 );
                 self.apply_stored_qso(&outcome.qso);
             }
@@ -437,7 +443,11 @@ impl SpLogApp {
                 crate::sync::SyncEvent::Status(status) => {
                     let peers = status.peers;
                     let state_str = match status.state {
-                        crate::sync::SyncState::Starting => "Starting...".to_string(),
+                        crate::sync::SyncState::Starting => crate::core::i18n::tr(
+                            crate::core::i18n::key::MULTI_OP_STATUS_STARTING,
+                            self.gui.appearance.language,
+                        )
+                        .to_string(),
                         crate::sync::SyncState::Listening => {
                             Msg::new(key::MULTI_OP_STATUS_LISTENING)
                                 .arg("peers", peers)
@@ -477,12 +487,15 @@ impl SpLogApp {
                 }
                 crate::sync::SyncEvent::Error(err) => {
                     let err_msg = err.to_string();
-                    self.sync_ui.push_log(format!("Error: {err_msg}"));
-                    self.sync_ui.status = format!("Error: {err_msg}");
+                    let text = crate::core::i18n::Msg::new(crate::core::i18n::key::MULTI_OP_ERROR)
+                        .arg("err", &err_msg)
+                        .text(self.gui.appearance.language);
+                    self.sync_ui.push_log(text.clone());
                     self.gui.chrome.push_status_toast(
                         crate::gui::state::ToastSeverity::Warning,
-                        format!("⚠ Multi-Op: {err_msg}"),
+                        format!("⚠ {text}"),
                     );
+                    self.sync_ui.status = text;
                 }
             }
         }

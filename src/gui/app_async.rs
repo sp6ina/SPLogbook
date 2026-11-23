@@ -545,13 +545,17 @@ impl SpLogApp {
                 if let Some(img) = data.image_url {
                     self.gui.dialogs.photo_viewer_dialog.photo_url = Some(img);
                 }
-                self.gui.chrome.status_message = Some(format!(
-                    "Pobrano dane Callbook dla: {} ({})",
-                    data.callsign, self.entry.name
-                ));
+                self.gui.chrome.status_message = Some(
+                    crate::core::i18n::Msg::new(crate::core::i18n::key::CALLBOOK_DATA_LOADED)
+                        .arg("call", &data.callsign)
+                        .arg("name", &self.entry.name)
+                        .text(self.gui.appearance.language),
+                );
                 self.gui.chrome.push_status_toast(
                     crate::gui::state::ToastSeverity::Success,
-                    format!("Pobrano dane korespondenta {}!", data.callsign),
+                    crate::core::i18n::Msg::new(crate::core::i18n::key::CALLBOOK_STATION_LOADED)
+                        .arg("call", &data.callsign)
+                        .text(self.gui.appearance.language),
                 );
             }
         }

@@ -136,10 +136,12 @@ impl SendSpotDialog {
                             freq_khz: self.freq_khz,
                             comment: self.comment.clone(),
                         });
-                        self.status_message = Some(format!(
-                            "Spot dla {} ({:.1} kHz) OK!",
-                            self.dx_call, self.freq_khz
-                        ));
+                        self.status_message = Some(
+                            crate::core::i18n::Msg::new(crate::core::i18n::key::CLUSTER_SPOT_SENT)
+                                .arg("call", &self.dx_call)
+                                .arg("freq", format!("{:.1}", self.freq_khz))
+                                .text(lang),
+                        );
                         close_requested = true;
                     }
 

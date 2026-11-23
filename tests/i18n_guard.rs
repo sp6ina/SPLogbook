@@ -1113,3 +1113,129 @@ fn allowed_ui_tokens_are_not_translatable_text() {
         }
     }
 }
+
+/// Miejsca, w których tekst trafia do użytkownika jako komunikat (powiadomienie, pasek
+/// stanu, dziennik synchronizacji, okna stanu).
+const MESSAGE_SINKS: &[&str] = &[
+    "push_status_toast(",
+    "status_message = Some(",
+    "report_error(",
+    "report_warning(",
+    "push_log(",
+    "online_sync_logs.push(",
+    "_status = Some(",
+    "test_result = Some(",
+    "error_message = Some(",
+    "message: format!(",
+    ".send((",
+];
+
+/// Literał zawiera słowo do tłumaczenia: ciąg co najmniej trzech małych liter poza
+/// symbolami zastępczymi `{...}`.
+fn literal_has_words(lit: &str) -> bool {
+    let mut bare = String::new();
+    let mut depth = 0;
+    for c in lit.chars() {
+        match c {
+            '{' => depth += 1,
+            '}' => depth -= 1,
+            _ if depth == 0 => bare.push(c),
+            _ => {}
+        }
+    }
+    let mut run = 0;
+    for c in bare.chars() {
+        if c.is_lowercase() {
+            run += 1;
+            if run >= 3 {
+                return true;
+            }
+        } else {
+            run = 0;
+        }
+    }
+    false
+}
+
+fn message_violations(content: &str) -> Vec<(usize, String)> {
+    let code = content.split("#[cfg(test)]").next().unwrap_or_default();
+    let lines: Vec<&str> = code.lines().collect();
+    let mut violations = Vec::new();
+    for (idx, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("//") || trimmed.contains("log::") {
+            continue;
+        }
+        let Some(sink) = MESSAGE_SINKS.iter().filter_map(|s| line.find(s)).min() else {
+            continue;
+        };
+        // Wywołanie może zajmować kilka kolejnych wierszy.
+        let chunk: String = lines[idx..(idx + 8).min(lines.len())].join(" ");
+        let start = sink;
+        let mut depth = 0i32;
+        let mut end = chunk.len();
+        for (pos, ch) in chunk[start..].char_indices() {
+            match ch {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = start + pos;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let call = &chunk[start..end];
+        if call.contains("tr(") || call.contains("Msg::new") || call.contains("key::") {
+            continue;
+        }
+        let mut rest = call;
+        while let Some(q) = rest.find('"') {
+            let after = &rest[q + 1..];
+            let Some(close) = after.find('"') else { break };
+            let lit = &after[..close];
+            if literal_has_words(lit) {
+                violations.push((idx + 1, lit.to_string()));
+            }
+            rest = &after[close + 1..];
+        }
+    }
+    violations
+}
+
+#[test]
+fn gui_messages_are_localized() {
+    let mut files = Vec::new();
+    collect_rs_files(Path::new("src/gui"), &mut files);
+    let mut report = Vec::new();
+    for path in files {
+        let path_str = path.to_string_lossy().replace('\\', "/");
+        if path_str.ends_with("app_tests.rs") {
+            continue;
+        }
+        let content = fs::read_to_string(&path).unwrap();
+        for (line, lit) in message_violations(&content) {
+            report.push(format!("{path_str}:{line}: «{lit}»"));
+        }
+    }
+    assert!(
+        report.is_empty(),
+        "Komunikaty dla użytkownika budowane z tekstu w kodzie (użyj tr/Msg):\n{}",
+        report.join("\n")
+    );
+}
+
+#[test]
+fn message_rule_flags_words_but_not_placeholders() {
+    assert!(literal_has_words("Zaimportowano {count} QSO"));
+    assert!(literal_has_words("Error: {e}"));
+    assert!(!literal_has_words("{prefix}: OK [{}], Err [{}]"));
+    assert!(!literal_has_words("⚠ {text}"));
+    assert!(!literal_has_words("{:.1} kHz"));
+    let code = "fn a() {\n    app.gui.chrome.push_status_toast(\n        Sev::Info,\n        format!(\"Zapisano {x}\"),\n    );\n}\n";
+    assert_eq!(message_violations(code).len(), 1);
+    let ok = "fn a() {\n    app.gui.chrome.push_status_toast(Sev::Info, tr(key::X, lang));\n}\n";
+    assert!(message_violations(ok).is_empty());
+}

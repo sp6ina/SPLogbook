@@ -299,10 +299,11 @@ impl SpLogApp {
             match sup.start() {
                 Ok(()) => {
                     self.cat.rigctld_supervisor = Some(sup);
-                    self.cat.test_result = Some(format!(
-                        "Uruchomiono rigctld w tle dla {}!",
-                        self.config.cat_rig_model
-                    ));
+                    self.cat.test_result = Some(
+                        crate::core::i18n::Msg::new(crate::core::i18n::key::CAT_RIGCTLD_STARTED)
+                            .arg("model", &self.config.cat_rig_model)
+                            .text(self.gui.appearance.language),
+                    );
                 }
                 Err(e) => {
                     self.cat.test_result = Some(
@@ -423,7 +424,12 @@ impl SpLogApp {
         self.cat
             .runtime
             .set_mode(self.cat.rig_state.mode.clone(), passband_hz);
-        self.gui.chrome.status_message = Some(format!("Filtr IF: {preset} ({passband_hz} Hz)"));
+        self.gui.chrome.status_message = Some(
+            crate::core::i18n::Msg::new(crate::core::i18n::key::CAT_IF_FILTER_SET)
+                .arg("preset", preset)
+                .arg("hz", passband_hz)
+                .text(self.gui.appearance.language),
+        );
     }
 
     /// Aktualizuje bieżący stan radia i PTT na podstawie telemetrii z warstwy CAT.
@@ -500,12 +506,17 @@ impl SpLogApp {
             self.cat.sharing_active = true;
 
             let events = self.services.event_bus.clone();
+            let lang = self.gui.appearance.language;
             tokio::spawn(async move {
                 if let Err(e) = srv_arc.run().await {
                     log::error!("Hamlib proxy server error: {e}");
                     events.publish(crate::core::events::AppEvent::Toast {
                         level: "error".into(),
-                        message: format!("Serwer proxy CAT (Hamlib) zatrzymany: {e}"),
+                        message: crate::core::i18n::Msg::new(
+                            crate::core::i18n::key::CAT_PROXY_STOPPED,
+                        )
+                        .arg("err", &e)
+                        .text(lang),
                     });
                 }
             });

@@ -404,7 +404,7 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
 
     // Aktywny filtr drill-down ze statystyk — widoczny pasek z przyciskiem czyszczenia
     if let Some(ref d) = app.log_view.drill_filter {
-        let label = d.label();
+        let label = d.label(lang);
         let mut clear = false;
         ui.horizontal(|ui| {
             ui.label(

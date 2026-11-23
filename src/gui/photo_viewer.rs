@@ -9,7 +9,7 @@ pub struct PhotoViewerDialog {
     pub is_open: bool,
     pub callsign: String,
     pub photo_url: Option<String>,
-    pub error_message: Option<String>,
+    pub error_message: Option<PhotoError>,
 }
 
 impl Default for PhotoViewerDialog {
@@ -33,7 +33,7 @@ impl PhotoViewerDialog {
         let is_url_empty = photo_url.as_ref().is_none_or(|u| u.trim().is_empty());
 
         if clean_call.is_empty() && is_url_empty {
-            self.error_message = Some("Empty photo source or callsign rejected".to_string());
+            self.error_message = Some(PhotoError::EmptySource);
             self.is_open = false;
             return;
         }
@@ -41,7 +41,7 @@ impl PhotoViewerDialog {
         if let Some(ref url) = photo_url {
             let u = url.trim();
             if u.is_empty() {
-                self.error_message = Some("Empty photo source or callsign rejected".to_string());
+                self.error_message = Some(PhotoError::EmptySource);
                 self.is_open = false;
                 return;
             }
@@ -58,7 +58,7 @@ impl PhotoViewerDialog {
             if !is_web && !is_file_uri && !has_image_ext {
                 self.callsign = clean_call;
                 self.photo_url = None;
-                self.error_message = Some(format!("Invalid photo source format: {u}"));
+                self.error_message = Some(PhotoError::InvalidSource(u.to_string()));
                 self.is_open = true;
                 return;
             }
@@ -103,9 +103,13 @@ impl PhotoViewerDialog {
 
                 if let Some(ref err) = self.error_message {
                     ui.add_space(10.0);
-                    ui.colored_label(ui.palette().danger, err);
+                    ui.colored_label(ui.palette().danger, err.text(lang));
                 } else if let Some(ref url) = self.photo_url {
-                    ui.label(format!("Adres grafiki: {url}"));
+                    ui.label(
+                        crate::core::i18n::Msg::new(crate::core::i18n::key::PHOTO_SOURCE)
+                            .arg("url", url)
+                            .text(lang),
+                    );
                     ui.add_space(8.0);
 
                     ui.add(
@@ -178,6 +182,25 @@ impl PhotoViewerDialog {
     }
 }
 
+/// Powód odrzucenia źródła zdjęcia; tekst powstaje w języku interfejsu przy rysowaniu.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PhotoError {
+    EmptySource,
+    InvalidSource(String),
+}
+
+impl PhotoError {
+    pub fn text(&self, lang: crate::core::i18n::Language) -> String {
+        use crate::core::i18n::{Msg, key, tr};
+        match self {
+            Self::EmptySource => tr(key::PHOTO_ERR_EMPTY, lang).to_string(),
+            Self::InvalidSource(source) => Msg::new(key::PHOTO_ERR_FORMAT)
+                .arg("source", source)
+                .text(lang),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -213,12 +236,15 @@ mod tests {
         dialog.open("SP6INA", Some("invalid_protocol://bad-data".to_string()));
         assert!(dialog.is_open);
         assert!(dialog.photo_url.is_none());
-        assert!(dialog.error_message.is_some());
+        let error = dialog.error_message.expect("błąd źródła");
+        assert_eq!(
+            error,
+            PhotoError::InvalidSource("invalid_protocol://bad-data".to_string())
+        );
         assert!(
-            dialog
-                .error_message
-                .unwrap()
-                .contains("Invalid photo source format")
+            error
+                .text(crate::core::i18n::Language::En)
+                .contains("invalid_protocol://bad-data")
         );
     }
 

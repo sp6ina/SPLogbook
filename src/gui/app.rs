@@ -334,7 +334,7 @@ impl SpLogApp {
                 } else {
                     crate::gui::state::CatConnection::Tcp
                 },
-                mfg_selected: "Wszystkie".to_string(),
+                mfg_selected: String::new(),
                 vfo: crate::gui::state::VfoState {
                     split_offset_khz: 1.0,
                     filter_preset: "FIL2".to_string(),

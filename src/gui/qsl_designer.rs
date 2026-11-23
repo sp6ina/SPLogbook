@@ -22,7 +22,7 @@ pub mod qsl_colors {
     pub const CARD_TEXT: Color32 = Color32::BLACK;
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LabelSheetFormat {
     Avery2x7, // 14 etykiet (99.1 x 38.1 mm)
     Avery2x8, // 16 etykiet (99.1 x 33.8 mm)
@@ -174,32 +174,27 @@ impl QslDesignerDialog {
                 ui.horizontal(|ui| {
                     ui.label(tr(key::QSL_SHEET_FORMAT, lang));
                     egui::ComboBox::from_id_salt("sheet_fmt_combo")
-                        .selected_text(match self.sheet_format {
-                            LabelSheetFormat::Avery3x8 => "Avery 3x8 (24 naklejki, 70x36 mm)",
-                            LabelSheetFormat::Avery3x7 => "Avery 3x7 (21 naklejek, 63.5x38.1 mm)",
-                            LabelSheetFormat::Avery2x8 => "Avery 2x8 (16 naklejek, 99.1x33.8 mm)",
-                            LabelSheetFormat::Avery2x7 => "Avery 2x7 (14 naklejek, 99.1x38.1 mm)",
-                        })
+                        .selected_text(sheet_label(self.sheet_format, lang))
                         .show_ui(ui, |ui| {
                             ui.selectable_value(
                                 &mut self.sheet_format,
                                 LabelSheetFormat::Avery3x8,
-                                "Avery 3x8 (24 naklejki)",
+                                sheet_label(LabelSheetFormat::Avery3x8, lang),
                             );
                             ui.selectable_value(
                                 &mut self.sheet_format,
                                 LabelSheetFormat::Avery3x7,
-                                "Avery 3x7 (21 naklejek)",
+                                sheet_label(LabelSheetFormat::Avery3x7, lang),
                             );
                             ui.selectable_value(
                                 &mut self.sheet_format,
                                 LabelSheetFormat::Avery2x8,
-                                "Avery 2x8 (16 naklejek)",
+                                sheet_label(LabelSheetFormat::Avery2x8, lang),
                             );
                             ui.selectable_value(
                                 &mut self.sheet_format,
                                 LabelSheetFormat::Avery2x7,
-                                "Avery 2x7 (14 naklejek)",
+                                sheet_label(LabelSheetFormat::Avery2x7, lang),
                             );
                         });
                 });
@@ -242,21 +237,24 @@ impl QslDesignerDialog {
 
                 // Kalibracja drukarki
                 ui.separator();
-                ui.collapsing("🖨 Kalibracja wydruku (marginesy A4)", |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(tr(key::QSL_MARGIN_LEFT, lang));
-                        ui.add(egui::Slider::new(&mut self.margin_left_mm, 0.0..=30.0));
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label(tr(key::QSL_MARGIN_TOP, lang));
-                        ui.add(egui::Slider::new(&mut self.margin_top_mm, 0.0..=30.0));
-                    });
-                    ui.label(
-                        egui::RichText::new(tr(key::QSL_MARGINS_HINT, lang))
-                            .small()
-                            .color(palette.text_muted),
-                    );
-                });
+                ui.collapsing(
+                    format!("🖨 {}", tr(key::QSL_PRINT_CALIBRATION, lang)),
+                    |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(tr(key::QSL_MARGIN_LEFT, lang));
+                            ui.add(egui::Slider::new(&mut self.margin_left_mm, 0.0..=30.0));
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label(tr(key::QSL_MARGIN_TOP, lang));
+                            ui.add(egui::Slider::new(&mut self.margin_top_mm, 0.0..=30.0));
+                        });
+                        ui.label(
+                            egui::RichText::new(tr(key::QSL_MARGINS_HINT, lang))
+                                .small()
+                                .color(palette.text_muted),
+                        );
+                    },
+                );
 
                 if let Some(ref msg) = self.status_message {
                     ui.label(egui::RichText::new(msg).color(palette.accent));
@@ -318,8 +316,12 @@ impl QslDesignerDialog {
                                             );
                                         } else {
                                             ui.label(
-                                                egui::RichText::new(format!("[Puste #{}]", i + 1))
-                                                    .color(palette.text_muted),
+                                                egui::RichText::new(
+                                                    Msg::new(key::QSL_EMPTY_SLOT)
+                                                        .arg("n", i + 1)
+                                                        .text(lang),
+                                                )
+                                                .color(palette.text_muted),
                                             );
                                         }
                                     });
@@ -460,4 +462,19 @@ impl QslDesignerDialog {
         }
         self.is_open = open;
     }
+}
+
+/// Nazwa arkusza etykiet w języku interfejsu.
+fn sheet_label(format: LabelSheetFormat, lang: crate::core::i18n::Language) -> String {
+    let (layout, count, size) = match format {
+        LabelSheetFormat::Avery3x8 => ("3x8", 24, "70×36 mm"),
+        LabelSheetFormat::Avery3x7 => ("3x7", 21, "63.5×38.1 mm"),
+        LabelSheetFormat::Avery2x8 => ("2x8", 16, "99.1×33.8 mm"),
+        LabelSheetFormat::Avery2x7 => ("2x7", 14, "99.1×38.1 mm"),
+    };
+    Msg::new(key::QSL_SHEET_LABEL)
+        .arg("layout", layout)
+        .arg("count", count)
+        .arg("size", size)
+        .text(lang)
 }

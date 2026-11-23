@@ -197,7 +197,7 @@ impl AdvancedFilterDialog {
                                 self.status_message =
                                     Some(tr(key::FILTER_NO_QSOS_TO_EXPORT, lang).to_string());
                             } else if let Some(path) = rfd::FileDialog::new()
-                                .add_filter("ADIF Log Files", &["adi", "adif"])
+                                .add_filter(tr(key::FILE_FILTER_ADIF, lang), &["adi", "adif"])
                                 .set_file_name("SPLogbook-filtered.adi")
                                 .save_file()
                             {

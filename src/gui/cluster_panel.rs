@@ -451,9 +451,9 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.separator();
         if ui
             .button(if app.solar.band_alert_enabled {
-                "🔔 Alert ON"
+                format!("🔔 {}", tr(key::CLUSTER_ALERT_ON, lang))
             } else {
-                "🔕 Alert OFF"
+                format!("🔕 {}", tr(key::CLUSTER_ALERT_OFF, lang))
             })
             .on_hover_text(
                 Msg::new(key::CLUSTER_ALERT_TOOLTIP)

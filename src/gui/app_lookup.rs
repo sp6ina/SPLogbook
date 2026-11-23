@@ -262,7 +262,11 @@ impl SpLogApp {
             if let Some(mgr) = cb_data.qsl_manager.clone() {
                 self.entry.qsl_manager = mgr;
             }
-            self.gui.chrome.status_message = Some(format!("Znaleziono w bazie Callbook: {call}"));
+            self.gui.chrome.status_message = Some(
+                crate::core::i18n::Msg::new(crate::core::i18n::key::CALLBOOK_LOCAL_FOUND)
+                    .arg("call", &call)
+                    .text(self.gui.appearance.language),
+            );
         }
 
         let lc = self.services.local_callbook.clone();
