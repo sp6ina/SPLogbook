@@ -5,11 +5,12 @@
 //! Umożliwia zapisywanie i przywracanie widoczności / pozycji / rozmiarów
 //! paneli głównego okna oraz wybór wbudowanych presetów.
 
-use crate::core::i18n::{Msg, key, tr};
+use crate::core::i18n::{Language, Msg, key, tr};
 use crate::core::station::{
     ClusterFilter, WorkspaceFile, WorkspaceProfile, workspace_profile_presets,
 };
 use crate::gui::app::SpLogApp;
+use crate::gui::state::Tile;
 use crate::gui::theme::ThemePreset;
 use eframe::egui;
 use egui_dock::DockState;
@@ -53,8 +54,9 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
                 .show(ui, |ui| {
                     let mut apply_preset: Option<usize> = None;
                     for (i, preset) in workspace_profile_presets().iter().enumerate() {
+                        let (name, description) = preset_text(preset, lang);
                         ui.horizontal(|ui| {
-                            ui.label(format!("• {}", preset.name));
+                            ui.label(format!("• {name}")).on_hover_text(description);
                             if ui.button(tr(key::WS_PROFILES_APPLY, lang)).clicked() {
                                 apply_preset = Some(i);
                             }
@@ -64,9 +66,10 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
                         && let Some(preset) = workspace_profile_presets().into_iter().nth(i)
                     {
                         apply_profile(app, &preset);
+                        let (name, _) = preset_text(&preset, lang);
                         app.gui.chrome.push_status_toast(
                             crate::gui::state::ToastSeverity::Info,
-                            format!("Zastosowano preset: {}", preset.name),
+                            format!("{}: {name}", tr(key::WORKSPACE_PRESET_APPLIED, lang)),
                         );
                     }
                 });
@@ -88,7 +91,8 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
                 ui.label(tr(key::WS_PROFILES_NAME_LABEL, lang));
                 ui.add(
                     egui::TextEdit::singleline(&mut new_name)
-                        .hint_text("np. DX-pileup 20m")
+                        .hint_text(tr(key::WS_PROFILES_NAME_HINT, lang))
+                        .char_limit(MAX_PROFILE_NAME_CHARS)
                         .desired_width(220.0),
                 );
                 let can_save = !new_name.trim().is_empty();
@@ -114,7 +118,9 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
                     app.save_station_config();
                     app.gui.chrome.push_status_toast(
                         crate::gui::state::ToastSeverity::Success,
-                        format!("Zapisano profil: {}", profile.name),
+                        Msg::new(key::WS_PROFILES_SAVED_TOAST)
+                            .arg("name", &profile.name)
+                            .text(lang),
                     );
                     new_name.clear();
                 }
@@ -151,10 +157,18 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
                                         egui::TextEdit::singleline(&mut rename_text)
                                             .desired_width(200.0),
                                     );
-                                    if ui.button("OK").clicked() && !rename_text.trim().is_empty() {
+                                    if ui
+                                        .button(tr(key::WORKSPACE_PAGE_RENAME_APPLY, lang))
+                                        .clicked()
+                                        && !rename_text.trim().is_empty()
+                                    {
                                         commit_rename = Some(idx);
                                     }
-                                    if ui.button("✖").clicked() {
+                                    if ui
+                                        .button("✖")
+                                        .on_hover_text(tr(key::BTN_CANCEL, lang))
+                                        .clicked()
+                                    {
                                         renaming = None;
                                     }
                                 } else {
@@ -192,7 +206,9 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
                             apply_profile(app, &profile);
                             app.gui.chrome.push_status_toast(
                                 crate::gui::state::ToastSeverity::Info,
-                                format!("Zastosowano profil: {}", profile.name),
+                                Msg::new(key::WS_PROFILES_APPLIED_TOAST)
+                                    .arg("name", &profile.name)
+                                    .text(lang),
                             );
                         }
                         if let Some(idx) = commit_rename {
@@ -234,12 +250,99 @@ pub fn render_workspace_profiles_window(app: &mut SpLogApp, ctx: &egui::Context)
     app.gui.windows.show_workspace_profiles_window = open;
 }
 
+/// Largest `.spws` file accepted on import.
+pub const MAX_WORKSPACE_FILE_BYTES: u64 = 1024 * 1024;
+/// Longest profile name, in characters.
+pub const MAX_PROFILE_NAME_CHARS: usize = 64;
+
+/// Why a `.spws` file was not imported.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WorkspaceImportError {
+    TooLarge,
+    Invalid(String),
+    UnsupportedVersion(u32),
+}
+
+impl std::fmt::Display for WorkspaceImportError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TooLarge => write!(f, "file larger than {MAX_WORKSPACE_FILE_BYTES} bytes"),
+            Self::Invalid(detail) => write!(f, "{detail}"),
+            Self::UnsupportedVersion(version) => write!(f, "unsupported version {version}"),
+        }
+    }
+}
+
+impl std::error::Error for WorkspaceImportError {}
+
+/// Reads a `.spws` file. The name is cleaned and the id derived from it again; module
+/// entries for unknown tiles are dropped, and so is a dock layout that does not parse or
+/// names tiles this version does not know (the layout is then rebuilt from the panels).
+pub fn parse_workspace_file(text: &str) -> Result<WorkspaceProfile, WorkspaceImportError> {
+    if text.len() as u64 > MAX_WORKSPACE_FILE_BYTES {
+        return Err(WorkspaceImportError::TooLarge);
+    }
+    let file: WorkspaceFile =
+        serde_json::from_str(text).map_err(|e| WorkspaceImportError::Invalid(e.to_string()))?;
+    if file.version == 0 || file.version > WorkspaceFile::CURRENT_VERSION {
+        return Err(WorkspaceImportError::UnsupportedVersion(file.version));
+    }
+    let mut ws = file.workspace;
+    ws.name = ws
+        .name
+        .chars()
+        .filter(|c| !c.is_control())
+        .collect::<String>()
+        .trim()
+        .chars()
+        .take(MAX_PROFILE_NAME_CHARS)
+        .collect();
+    if ws.name.is_empty() {
+        return Err(WorkspaceImportError::Invalid(
+            "empty profile name".to_string(),
+        ));
+    }
+    ws.id.clear();
+    ws.ensure_id();
+    ws.module_panels
+        .retain(|id, _| Tile::from_id(id).is_some_and(Tile::is_module));
+    let layout_ok = ws.dock_layout.as_ref().is_none_or(|json| {
+        serde_json::from_value::<DockState<String>>(json.clone()).is_ok_and(|state| {
+            state
+                .iter_all_tabs()
+                .all(|(_, tab)| Tile::from_id(tab).is_some())
+        })
+    });
+    if !layout_ok {
+        ws.dock_layout = None;
+    }
+    Ok(ws)
+}
+
+/// Translated name and description of a built-in preset; other profiles keep their own.
+pub fn preset_text(profile: &WorkspaceProfile, lang: Language) -> (String, String) {
+    let keys = match profile.id.as_str() {
+        "normal-dx" => Some((key::WS_PRESET_NORMAL_DX_NAME, key::WS_PRESET_NORMAL_DX_DESC)),
+        "contest" => Some((key::WS_PRESET_CONTEST_NAME, key::WS_PRESET_CONTEST_DESC)),
+        "ft8" => Some((key::WS_PRESET_FT8_NAME, key::WS_PRESET_FT8_DESC)),
+        "pota" => Some((key::WS_PRESET_POTA_NAME, key::WS_PRESET_POTA_DESC)),
+        "sota" => Some((key::WS_PRESET_SOTA_NAME, key::WS_PRESET_SOTA_DESC)),
+        "satellite" => Some((key::WS_PRESET_SATELLITE_NAME, key::WS_PRESET_SATELLITE_DESC)),
+        "eme" => Some((key::WS_PRESET_EME_NAME, key::WS_PRESET_EME_DESC)),
+        _ => None,
+    };
+    match keys {
+        Some((name, desc)) => (tr(name, lang).to_string(), tr(desc, lang).to_string()),
+        None => (profile.name.clone(), profile.description.clone()),
+    }
+}
+
 /// Eksportuje pojedynczy profil do pliku `*.spws` (JSON z polem wersji).
 fn export_profile(app: &mut SpLogApp, profile: &WorkspaceProfile) {
     let lang = app.gui.appearance.language;
     let file_name = format!("{}.spws", profile.id);
     if let Some(path) = rfd::FileDialog::new()
-        .add_filter("SPLogbook Workspace", &["spws"])
+        .add_filter(tr(key::WS_PROFILES_FILE_FILTER, lang), &["spws"])
         .set_file_name(&file_name)
         .save_file()
     {
@@ -252,7 +355,9 @@ fn export_profile(app: &mut SpLogApp, profile: &WorkspaceProfile) {
                 Ok(()) => {
                     app.gui.chrome.push_status_toast(
                         crate::gui::state::ToastSeverity::Success,
-                        format!("Wyeksportowano: {}", path.display()),
+                        Msg::new(key::WS_PROFILES_EXPORTED_TOAST)
+                            .arg("path", path.display())
+                            .text(lang),
                     );
                 }
                 Err(e) => {
@@ -277,59 +382,80 @@ fn export_profile(app: &mut SpLogApp, profile: &WorkspaceProfile) {
 /// Importuje profil z pliku `*.spws`.
 fn import_profile(app: &mut SpLogApp) {
     let lang = app.gui.appearance.language;
-    if let Some(path) = rfd::FileDialog::new()
-        .add_filter("SPLogbook Workspace", &["spws"])
+    let Some(path) = rfd::FileDialog::new()
+        .add_filter(tr(key::WS_PROFILES_FILE_FILTER, lang), &["spws"])
         .pick_file()
-    {
-        match std::fs::read_to_string(&path) {
-            Ok(text) => match serde_json::from_str::<WorkspaceFile>(&text) {
-                Ok(file) => {
-                    if file.version > WorkspaceFile::CURRENT_VERSION {
-                        app.gui.chrome.push_status_toast(
-                            crate::gui::state::ToastSeverity::Error,
-                            Msg::new(key::WS_PROFILES_ERR_UNSUPPORTED_VERSION)
-                                .arg("ver", file.version)
-                                .arg("path", path.display())
-                                .text(lang),
-                        );
-                        return;
-                    }
-                    let mut ws = file.workspace;
-                    ws.ensure_id();
-                    // Nadpisz profil o tym samym id lub dodaj nowy.
-                    if let Some(existing) = app
-                        .config
-                        .workspace_profiles
-                        .iter_mut()
-                        .find(|p| p.id == ws.id)
-                    {
-                        *existing = ws.clone();
-                    } else {
-                        app.config.workspace_profiles.push(ws.clone());
-                    }
-                    app.save_station_config();
-                    app.gui.chrome.push_status_toast(
-                        crate::gui::state::ToastSeverity::Success,
-                        format!("Zaimportowano profil: {}", ws.name),
-                    );
-                }
-                Err(e) => {
-                    app.gui.chrome.push_status_toast(
-                        crate::gui::state::ToastSeverity::Error,
-                        Msg::new(key::WS_PROFILES_ERR_INVALID_FILE)
-                            .arg("err", e)
-                            .text(lang),
-                    );
-                }
-            },
-            Err(e) => {
-                app.gui.chrome.push_status_toast(
-                    crate::gui::state::ToastSeverity::Error,
-                    Msg::new(key::WS_PROFILES_ERR_READ).arg("err", e).text(lang),
-                );
-            }
+    else {
+        return;
+    };
+    let read = std::fs::metadata(&path).and_then(|meta| {
+        if meta.len() > MAX_WORKSPACE_FILE_BYTES {
+            Ok(None)
+        } else {
+            std::fs::read_to_string(&path).map(Some)
         }
+    });
+    let text = match read {
+        Ok(Some(text)) => text,
+        Ok(None) => {
+            app.gui.chrome.push_status_toast(
+                crate::gui::state::ToastSeverity::Error,
+                tr(key::WS_PROFILES_ERR_TOO_LARGE, lang),
+            );
+            return;
+        }
+        Err(e) => {
+            app.gui.chrome.push_status_toast(
+                crate::gui::state::ToastSeverity::Error,
+                Msg::new(key::WS_PROFILES_ERR_READ).arg("err", e).text(lang),
+            );
+            return;
+        }
+    };
+    let ws = match parse_workspace_file(&text) {
+        Ok(ws) => ws,
+        Err(e) => {
+            let message = match &e {
+                WorkspaceImportError::TooLarge => {
+                    tr(key::WS_PROFILES_ERR_TOO_LARGE, lang).to_string()
+                }
+                WorkspaceImportError::UnsupportedVersion(version) => {
+                    Msg::new(key::WS_PROFILES_ERR_UNSUPPORTED_VERSION)
+                        .arg("ver", version)
+                        .arg("path", path.display())
+                        .text(lang)
+                }
+                WorkspaceImportError::Invalid(detail) => {
+                    Msg::new(key::WS_PROFILES_ERR_INVALID_FILE)
+                        .arg("err", detail)
+                        .text(lang)
+                }
+            };
+            log::warn!("workspace profile not imported: {e}");
+            app.gui
+                .chrome
+                .push_status_toast(crate::gui::state::ToastSeverity::Error, message);
+            return;
+        }
+    };
+    // Nadpisz profil o tym samym id lub dodaj nowy.
+    if let Some(existing) = app
+        .config
+        .workspace_profiles
+        .iter_mut()
+        .find(|p| p.id == ws.id)
+    {
+        *existing = ws.clone();
+    } else {
+        app.config.workspace_profiles.push(ws.clone());
     }
+    app.save_station_config();
+    app.gui.chrome.push_status_toast(
+        crate::gui::state::ToastSeverity::Success,
+        Msg::new(key::WS_PROFILES_IMPORTED_TOAST)
+            .arg("name", &ws.name)
+            .text(lang),
+    );
 }
 
 /// Zbiera bieżący stan paneli do profilu.
@@ -417,4 +543,135 @@ pub(crate) fn apply_profile(app: &mut SpLogApp, p: &WorkspaceProfile) {
 
     // Powiadom wtyczki Rhai o zmianie profilu układu.
     app.services.plugin_engine.run_on_workspace_changed(&p.name);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn file_text(profile: &WorkspaceProfile) -> String {
+        serde_json::to_string(&WorkspaceFile {
+            version: WorkspaceFile::CURRENT_VERSION,
+            workspace: profile.clone(),
+        })
+        .unwrap()
+    }
+
+    fn sample() -> WorkspaceProfile {
+        workspace_profile_presets().remove(0)
+    }
+
+    /// Układ w postaci zapisanej po narysowaniu: nienarysowany ma prostokąty NaN,
+    /// których JSON nie przenosi.
+    fn drawn_layout(tabs: &[&str]) -> serde_json::Value {
+        let state = DockState::new(tabs.iter().map(ToString::to_string).collect());
+        let text = serde_json::to_string(&state)
+            .unwrap()
+            .replace("\"x\":null", "\"x\":0.0")
+            .replace("\"y\":null", "\"y\":0.0");
+        serde_json::from_str(&text).unwrap()
+    }
+
+    #[test]
+    fn imported_profile_is_cleaned_and_keeps_known_modules() {
+        let mut profile = sample();
+        profile.name = "  Pile-up\n20 m  ".to_string();
+        profile.id = "../../evil".to_string();
+        profile.module_panels.insert(
+            "contest".to_string(),
+            crate::core::station::ViewPanelConfig::default(),
+        );
+        profile.module_panels.insert(
+            "future_module".to_string(),
+            crate::core::station::ViewPanelConfig::default(),
+        );
+        profile.module_panels.insert(
+            "vfo".to_string(),
+            crate::core::station::ViewPanelConfig::default(),
+        );
+        let ws = parse_workspace_file(&file_text(&profile)).unwrap();
+        assert_eq!(ws.name, "Pile-up20 m");
+        assert!(!ws.id.contains('/') && !ws.id.contains('.'), "{}", ws.id);
+        assert_eq!(
+            ws.module_panels
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            ["contest"]
+        );
+    }
+
+    #[test]
+    fn dock_layout_with_unknown_tiles_is_dropped() {
+        let mut profile = sample();
+        profile.dock_layout = Some(drawn_layout(&["log", "contest"]));
+        let ws = parse_workspace_file(&file_text(&profile)).unwrap();
+        assert!(ws.dock_layout.is_some());
+
+        profile.dock_layout = Some(drawn_layout(&["log", "spy_panel"]));
+        assert_eq!(
+            parse_workspace_file(&file_text(&profile))
+                .unwrap()
+                .dock_layout,
+            None
+        );
+
+        profile.dock_layout = Some(serde_json::json!({"not": "a dock"}));
+        assert_eq!(
+            parse_workspace_file(&file_text(&profile))
+                .unwrap()
+                .dock_layout,
+            None
+        );
+    }
+
+    #[test]
+    fn broken_files_are_refused() {
+        assert!(matches!(
+            parse_workspace_file("not json"),
+            Err(WorkspaceImportError::Invalid(_))
+        ));
+        let mut text = file_text(&sample());
+        text = text.replacen("\"version\":1", "\"version\":9", 1);
+        assert_eq!(
+            parse_workspace_file(&text),
+            Err(WorkspaceImportError::UnsupportedVersion(9))
+        );
+        let zero = file_text(&sample()).replacen("\"version\":1", "\"version\":0", 1);
+        assert_eq!(
+            parse_workspace_file(&zero),
+            Err(WorkspaceImportError::UnsupportedVersion(0))
+        );
+        let mut nameless = sample();
+        nameless.name = " \t ".to_string();
+        assert!(matches!(
+            parse_workspace_file(&file_text(&nameless)),
+            Err(WorkspaceImportError::Invalid(_))
+        ));
+        let huge = " ".repeat(MAX_WORKSPACE_FILE_BYTES as usize + 1);
+        assert_eq!(
+            parse_workspace_file(&huge),
+            Err(WorkspaceImportError::TooLarge)
+        );
+    }
+
+    #[test]
+    fn built_in_presets_are_translated() {
+        for preset in workspace_profile_presets() {
+            for lang in [Language::Pl, Language::En, Language::Ru] {
+                let (name, description) = preset_text(&preset, lang);
+                assert_ne!(name, "", "{}", preset.id);
+                assert_ne!(description, "", "{}", preset.id);
+            }
+            let (en, _) = preset_text(&preset, Language::En);
+            let (pl, _) = preset_text(&preset, Language::Pl);
+            if preset.id != "ft8" {
+                assert_ne!(en, pl, "{}: angielska nazwa presetu", preset.id);
+            }
+        }
+        let mut own = sample();
+        own.id = "my-layout".to_string();
+        own.name = "Mój układ".to_string();
+        assert_eq!(preset_text(&own, Language::En).0, "Mój układ");
+    }
 }

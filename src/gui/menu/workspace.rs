@@ -34,8 +34,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.separator();
 
         for preset in workspace_profile_presets() {
-            let name = preset.name.clone();
-            let tooltip = preset.description.clone();
+            let (name, tooltip) = crate::gui::workspace_profiles::preset_text(&preset, lang);
             let mut resp = ui.add(egui::Button::new(format!("• {name}")));
             if !tooltip.is_empty() {
                 resp = resp.on_hover_text(tooltip);
