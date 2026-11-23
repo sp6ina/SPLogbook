@@ -107,30 +107,21 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
                 );
                 ui.separator();
 
-                let mut selected = app
-                    .marketplace
-                    .category
-                    .clone()
-                    .unwrap_or_else(|| "Wszystkie".to_string());
+                let mut selected = app.marketplace.category.clone();
                 let mut categories: Vec<String> =
                     catalog.iter().map(|e| e.category.clone()).collect();
                 categories.sort();
                 categories.dedup();
-                let mut all = vec!["Wszystkie".to_string()];
-                all.extend(categories);
-
+                let all_label = tr(key::MARKET_ALL_CATEGORIES, lang);
                 egui::ComboBox::from_id_salt("marketplace_category")
-                    .selected_text(&selected)
+                    .selected_text(selected.as_deref().unwrap_or(all_label))
                     .show_ui(ui, |ui| {
-                        for cat in &all {
-                            ui.selectable_value(&mut selected, cat.clone(), cat.as_str());
+                        ui.selectable_value(&mut selected, None, all_label);
+                        for cat in &categories {
+                            ui.selectable_value(&mut selected, Some(cat.clone()), cat.as_str());
                         }
                     });
-                app.marketplace.category = if selected == "Wszystkie" {
-                    None
-                } else {
-                    Some(selected)
-                };
+                app.marketplace.category = selected;
             });
             ui.add_space(4.0);
 
@@ -173,7 +164,8 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
                             .category
                             .as_ref()
                             .is_none_or(|c| &e.category == c);
-                        let hay = format!("{} {} {}", e.name, e.id, e.description).to_lowercase();
+                        let hay = format!("{} {} {}", e.name, e.id, catalog_description(e, lang))
+                            .to_lowercase();
                         let matches_q = query.is_empty() || hay.contains(&query);
                         matches_cat && matches_q
                     })
@@ -261,14 +253,18 @@ fn render_card(
                         );
                     });
                     ui.label(
-                        egui::RichText::new(&entry.description)
+                        egui::RichText::new(catalog_description(entry, lang))
                             .small()
                             .color(palette.text_primary),
                     );
                     ui.label(
-                        egui::RichText::new(format!("Autor: {}", entry.author))
-                            .small()
-                            .color(palette.text_subtle),
+                        egui::RichText::new(
+                            crate::core::i18n::Msg::new(key::MARKET_AUTHOR)
+                                .arg("name", &entry.author)
+                                .text(lang),
+                        )
+                        .small()
+                        .color(palette.text_subtle),
                     );
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -329,13 +325,45 @@ fn start_fetch(app: &mut SpLogApp) {
     });
 }
 
+/// Opis wtyczki w języku interfejsu; wtyczki spoza katalogu wbudowanego zachowują opis
+/// z katalogu zdalnego.
+pub fn catalog_description(
+    entry: &crate::plugins::marketplace::PluginCatalogEntry,
+    lang: crate::core::i18n::Language,
+) -> String {
+    let k = match entry.id.as_str() {
+        "pota-helper" => Some(key::MARKET_DESC_POTA_HELPER),
+        "sota-helper" => Some(key::MARKET_DESC_SOTA_HELPER),
+        "cw-macros" => Some(key::MARKET_DESC_CW_MACROS),
+        "contest-assistant" => Some(key::MARKET_DESC_CONTEST_ASSISTANT),
+        "rotor-assistant" => Some(key::MARKET_DESC_ROTOR_ASSISTANT),
+        "award-tracker" => Some(key::MARKET_DESC_AWARD_TRACKER),
+        "dx-spot-alerts" => Some(key::MARKET_DESC_DX_SPOT_ALERTS),
+        "propagation-watchdog" => Some(key::MARKET_DESC_PROPAGATION_WATCHDOG),
+        "band-activity-logger" => Some(key::MARKET_DESC_BAND_ACTIVITY_LOGGER),
+        "qsl-reminder" => Some(key::MARKET_DESC_QSL_REMINDER),
+        "voice-keyer-trigger" => Some(key::MARKET_DESC_VOICE_KEYER_TRIGGER),
+        "ft8-wsjt-bridge" => Some(key::MARKET_DESC_FT8_WSJT_BRIDGE),
+        "wsjtx-new-dxcc" => Some(key::MARKET_DESC_WSJTX_NEW_DXCC),
+        "qso-rate-goal" => Some(key::MARKET_DESC_QSO_RATE_GOAL),
+        "band-page-switcher" => Some(key::MARKET_DESC_BAND_PAGE_SWITCHER),
+        "contest-rate" => Some(key::MARKET_DESC_CONTEST_RATE),
+        _ => None,
+    };
+    k.map_or_else(|| entry.description.clone(), |k| tr(k, lang).to_string())
+}
+
 /// Rozpoczyna instalację wtyczki w tle.
 fn start_install(app: &mut SpLogApp, entry: crate::plugins::marketplace::PluginCatalogEntry) {
     if app.marketplace.busy_id.is_some() {
         return;
     }
     app.marketplace.busy_id = Some(entry.id.clone());
-    app.marketplace.status = Some(format!("Instalowanie „{}”…", entry.name));
+    app.marketplace.status = Some(
+        crate::core::i18n::Msg::new(key::MARKET_INSTALLING)
+            .arg("name", &entry.name)
+            .text(app.gui.appearance.language),
+    );
     let dir = PathBuf::from(app.config.plugins_dir.clone());
     let (tx, rx) = std::sync::mpsc::channel();
     app.marketplace.install_rx = Some(rx);
@@ -356,4 +384,30 @@ fn reload_plugins(app: &mut SpLogApp) {
     app.services.plugin_engine.load_dir(&dir);
     app.services.plugin_engine.run_startup();
     app.save_station_config();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::i18n::Language;
+
+    #[test]
+    fn every_bundled_plugin_has_a_translated_description() {
+        for entry in crate::plugins::marketplace::bundled_catalog() {
+            let mut probe = entry.clone();
+            probe.description = "untranslated".to_string();
+            for lang in [Language::Pl, Language::En, Language::De, Language::Ru] {
+                let text = catalog_description(&probe, lang);
+                assert_ne!(text, "untranslated", "{}: brak tłumaczenia opisu", entry.id);
+                assert_ne!(text, "", "{}", entry.id);
+            }
+        }
+        let mut remote = crate::plugins::marketplace::bundled_catalog().remove(0);
+        remote.id = "remote-only".to_string();
+        remote.description = "From the remote catalog".to_string();
+        assert_eq!(
+            catalog_description(&remote, Language::Pl),
+            "From the remote catalog"
+        );
+    }
 }

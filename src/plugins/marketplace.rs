@@ -346,6 +346,182 @@ fn on_rig_state(freq_mhz, mode, connected) {
 }
 "#,
         ),
+        PluginCatalogEntry::bundled(
+            "wsjtx-new-dxcc",
+            "WSJT-X New DXCC Alert",
+            "Alerts once per station when a new DXCC entity calls CQ in WSJT-X or JTDX.",
+            "1.0.0",
+            "SPLogbook",
+            "Digital",
+            "📡",
+            "wsjtx_new_dxcc.rhai",
+            r#"
+// WSJT-X New DXCC Alert: one notification per station when a new DXCC entity calls CQ.
+fn text(key) {
+    let texts = #{
+        "pl": "Nowe DXCC w WSJT-X: ",
+        "en": "New DXCC in WSJT-X: ",
+        "de": "Neues DXCC in WSJT-X: ",
+        "fr": "Nouveau DXCC dans WSJT-X : ",
+        "es": "Nuevo DXCC en WSJT-X: ",
+        "it": "Nuovo DXCC in WSJT-X: ",
+        "ru": "Новый DXCC в WSJT-X: "
+    };
+    let lang = language();
+    if lang in texts { texts[lang] } else { texts["en"] }
+}
+
+fn on_wsjtx_decode(call_sign, grid, snr, freq_hz, message, is_cq, mark) {
+    if !is_cq || mark != "new_dxcc" || call_sign == "" {
+        return;
+    }
+    let seen = memory_get("seen");
+    if seen.contains("," + call_sign + ",") {
+        return;
+    }
+    let list = if seen == "" { "," } else { seen };
+    memory_set("seen", list + call_sign + ",");
+    let info = dxcc_of(call_sign);
+    let country = if "country" in info { " (" + info.country + ")" } else { "" };
+    notify(text("new") + call_sign + country + ", " + snr + " dB");
+    play_sound("alert");
+}
+"#,
+        ),
+        PluginCatalogEntry::bundled(
+            "qso-rate-goal",
+            "QSO Rate and Daily Goal",
+            "Shows the QSO rate of the current UTC hour every ten contacts and congratulates when the daily goal is reached.",
+            "1.0.0",
+            "SPLogbook",
+            "Awards",
+            "📈",
+            "qso_rate_goal.rhai",
+            r#"
+// QSO Rate and Daily Goal. Change the number in daily_goal() to your own target.
+fn daily_goal() { 100 }
+
+fn text(key) {
+    let rate = #{
+        "pl": "QSO w tej godzinie UTC: ", "en": "QSOs this UTC hour: ",
+        "de": "QSOs in dieser UTC-Stunde: ", "fr": "QSO dans cette heure UTC : ",
+        "es": "QSO en esta hora UTC: ", "it": "QSO in quest’ora UTC: ",
+        "ru": "QSO за этот час UTC: "
+    };
+    let goal = #{
+        "pl": "Cel dnia osiągnięty: ", "en": "Daily goal reached: ",
+        "de": "Tagesziel erreicht: ", "fr": "Objectif du jour atteint : ",
+        "es": "Objetivo del día alcanzado: ", "it": "Obiettivo del giorno raggiunto: ",
+        "ru": "Цель дня достигнута: "
+    };
+    let texts = if key == "rate" { rate } else { goal };
+    let lang = language();
+    if lang in texts { texts[lang] } else { texts["en"] }
+}
+
+fn bump(key) {
+    let value = memory_get(key);
+    let next = if value == "" { 1 } else { parse_int(value) + 1 };
+    memory_set(key, next.to_string());
+    next
+}
+
+fn on_qso_logged(call_sign, band, mode, freq, atno) {
+    let day = utc_date();
+    if memory_get("day") != day {
+        memory_set("day", day);
+        memory_set("today", "");
+        memory_set("goal_done", "");
+    }
+    let hour = utc_hour().to_string();
+    if memory_get("hour") != hour {
+        memory_set("hour", hour);
+        memory_set("this_hour", "");
+    }
+    let today = bump("today");
+    let this_hour = bump("this_hour");
+    if this_hour % 10 == 0 {
+        notify(text("rate") + this_hour);
+    }
+    if today >= daily_goal() && memory_get("goal_done") == "" {
+        memory_set("goal_done", "yes");
+        notify(text("goal") + today + " QSO");
+    }
+}
+"#,
+        ),
+        PluginCatalogEntry::bundled(
+            "band-page-switcher",
+            "Band Page Switcher",
+            "Switches the workspace page when the radio changes band. Edit pages() in the script to match your page names.",
+            "1.0.0",
+            "SPLogbook",
+            "DX",
+            "🗂",
+            "band_page_switcher.rhai",
+            r#"
+// Band Page Switcher. Map bands to the names of your workspace pages.
+fn pages() { #{ "6m": "VHF", "4m": "VHF", "2m": "VHF", "70cm": "VHF", "23cm": "VHF" } }
+fn default_page() { "HF" }
+
+fn on_rig_state(freq_mhz, mode, connected) {
+    if !connected {
+        return;
+    }
+    let band = band_of(freq_mhz);
+    if band == "" || band == memory_get("band") {
+        return;
+    }
+    memory_set("band", band);
+    let map = pages();
+    let page = if band in map { map[band] } else { default_page() };
+    if page != memory_get("page") {
+        memory_set("page", page);
+        switch_page(page);
+    }
+}
+"#,
+        ),
+        PluginCatalogEntry::bundled(
+            "contest-rate",
+            "Contest Rate Meter",
+            "During a contest reports every 25 QSOs how many contacts were made in the current UTC hour.",
+            "1.0.0",
+            "SPLogbook",
+            "Contest",
+            "🏁",
+            "contest_rate.rhai",
+            r#"
+// Contest Rate Meter: a short report every 25 contest QSOs.
+fn every() { 25 }
+
+fn text() {
+    let texts = #{
+        "pl": "Zawody: QSO w tej godzinie UTC: ", "en": "Contest: QSOs this UTC hour: ",
+        "de": "Contest: QSOs in dieser UTC-Stunde: ", "fr": "Concours : QSO dans cette heure UTC : ",
+        "es": "Concurso: QSO en esta hora UTC: ", "it": "Gara: QSO in quest’ora UTC: ",
+        "ru": "Соревнования: QSO за этот час UTC: "
+    };
+    let lang = language();
+    if lang in texts { texts[lang] } else { texts["en"] }
+}
+
+fn on_contest_qso(call_sign, band, mode, sent, received, contest) {
+    let hour = utc_hour().to_string();
+    if memory_get("hour") != hour {
+        memory_set("hour", hour);
+        memory_set("this_hour", "0");
+    }
+    let total = parse_int(if memory_get("total") == "" { "0" } else { memory_get("total") }) + 1;
+    memory_set("total", total.to_string());
+    let this_hour = parse_int(memory_get("this_hour")) + 1;
+    memory_set("this_hour", this_hour.to_string());
+    if total % every() == 0 {
+        notify(text() + this_hour + " (" + contest + ", " + total + ")");
+    }
+}
+"#,
+        ),
     ]
 }
 
@@ -640,6 +816,114 @@ mod tests {
                 e.sha256.as_deref().unwrap()
             ));
         }
+    }
+
+    #[test]
+    fn new_bundled_plugins_run_on_their_hooks() {
+        use crate::plugins::{ContestQsoHookContext, DecodeHookContext, PluginEngine};
+        let catalog = bundled_catalog();
+        let engine_for = |id: &str| {
+            let entry = catalog
+                .iter()
+                .find(|e| e.id == id)
+                .expect("wtyczka w katalogu");
+            let mut engine = PluginEngine::new();
+            engine
+                .eval(entry.source.as_deref().unwrap())
+                .expect("skrypt się kompiluje");
+            let dir =
+                std::env::temp_dir().join(format!("splog_bundled_{}_{id}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let path = dir.join(&entry.file);
+            std::fs::write(&path, entry.source.as_deref().unwrap()).unwrap();
+            engine.load_script(id, &path);
+            assert!(
+                engine.infos()[0].loaded,
+                "{id}: {:?}",
+                engine.infos()[0].error
+            );
+            engine.set_language("en");
+            std::fs::remove_dir_all(&dir).unwrap();
+            engine
+        };
+
+        // Alarm nowego DXCC: tylko CQ z oznaczeniem new_dxcc, raz na stację.
+        let engine = engine_for("wsjtx-new-dxcc");
+        let decode = |call: &str, mark: &str, is_cq: bool| DecodeHookContext {
+            callsign: call.into(),
+            grid: "KP03".into(),
+            snr: -15,
+            freq_hz: 14_075_000,
+            message: format!("CQ {call} KP03"),
+            is_cq,
+            mark: mark.into(),
+        };
+        engine.run_on_wsjtx_decode(&decode("3Y0J", "new_dxcc", true));
+        engine.run_on_wsjtx_decode(&decode("3Y0J", "new_dxcc", true));
+        engine.run_on_wsjtx_decode(&decode("K1ABC", "worked", true));
+        engine.run_on_wsjtx_decode(&decode("VP8A", "new_dxcc", false));
+        let notes = engine.drain_notifications();
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(
+            notes[0].starts_with("New DXCC in WSJT-X: 3Y0J"),
+            "{notes:?}"
+        );
+        assert!(engine.drain_commands().iter().any(|c| matches!(
+            c,
+            crate::plugins::bridge::PluginCommand::PlaySound { name } if name == "alert"
+        )));
+        assert_eq!(engine.drain_log(), [] as [String; 0], "bez błędów skryptu");
+
+        // Tempo QSO: raport co dziesiątą łączność w godzinie.
+        let engine = engine_for("qso-rate-goal");
+        for i in 0..10 {
+            engine.run_on_qso_logged(&crate::plugins::QsoHookContext {
+                callsign: format!("SP{i}ABC"),
+                band: "20m".into(),
+                mode: "CW".into(),
+                freq_mhz: 14.025,
+                is_atno: false,
+            });
+        }
+        let notes = engine.drain_notifications();
+        assert_eq!(notes, ["QSOs this UTC hour: 10"]);
+        assert_eq!(engine.drain_log(), [] as [String; 0]);
+
+        // Przełącznik stron: zmiana pasma przełącza stronę tylko raz.
+        let engine = engine_for("band-page-switcher");
+        engine.run_on_rig_state(144.300, "USB", true);
+        engine.run_on_rig_state(144.310, "USB", true);
+        engine.run_on_rig_state(14.074, "USB", true);
+        engine.run_on_rig_state(7.074, "USB", true);
+        engine.run_on_rig_state(3.573, "USB", false);
+        let pages: Vec<String> = engine
+            .drain_commands()
+            .into_iter()
+            .filter_map(|c| match c {
+                crate::plugins::bridge::PluginCommand::SwitchPage { name } => Some(name),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(pages, ["VHF", "HF"]);
+        assert_eq!(engine.drain_log(), [] as [String; 0]);
+
+        // Tempo zawodów: raport co 25 łączności.
+        let engine = engine_for("contest-rate");
+        for i in 0..25 {
+            engine.run_on_contest_qso(&ContestQsoHookContext {
+                callsign: format!("DL{i}AA"),
+                band: "40m".into(),
+                mode: "CW".into(),
+                sent: format!("{:03}", i + 1),
+                received: "001".into(),
+                contest: "SP-DX".into(),
+            });
+        }
+        assert_eq!(
+            engine.drain_notifications(),
+            ["Contest: QSOs this UTC hour: 25 (SP-DX, 25)"]
+        );
+        assert_eq!(engine.drain_log(), [] as [String; 0]);
     }
 
     #[test]
