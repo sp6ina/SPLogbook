@@ -5811,3 +5811,86 @@ fn command_palette_labels_are_unique_and_cover_the_main_menu_actions() {
         );
     }
 }
+
+// ======================================================================================
+// Pasek narzędzi (S13b): kolejność, same ikony, profile
+// ======================================================================================
+
+fn s13_toolbar_texts(app: &mut SpLogApp) -> Vec<(String, egui::Rect)> {
+    let ctx = egui::Context::default();
+    let mut texts = Vec::new();
+    for _ in 0..2 {
+        let raw_input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(4000.0, 200.0),
+            )),
+            ..Default::default()
+        };
+        let mut output = ctx.run_ui(raw_input, |ui| {
+            crate::gui::menu::render_main_toolbar(app, ui);
+        });
+        output.textures_delta.clear();
+        texts.clear();
+        for clipped in &output.shapes {
+            collect_text_shapes(&clipped.shape, &mut texts);
+        }
+    }
+    texts
+}
+
+#[test]
+fn toolbar_follows_the_user_order_and_icons_only_mode() {
+    use crate::core::i18n::{Language, key, tr};
+    use crate::core::station::ToolbarItem;
+    let mut app = qso_form_test_app();
+    app.gui.appearance.language = Language::En;
+    for _ in 0..30 {
+        app.config.quick_access.move_item(ToolbarItem::Contest, -1);
+    }
+    let texts = s13_toolbar_texts(&mut app);
+    let x_of = |needle: &str| {
+        texts
+            .iter()
+            .find(|(t, _)| t.contains(needle))
+            .map_or_else(|| panic!("brak «{needle}»"), |(_, r)| r.min.x)
+    };
+    let contest = tr(key::TOOLBAR_CONTEST, Language::En);
+    let vfo = tr(key::TOOLBAR_VFO, Language::En);
+    assert!(x_of(contest) < x_of(vfo), "kontest przesunięty na początek");
+
+    app.config.quick_access.icons_only = true;
+    let texts = s13_toolbar_texts(&mut app);
+    assert!(
+        !texts.iter().any(|(t, _)| t.contains(contest)),
+        "w trybie ikon nazwa jest tylko w podpowiedzi"
+    );
+    assert!(
+        texts.iter().any(|(t, _)| t.contains("WSJT-X")),
+        "wskaźnik stanu zachowuje tekst"
+    );
+}
+
+#[test]
+fn toolbar_travels_with_profiles_but_not_with_pages() {
+    use crate::core::station::ToolbarItem;
+    let mut app = qso_form_test_app();
+    app.rebuild_dock_state_from_panels();
+    app.config.quick_access.icons_only = true;
+    app.config.quick_access.move_item(ToolbarItem::Log, -2);
+    let profile = crate::gui::workspace_profiles::capture_profile(&app, "Compact");
+    assert_eq!(profile.toolbar.as_ref(), Some(&app.config.quick_access));
+
+    app.config.quick_access = crate::core::station::QuickAccessConfig::default();
+    crate::gui::workspace_profiles::apply_profile(&mut app, &profile);
+    assert!(app.config.quick_access.icons_only);
+
+    app.add_workspace_page();
+    assert_eq!(app.workspace_pages()[1].layout.toolbar, None);
+    app.config.quick_access.icons_only = false;
+    app.switch_workspace_page(0);
+    assert!(
+        !app.config.quick_access.icons_only,
+        "strona nie zmienia paska"
+    );
+}

@@ -474,6 +474,7 @@ pub(crate) fn capture_profile(app: &SpLogApp, name: &str) -> WorkspaceProfile {
         panel_world_map: app.views.panel_world_map.clone(),
         panel_waterfall: app.views.panel_waterfall.clone(),
         module_panels: app.views.module_panels(),
+        toolbar: Some(app.config.quick_access.clone()),
         theme_preset: Some(app.gui.appearance.theme_preset.id().to_string()),
         enabled_plugins: Vec::new(),
         cat_profile: None,
@@ -515,6 +516,9 @@ pub(crate) fn apply_profile(app: &mut SpLogApp, p: &WorkspaceProfile) {
     app.views.panel_world_map = p.panel_world_map.clone();
     app.views.panel_waterfall = p.panel_waterfall.clone();
     app.views.set_module_panels(&p.module_panels);
+    if let Some(toolbar) = &p.toolbar {
+        app.config.quick_access.clone_from(toolbar);
+    }
 
     // Synchronizacja okien pływających (popout) dla paneli z obsługą ↗.
     app.gui.windows.show_bandmap_window = p.panel_bandmap.visible && p.panel_bandmap.floating;

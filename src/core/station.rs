@@ -967,6 +967,15 @@ pub struct QuickAccessConfig {
     pub show_wol: bool,
     #[serde(default = "default_true_field")]
     pub show_theme: bool,
+    /// Przełącznik blokady układu pulpitu na pasku (domyślnie ukryty).
+    #[serde(default)]
+    pub show_lock: bool,
+    /// Kolejność elementów jako identyfikatory; pusta lista to kolejność domyślna.
+    #[serde(default)]
+    pub order: Vec<String>,
+    /// Przyciski pokazują tylko ikonę, a nazwa jest w podpowiedzi.
+    #[serde(default)]
+    pub icons_only: bool,
 }
 
 fn default_true_field() -> bool {
@@ -996,7 +1005,201 @@ impl Default for QuickAccessConfig {
             show_eme: true,
             show_wol: true,
             show_theme: true,
+            show_lock: false,
+            order: Vec::new(),
+            icons_only: false,
         }
+    }
+}
+
+/// Element paska narzędzi. Kolejność [`ToolbarItem::ALL`] to kolejność domyślna.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ToolbarItem {
+    Journal,
+    Wsjtx,
+    ClusterStatus,
+    Vfo,
+    Qso,
+    Log,
+    Cat,
+    Cluster,
+    Bandmap,
+    Solar,
+    Lotw,
+    Map,
+    Awards,
+    Cw,
+    Satellites,
+    Contest,
+    Equipment,
+    Eme,
+    Wol,
+    Theme,
+    Lock,
+}
+
+impl ToolbarItem {
+    pub const ALL: [Self; 21] = [
+        Self::Journal,
+        Self::Wsjtx,
+        Self::ClusterStatus,
+        Self::Vfo,
+        Self::Qso,
+        Self::Log,
+        Self::Cat,
+        Self::Cluster,
+        Self::Bandmap,
+        Self::Solar,
+        Self::Lotw,
+        Self::Map,
+        Self::Awards,
+        Self::Cw,
+        Self::Satellites,
+        Self::Contest,
+        Self::Equipment,
+        Self::Eme,
+        Self::Wol,
+        Self::Theme,
+        Self::Lock,
+    ];
+
+    /// Identyfikator zapisywany w konfiguracji.
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::Journal => "journal",
+            Self::Wsjtx => "wsjtx",
+            Self::ClusterStatus => "cluster_status",
+            Self::Vfo => "vfo",
+            Self::Qso => "qso",
+            Self::Log => "log",
+            Self::Cat => "cat",
+            Self::Cluster => "cluster",
+            Self::Bandmap => "bandmap",
+            Self::Solar => "solar",
+            Self::Lotw => "lotw",
+            Self::Map => "map",
+            Self::Awards => "awards",
+            Self::Cw => "cw",
+            Self::Satellites => "satellites",
+            Self::Contest => "contest",
+            Self::Equipment => "equipment",
+            Self::Eme => "eme",
+            Self::Wol => "wol",
+            Self::Theme => "theme",
+            Self::Lock => "lock",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|item| item.id() == id)
+    }
+
+    /// Wskaźniki stanu (dziennik, WSJT-X, klaster) pokazują tekst także w trybie ikon.
+    pub const fn is_status(self) -> bool {
+        matches!(self, Self::Journal | Self::Wsjtx | Self::ClusterStatus)
+    }
+}
+
+impl QuickAccessConfig {
+    pub fn is_visible(&self, item: ToolbarItem) -> bool {
+        match item {
+            ToolbarItem::Journal => self.show_journal,
+            ToolbarItem::Wsjtx => self.show_wsjtx,
+            ToolbarItem::ClusterStatus => self.show_cluster_status,
+            ToolbarItem::Vfo => self.show_vfo,
+            ToolbarItem::Qso => self.show_qso,
+            ToolbarItem::Log => self.show_log,
+            ToolbarItem::Cat => self.show_cat,
+            ToolbarItem::Cluster => self.show_cluster,
+            ToolbarItem::Bandmap => self.show_bandmap,
+            ToolbarItem::Solar => self.show_solar,
+            ToolbarItem::Lotw => self.show_lotw,
+            ToolbarItem::Map => self.show_map,
+            ToolbarItem::Awards => self.show_awards,
+            ToolbarItem::Cw => self.show_cw,
+            ToolbarItem::Satellites => self.show_satellites,
+            ToolbarItem::Contest => self.show_contest,
+            ToolbarItem::Equipment => self.show_equipment,
+            ToolbarItem::Eme => self.show_eme,
+            ToolbarItem::Wol => self.show_wol,
+            ToolbarItem::Theme => self.show_theme,
+            ToolbarItem::Lock => self.show_lock,
+        }
+    }
+
+    pub fn visibility_mut(&mut self, item: ToolbarItem) -> &mut bool {
+        match item {
+            ToolbarItem::Journal => &mut self.show_journal,
+            ToolbarItem::Wsjtx => &mut self.show_wsjtx,
+            ToolbarItem::ClusterStatus => &mut self.show_cluster_status,
+            ToolbarItem::Vfo => &mut self.show_vfo,
+            ToolbarItem::Qso => &mut self.show_qso,
+            ToolbarItem::Log => &mut self.show_log,
+            ToolbarItem::Cat => &mut self.show_cat,
+            ToolbarItem::Cluster => &mut self.show_cluster,
+            ToolbarItem::Bandmap => &mut self.show_bandmap,
+            ToolbarItem::Solar => &mut self.show_solar,
+            ToolbarItem::Lotw => &mut self.show_lotw,
+            ToolbarItem::Map => &mut self.show_map,
+            ToolbarItem::Awards => &mut self.show_awards,
+            ToolbarItem::Cw => &mut self.show_cw,
+            ToolbarItem::Satellites => &mut self.show_satellites,
+            ToolbarItem::Contest => &mut self.show_contest,
+            ToolbarItem::Equipment => &mut self.show_equipment,
+            ToolbarItem::Eme => &mut self.show_eme,
+            ToolbarItem::Wol => &mut self.show_wol,
+            ToolbarItem::Theme => &mut self.show_theme,
+            ToolbarItem::Lock => &mut self.show_lock,
+        }
+    }
+
+    /// Elementy w kolejności użytkownika; nieznane i powtórzone identyfikatory są
+    /// pomijane, brakujące elementy dochodzą na końcu w kolejności domyślnej.
+    pub fn ordered(&self) -> Vec<ToolbarItem> {
+        let mut items: Vec<ToolbarItem> = Vec::with_capacity(ToolbarItem::ALL.len());
+        for item in self.order.iter().filter_map(|id| ToolbarItem::from_id(id)) {
+            if !items.contains(&item) {
+                items.push(item);
+            }
+        }
+        for item in ToolbarItem::ALL {
+            if !items.contains(&item) {
+                items.push(item);
+            }
+        }
+        items
+    }
+
+    /// Przesuwa element o `step` pozycji (ujemnie: w lewo); na końcach nic nie robi.
+    pub fn move_item(&mut self, item: ToolbarItem, step: isize) {
+        let mut items = self.ordered();
+        let Some(from) = items.iter().position(|i| *i == item) else {
+            return;
+        };
+        let Some(to) = from.checked_add_signed(step).filter(|to| *to < items.len()) else {
+            return;
+        };
+        let moved = items.remove(from);
+        items.insert(to, moved);
+        self.order = items.iter().map(|i| i.id().to_string()).collect();
+    }
+
+    /// Pasek z samymi wskaźnikami stanu, panelami VFO, QSO i dziennika oraz motywem.
+    pub fn minimal() -> Self {
+        let mut config = Self::default();
+        for item in ToolbarItem::ALL {
+            *config.visibility_mut(item) = matches!(
+                item,
+                ToolbarItem::Journal
+                    | ToolbarItem::Wsjtx
+                    | ToolbarItem::ClusterStatus
+                    | ToolbarItem::Vfo
+                    | ToolbarItem::Qso
+                    | ToolbarItem::Log
+                    | ToolbarItem::Theme
+            );
+        }
+        config
     }
 }
 
@@ -1074,6 +1277,9 @@ pub struct WorkspaceProfile {
     /// Okna modułów; profil bez wpisu zamyka moduł.
     #[serde(default)]
     pub module_panels: std::collections::BTreeMap<String, ViewPanelConfig>,
+    /// Pasek narzędzi profilu; profil bez paska pozostawia bieżący.
+    #[serde(default)]
+    pub toolbar: Option<QuickAccessConfig>,
     #[serde(default)]
     pub theme_preset: Option<String>,
     /// Wtyczki Rhai, które mają być włączone w tym profilu (przyszłe
@@ -1337,6 +1543,7 @@ fn wp(
         panel_world_map: world_map,
         panel_waterfall: waterfall,
         module_panels: std::collections::BTreeMap::new(),
+        toolbar: None,
         theme_preset: theme.map(std::string::ToString::to_string),
         enabled_plugins: Vec::new(),
         cat_profile: None,
@@ -1927,6 +2134,64 @@ mod tests {
         );
         assert_eq!(reloaded.distance_unit, source.distance_unit);
         assert_eq!(reloaded.lan_sync_port, source.lan_sync_port);
+    }
+
+    #[test]
+    fn toolbar_order_ignores_unknown_and_repeated_ids() {
+        let mut qa = QuickAccessConfig::default();
+        assert_eq!(qa.ordered(), ToolbarItem::ALL.to_vec());
+        qa.order = vec![
+            "log".to_string(),
+            "future_button".to_string(),
+            "log".to_string(),
+            "vfo".to_string(),
+        ];
+        let ordered = qa.ordered();
+        assert_eq!(ordered[..2], [ToolbarItem::Log, ToolbarItem::Vfo]);
+        assert_eq!(ordered.len(), ToolbarItem::ALL.len());
+        for item in ToolbarItem::ALL {
+            assert_eq!(ToolbarItem::from_id(item.id()), Some(item));
+        }
+    }
+
+    #[test]
+    fn toolbar_items_move_and_stop_at_the_ends() {
+        let mut qa = QuickAccessConfig::default();
+        qa.move_item(ToolbarItem::Theme, -1);
+        let ordered = qa.ordered();
+        let theme = ordered
+            .iter()
+            .position(|i| *i == ToolbarItem::Theme)
+            .unwrap();
+        assert_eq!(ordered[theme + 1], ToolbarItem::Wol);
+        qa.move_item(ToolbarItem::Journal, -1);
+        assert_eq!(qa.ordered()[0], ToolbarItem::Journal);
+        qa.move_item(ToolbarItem::Lock, 1);
+        assert_eq!(qa.ordered().last(), Some(&ToolbarItem::Lock));
+    }
+
+    #[test]
+    fn toolbar_visibility_covers_every_item_and_minimal_keeps_the_basics() {
+        let mut qa = QuickAccessConfig::default();
+        for item in ToolbarItem::ALL {
+            *qa.visibility_mut(item) = false;
+            assert!(!qa.is_visible(item), "{item:?}");
+        }
+        assert!(!QuickAccessConfig::default().is_visible(ToolbarItem::Lock));
+        let minimal = QuickAccessConfig::minimal();
+        assert!(minimal.is_visible(ToolbarItem::Log));
+        assert!(minimal.is_visible(ToolbarItem::Theme));
+        assert!(!minimal.is_visible(ToolbarItem::Contest));
+    }
+
+    #[test]
+    fn toolbar_settings_from_v13_load_with_the_default_order() {
+        let old = r#"{"show_journal":true,"show_cat":false}"#;
+        let qa: QuickAccessConfig = serde_json::from_str(old).unwrap();
+        assert!(!qa.show_cat);
+        assert!(!qa.icons_only);
+        assert_eq!(qa.order, Vec::<String>::new());
+        assert_eq!(qa.ordered(), ToolbarItem::ALL.to_vec());
     }
 
     #[test]

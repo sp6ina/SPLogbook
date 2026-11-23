@@ -12,16 +12,13 @@ impl SpLogApp {
             .unwrap_or(0);
         self.gui.appearance.theme_preset = all[(idx + 1) % all.len()];
         self.save_station_config();
-        self.gui.chrome.push_status_toast(
-            crate::gui::state::ToastSeverity::Info,
-            format!(
-                "Zmieniono motyw: {}",
-                self.gui
-                    .appearance
-                    .theme_preset
-                    .label(self.gui.appearance.language)
-            ),
-        );
+        let lang = self.gui.appearance.language;
+        let text = crate::core::i18n::Msg::new(crate::core::i18n::key::THEME_CHANGED_TOAST)
+            .arg("theme", self.gui.appearance.theme_preset.label(lang))
+            .text(lang);
+        self.gui
+            .chrome
+            .push_status_toast(crate::gui::state::ToastSeverity::Info, text);
     }
 
     /// Tworzy zaktualizowaną strukturę [`AppConfig`] odzwierciedlającą bieżący stan aplikacji.

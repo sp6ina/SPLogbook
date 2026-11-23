@@ -48,6 +48,7 @@ impl SpLogApp {
         let mut layout = capture_profile(self, name);
         layout.theme_preset = None;
         layout.cluster_filter = None;
+        layout.toolbar = None;
         layout
     }
 
