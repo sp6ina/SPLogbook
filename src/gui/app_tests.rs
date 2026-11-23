@@ -5650,3 +5650,69 @@ fn workspace_pages_switch_with_ctrl_page_keys() {
         assert!(binding.shortcut.modifiers.command);
     }
 }
+
+// ======================================================================================
+// Blokada układu pulpitu (S12c)
+// ======================================================================================
+
+#[test]
+fn locked_layout_refuses_undock_dock_and_close() {
+    use crate::gui::state::Tile;
+    use egui_dock::TabViewer;
+    let mut app = qso_form_test_app();
+    app.rebuild_dock_state_from_panels();
+    app.set_layout_locked(true);
+    assert!(app.layout_locked());
+    assert!(app.snapshot_config().workspace_locked);
+    let toasts_before = app.gui.chrome.toasts.len();
+
+    app.popout_tile("log");
+    assert!(!app.views.panel_log.floating, "odpięcie zablokowane");
+    assert!(
+        app.gui.chrome.toasts.len() > toasts_before,
+        "przypomnienie o blokadzie"
+    );
+
+    app.open_tile(Tile::Contest);
+    app.dock_tile(Tile::Contest.id());
+    assert!(
+        app.views.panel(Tile::Contest).floating,
+        "dokowanie zablokowane"
+    );
+
+    let mut tab = "log".to_string();
+    assert!(!TabViewer::is_closeable(&app, &tab));
+    let _ = TabViewer::on_close(&mut app, &mut tab);
+    assert!(
+        app.views.panel_log.visible,
+        "karta nie znika przy blokadzie"
+    );
+
+    // Świadome działania z menu nadal działają: zamknięcie modułu, przełączenie strony.
+    app.close_tile(Tile::Contest.id());
+    assert!(!app.views.panel(Tile::Contest).visible);
+
+    app.set_layout_locked(false);
+    app.popout_tile("log");
+    assert!(app.views.panel_log.floating);
+    assert!(TabViewer::is_closeable(&app, &tab));
+}
+
+#[tokio::test]
+async fn locked_workspace_renders_without_undock_controls() {
+    use crate::gui::state::Tile;
+    let mut app = qso_form_test_app();
+    app.rebuild_dock_state_from_panels();
+    app.open_tile(Tile::Statistics);
+    app.set_layout_locked(true);
+    let ctx = egui::Context::default();
+    for _ in 0..2 {
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.render_central_workspace(ui);
+            app.render_advanced_module_windows(ui.ctx());
+        });
+        output.textures_delta.clear();
+    }
+    assert!(app.layout_locked());
+    assert!(app.views.panel(Tile::Statistics).visible);
+}

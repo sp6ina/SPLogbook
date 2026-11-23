@@ -129,7 +129,43 @@ impl SpLogApp {
         self.gui.workspace.last_saved_dock_layout = self.serialize_dock_layout();
     }
 
+    pub fn layout_locked(&self) -> bool {
+        self.config.workspace_locked
+    }
+
+    /// Włącza albo wyłącza blokadę układu pulpitu.
+    pub fn set_layout_locked(&mut self, locked: bool) {
+        if self.config.workspace_locked == locked {
+            return;
+        }
+        self.config.workspace_locked = locked;
+        let k = if locked {
+            key::WORKSPACE_LOCK_ON
+        } else {
+            key::WORKSPACE_LOCK_OFF
+        };
+        let text = tr(k, self.gui.appearance.language);
+        self.gui
+            .chrome
+            .push_status_toast(crate::gui::state::ToastSeverity::Info, text);
+        self.save_station_config();
+    }
+
+    /// Przy zablokowanym układzie odpinanie i dokowanie tylko przypomina o blokadzie.
+    fn refuse_when_locked(&mut self) -> bool {
+        if self.layout_locked() {
+            let text = tr(key::WORKSPACE_LOCKED_TOAST, self.gui.appearance.language);
+            self.gui
+                .chrome
+                .push_status_toast(crate::gui::state::ToastSeverity::Warning, text);
+        }
+        self.layout_locked()
+    }
+
     pub fn popout_tile(&mut self, tile_id: &str) {
+        if self.refuse_when_locked() {
+            return;
+        }
         let Some(tile) = Tile::from_id(tile_id) else {
             return;
         };
@@ -144,6 +180,9 @@ impl SpLogApp {
 
     /// Zadokowuje odpięty kafelek z powrotem do pulpitu (odwrotność [`Self::popout_tile`]).
     pub fn dock_tile(&mut self, tile_id: &str) {
+        if self.refuse_when_locked() {
+            return;
+        }
         if let Some(tile) = Tile::from_id(tile_id) {
             self.views.panel_mut(tile).floating = false;
         }
@@ -214,19 +253,22 @@ impl SpLogApp {
             return;
         }
         let lang = self.gui.appearance.language;
+        let locked = self.layout_locked();
         let mut open = true;
         let mut dock = false;
         window.open(&mut open).show(ctx, |ui| {
             let palette = ui.palette();
-            ui.horizontal(|ui| {
-                dock = crate::gui::theme::dock_button(
-                    ui,
-                    &palette,
-                    tr(key::WINDOW_DOCK, lang),
-                    tr(key::WINDOW_DOCK_TOOLTIP, lang),
-                )
-                .clicked();
-            });
+            if !locked {
+                ui.horizontal(|ui| {
+                    dock = crate::gui::theme::dock_button(
+                        ui,
+                        &palette,
+                        tr(key::WINDOW_DOCK, lang),
+                        tr(key::WINDOW_DOCK_TOOLTIP, lang),
+                    )
+                    .clicked();
+                });
+            }
             body(self, ui);
         });
         if dock {
@@ -457,11 +499,15 @@ impl SpLogApp {
                         &mut self.gui.workspace.dock_state,
                         DockState::new(vec![]),
                     );
+                    let locked = self.layout_locked();
                     DockArea::new(&mut dock_state)
                         .style(Style::from_egui(ui.style().as_ref()))
                         .show_add_buttons(false)
                         .show_add_popup(false)
-                        .show_close_buttons(true)
+                        .show_close_buttons(!locked)
+                        .draggable_tabs(!locked)
+                        .tab_context_menus(!locked)
+                        .show_leaf_close_all_buttons(!locked)
                         .show_inside(ui, self);
                     self.gui.workspace.dock_state = dock_state;
 
@@ -485,6 +531,19 @@ impl SpLogApp {
                         // `horizontal_wrapped`: długie komunikaty FR/IT i przycisk resetu RU
                         // zawijają się zamiast nachodzić na siebie.
                         ui.horizontal_wrapped(|ui| {
+                            if self.layout_locked() {
+                                if ui
+                                    .button(
+                                        egui::RichText::new(tr(key::WORKSPACE_LOCKED_BADGE, lang))
+                                            .size(11.0),
+                                    )
+                                    .on_hover_text(tr(key::WORKSPACE_UNLOCK, lang))
+                                    .clicked()
+                                {
+                                    self.set_layout_locked(false);
+                                }
+                                return;
+                            }
                             if ui
                                 .button(
                                     egui::RichText::new(tr(key::APP_RESTORE_LAYOUT_BTN, lang))

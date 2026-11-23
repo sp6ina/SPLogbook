@@ -632,7 +632,10 @@ impl TabViewer for SpLogApp {
                 self.render_tile_header_custom(&tile_id, ui);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let lang = self.gui.appearance.language;
-                    if undock_button(ui, &palette, tr(key::WINDOW_POPOUT_TOOLTIP, lang)).clicked() {
+                    if !self.layout_locked()
+                        && undock_button(ui, &palette, tr(key::WINDOW_POPOUT_TOOLTIP, lang))
+                            .clicked()
+                    {
                         action_popout = true;
                     }
                 });
@@ -647,8 +650,14 @@ impl TabViewer for SpLogApp {
 
     fn on_close(&mut self, tab: &mut Self::Tab) -> OnCloseResponse {
         // Kafelek jest ukrywany przez konfigurację paneli; `sync_dock_state` usuwa kartę.
-        self.close_tile(tab);
+        if !self.layout_locked() {
+            self.close_tile(tab);
+        }
         OnCloseResponse::Ignore
+    }
+
+    fn is_closeable(&self, _tab: &Self::Tab) -> bool {
+        !self.layout_locked()
     }
 
     fn context_menu(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab, _path: NodePath) {

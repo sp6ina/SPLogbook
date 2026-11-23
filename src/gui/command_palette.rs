@@ -285,6 +285,14 @@ pub(crate) const COMMANDS: &[Command] = &[
         },
     },
     Command {
+        label_key: key::WORKSPACE_LOCK,
+        keywords: "lock layout workspace unlock",
+        run: |app| {
+            let locked = app.layout_locked();
+            app.set_layout_locked(!locked);
+        },
+    },
+    Command {
         label_key: key::BANDPLAN_MENU,
         keywords: "band plan segments bandplan",
         run: |app| {

@@ -691,6 +691,9 @@ pub struct AppConfig {
     /// Strona, której układem jest bieżący pulpit.
     #[serde(default)]
     pub active_workspace_page: usize,
+    /// Zablokowany układ: kafelków nie da się przeciągać, zamykać ani odpinać.
+    #[serde(default)]
+    pub workspace_locked: bool,
 
     /// Tryb zakładek w kolumnach dokowanego układu: true = kafelki w kolumnie
     /// prezentowane jako zakładki (jedna aktywna na raz), false = układ pionowy.
@@ -848,6 +851,7 @@ impl std::fmt::Debug for AppConfig {
             .field("module_panels", &self.module_panels)
             .field("workspace_pages", &self.workspace_pages.len())
             .field("active_workspace_page", &self.active_workspace_page)
+            .field("workspace_locked", &self.workspace_locked)
             .field("tabbed_columns", &self.tabbed_columns)
             .field("dock_layout", &self.dock_layout)
             .field("logbook_columns", &self.logbook_columns)
@@ -1534,6 +1538,7 @@ impl Default for AppConfig {
             module_panels: std::collections::BTreeMap::new(),
             workspace_pages: Vec::new(),
             active_workspace_page: 0,
+            workspace_locked: false,
 
             schema_version: default_schema_version(),
             tabbed_columns: false,

@@ -17,6 +17,15 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.gui.appearance.language;
 
     ui.menu_button(icons::DESKTOP.label(tr(key::MENU_WORKSPACE, lang)), |ui| {
+        let mut locked = app.layout_locked();
+        if ui
+            .checkbox(&mut locked, tr(key::WORKSPACE_LOCK, lang))
+            .on_hover_text(tr(key::WORKSPACE_LOCK_HINT, lang))
+            .changed()
+        {
+            app.set_layout_locked(locked);
+        }
+        ui.separator();
         ui.label(
             egui::RichText::new(tr(key::WORKSPACE_BUILTIN_PRESETS, lang))
                 .strong()
