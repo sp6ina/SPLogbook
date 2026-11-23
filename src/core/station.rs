@@ -734,6 +734,10 @@ pub struct AppConfig {
     /// Plan pasm użytkownika; `None` oznacza wbudowany plan IARU Region 1.
     #[serde(default)]
     pub bandplan: Option<crate::core::bandplan::BandPlan>,
+
+    /// Własny akcent i gęstość interfejsu nakładane na wybrany motyw.
+    #[serde(default)]
+    pub theme_custom: ThemeCustomization,
 }
 
 impl std::fmt::Debug for AppConfig {
@@ -863,6 +867,7 @@ impl std::fmt::Debug for AppConfig {
             .field("wsjtx", &self.wsjtx)
             .field("cluster_spots", &self.cluster_spots)
             .field("bandplan", &self.bandplan.is_some())
+            .field("theme_custom", &self.theme_custom)
             .finish()
     }
 }
@@ -1318,6 +1323,31 @@ pub struct WorkspacePage {
     pub layout: WorkspaceProfile,
 }
 
+/// Gęstość interfejsu: odstępy między elementami i wypełnienie przycisków.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UiDensity {
+    Compact,
+    Comfortable,
+    /// Wartość nieznana w tej wersji programu też oznacza gęstość zwykłą.
+    #[default]
+    #[serde(other)]
+    Normal,
+}
+
+impl UiDensity {
+    pub const ALL: [Self; 3] = [Self::Compact, Self::Normal, Self::Comfortable];
+}
+
+/// Personalizacja motywu nakładana na motyw wbudowany.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ThemeCustomization {
+    /// Własny kolor akcentu (sRGB); `None` to akcent motywu.
+    pub accent_rgb: Option<[u8; 3]>,
+    pub density: UiDensity,
+}
+
 /// Opakowanie pliku eksportu/importu workspace (`*.spws`) z polem wersji
 /// umożliwiającym przyszłe migracje schematu.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1764,6 +1794,7 @@ impl Default for AppConfig {
             wsjtx: crate::digital::wsjtx::WsjtxSettings::default(),
             cluster_spots: ClusterSpotSettings::default(),
             bandplan: None,
+            theme_custom: ThemeCustomization::default(),
         }
     }
 }
@@ -2134,6 +2165,22 @@ mod tests {
         );
         assert_eq!(reloaded.distance_unit, source.distance_unit);
         assert_eq!(reloaded.lan_sync_port, source.lan_sync_port);
+    }
+
+    #[test]
+    fn theme_customization_loads_unknown_density_and_old_configs() {
+        let custom: ThemeCustomization =
+            serde_json::from_str(r#"{"accent_rgb":[1,2,3],"density":"ultra_dense"}"#).unwrap();
+        assert_eq!(custom.density, UiDensity::Normal);
+        assert_eq!(custom.accent_rgb, Some([1, 2, 3]));
+        let back: ThemeCustomization =
+            serde_json::from_str(&serde_json::to_string(&custom).unwrap()).unwrap();
+        assert_eq!(back, custom);
+        let compact: ThemeCustomization = serde_json::from_str(r#"{"density":"compact"}"#).unwrap();
+        assert_eq!(compact.density, UiDensity::Compact);
+        assert_eq!(compact.accent_rgb, None);
+        let old: AppConfig = serde_json::from_str("{}").unwrap();
+        assert_eq!(old.theme_custom, ThemeCustomization::default());
     }
 
     #[test]

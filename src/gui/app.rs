@@ -533,10 +533,11 @@ impl SpLogApp {
         self.poll_main_async_events(ctx);
 
         // Zastosowanie wybranego motywu, stylów i skali UI (apply-on-change przez ensure_applied).
-        crate::gui::theme::ensure_applied(
+        crate::gui::theme::ensure_applied_custom(
             ctx,
             self.gui.appearance.theme_preset,
             self.config.font_scale,
+            &self.config.theme_custom,
         );
 
         // Faza Chrome: paski menu i statusu stacji

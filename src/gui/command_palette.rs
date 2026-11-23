@@ -285,6 +285,14 @@ pub(crate) const COMMANDS: &[Command] = &[
         },
     },
     Command {
+        label_key: key::THEME_CUSTOM_MENU,
+        keywords: "theme accent colour color density personalize",
+        run: |app| {
+            let accent = app.gui.appearance.theme_preset.palette().accent;
+            app.open_theme_customizer([accent.r(), accent.g(), accent.b()]);
+        },
+    },
+    Command {
         label_key: key::WORKSPACE_LOCK,
         keywords: "lock layout workspace unlock",
         run: |app| {

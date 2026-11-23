@@ -9,6 +9,7 @@ pub mod ext;
 pub mod palette;
 pub mod tokens;
 
+use crate::core::station::{ThemeCustomization, UiDensity};
 use eframe::egui;
 use egui::Color32;
 
@@ -43,19 +44,62 @@ pub fn applied_theme_id() -> egui::Id {
     egui::Id::new(APPLIED_THEME_ID_STR)
 }
 
-/// Stan ostatnio zastosowanego motywu wraz ze skalą czcionki.
+/// Stan ostatnio zastosowanego motywu wraz ze skalą czcionki i personalizacją.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AppliedTheme {
     pub preset: ThemePreset,
     pub font_scale_bits: u32,
+    pub custom: ThemeCustomization,
+}
+
+/// Najmniejszy kontrast akcentu z tłem paneli i okien (WCAG 2.1, kryterium 1.4.11
+/// dla elementów interfejsu); motyw wysokiego kontrastu wymaga 4,5:1.
+pub fn min_accent_contrast(preset: ThemePreset) -> f32 {
+    if preset == ThemePreset::HighContrast {
+        4.5
+    } else {
+        3.0
+    }
+}
+
+/// Najsłabszy kontrast koloru z tłem paneli i okien motywu.
+pub fn accent_contrast(preset: ThemePreset, rgb: [u8; 3]) -> f32 {
+    let base = preset.palette();
+    let accent = Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
+    contrast_ratio(accent, base.panel_bg).min(contrast_ratio(accent, base.window_bg))
+}
+
+pub fn accent_is_readable(preset: ThemePreset, rgb: [u8; 3]) -> bool {
+    accent_contrast(preset, rgb) >= min_accent_contrast(preset)
+}
+
+/// Paleta motywu z własnym akcentem. Akcent bez wymaganego kontrastu jest pomijany.
+pub fn custom_palette(preset: ThemePreset, custom: &ThemeCustomization) -> Palette {
+    let mut palette = preset.palette();
+    if let Some(rgb) = custom
+        .accent_rgb
+        .filter(|rgb| accent_is_readable(preset, *rgb))
+    {
+        let accent = Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
+        palette.accent = accent;
+        palette.info = accent;
+        palette.selection_bg = accent;
+        palette.selection_text = readable_on(accent);
+    }
+    palette
 }
 
 impl AppliedTheme {
     pub fn new(preset: ThemePreset, font_scale: f32) -> Self {
+        Self::with_custom(preset, font_scale, ThemeCustomization::default())
+    }
+
+    pub fn with_custom(preset: ThemePreset, font_scale: f32, custom: ThemeCustomization) -> Self {
         let clamped = font_scale.clamp(0.8, 1.5);
         Self {
             preset,
             font_scale_bits: clamped.to_bits(),
+            custom,
         }
     }
 
@@ -67,7 +111,17 @@ impl AppliedTheme {
 /// Zapewnia, że visuals, skala UI, style i Palette są zaaplikowane w `egui::Context`.
 /// Aktualizacja następuje wyłącznie przy pierwszym wywołaniu lub przy zmianie motywu / font_scale.
 pub fn ensure_applied(ctx: &egui::Context, preset: ThemePreset, font_scale: f32) {
-    let target = AppliedTheme::new(preset, font_scale);
+    ensure_applied_custom(ctx, preset, font_scale, &ThemeCustomization::default());
+}
+
+/// Jak [`ensure_applied`], z własnym akcentem i gęstością interfejsu.
+pub fn ensure_applied_custom(
+    ctx: &egui::Context,
+    preset: ThemePreset,
+    font_scale: f32,
+    custom: &ThemeCustomization,
+) {
+    let target = AppliedTheme::with_custom(preset, font_scale, *custom);
     let current = ctx.data(|d| d.get_temp::<AppliedTheme>(applied_theme_id()));
 
     let needs_apply = match current {
@@ -82,7 +136,7 @@ pub fn ensure_applied(ctx: &egui::Context, preset: ThemePreset, font_scale: f32)
         }
     }
 
-    let palette = preset.palette();
+    let palette = custom_palette(preset, custom);
 
     let mut visuals = if palette.is_dark {
         egui::Visuals::dark()
@@ -108,9 +162,27 @@ pub fn ensure_applied(ctx: &egui::Context, preset: ThemePreset, font_scale: f32)
     ctx.set_zoom_factor(target.font_scale());
 
     let theme = ctx.theme();
+    let (window_margin, button_padding, item_spacing) = match custom.density {
+        UiDensity::Compact => (
+            egui::Margin::symmetric(4, 2),
+            egui::vec2(SPACE_XS, 1.0),
+            egui::vec2(6.0, SPACE_XS),
+        ),
+        UiDensity::Normal => (
+            egui::Margin::symmetric(6, 4),
+            egui::vec2(SPACE_SM, SPACE_XS),
+            egui::vec2(SPACE_MD, 3.0),
+        ),
+        UiDensity::Comfortable => (
+            egui::Margin::symmetric(10, 8),
+            egui::vec2(SPACE_MD, SPACE_SM),
+            egui::vec2(SPACE_LG, 6.0),
+        ),
+    };
     ctx.style_mut_of(theme, |s| {
-        s.spacing.window_margin = egui::Margin::symmetric(6, 4);
-        s.spacing.button_padding = egui::vec2(SPACE_SM, SPACE_XS);
+        s.spacing.window_margin = window_margin;
+        s.spacing.button_padding = button_padding;
+        s.spacing.item_spacing = item_spacing;
     });
 
     ctx.data_mut(|d| {
@@ -151,6 +223,47 @@ mod tests {
         let palette = ctx.palette();
         assert_eq!(palette, ThemePreset::Daylight.palette());
         assert!(!palette.is_dark);
+    }
+
+    #[test]
+    fn custom_accent_is_used_only_when_readable() {
+        let bright = ThemeCustomization {
+            accent_rgb: Some([255, 200, 0]),
+            density: UiDensity::Normal,
+        };
+        let palette = custom_palette(ThemePreset::OperatorDark, &bright);
+        assert_eq!(palette.accent, Color32::from_rgb(255, 200, 0));
+        assert_eq!(palette.selection_bg, palette.accent);
+        assert!(contrast_ratio(palette.selection_text, palette.selection_bg) >= 4.5);
+
+        let weak = ThemeCustomization {
+            accent_rgb: Some([20, 30, 60]),
+            density: UiDensity::Normal,
+        };
+        assert_eq!(
+            custom_palette(ThemePreset::OperatorDark, &weak),
+            ThemePreset::OperatorDark.palette()
+        );
+    }
+
+    #[test]
+    fn density_changes_spacing_and_reapplies_the_theme() {
+        let spacing = |density| {
+            let ctx = egui::Context::default();
+            let custom = ThemeCustomization {
+                accent_rgb: None,
+                density,
+            };
+            ensure_applied_custom(&ctx, ThemePreset::Daylight, 1.0, &custom);
+            let applied = ctx.data(|d| d.get_temp::<AppliedTheme>(applied_theme_id()));
+            assert_eq!(applied.map(|a| a.custom), Some(custom));
+            ctx.style_of(ctx.theme()).spacing.item_spacing
+        };
+        let compact = spacing(UiDensity::Compact);
+        let normal = spacing(UiDensity::Normal);
+        let comfortable = spacing(UiDensity::Comfortable);
+        assert!(compact.x < normal.x && normal.x < comfortable.x);
+        assert!(compact.y < normal.y && normal.y < comfortable.y);
     }
 
     #[test]

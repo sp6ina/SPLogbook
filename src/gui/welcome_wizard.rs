@@ -596,10 +596,11 @@ fn render_tab_appearance(
             .fill(fill);
             if ui.add_sized([140.0, 30.0], btn).clicked() {
                 app.gui.appearance.theme_preset = preset;
-                crate::gui::theme::ensure_applied(
+                crate::gui::theme::ensure_applied_custom(
                     ctx,
                     app.gui.appearance.theme_preset,
                     app.config.font_scale,
+                    &app.config.theme_custom,
                 );
                 app.save_station_config();
             }

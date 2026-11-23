@@ -627,6 +627,7 @@ impl SpLogApp {
     /// Okna dialogowe i narzędzia pomocnicze
     pub fn render_dialogs(&mut self, ctx: &egui::Context) {
         self.render_page_rename_dialog(ctx);
+        crate::gui::theme_customizer::render_theme_customizer(self, ctx);
         if self.gui.dialogs.journal_dialog.is_open {
             let mut switched_journal = None;
             let lang = self.gui.appearance.language;

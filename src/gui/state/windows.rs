@@ -18,6 +18,8 @@ pub struct WindowState {
     pub awards_other_subtab: usize,
     pub awards_other_search: String,
     pub show_quick_access_customizer: bool,
+    /// Otwarte okno personalizacji motywu z edytowanym kolorem.
+    pub theme_accent_draft: Option<crate::gui::theme_customizer::AccentDraft>,
     pub show_column_settings: bool,
     pub column_preset_name: String,
     pub show_operator_assistant: bool,
@@ -39,6 +41,7 @@ impl Default for WindowState {
             awards_other_subtab: 0,
             awards_other_search: String::new(),
             show_quick_access_customizer: false,
+            theme_accent_draft: None,
             show_column_settings: false,
             column_preset_name: String::new(),
             show_operator_assistant: false,

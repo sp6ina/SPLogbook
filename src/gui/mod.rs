@@ -61,6 +61,7 @@ pub mod station_ledger;
 pub mod station_profiles;
 pub mod statistics;
 pub mod theme;
+pub mod theme_customizer;
 pub mod user_manual;
 pub mod vfo_panel;
 pub mod voice_keyer;

@@ -5894,3 +5894,40 @@ fn toolbar_travels_with_profiles_but_not_with_pages() {
         "strona nie zmienia paska"
     );
 }
+
+// ======================================================================================
+// Personalizacja motywu (S13c)
+// ======================================================================================
+
+#[test]
+fn theme_customizer_opens_renders_and_saves() {
+    use crate::core::station::{ThemeCustomization, UiDensity};
+    let mut app = qso_form_test_app();
+    app.open_theme_customizer([56, 189, 248]);
+    let draft = app.gui.windows.theme_accent_draft.expect("okno otwarte");
+    assert!(!draft.own);
+    assert_eq!(draft.rgb, [56, 189, 248]);
+
+    let ctx = egui::Context::default();
+    for _ in 0..2 {
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            crate::gui::theme_customizer::render_theme_customizer(&mut app, ui.ctx());
+        });
+        output.textures_delta.clear();
+    }
+    assert!(
+        app.gui.windows.theme_accent_draft.is_some(),
+        "okno zostaje otwarte"
+    );
+
+    let custom = ThemeCustomization {
+        accent_rgb: Some([255, 200, 0]),
+        density: UiDensity::Comfortable,
+    };
+    app.apply_theme_customization(custom);
+    assert_eq!(app.snapshot_config().theme_custom, custom);
+    app.open_theme_customizer([0, 0, 0]);
+    let draft = app.gui.windows.theme_accent_draft.unwrap();
+    assert!(draft.own);
+    assert_eq!(draft.rgb, [255, 200, 0], "okno pokazuje zapisany akcent");
+}
