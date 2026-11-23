@@ -314,6 +314,220 @@ pub(crate) const COMMANDS: &[Command] = &[
             app.cycle_theme();
         },
     },
+    Command {
+        label_key: key::QSO_CLEAR,
+        keywords: "clear qso form wipe",
+        run: |app| {
+            app.clear_qso_form();
+        },
+    },
+    Command {
+        label_key: key::QSO_DELETE,
+        keywords: "delete qso remove",
+        run: |app| {
+            app.delete_selected_qso();
+        },
+    },
+    Command {
+        label_key: key::MENU_JOURNAL_MGMT,
+        keywords: "journal logbook manage",
+        run: |app| {
+            if let Ok(db) = app.services.log_db.lock() {
+                app.gui.dialogs.journal_dialog.reload(&db);
+            }
+            app.gui.dialogs.journal_dialog.is_open = true;
+        },
+    },
+    Command {
+        label_key: key::MENU_IMPORT_ADIF,
+        keywords: "import adif adi",
+        run: |app| {
+            app.trigger_import_adif();
+        },
+    },
+    Command {
+        label_key: key::MENU_EXPORT_ADIF,
+        keywords: "export adif adi",
+        run: |app| {
+            app.trigger_export_adif();
+        },
+    },
+    Command {
+        label_key: key::MENU_EXPORT_ADX,
+        keywords: "export adx xml",
+        run: |app| {
+            app.trigger_export_adx();
+        },
+    },
+    Command {
+        label_key: key::MENU_EXPORT_CSV,
+        keywords: "export csv spreadsheet",
+        run: |app| {
+            app.gui.dialogs.csv_export_dialog.open();
+        },
+    },
+    Command {
+        label_key: key::MENU_EXPORT_SOTA,
+        keywords: "export sota summit csv",
+        run: |app| {
+            let call = app.config.station.callsign.clone();
+            app.gui.dialogs.sota_dialog.open(&call);
+        },
+    },
+    Command {
+        label_key: key::MENU_EXPORT_PDF,
+        keywords: "export pdf print",
+        run: |app| {
+            app.export_pdf_log();
+        },
+    },
+    Command {
+        label_key: key::MENU_EXPORT_GPX,
+        keywords: "export gpx track map",
+        run: |app| {
+            app.export_gpx_log();
+        },
+    },
+    Command {
+        label_key: key::MENU_BACKUP,
+        keywords: "backup copy save",
+        run: |app| {
+            app.run_manual_backup();
+        },
+    },
+    Command {
+        label_key: key::TOOLS_CAT_CONNECTION,
+        keywords: "cat hamlib rig radio connection",
+        run: |app| {
+            app.gui.windows.show_cat_settings_window = true;
+        },
+    },
+    Command {
+        label_key: key::TOOLS_CW_TERMINAL,
+        keywords: "cw terminal keyer morse",
+        run: |app| {
+            app.gui.dialogs.cw_terminal_dialog.is_open = true;
+        },
+    },
+    Command {
+        label_key: key::REF_WOL,
+        keywords: "wake on lan wol power",
+        run: |app| {
+            app.gui.dialogs.wol_dialog.open();
+        },
+    },
+    Command {
+        label_key: key::REF_IOTA_DB,
+        keywords: "iota islands",
+        run: |app| {
+            app.gui.dialogs.iota_dialog.open();
+        },
+    },
+    Command {
+        label_key: key::REF_STATES_DB,
+        keywords: "states provinces",
+        run: |app| {
+            app.gui.dialogs.states_dialog.open();
+        },
+    },
+    Command {
+        label_key: key::REF_QSL_MANAGERS,
+        keywords: "qsl managers via",
+        run: |app| {
+            app.gui.dialogs.qsl_manager_dialog.open();
+        },
+    },
+    Command {
+        label_key: key::REF_PREFIX_MANAGER,
+        keywords: "prefix dxcc",
+        run: |app| {
+            app.gui.dialogs.prefix_manager_dialog.open();
+        },
+    },
+    Command {
+        label_key: key::REF_CLUBS_EDITOR,
+        keywords: "clubs membership",
+        run: |app| {
+            app.open_clubs_editor();
+        },
+    },
+    Command {
+        label_key: key::REF_UPDATE_ONLINE_DBS,
+        keywords: "update databases online",
+        run: |app| {
+            app.trigger_database_update();
+        },
+    },
+    Command {
+        label_key: key::REF_CF_INSTALL,
+        keywords: "country files cty download",
+        run: |app| {
+            app.trigger_country_files_download();
+        },
+    },
+    Command {
+        label_key: key::REF_MOON_SUN,
+        keywords: "moon sun astronomy eme",
+        run: |app| {
+            app.gui.dialogs.astronomy_dialog.open();
+        },
+    },
+    Command {
+        label_key: key::MENU_OPERATOR_ASSISTANT,
+        keywords: "assistant operator ai",
+        run: |app| {
+            app.gui.windows.show_operator_assistant = true;
+        },
+    },
+    Command {
+        label_key: key::MENU_PLUGIN_MANAGER,
+        keywords: "plugins rhai scripts",
+        run: |app| {
+            app.plugins_ui.show_manager = true;
+        },
+    },
+    Command {
+        label_key: key::MENU_PLUGIN_MARKETPLACE,
+        keywords: "plugins marketplace store",
+        run: |app| {
+            app.marketplace.show_window = true;
+        },
+    },
+    Command {
+        label_key: key::CONTEST_CUSTOM_EDITOR_TITLE,
+        keywords: "contest custom editor",
+        run: |app| {
+            app.contest.show_custom_editor = true;
+        },
+    },
+    Command {
+        label_key: key::CONTEST_EXPORT_CABRILLO,
+        keywords: "cabrillo contest export",
+        run: |app| {
+            app.export_cabrillo();
+        },
+    },
+    Command {
+        label_key: key::WORKSPACE_MANAGE_PROFILES,
+        keywords: "workspace layout profiles",
+        run: |app| {
+            app.gui.windows.show_workspace_profiles_window = true;
+        },
+    },
+    Command {
+        label_key: key::HELP_CHANGELOG,
+        keywords: "changelog changes news",
+        run: |app| {
+            app.updates.show_changelog_window = true;
+        },
+    },
+    Command {
+        label_key: key::HELP_CHECK_UPDATES,
+        keywords: "update check version",
+        run: |app| {
+            app.updates.show_update_window = true;
+        },
+    },
 ];
 
 /// Renderuje okno palety poleceń. Wywoływane co klatkę z `app.update()`.

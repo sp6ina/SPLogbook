@@ -92,14 +92,6 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.updates.show_update_window = true;
             ui.close();
         }
-        if ui
-            .button(icons::WIZARD.label(tr(key::HELP_RERUN_WIZARD, lang)))
-            .clicked()
-        {
-            app.gui.chrome.show_welcome_wizard = true;
-            app.gui.chrome.wizard_tab = 0;
-            ui.close();
-        }
         ui.separator();
         if ui
             .button(icons::BUG.label(tr(key::HELP_REPORT_BUG, lang)))

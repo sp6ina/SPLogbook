@@ -5716,3 +5716,98 @@ async fn locked_workspace_renders_without_undock_controls() {
     assert!(app.layout_locked());
     assert!(app.views.panel(Tile::Statistics).visible);
 }
+
+// ======================================================================================
+// Menu główne (S13a): dziewięć menu ułożonych wokół pracy w eterze
+// ======================================================================================
+
+#[test]
+fn main_menu_has_the_nine_operating_menus_in_every_language() {
+    use crate::core::i18n::{Language, key, tr};
+    for lang in [
+        Language::Pl,
+        Language::En,
+        Language::De,
+        Language::Fr,
+        Language::Es,
+        Language::It,
+        Language::Ru,
+    ] {
+        let mut app = qso_form_test_app();
+        app.gui.appearance.language = lang;
+        let ctx = egui::Context::default();
+        let mut texts = Vec::new();
+        for _ in 0..2 {
+            let raw_input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1920.0, 200.0),
+                )),
+                ..Default::default()
+            };
+            let mut output = ctx.run_ui(raw_input, |ui| {
+                crate::gui::menu::render_menu_bar(&mut app, ui);
+            });
+            output.textures_delta.clear();
+            texts.clear();
+            for clipped in &output.shapes {
+                collect_text_shapes(&clipped.shape, &mut texts);
+            }
+        }
+        let titles = [
+            key::MENU_LOG,
+            key::MENU_RADIO,
+            key::MENU_SPOTS,
+            key::MENU_CONTEST,
+            key::MENU_DIGITAL,
+            key::MENU_VIEW,
+            key::MENU_TOOLS,
+            key::MENU_SETTINGS,
+            key::MENU_HELP,
+        ];
+        let mut last_x = f32::MIN;
+        for k in titles {
+            let title = tr(k, lang);
+            let (_, rect) = texts
+                .iter()
+                .find(|(t, _)| t == title)
+                .unwrap_or_else(|| panic!("{lang:?}: brak menu «{title}»"));
+            assert!(
+                rect.min.x > last_x,
+                "{lang:?}: kolejność menu przy «{title}»"
+            );
+            last_x = rect.min.x;
+        }
+    }
+}
+
+#[test]
+fn command_palette_labels_are_unique_and_cover_the_main_menu_actions() {
+    use crate::core::i18n::key;
+    let commands = crate::gui::command_palette::COMMANDS;
+    let mut labels: Vec<&str> = commands.iter().map(|c| c.label_key.as_str()).collect();
+    labels.sort_unstable();
+    let before = labels.len();
+    labels.dedup();
+    assert_eq!(
+        labels.len(),
+        before,
+        "każde polecenie palety ma własną etykietę"
+    );
+    for k in [
+        key::MENU_IMPORT_ADIF,
+        key::MENU_EXPORT_ADIF,
+        key::TOOLS_CAT_CONNECTION,
+        key::CONTEST_EXPORT_CABRILLO,
+        key::REF_CF_INSTALL,
+        key::MENU_PLUGIN_MANAGER,
+        key::BANDPLAN_MENU,
+        key::WORKSPACE_LOCK,
+    ] {
+        assert!(
+            commands.iter().any(|c| c.label_key == k),
+            "polecenie {} w palecie",
+            k.as_str()
+        );
+    }
+}

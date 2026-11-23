@@ -6,7 +6,7 @@ use crate::gui::app::SpLogApp;
 use crate::gui::icons;
 use eframe::egui;
 
-/// Menu: Widok (Zarządzanie kafelkami modułów i układem pulpitu)
+/// Menu: Widok (kafelki, układ, tryb HUD i podmenu pulpitu: blokada, strony, profile)
 pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
     use crate::gui::theme::ThemeExt;
     let palette = ui.palette();
@@ -123,11 +123,6 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             app.save_station_config();
             ui.close();
         }
-        ui.separator();
-        ui.checkbox(
-            &mut app.views.panel_mut(crate::gui::state::Tile::Awards).visible,
-            icons::AWARDS.label(tr(key::VIEW_AWARDS_MATRIX, lang)),
-        );
         if ui
             .checkbox(
                 &mut app.config.compact_hud_mode,
@@ -137,5 +132,7 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         {
             app.save_station_config();
         }
+        ui.separator();
+        super::workspace::render(app, ui);
     });
 }

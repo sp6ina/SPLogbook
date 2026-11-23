@@ -4,12 +4,14 @@
 //! Główny pasek menu, pasek narzędziowy i menu szybkiego dostępu.
 //! Logika poszczególnych grup menu jest podzielona na podmoduły.
 
-mod edit;
-mod file;
+mod contest;
+mod digital;
 mod help;
-mod operation;
+mod log;
+mod radio;
 mod references;
 mod settings;
+mod spots;
 mod tools;
 mod view;
 mod workspace;
@@ -22,12 +24,12 @@ use eframe::egui;
 /// Główny pasek menu (Menu Bar) z rozwijanymi kategoriami
 pub fn render_menu_bar(app: &mut SpLogApp, ui: &mut egui::Ui) {
     egui::MenuBar::new().ui(ui, |ui| {
-        file::render(app, ui);
-        edit::render(app, ui);
+        log::render(app, ui);
+        radio::render(app, ui);
+        spots::render(app, ui);
+        contest::render(app, ui);
+        digital::render(app, ui);
         view::render(app, ui);
-        operation::render(app, ui);
-        workspace::render(app, ui);
-        references::render(app, ui);
         tools::render(app, ui);
         settings::render(app, ui);
         help::render(app, ui);

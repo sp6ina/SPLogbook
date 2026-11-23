@@ -66,6 +66,15 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         backup_settings_menu(app, ui);
 
         if ui
+            .button(icons::WIZARD.label(tr(key::WIZARD_SETUP_STATION, lang)))
+            .clicked()
+        {
+            app.gui.chrome.show_welcome_wizard = true;
+            app.gui.chrome.wizard_tab = 0;
+            ui.close();
+        }
+
+        if ui
             .button(icons::BANDMAP.label(tr(key::BANDPLAN_MENU, lang)))
             .clicked()
         {

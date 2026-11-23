@@ -6,62 +6,39 @@ use crate::gui::app::SpLogApp;
 use crate::gui::icons;
 use eframe::egui;
 
-/// Menu: Narzędzia (analiza, synchronizacja, eksport, integracje)
+/// Menu: Narzędzia (dane referencyjne, astronomia, asystent, wtyczki, REST API)
 pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.gui.appearance.language;
 
     ui.menu_button(tr(key::MENU_TOOLS, lang), |ui| {
+        super::references::render(app, ui);
         if ui
-            .button(icons::SEARCH.label(tr(key::MENU_FIND_DUPLICATES, lang)))
+            .button(icons::MOON.label(tr(key::REF_MOON_SUN, lang)))
             .clicked()
         {
-            app.duplicates.show_window = true;
+            app.gui.dialogs.astronomy_dialog.open();
+            ui.close();
+        }
+        ui.separator();
+        if ui
+            .button(icons::AI_ASSISTANT.label(tr(key::MENU_OPERATOR_ASSISTANT, lang)))
+            .clicked()
+        {
+            app.gui.windows.show_operator_assistant = true;
             ui.close();
         }
         if ui
-            .button(icons::GLOBE.label(tr(key::TOOLS_ONLINE_SYNC, lang)))
+            .button(icons::PLUGIN.label(tr(key::MENU_PLUGIN_MANAGER, lang)))
             .clicked()
         {
-            app.online.show_online_sync_window = true;
+            app.plugins_ui.show_manager = true;
             ui.close();
         }
         if ui
-            .button(icons::WORLD_MAP.label(tr(key::TOOLS_WORLD_MAP, lang)))
+            .button(icons::STORE.label(tr(key::MENU_PLUGIN_MARKETPLACE, lang)))
             .clicked()
         {
-            app.views.panel_world_map.visible = true;
-            app.views.panel_world_map.floating = true;
-            app.world_map.show_window = true;
-            ui.close();
-        }
-        if ui
-            .button(icons::AWARDS.label(tr(key::TOOLS_AWARDS_MATRIX, lang)))
-            .clicked()
-        {
-            app.open_tile(crate::gui::state::Tile::Awards);
-            ui.close();
-        }
-        if ui
-            .button(icons::STATS.label(tr(key::TOOLS_STATISTICS, lang)))
-            .clicked()
-        {
-            app.open_tile(crate::gui::state::Tile::Statistics);
-            ui.close();
-        }
-        if ui
-            .button(icons::CLUSTER.label(tr(key::TOOLS_WSPR_MONITOR, lang)))
-            .clicked()
-        {
-            app.wspr.show_window = true;
-            ui.close();
-        }
-        if ui
-            .button(icons::SIGNAL_UP.label(tr(key::TOOLS_WATERFALL, lang)))
-            .clicked()
-        {
-            app.views.panel_waterfall.visible = true;
-            app.views.panel_waterfall.floating = false;
-            app.save_station_config();
+            app.marketplace.show_window = true;
             ui.close();
         }
         ui.separator();
@@ -137,17 +114,5 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 }
             },
         );
-        ui.separator();
-        if ui.button(tr(key::STATION_EQUIPMENT, lang)).clicked() {
-            app.open_tile(crate::gui::state::Tile::Ledger);
-            ui.close();
-        }
-        if ui
-            .button(icons::BADGE.label(tr(key::TOOLS_QSL_DESIGNER, lang)))
-            .clicked()
-        {
-            app.gui.dialogs.qsl_designer_dialog.is_open = true;
-            ui.close();
-        }
     });
 }

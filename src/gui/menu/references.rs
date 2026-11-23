@@ -9,7 +9,7 @@ use crate::gui::app::app_reference::source_status_text;
 use crate::gui::icons;
 use eframe::egui;
 
-/// Menu: Referencje (bazy danych, dyplomy, narzędzia pomocnicze)
+/// Podmenu Narzędzia ▸ Dane referencyjne (bazy, pliki krajów, reguły, tabele)
 pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
     let lang = app.gui.appearance.language;
 
@@ -50,20 +50,6 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             ui.close();
         }
         ui.separator();
-        if ui
-            .button(icons::MOON.label(tr(key::REF_MOON_SUN, lang)))
-            .clicked()
-        {
-            app.gui.dialogs.astronomy_dialog.open();
-            ui.close();
-        }
-        if ui
-            .button(icons::LIGHTNING.label(tr(key::REF_WOL, lang)))
-            .clicked()
-        {
-            app.gui.dialogs.wol_dialog.open();
-            ui.close();
-        }
         if ui
             .button(icons::REFRESH.label(tr(key::REF_UPDATE_ONLINE_DBS, lang)))
             .clicked()
