@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Mariusz Wozniak (SP6INA)
 
-use crate::core::i18n::{Language, Msg, key, tr};
+use crate::core::i18n::{Language, Msg, example, key, tr};
 use crate::gui::app::SpLogApp;
 use crate::gui::theme::ThemeExt;
 use eframe::egui;
@@ -29,7 +29,7 @@ pub fn render_welcome_wizard(app: &mut SpLogApp, ctx: &egui::Context) {
     //    i nie chowa się pod oknami modułów na pulpicie MDI.
     // 3. Bezpośrednie przyciski wyboru języka [PL] [EN] [DE] [FR] [ES] [RU] w nagłówku zamiast popupu ComboBox,
     //    dzięki czemu kliknięcie nie wywołuje zdarzeń zamknięcia popupu ani przesłonięcia okna.
-    egui::Window::new("SPLogbook — Setup Wizard")
+    egui::Window::new(tr(key::WIZARD_WINDOW_TITLE, lang))
         .id(egui::Id::new("splogbook_welcome_wizard"))
         .order(egui::Order::Foreground)
         .collapsible(false)
@@ -223,7 +223,7 @@ fn render_tab_station(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             ui.label(egui::RichText::new(format!("(*) {}:", tr(key::QSO_CALLSIGN, lang))).strong());
             let call = ui.add(
                 egui::TextEdit::singleline(&mut app.config.station.callsign)
-                    .hint_text("np. SP6INA, W1AW, DL1ABC")
+                    .hint_text(example("SP6INA, W1AW, DL1ABC", lang))
                     .desired_width(260.0),
             );
             if call.changed() {
@@ -235,7 +235,7 @@ fn render_tab_station(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             ui.label(egui::RichText::new(format!("{}:", tr(key::STATION_OPERATOR, lang))).strong());
             ui.add(
                 egui::TextEdit::singleline(&mut app.config.station.operator)
-                    .hint_text("np. Jan Kowalski")
+                    .hint_text(tr(key::WIZARD_HINT_OPERATOR, lang))
                     .desired_width(260.0),
             );
             ui.end_row();
@@ -244,7 +244,7 @@ fn render_tab_station(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             ui.label(egui::RichText::new(format!("(*) {}:", tr(key::GEO_LOCATOR, lang))).strong());
             let loc = ui.add(
                 egui::TextEdit::singleline(&mut app.config.station.gridsquare)
-                    .hint_text("np. JO81WA, KO02AA")
+                    .hint_text(example("JO81WA, KO02AA", lang))
                     .desired_width(260.0),
             );
             if loc.changed() {
@@ -256,7 +256,7 @@ fn render_tab_station(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             ui.label(egui::RichText::new("QTH:").strong());
             ui.add(
                 egui::TextEdit::singleline(&mut app.config.station.city)
-                    .hint_text("np. Wroclaw, Krakow")
+                    .hint_text(tr(key::WIZARD_HINT_QTH, lang))
                     .desired_width(260.0),
             );
             ui.end_row();
@@ -265,7 +265,7 @@ fn render_tab_station(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             ui.label(egui::RichText::new(format!("{}:", tr(key::GEO_DXCC, lang))).strong());
             ui.add(
                 egui::TextEdit::singleline(&mut app.config.station.country)
-                    .hint_text("np. Poland, Germany")
+                    .hint_text(tr(key::WIZARD_HINT_COUNTRY, lang))
                     .desired_width(260.0),
             );
             ui.end_row();
@@ -276,7 +276,7 @@ fn render_tab_station(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             if ui
                 .add(
                     egui::TextEdit::singleline(&mut pga)
-                        .hint_text("np. WR01")
+                        .hint_text(example("WR01", lang))
                         .desired_width(260.0),
                 )
                 .changed()
@@ -330,7 +330,7 @@ fn render_tab_radio(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             if ui
                 .add(
                     egui::TextEdit::singleline(&mut rig)
-                        .hint_text("np. Icom IC-7300, Kenwood TS-890S")
+                        .hint_text(example("Icom IC-7300, Kenwood TS-890S", lang))
                         .desired_width(260.0),
                 )
                 .changed()
@@ -353,7 +353,7 @@ fn render_tab_radio(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             if ui
                 .add(
                     egui::TextEdit::singleline(&mut ant)
-                        .hint_text("np. Dipol 80m, Yagi 6el 20m, GP 40m")
+                        .hint_text(tr(key::WIZARD_HINT_ANTENNA, lang))
                         .desired_width(260.0),
                 )
                 .changed()
@@ -425,13 +425,13 @@ fn render_tab_services(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             // LoTW
             ui.label(egui::RichText::new("LoTW (ARRL):").strong());
             ui.horizontal(|ui| {
-                ui.label("Login:");
+                ui.label(tr(key::WIZARD_LOGIN, lang));
                 ui.add(
                     egui::TextEdit::singleline(&mut app.config.lotw_username)
-                        .hint_text("callsign LoTW")
+                        .hint_text(tr(key::WIZARD_LOTW_LOGIN_HINT, lang))
                         .desired_width(100.0),
                 );
-                ui.label("Haslo:");
+                ui.label(tr(key::WIZARD_PASSWORD, lang));
                 ui.add(
                     egui::TextEdit::singleline(&mut app.config.lotw_password)
                         .password(true)
@@ -452,7 +452,7 @@ fn render_tab_services(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             // Club Log
             ui.label(egui::RichText::new("Club Log:").strong());
             ui.horizontal(|ui| {
-                ui.label("Email:");
+                ui.label(tr(key::WIZARD_EMAIL, lang));
                 ui.add(
                     egui::TextEdit::singleline(&mut app.config.clublog_email).desired_width(150.0),
                 );
@@ -465,7 +465,7 @@ fn render_tab_services(app: &mut SpLogApp, ui: &mut egui::Ui, lang: Language) {
             ui.end_row();
 
             // REST API
-            ui.label(egui::RichText::new("Lokalny REST API:").strong());
+            ui.label(egui::RichText::new(tr(key::WIZARD_LOCAL_REST_API, lang)).strong());
             ui.horizontal(|ui| {
                 ui.checkbox(
                     &mut app.runtime.rest_api_enabled,
@@ -536,15 +536,16 @@ fn render_tab_appearance(
 
     ui.horizontal_wrapped(|ui| {
         let palette = ui.palette();
-        for (language, flag, name) in [
-            (Language::Pl, "PL", "Polski"),
-            (Language::En, "EN", "English"),
-            (Language::De, "DE", "Deutsch"),
-            (Language::Fr, "FR", "Francais"),
-            (Language::Es, "ES", "Espanol"),
-            (Language::It, "IT", "Italiano"),
-            (Language::Ru, "RU", "Russkiy"),
+        for (language, flag) in [
+            (Language::Pl, "PL"),
+            (Language::En, "EN"),
+            (Language::De, "DE"),
+            (Language::Fr, "FR"),
+            (Language::Es, "ES"),
+            (Language::It, "IT"),
+            (Language::Ru, "RU"),
         ] {
+            let name = language.display_name();
             let selected = lang == language;
             let fill = if selected {
                 palette.selection_bg

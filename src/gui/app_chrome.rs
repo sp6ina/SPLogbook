@@ -33,6 +33,58 @@ fn status_item_label(item: StatusItem, lang: crate::core::i18n::Language) -> &'s
     tr(k, lang)
 }
 
+/// Tytuł grupy w oknie pomocy skrótów.
+fn shortcut_section_key(section: crate::gui::shortcuts::HelpSection) -> crate::core::i18n::Key {
+    use crate::gui::shortcuts::HelpSection;
+    match section {
+        HelpSection::Logging => key::SHORTCUTS_SEC_LOGGING,
+        HelpSection::Transceiver => key::SHORTCUTS_SEC_TRANSCEIVER,
+        HelpSection::Contest => key::SHORTCUTS_SEC_CONTEST,
+        HelpSection::Tools => key::SHORTCUTS_SEC_TOOLS,
+    }
+}
+
+/// Opis akcji w oknie pomocy skrótów.
+fn shortcut_description_key(action: crate::gui::shortcuts::AppAction) -> crate::core::i18n::Key {
+    use crate::gui::shortcuts::AppAction;
+    match action {
+        AppAction::Undo => key::SHORTCUTS_UNDO,
+        AppAction::Redo => key::SHORTCUTS_REDO,
+        AppAction::OpenStats => key::SHORTCUTS_STATS,
+        AppAction::ToggleShortcutsHelp => key::SHORTCUTS_SHORTCUTS_HELP,
+        AppAction::SaveQso => key::SHORTCUTS_SAVE_QSO,
+        AppAction::WipeQso => key::SHORTCUTS_WIPE_FORM,
+        AppAction::LookupQrz => key::SHORTCUTS_CALLBOOK_LOOKUP,
+        AppAction::RefreshLog => key::SHORTCUTS_REFRESH_LOG,
+        AppAction::SendSpot => key::SHORTCUTS_SPOT_DX,
+        AppAction::PttOn => key::SHORTCUTS_PTT_ON,
+        AppAction::PttOff => key::SHORTCUTS_PTT_OFF,
+        AppAction::ToggleVoiceKeyer => key::SHORTCUTS_VOICE_KEYER,
+        AppAction::ToggleFullscreen => key::SHORTCUTS_FULLSCREEN,
+        AppAction::OpenManual => key::SHORTCUTS_USER_MANUAL,
+        AppAction::OpenCommandPalette => key::SHORTCUTS_COMMAND_PALETTE,
+        AppAction::SaveConfig => key::SHORTCUTS_SAVE_CONFIG,
+        AppAction::QuitApp => key::SHORTCUTS_QUIT,
+        AppAction::FocusFilter => key::SHORTCUTS_SEARCH_FILTERS,
+        AppAction::NewQso => key::SHORTCUTS_NEW_QSO,
+        AppAction::ToggleCluster => key::SHORTCUTS_DX_CLUSTER,
+        AppAction::ToggleBandmap => key::SHORTCUTS_BANDMAP,
+        AppAction::ToggleWorldMap => key::SHORTCUTS_GREYLINE_MAP,
+        AppAction::ToggleCwTerminal => key::SHORTCUTS_CW_TERMINAL,
+        AppAction::OpenProfiles => key::SHORTCUTS_STATION_PROFILES,
+        AppAction::ExportCsv => key::SHORTCUTS_EXPORT_CSV,
+        AppAction::ImportAdif => key::SHORTCUTS_IMPORT_ADIF,
+        AppAction::CycleTheme => key::SHORTCUTS_TOGGLE_THEME,
+        AppAction::FocusLog => key::SHORTCUTS_FOCUS_TABLE,
+        AppAction::EscapeCloseContext => key::SHORTCUTS_CLOSE_DIALOG,
+        AppAction::ContestSaveQso => key::SHORTCUTS_CONTEST_SAVE,
+        AppAction::ContestWipeQso => key::SHORTCUTS_CONTEST_WIPE,
+        AppAction::ContestMacro(_) => key::SHORTCUTS_CONTEST_MACRO,
+        AppAction::PreviousWorkspacePage => key::SHORTCUTS_PREVIOUS_PAGE,
+        AppAction::NextWorkspacePage => key::SHORTCUTS_NEXT_PAGE,
+    }
+}
+
 impl SpLogApp {
     pub fn render_chrome_bars(&mut self, ui: &mut egui::Ui) {
         // Górny pasek menu systemowego oraz pasek szybkiego dostępu (bez kolizji!)
@@ -608,55 +660,20 @@ impl SpLogApp {
                 .resizable(true)
                 .show(ctx, |ui| {
                     egui::ScrollArea::vertical().show(ui, |ui| {
-                        let sections: [(&str, &[(&str, &str)]); 3] = [
-                            (
-                                tr(key::SHORTCUTS_SEC_LOGGING, lang),
-                                &[
-                                    ("Enter / F2", tr(key::SHORTCUTS_SAVE_QSO, lang)),
-                                    ("Esc / F3", tr(key::SHORTCUTS_WIPE_FORM, lang)),
-                                    ("Ctrl+N", tr(key::SHORTCUTS_NEW_QSO, lang)),
-                                    ("Ctrl+W", tr(key::SHORTCUTS_WIPE_EXCHANGE, lang)),
-                                    ("F4", tr(key::SHORTCUTS_CALLBOOK_LOOKUP, lang)),
-                                    ("Ctrl+S", tr(key::SHORTCUTS_SAVE_CONFIG, lang)),
-                                    ("F5", tr(key::SHORTCUTS_REFRESH_LOG, lang)),
-                                    ("Ctrl+F", tr(key::SHORTCUTS_SEARCH_FILTERS, lang)),
-                                    ("Ctrl+L", tr(key::SHORTCUTS_FOCUS_TABLE, lang)),
-                                    ("Ctrl+Z", tr(key::SHORTCUTS_UNDO, lang)),
-                                    ("Ctrl+Y / Ctrl+Shift+Z", tr(key::SHORTCUTS_REDO, lang)),
-                                ],
-                            ),
-                            (
-                                tr(key::SHORTCUTS_SEC_TRANSCEIVER, lang),
-                                &[
-                                    ("F6", tr(key::SHORTCUTS_SPOT_DX, lang)),
-                                    ("Ctrl+Shift+F7", tr(key::SHORTCUTS_PTT_ON, lang)),
-                                    ("Ctrl+F7", tr(key::SHORTCUTS_PTT_OFF, lang)),
-                                    ("F8", tr(key::SHORTCUTS_VOICE_KEYER, lang)),
-                                    ("Ctrl+K", tr(key::SHORTCUTS_CW_TERMINAL, lang)),
-                                    ("Ctrl+D", tr(key::SHORTCUTS_DX_CLUSTER, lang)),
-                                    ("Ctrl+B", tr(key::SHORTCUTS_BANDMAP, lang)),
-                                    ("Ctrl+M", tr(key::SHORTCUTS_GREYLINE_MAP, lang)),
-                                    ("Ctrl+P", tr(key::SHORTCUTS_WORKSPACE_PROFILES, lang)),
-                                ],
-                            ),
-                            (
-                                tr(key::SHORTCUTS_SEC_TOOLS, lang),
-                                &[
-                                    ("Ctrl+Shift+P", tr(key::SHORTCUTS_COMMAND_PALETTE, lang)),
-                                    ("Ctrl+Shift+S", tr(key::SHORTCUTS_STATS, lang)),
-                                    ("Ctrl+E", tr(key::SHORTCUTS_EXPORT_CSV, lang)),
-                                    ("Ctrl+I", tr(key::SHORTCUTS_IMPORT_ADIF, lang)),
-                                    ("Ctrl+T", tr(key::SHORTCUTS_TOGGLE_THEME, lang)),
-                                    ("F11", tr(key::SHORTCUTS_FULLSCREEN, lang)),
-                                    ("F12 / Ctrl+H", tr(key::SHORTCUTS_USER_MANUAL, lang)),
-                                    ("F1", tr(key::SHORTCUTS_SHORTCUTS_HELP, lang)),
-                                    ("Ctrl+Q", tr(key::SHORTCUTS_QUIT, lang)),
-                                ],
-                            ),
-                        ];
-
+                        let rows = crate::gui::shortcuts::help_rows(
+                            &crate::gui::shortcuts::ShortcutRegistry::default(),
+                        );
                         let palette = ui.palette();
-                        for (cat_title, rows) in sections {
+                        for section in crate::gui::shortcuts::HelpSection::ALL {
+                            let cat_title = tr(shortcut_section_key(section), lang);
+                            let rows: Vec<(String, &str)> = rows
+                                .iter()
+                                .filter(|(s, _, _)| *s == section)
+                                .map(|(_, action, keys)| {
+                                    (keys.clone(), tr(shortcut_description_key(*action), lang))
+                                })
+                                .collect();
+
                             ui.add_space(6.0);
                             ui.heading(
                                 egui::RichText::new(cat_title)
@@ -670,9 +687,9 @@ impl SpLogApp {
                                 .spacing([20.0, 6.0])
                                 .striped(true)
                                 .show(ui, |ui| {
-                                    for (key, desc) in rows {
+                                    for (key, desc) in &rows {
                                         ui.monospace(
-                                            egui::RichText::new(*key)
+                                            egui::RichText::new(key.as_str())
                                                 .strong()
                                                 .color(palette.warning),
                                         );

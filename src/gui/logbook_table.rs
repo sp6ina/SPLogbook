@@ -482,7 +482,7 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         if ui
             .add_enabled(
                 !app.log_view.undo_stack.is_empty(),
-                egui::Button::new("↩ Undo"),
+                egui::Button::new(format!("↩ {}", tr(key::LOG_UNDO, lang))),
             )
             .on_hover_text(tr(key::LOG_UNDO_TOOLTIP, lang))
             .clicked()
@@ -492,7 +492,7 @@ pub fn render_logbook_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         if ui
             .add_enabled(
                 !app.log_view.redo_stack.is_empty(),
-                egui::Button::new("↪ Redo"),
+                egui::Button::new(format!("↪ {}", tr(key::LOG_REDO, lang))),
             )
             .clicked()
         {

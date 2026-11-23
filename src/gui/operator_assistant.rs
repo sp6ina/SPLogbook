@@ -281,8 +281,13 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
                             ui.label(
                                 egui::RichText::new(tr(key::ASSISTANT_COL_BAND, lang)).strong(),
                             );
-                            ui.label(egui::RichText::new("Status").strong());
-                            ui.label(egui::RichText::new("Rel.").strong());
+                            ui.label(
+                                egui::RichText::new(tr(key::ASSISTANT_COL_STATUS, lang)).strong(),
+                            );
+                            ui.label(
+                                egui::RichText::new(tr(key::ASSISTANT_COL_RELIABILITY, lang))
+                                    .strong(),
+                            );
                             ui.label(egui::RichText::new("S").strong());
                             ui.end_row();
                             for (name, forecast) in &forecasts {

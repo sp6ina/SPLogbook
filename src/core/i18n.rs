@@ -22,6 +22,11 @@ impl Key {
 
 include!(concat!(env!("OUT_DIR"), "/i18n_catalog.rs"));
 
+/// Podpowiedź z przykładową wartością („np. SP6INA”, „e.g. SP6INA”).
+pub fn example(value: &str, lang: Language) -> String {
+    Msg::new(key::COMMON_EXAMPLE).arg("value", value).text(lang)
+}
+
 /// Zwraca przetłumaczony tekst dla danego typowanego klucza i języka.
 /// Dostęp w czasie O(1) bezpośrednio z wygenerowanej w build.rs tablicy.
 pub fn tr(key: Key, lang: Language) -> &'static str {

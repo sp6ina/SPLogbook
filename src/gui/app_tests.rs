@@ -6052,3 +6052,42 @@ fn plugin_queries_answer_from_the_log_and_switch_pages() {
     app.process_plugin_commands();
     assert_eq!(app.active_workspace_page(), 1);
 }
+
+// ======================================================================================
+// i18n (S15a): kreator i okna bez tekstów wpisanych w kod
+// ======================================================================================
+
+#[test]
+fn welcome_wizard_speaks_the_interface_language() {
+    use crate::core::i18n::Language;
+    let mut app = qso_form_test_app();
+    app.gui.appearance.language = Language::En;
+    app.gui.chrome.show_welcome_wizard = true;
+    let ctx = egui::Context::default();
+    let mut all_texts = Vec::new();
+    for tab in 0..=4 {
+        app.gui.chrome.wizard_tab = tab;
+        for _ in 0..2 {
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                crate::gui::welcome_wizard::render_welcome_wizard(&mut app, ui.ctx());
+            });
+            output.textures_delta.clear();
+            let mut texts = Vec::new();
+            for clipped in &output.shapes {
+                collect_text_shapes(&clipped.shape, &mut texts);
+            }
+            all_texts.extend(texts.into_iter().map(|(t, _)| t));
+        }
+    }
+    let joined = all_texts.join("\n");
+    for polish in ["Haslo", "Lokalny", "np. ", "Kreator"] {
+        assert!(
+            !joined.contains(polish),
+            "«{polish}» w kreatorze po angielsku"
+        );
+    }
+    assert!(
+        joined.contains("setup wizard"),
+        "tytuł kreatora przetłumaczony"
+    );
+}

@@ -87,7 +87,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         if ui.button(tr(key::SYNC_DETECT_BTN, lang)).clicked() {
                                             if let Some(detected) = detect_tqsl_path() {
                                                 app.config.lotw_tqsl_path = detected.to_string_lossy().to_string();
-                                                app.online.online_sync_logs.push(format!("Wykryto TQSL w: {}", app.config.lotw_tqsl_path));
+                                                app.online.online_sync_logs.push(Msg::new(key::SYNC_TQSL_DETECTED).arg("path", &app.config.lotw_tqsl_path).text(lang));
                                             } else {
                                                 app.online.online_sync_logs.push(tr(key::SYNC_TQSL_NOT_FOUND, lang).to_string());
                                             }
@@ -225,7 +225,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                                 tokio::spawn(async move {
                                                     let _busy_guard = busy_guard;
                                                     let client = crate::cloud::eqsl::EqslClient::new(user, pass);
-                                                    let _ = tx.send(("[eQSL] Pobieranie skrzynki odbiorczej (Inbox ADIF)...".to_string(), false));
+                                                    let _ = tx.send((tr(key::SYNC_EQSL_DOWNLOADING_INBOX, lang).to_string(), false));
                                                     match client.download_inbox_adif().await {
                                                         Ok(adif) => {
                                                             // STAGE-V140-S1: paczki po QSL_MATCH_CHUNK_SIZE, blokada bazy
@@ -269,7 +269,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                         ui.label(tr(key::SYNC_CALLSIGN, lang));
                                         ui.add(egui::TextEdit::singleline(&mut app.config.clublog_callsign).desired_width(100.0));
                                         ui.add_space(10.0);
-                                        ui.label("Email:");
+                                        ui.label(tr(key::WIZARD_EMAIL, lang));
                                         ui.add(egui::TextEdit::singleline(&mut app.config.clublog_email).desired_width(160.0));
                                     });
 
@@ -481,7 +481,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     ui.add_space(6.0);
                                     if ui.button(tr(key::SYNC_SAVE_SETTINGS_BTN, lang)).clicked() {
                                         app.save_station_config();
-                                        app.online.online_sync_logs.push("Zapisano ustawienia emisji N1MM UDP broadcast.".to_string());
+                                        app.online.online_sync_logs.push(tr(key::SYNC_N1MM_SAVED, lang).to_string());
                                     }
                                 });
                             }
@@ -523,11 +523,11 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                             match client.get_version().await {
                                                 Ok(v) => {
                                                     log::info!("FLDigi connected: {v}");
-                                                    let _ = sync_tx.send((format!("FLDigi OK: {v}"), false));
+                                                    let _ = sync_tx.send((Msg::new(key::SYNC_FLDIGI_CONNECTED).arg("version", &v).text(lang), false));
                                                 }
                                                 Err(e) => {
                                                     log::warn!("FLDigi error: {e}");
-                                                    let _ = sync_tx.send((format!("FLDigi ERR: {e}"), false));
+                                                    let _ = sync_tx.send((Msg::new(key::SYNC_FLDIGI_ERROR).arg("err", &e).text(lang), false));
                                                 }
                                             }
                                         });
@@ -546,7 +546,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     ui.label(egui::RichText::new(tr(key::SYNC_PSK_REPORTER_DESC, lang)).small().color(palette.text_muted));
                                     ui.add_space(6.0);
                                     ui.label(Msg::new(key::SYNC_REPORTING_STATION_CALL).arg("call", &app.config.station.callsign).text(lang));
-                                    ui.label(format!("Lokator stacji: {}", app.config.station.gridsquare));
+                                    ui.label(Msg::new(key::SYNC_STATION_LOCATOR).arg("grid", &app.config.station.gridsquare).text(lang));
                                     ui.add_space(6.0);
                                     if ui.button(tr(key::SYNC_OPEN_PSK_MAP_BTN, lang)).clicked() {
                                         let url = format!("https://pskreporter.info/pskmap.html?callsign={}", app.config.station.callsign);

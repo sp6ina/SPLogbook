@@ -73,7 +73,7 @@ impl SotaDialog {
                     ui.label(tr(key::SOTA_SUMMIT_REF, lang));
                     ui.add(
                         egui::TextEdit::singleline(&mut self.summit_ref)
-                            .hint_text("np. SP/BZ-001, OE/TI-001")
+                            .hint_text(crate::core::i18n::example("SP/BZ-001, OE/TI-001", lang))
                             .desired_width(140.0),
                     );
                 });

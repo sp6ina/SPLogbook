@@ -390,7 +390,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     egui::TextEdit::singleline(&mut app.entry.qsl_manager)
                         .id(egui::Id::new("qso_entry_qsl_via"))
                         .desired_width(110.0)
-                        .hint_text("Manager"),
+                        .hint_text(tr(key::QSO_QSL_MANAGER_HINT, lang)),
                 );
                 if mgr_resp.changed() {
                     app.entry.qsl_manager = app.entry.qsl_manager.to_uppercase();
@@ -437,7 +437,7 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         if is_rec {
             if side_button(
                 ui,
-                egui::RichText::new("⏹ STOP")
+                egui::RichText::new(format!("⏹ {}", tr(key::QSO_REC_STOP, lang)))
                     .color(palette.text_primary)
                     .strong(),
             )
@@ -675,56 +675,56 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         ui.horizontal_wrapped(|ui| {
             if award_st.is_worked_b4 {
                 ui.label(
-                    egui::RichText::new("⚠ WORKED BEFORE (B4)")
+                    egui::RichText::new(format!("⚠ {}", tr(key::QSO_BADGE_WORKED_BEFORE, lang)))
                         .color(palette.warning)
                         .strong(),
                 );
             } else {
                 if award_st.is_new_dxcc {
                     ui.label(
-                        egui::RichText::new("⭐ NEW DXCC (ATNO)!")
+                        egui::RichText::new(format!("⭐ {}", tr(key::QSO_BADGE_NEW_DXCC, lang)))
                             .color(palette.multiplier)
                             .strong(),
                     );
                 }
                 if award_st.is_new_band {
                     ui.label(
-                        egui::RichText::new("✨ NEW BAND!")
+                        egui::RichText::new(format!("✨ {}", tr(key::QSO_BADGE_NEW_BAND, lang)))
                             .color(palette.success)
                             .strong(),
                     );
                 }
                 if award_st.is_new_mode {
                     ui.label(
-                        egui::RichText::new("🔹 NEW MODE!")
+                        egui::RichText::new(format!("🔹 {}", tr(key::QSO_BADGE_NEW_MODE, lang)))
                             .color(palette.accent)
                             .strong(),
                     );
                 }
                 if award_st.is_new_waz {
                     ui.label(
-                        egui::RichText::new("🌐 NEW WAZ (ZONE)!")
+                        egui::RichText::new(format!("🌐 {}", tr(key::QSO_BADGE_NEW_WAZ, lang)))
                             .color(palette.accent_alt)
                             .strong(),
                     );
                 }
                 if award_st.is_new_was {
                     ui.label(
-                        egui::RichText::new("🇺🇸 NEW STATE (WAS)!")
+                        egui::RichText::new(format!("🇺🇸 {}", tr(key::QSO_BADGE_NEW_WAS, lang)))
                             .color(palette.series(4))
                             .strong(),
                     );
                 }
                 if award_st.is_new_wac {
                     ui.label(
-                        egui::RichText::new("🌍 NEW CONTINENT (WAC)!")
+                        egui::RichText::new(format!("🌍 {}", tr(key::QSO_BADGE_NEW_WAC, lang)))
                             .color(palette.warning)
                             .strong(),
                     );
                 }
                 if award_st.is_new_iota {
                     ui.label(
-                        egui::RichText::new("🏝 NEW IOTA!")
+                        egui::RichText::new(format!("🏝 {}", tr(key::QSO_BADGE_NEW_IOTA, lang)))
                             .color(palette.series(5))
                             .strong(),
                     );

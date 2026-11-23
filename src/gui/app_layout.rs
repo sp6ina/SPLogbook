@@ -463,9 +463,12 @@ impl SpLogApp {
                     ui.vertical_centered(|ui| {
                         ui.add_space(80.0);
                         ui.heading(
-                            egui::RichText::new("📻 SPLogbook Workspace")
-                                .size(26.0)
-                                .color(palette.accent),
+                            egui::RichText::new(format!(
+                                "📻 {}",
+                                tr(key::APP_EMPTY_WORKSPACE_HEADING, lang)
+                            ))
+                            .size(26.0)
+                            .color(palette.accent),
                         );
                         ui.add_space(8.0);
                         ui.label(

@@ -179,10 +179,10 @@ fn start_error_message(lang: Language, target: UploadTarget, error: &UploadStart
         UploadStartError::Database => Msg::new(key::SYNC_UPLOAD_DB_ERROR)
             .arg("service", target.label())
             .text(lang),
-        UploadStartError::Checkpoint(error) => format!(
-            "{}: trwaly checkpoint uploadu odrzucony: {error}",
-            target.label()
-        ),
+        UploadStartError::Checkpoint(error) => Msg::new(key::SYNC_UPLOAD_CHECKPOINT_REJECTED)
+            .arg("service", target.label())
+            .arg("err", error)
+            .text(lang),
     }
 }
 
@@ -248,10 +248,10 @@ pub(crate) fn run_upload(
     if checkpoint.plan.state == PlanState::Cancelled {
         push_log(
             app,
-            format!(
-                "{}: plan {plan_id} jest anulowany - nic nie zostanie wyslane",
-                target.label()
-            ),
+            Msg::new(key::SYNC_UPLOAD_PLAN_CANCELLED)
+                .arg("service", target.label())
+                .arg("plan", &plan_id)
+                .text(lang),
         );
         return;
     }
@@ -281,22 +281,23 @@ pub(crate) fn run_upload(
     if resumable.len() < checkpoint.batches.len() {
         push_log(
             app,
-            format!(
-                "{}: wznawianie planu {plan_id} - {} z {} paczek do wyslania, {} wymaga rozstrzygniecia",
-                target.label(),
-                resumable.len(),
-                checkpoint.batches.len(),
-                manual.len()
-            ),
+            Msg::new(key::SYNC_UPLOAD_RESUMING)
+                .arg("service", target.label())
+                .arg("plan", &plan_id)
+                .arg("resumable", resumable.len())
+                .arg("total", checkpoint.batches.len())
+                .arg("manual", manual.len())
+                .text(lang),
         );
     }
     if !manual.is_empty() {
         push_log(
             app,
-            format!(
-                "{}: paczki {manual:?} planu {plan_id} maja niejednoznaczny wynik i nie zostana ponowione automatycznie",
-                target.label()
-            ),
+            Msg::new(key::SYNC_UPLOAD_AMBIGUOUS)
+                .arg("service", target.label())
+                .arg("batches", format!("{manual:?}"))
+                .arg("plan", &plan_id)
+                .text(lang),
         );
     }
 
@@ -390,14 +391,13 @@ async fn execute_plan(
                 RecoveryAction::NeverResend | RecoveryAction::ManualReconciliation => {
                     let outcome = outcome_for_persisted_state(persisted_state);
                     let _ = tx.send((
-                        format!(
-                            "{}: paczka {}/{} pominieta - trwaly stan {} ({})",
-                            target.label(),
-                            batch.number(),
-                            batch.total_batches(),
-                            persisted_state,
-                            recovery_action(persisted_state).as_str()
-                        ),
+                        Msg::new(key::SYNC_UPLOAD_BATCH_SKIPPED)
+                            .arg("service", target.label())
+                            .arg("n", batch.number())
+                            .arg("total", batch.total_batches())
+                            .arg("state", persisted_state)
+                            .arg("action", recovery_action(persisted_state).as_str())
+                            .text(lang),
                         false,
                     ));
                     return outcome;
@@ -428,24 +428,23 @@ async fn execute_plan(
                     return match committed {
                         Ok(_) => {
                             let _ = tx.send((
-                                format!(
-                                    "{}: paczka {}/{} - dokonczono lokalny zapis z trwalego dowodu, bez ponownej wysylki",
-                                    target.label(),
-                                    batch.number(),
-                                    batch.total_batches()
-                                ),
+                                Msg::new(key::SYNC_UPLOAD_BATCH_COMMITTED)
+                                    .arg("service", target.label())
+                                    .arg("n", batch.number())
+                                    .arg("total", batch.total_batches())
+                                    .text(lang),
                                 true,
                             ));
                             BatchOutcome::Accepted
                         }
                         Err(detail) => {
                             let _ = tx.send((
-                                format!(
-                                    "{}: paczka {}/{} - lokalny zapis nie powiodl sie: {detail}",
-                                    target.label(),
-                                    batch.number(),
-                                    batch.total_batches()
-                                ),
+                                Msg::new(key::SYNC_UPLOAD_BATCH_COMMIT_FAILED)
+                                    .arg("service", target.label())
+                                    .arg("n", batch.number())
+                                    .arg("total", batch.total_batches())
+                                    .arg("detail", &detail)
+                                    .text(lang),
                                 false,
                             ));
                             BatchOutcome::Failed { detail }
@@ -456,13 +455,12 @@ async fn execute_plan(
                     // `InFlight` po restarcie nigdy nie jest sukcesem.
                     let outcome = outcome_for_persisted_state(persisted_state);
                     let _ = tx.send((
-                        format!(
-                            "{}: paczka {}/{} - stan {} po restarcie, brak ponowienia",
-                            target.label(),
-                            batch.number(),
-                            batch.total_batches(),
-                            persisted_state
-                        ),
+                        Msg::new(key::SYNC_UPLOAD_BATCH_UNKNOWN)
+                            .arg("service", target.label())
+                            .arg("n", batch.number())
+                            .arg("total", batch.total_batches())
+                            .arg("state", persisted_state)
+                            .text(lang),
                         false,
                     ));
                     return outcome;
@@ -854,7 +852,11 @@ pub(crate) fn start_upload(
 /// `InFlight` → `Unknown`, `Committing` → `RecoveryRequired`, `Accepted` →
 /// dokończenie lokalnego zapisu statusu i daty z trwałego dowodu, `Completed` →
 /// nigdy nie wysyłane ponownie.
-pub(crate) fn recover_upload_checkpoints_after_restart(log_db: &DbHandle, logs: &mut Vec<String>) {
+pub(crate) fn recover_upload_checkpoints_after_restart(
+    log_db: &DbHandle,
+    logs: &mut Vec<String>,
+    lang: Language,
+) {
     let now = crate::cloud::scheduler::now_unix();
     let reports = {
         let Ok(db) = log_db.lock() else {
@@ -873,32 +875,29 @@ pub(crate) fn recover_upload_checkpoints_after_restart(log_db: &DbHandle, logs: 
     };
     for report in reports {
         if report.batches_recovered_to_unknown > 0 {
-            let message = format!(
-                "{}: po restarcie {} paczek planu {} ma nieznany wynik - wymagaja recznego rozstrzygniecia",
-                report.target.label(),
-                report.batches_recovered_to_unknown,
-                report.plan_id
-            );
+            let message = Msg::new(key::SYNC_UPLOAD_RECOVERED_UNKNOWN)
+                .arg("service", report.target.label())
+                .arg("count", report.batches_recovered_to_unknown)
+                .arg("plan", &report.plan_id)
+                .text(lang);
             log::warn!("{message}");
             logs.push(message);
         }
         if report.batches_committed_locally > 0 {
-            let message = format!(
-                "{}: po restarcie dokonczono lokalny zapis {} zaakceptowanych paczek planu {} bez ponownej wysylki",
-                report.target.label(),
-                report.batches_committed_locally,
-                report.plan_id
-            );
+            let message = Msg::new(key::SYNC_UPLOAD_RECOVERED_COMMITTED)
+                .arg("service", report.target.label())
+                .arg("count", report.batches_committed_locally)
+                .arg("plan", &report.plan_id)
+                .text(lang);
             log::info!("{message}");
             logs.push(message);
         }
         if report.needs_manual_reconciliation() {
-            let message = format!(
-                "{}: plan {} wymaga recznego rozstrzygniecia ({} paczek)",
-                report.target.label(),
-                report.plan_id,
-                report.batches_requiring_manual_reconciliation
-            );
+            let message = Msg::new(key::SYNC_UPLOAD_NEEDS_MANUAL)
+                .arg("service", report.target.label())
+                .arg("plan", &report.plan_id)
+                .arg("count", report.batches_requiring_manual_reconciliation)
+                .text(lang);
             log::warn!("{message}");
             logs.push(message);
         }

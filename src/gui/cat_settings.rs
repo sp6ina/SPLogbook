@@ -14,7 +14,7 @@ use crate::cat::rig_models::search_rig_models_by_mfg;
 use crate::cat::routing::RigId;
 use crate::cat::service::RigServiceState;
 use crate::cat::tx_arbiter::{TxArbiterState, redact_sensitive_info};
-use crate::core::i18n::{key, tr};
+use crate::core::i18n::{Msg, key, tr};
 use crate::gui::app::SpLogApp;
 use crate::gui::state::CatConnection;
 use crate::gui::theme::ThemeExt;
@@ -119,7 +119,9 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 // Wybór radia oraz kontrola Active RX / Active TX
                 ui.group(|ui| {
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("Radio:").strong());
+                        ui.label(
+                            egui::RichText::new(tr(key::CAT_SETTINGS_RADIO_LABEL, lang)).strong(),
+                        );
                         for (idx, r) in station_cfg.rigs.iter().enumerate() {
                             let is_selected = idx == current_idx;
                             let display_label = if r.display_name.is_empty() {
@@ -132,9 +134,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             }
                         }
 
-                        if station_cfg.rigs.len() < 2
-                            && ui.button("+ 2").clicked()
-                        {
+                        if station_cfg.rigs.len() < 2 && ui.button("+ 2").clicked() {
                             let new_id = RigId::new("rig-2").unwrap_or_else(|_| RigId::hub());
                             station_cfg.rigs.push(RigConfig {
                                 id: new_id,
@@ -147,8 +147,12 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             app.cat.selected_rig_idx = station_cfg.rigs.len() - 1;
                         }
 
-                        if station_cfg.rigs.len() > 1 && current_idx > 0
-                            && ui.button("🗑").on_hover_text(tr(key::BTN_DELETE, lang)).clicked()
+                        if station_cfg.rigs.len() > 1
+                            && current_idx > 0
+                            && ui
+                                .button("🗑")
+                                .on_hover_text(tr(key::BTN_DELETE, lang))
+                                .clicked()
                         {
                             station_cfg.rigs.remove(current_idx);
                             app.cat.selected_rig_idx = current_idx.saturating_sub(1);
@@ -162,7 +166,10 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                             .as_ref()
                             .is_some_and(|t| &t.rig_id == selected_id);
                         if ui
-                            .selectable_label(is_current_rx, "🎧 Active RX")
+                            .selectable_label(
+                                is_current_rx,
+                                format!("🎧 {}", tr(key::CAT_SETTINGS_ACTIVE_RX, lang)),
+                            )
                             .clicked()
                             && !is_current_rx
                         {
@@ -182,12 +189,15 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                         );
                         let tx_btn = ui.add_enabled(
                             !is_arbiter_busy || is_current_tx,
-                            egui::Button::new("🎙 Active TX").selected(is_current_tx),
+                            egui::Button::new(format!(
+                                "🎙 {}",
+                                tr(key::CAT_SETTINGS_ACTIVE_TX, lang)
+                            ))
+                            .selected(is_current_tx),
                         );
                         if is_arbiter_busy && !is_current_tx {
-                            tx_btn.on_disabled_hover_text(
-                                "Cannot switch Active TX while transmitter is active or arbiter is busy",
-                            );
+                            tx_btn
+                                .on_disabled_hover_text(tr(key::CAT_SETTINGS_ACTIVE_TX_BUSY, lang));
                         } else if tx_btn.clicked() {
                             if is_current_tx {
                                 station_cfg.active_tx = None;
@@ -229,7 +239,7 @@ pub fn render_cat_settings_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     .suffix(" ms"),
                             );
                             ui.label(
-                                egui::RichText::new("(50 - 2000 ms, default 250 ms)")
+                                egui::RichText::new(tr(key::CAT_SETTINGS_POLL_RANGE, lang))
                                     .size(11.0)
                                     .color(palette.text_muted),
                             );
@@ -333,9 +343,18 @@ fn render_lifecycle_status_bar(
                 RigServiceState::Degraded => {
                     (palette.warning, tr(key::CAT_SETTINGS_STATE_DEGRADED, lang))
                 }
-                RigServiceState::Disconnecting => (palette.text_muted, "Disconnecting..."),
-                RigServiceState::Synchronizing => (palette.accent, "Synchronizing..."),
-                RigServiceState::Created => (palette.text_muted, "Created"),
+                RigServiceState::Disconnecting => (
+                    palette.text_muted,
+                    tr(key::CAT_SETTINGS_STATE_DISCONNECTING, lang),
+                ),
+                RigServiceState::Synchronizing => (
+                    palette.accent,
+                    tr(key::CAT_SETTINGS_STATE_SYNCHRONIZING, lang),
+                ),
+                RigServiceState::Created => (
+                    palette.text_muted,
+                    tr(key::CAT_SETTINGS_STATE_CREATED, lang),
+                ),
                 RigServiceState::Disconnected => (
                     palette.text_muted,
                     tr(key::CAT_SETTINGS_STATE_DISCONNECTED, lang),
@@ -345,7 +364,10 @@ fn render_lifecycle_status_bar(
                 }
             }
         } else if app.cat.connected {
-            (palette.warning, "Registering...")
+            (
+                palette.warning,
+                tr(key::CAT_SETTINGS_STATE_REGISTERING, lang),
+            )
         } else {
             (palette.text_muted, "—")
         };
@@ -369,7 +391,7 @@ fn render_lifecycle_status_bar(
                 ui.colored_label(palette.success, tr(key::CAT_SETTINGS_TX_IDLE, lang));
             }
             TxArbiterState::Requesting { .. } => {
-                ui.colored_label(palette.warning, "Requesting...");
+                ui.colored_label(palette.warning, tr(key::CAT_SETTINGS_TX_REQUESTING, lang));
             }
             TxArbiterState::Owned { ref rig_id, .. } => {
                 let is_current = rig_id == &rig.id;
@@ -384,7 +406,7 @@ fn render_lifecycle_status_bar(
                 );
             }
             TxArbiterState::Releasing { .. } => {
-                ui.colored_label(palette.warning, "Releasing...");
+                ui.colored_label(palette.warning, tr(key::CAT_SETTINGS_TX_RELEASING, lang));
             }
             TxArbiterState::Unknown { ref reason, .. } => {
                 ui.colored_label(
@@ -471,10 +493,10 @@ fn render_backend_form(
                 render_hamlib_form(app, ui, cfg, lang);
             }
             RigBackendConfig::Flrig(cfg) => {
-                render_flrig_form(ui, cfg);
+                render_flrig_form(ui, cfg, lang);
             }
             RigBackendConfig::Tci(cfg) => {
-                render_tci_form(ui, cfg);
+                render_tci_form(ui, cfg, lang);
             }
             RigBackendConfig::Icom(cfg) => {
                 render_icom_form(ui, cfg, lang);
@@ -595,7 +617,11 @@ fn render_hamlib_form(
     });
 }
 
-fn render_flrig_form(ui: &mut egui::Ui, cfg: &mut FlrigBackendConfig) {
+fn render_flrig_form(
+    ui: &mut egui::Ui,
+    cfg: &mut FlrigBackendConfig,
+    lang: crate::core::i18n::Language,
+) {
     let palette = ui.palette();
     ui.horizontal(|ui| {
         ui.label("FLRig Host XML-RPC:");
@@ -611,14 +637,22 @@ fn render_flrig_form(ui: &mut egui::Ui, cfg: &mut FlrigBackendConfig) {
             cfg.port = p;
         }
         ui.label(
-            egui::RichText::new("(default :12345)")
-                .size(11.0)
-                .color(palette.text_muted),
+            egui::RichText::new(
+                Msg::new(key::CAT_SETTINGS_DEFAULT_PORT)
+                    .arg("port", 12345)
+                    .text(lang),
+            )
+            .size(11.0)
+            .color(palette.text_muted),
         );
     });
 }
 
-fn render_tci_form(ui: &mut egui::Ui, cfg: &mut TciBackendConfig) {
+fn render_tci_form(
+    ui: &mut egui::Ui,
+    cfg: &mut TciBackendConfig,
+    lang: crate::core::i18n::Language,
+) {
     let palette = ui.palette();
     ui.horizontal(|ui| {
         ui.label("TCI Host WebSocket:");
@@ -634,9 +668,13 @@ fn render_tci_form(ui: &mut egui::Ui, cfg: &mut TciBackendConfig) {
             cfg.port = p;
         }
         ui.label(
-            egui::RichText::new("(default :40001)")
-                .size(11.0)
-                .color(palette.text_muted),
+            egui::RichText::new(
+                Msg::new(key::CAT_SETTINGS_DEFAULT_PORT)
+                    .arg("port", 40001)
+                    .text(lang),
+            )
+            .size(11.0)
+            .color(palette.text_muted),
         );
     });
 }
@@ -664,7 +702,11 @@ fn render_icom_form(
             }
         }
         ui.add_space(10.0);
-        ui.label("Model Icom:");
+        ui.label(
+            Msg::new(key::CAT_SETTINGS_MODEL_OF)
+                .arg("brand", "Icom")
+                .text(lang),
+        );
         ui.add(egui::TextEdit::singleline(&mut cfg.model).desired_width(120.0));
     });
 }
@@ -728,7 +770,11 @@ fn render_kenwood_form(
     }
 
     ui.horizontal(|ui| {
-        ui.label("Model Kenwood:");
+        ui.label(
+            Msg::new(key::CAT_SETTINGS_MODEL_OF)
+                .arg("brand", "Kenwood")
+                .text(lang),
+        );
         ui.add(egui::TextEdit::singleline(&mut cfg.model).desired_width(140.0));
     });
 }
@@ -741,7 +787,11 @@ fn render_yaesu_form(
     render_serial_port_selector(ui, &mut cfg.port_name, &mut cfg.baud_rate, lang);
 
     ui.horizontal(|ui| {
-        ui.label("Model Yaesu:");
+        ui.label(
+            Msg::new(key::CAT_SETTINGS_MODEL_OF)
+                .arg("brand", "Yaesu")
+                .text(lang),
+        );
         ui.add(egui::TextEdit::singleline(&mut cfg.model).desired_width(140.0));
     });
 }
@@ -805,7 +855,11 @@ fn render_elecraft_form(
     }
 
     ui.horizontal(|ui| {
-        ui.label("Model Elecraft:");
+        ui.label(
+            Msg::new(key::CAT_SETTINGS_MODEL_OF)
+                .arg("brand", "Elecraft")
+                .text(lang),
+        );
         ui.add(egui::TextEdit::singleline(&mut cfg.model).desired_width(140.0));
     });
 }
@@ -868,7 +922,7 @@ fn render_flexradio_form(
             cfg.slice_id = Some(slice_val);
         }
         ui.add_space(10.0);
-        ui.label("Model:");
+        ui.label(tr(key::CAT_SETTINGS_MODEL, lang));
         let mut model_str = cfg.model.clone().unwrap_or_default();
         if ui
             .add(egui::TextEdit::singleline(&mut model_str).desired_width(100.0))
@@ -1077,11 +1131,16 @@ fn render_probe_section(
                     );
                     ui.horizontal_wrapped(|ui| {
                         ui.label(format!(
-                            "Identity: {}",
+                            "{}: {}",
+                            tr(key::CAT_SETTINGS_PROBE_IDENTITY, lang),
                             res.identity.as_deref().unwrap_or("—")
                         ));
                         ui.label("|");
-                        ui.label(format!("Model: {}", res.model.as_deref().unwrap_or("—")));
+                        ui.label(format!(
+                            "{}: {}",
+                            tr(key::CAT_SETTINGS_MODEL, lang),
+                            res.model.as_deref().unwrap_or("—")
+                        ));
                         ui.label("|");
                         ui.label(format!(
                             "{}: {}",
@@ -1090,7 +1149,11 @@ fn render_probe_section(
                         ));
                         if !res.safe_diagnostic.is_empty() {
                             ui.label("|");
-                            ui.label(format!("Info: {}", res.safe_diagnostic));
+                            ui.label(format!(
+                                "{}: {}",
+                                tr(key::CAT_SETTINGS_PROBE_INFO, lang),
+                                res.safe_diagnostic
+                            ));
                         }
                     });
                 }
@@ -1161,14 +1224,26 @@ fn render_capabilities_and_diagnostics(
                     .color(palette.text_muted),
             );
             ui.horizontal_wrapped(|ui| {
-                ui.label(format!("State generation: {}", svc.state_generation));
+                ui.label(format!(
+                    "{}: {}",
+                    tr(key::CAT_SETTINGS_STATE_GENERATION, lang),
+                    svc.state_generation
+                ));
                 ui.label("|");
-                ui.label(format!("Freshness: {:?}", svc.freshness));
+                ui.label(format!(
+                    "{}: {:?}",
+                    tr(key::CAT_SETTINGS_FRESHNESS, lang),
+                    svc.freshness
+                ));
                 if let Some(ref err) = svc.last_error {
                     ui.label("|");
                     ui.colored_label(
                         palette.danger,
-                        format!("Last error: {}", redact_sensitive_info(err)),
+                        format!(
+                            "{}: {}",
+                            tr(key::CAT_SETTINGS_LAST_ERROR, lang),
+                            redact_sensitive_info(err)
+                        ),
                     );
                 }
             });

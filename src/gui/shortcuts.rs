@@ -916,6 +916,74 @@ impl ShortcutRegistry {
     }
 }
 
+/// Grupa skrótów w oknie pomocy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum HelpSection {
+    Logging,
+    Transceiver,
+    Contest,
+    Tools,
+}
+
+impl HelpSection {
+    pub const ALL: [Self; 4] = [Self::Logging, Self::Transceiver, Self::Contest, Self::Tools];
+}
+
+impl AppAction {
+    /// Grupa, w której okno pomocy pokazuje skrót tej akcji.
+    pub const fn help_section(self) -> HelpSection {
+        match self {
+            Self::SaveQso
+            | Self::WipeQso
+            | Self::NewQso
+            | Self::LookupQrz
+            | Self::RefreshLog
+            | Self::FocusFilter
+            | Self::FocusLog
+            | Self::Undo
+            | Self::Redo
+            | Self::SaveConfig
+            | Self::ImportAdif
+            | Self::ExportCsv => HelpSection::Logging,
+            Self::SendSpot
+            | Self::PttOn
+            | Self::PttOff
+            | Self::ToggleVoiceKeyer
+            | Self::ToggleCwTerminal
+            | Self::ToggleCluster
+            | Self::ToggleBandmap
+            | Self::ToggleWorldMap => HelpSection::Transceiver,
+            Self::ContestSaveQso | Self::ContestWipeQso | Self::ContestMacro(_) => {
+                HelpSection::Contest
+            }
+            _ => HelpSection::Tools,
+        }
+    }
+}
+
+/// Wiersze okna pomocy wyliczone z zarejestrowanych skrótów, więc pomoc nie rozjeżdża
+/// się z działaniem klawiszy. Każda akcja ma jeden wiersz ze wszystkimi swoimi klawiszami;
+/// makra zawodów F1–F8 tworzą jeden wiersz.
+pub fn help_rows(registry: &ShortcutRegistry) -> Vec<(HelpSection, AppAction, String)> {
+    let mut rows: Vec<(HelpSection, AppAction, Vec<&'static str>)> = Vec::new();
+    for binding in registry.bindings().iter().filter(|b| b.enabled) {
+        let action = match binding.action {
+            AppAction::ContestMacro(_) => AppAction::ContestMacro(0),
+            other => other,
+        };
+        if let Some(row) = rows.iter_mut().find(|(_, a, _)| *a == action) {
+            if !row.2.contains(&binding.label) {
+                row.2.push(binding.label);
+            }
+        } else {
+            rows.push((action.help_section(), action, vec![binding.label]));
+        }
+    }
+    rows.into_iter()
+        .map(|(section, action, labels)| (section, action, labels.join(" / ")))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1038,6 +1106,39 @@ mod tests {
             registry.label_for_action(AppAction::PttOff),
             Some("Ctrl+F7")
         );
+    }
+
+    #[test]
+    fn help_rows_follow_the_registered_shortcuts() {
+        let registry = ShortcutRegistry::default();
+        let rows = help_rows(&registry);
+        let keys_of = |action: AppAction| {
+            rows.iter()
+                .find(|(_, a, _)| *a == action)
+                .map(|(_, _, keys)| keys.clone())
+                .unwrap_or_default()
+        };
+        assert_eq!(keys_of(AppAction::SaveQso), "F2 / Ctrl+L");
+        assert_eq!(keys_of(AppAction::NextWorkspacePage), "Ctrl+PgDn");
+        assert_eq!(keys_of(AppAction::OpenProfiles), "Ctrl+P");
+        assert!(keys_of(AppAction::ContestMacro(0)).starts_with("F1 / F2"));
+        // Każdy aktywny skrót ma swój wiersz.
+        for binding in registry.bindings().iter().filter(|b| b.enabled) {
+            let action = match binding.action {
+                AppAction::ContestMacro(_) => AppAction::ContestMacro(0),
+                other => other,
+            };
+            assert!(
+                keys_of(action).split(" / ").any(|k| k == binding.label),
+                "{:?} {}",
+                binding.action,
+                binding.label
+            );
+        }
+        let actions: Vec<AppAction> = rows.iter().map(|(_, a, _)| *a).collect();
+        let mut unique = actions.clone();
+        unique.dedup();
+        assert_eq!(unique.len(), actions.len(), "akcja tylko raz");
     }
 
     #[test]

@@ -688,7 +688,9 @@ pub fn render_cluster_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         ui.label(egui::RichText::new(tr(key::CLUSTER_DX, lang)).strong());
                         ui.label(egui::RichText::new(tr(key::CLUSTER_FREQ, lang)).strong());
                         ui.label(egui::RichText::new(tr(key::QSO_BAND, lang)).strong());
-                        ui.label(egui::RichText::new("Program / Ref").strong());
+                        ui.label(
+                            egui::RichText::new(tr(key::CLUSTER_COL_PROGRAM_REF, lang)).strong(),
+                        );
                         ui.label(egui::RichText::new(tr(key::CLUSTER_SPOTTER, lang)).strong());
                         ui.label(egui::RichText::new(tr(key::CLUSTER_COMMENT, lang)).strong());
                         ui.label(egui::RichText::new(tr(key::CLUSTER_TIME, lang)).strong());
@@ -805,14 +807,14 @@ pub fn render_add_cluster_dialog(app: &mut SpLogApp, ctx: &egui::Context) {
                 ui.label(tr(key::CLUSTER_ADD_NAME, lang));
                 ui.add(
                     egui::TextEdit::singleline(&mut app.cluster.new_cluster_name)
-                        .hint_text("np. SP7PKI DX Spider"),
+                        .hint_text(crate::core::i18n::example("SP7PKI DX Spider", lang)),
                 );
             });
             ui.horizontal(|ui| {
                 ui.label(tr(key::CLUSTER_ADD_HOST, lang));
                 ui.add(
                     egui::TextEdit::singleline(&mut app.cluster.new_cluster_host)
-                        .hint_text("np. dxc.sp7pki.pl"),
+                        .hint_text(crate::core::i18n::example("dxc.sp7pki.pl", lang)),
                 );
             });
             ui.horizontal(|ui| {

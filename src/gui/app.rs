@@ -395,6 +395,7 @@ impl SpLogApp {
         crate::gui::online_sync_upload::recover_upload_checkpoints_after_restart(
             &app.services.log_db,
             &mut app.online.online_sync_logs,
+            app.gui.appearance.language,
         );
 
         app.rebuild_awards_full();

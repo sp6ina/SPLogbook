@@ -212,7 +212,7 @@ fn render_hud_body(app: &mut SpLogApp, ui: &mut egui::Ui, exit_compact: &mut boo
             ui.label("QTH:");
             ui.add(egui::TextEdit::singleline(&mut app.entry.qth).desired_width(90.0));
 
-            ui.label("Grid:");
+            ui.label(format!("{}:", tr(key::GEO_LOCATOR, lang)));
             let grid_edit =
                 ui.add(egui::TextEdit::singleline(&mut app.entry.grid).desired_width(60.0));
             if grid_edit.changed() {
