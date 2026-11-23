@@ -628,6 +628,7 @@ impl SpLogApp {
     pub fn render_dialogs(&mut self, ctx: &egui::Context) {
         self.render_page_rename_dialog(ctx);
         crate::gui::theme_customizer::render_theme_customizer(self, ctx);
+        self.render_status_bar_settings(ctx);
         if self.gui.dialogs.journal_dialog.is_open {
             let mut switched_journal = None;
             let lang = self.gui.appearance.language;

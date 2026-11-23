@@ -293,6 +293,13 @@ pub(crate) const COMMANDS: &[Command] = &[
         },
     },
     Command {
+        label_key: key::STATUSBAR_CUSTOMIZE_MENU,
+        keywords: "status bar items order",
+        run: |app| {
+            app.gui.windows.show_status_bar_settings = true;
+        },
+    },
+    Command {
         label_key: key::WORKSPACE_LOCK,
         keywords: "lock layout workspace unlock",
         run: |app| {

@@ -738,6 +738,10 @@ pub struct AppConfig {
     /// Własny akcent i gęstość interfejsu nakładane na wybrany motyw.
     #[serde(default)]
     pub theme_custom: ThemeCustomization,
+
+    /// Widoczność i kolejność elementów paska stanu.
+    #[serde(default)]
+    pub status_bar: StatusBarConfig,
 }
 
 impl std::fmt::Debug for AppConfig {
@@ -868,6 +872,7 @@ impl std::fmt::Debug for AppConfig {
             .field("cluster_spots", &self.cluster_spots)
             .field("bandplan", &self.bandplan.is_some())
             .field("theme_custom", &self.theme_custom)
+            .field("status_bar", &self.status_bar)
             .finish()
     }
 }
@@ -1339,6 +1344,106 @@ impl UiDensity {
     pub const ALL: [Self; 3] = [Self::Compact, Self::Normal, Self::Comfortable];
 }
 
+/// Element paska stanu, który można ukryć. Częstotliwość i wskaźnik nadawania
+/// są widoczne zawsze.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum StatusItem {
+    Message,
+    Rst,
+    Solar,
+    Journal,
+    Profile,
+    Cat,
+    Cluster,
+    Utc,
+    Version,
+}
+
+impl StatusItem {
+    /// Lewa strona w kolejności domyślnej; kolejność można zmienić.
+    pub const LEFT: [Self; 5] = [
+        Self::Message,
+        Self::Rst,
+        Self::Solar,
+        Self::Journal,
+        Self::Profile,
+    ];
+    /// Prawa strona (wskaźniki); kolejność stała.
+    pub const RIGHT: [Self; 4] = [Self::Cat, Self::Cluster, Self::Utc, Self::Version];
+
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::Message => "message",
+            Self::Rst => "rst",
+            Self::Solar => "solar",
+            Self::Journal => "journal",
+            Self::Profile => "profile",
+            Self::Cat => "cat",
+            Self::Cluster => "cluster",
+            Self::Utc => "utc",
+            Self::Version => "version",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Self> {
+        Self::LEFT
+            .into_iter()
+            .chain(Self::RIGHT)
+            .find(|item| item.id() == id)
+    }
+}
+
+/// Personalizacja paska stanu: ukryte elementy i kolejność lewej strony, zapisane jako
+/// identyfikatory (nieznane identyfikatory są pomijane).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct StatusBarConfig {
+    pub hidden: Vec<String>,
+    pub order: Vec<String>,
+}
+
+impl StatusBarConfig {
+    pub fn is_visible(&self, item: StatusItem) -> bool {
+        !self.hidden.iter().any(|id| id == item.id())
+    }
+
+    pub fn set_visible(&mut self, item: StatusItem, visible: bool) {
+        self.hidden.retain(|id| id != item.id());
+        if !visible {
+            self.hidden.push(item.id().to_string());
+        }
+    }
+
+    /// Lewa strona w kolejności użytkownika, brakujące elementy na końcu.
+    pub fn left_ordered(&self) -> Vec<StatusItem> {
+        let mut items: Vec<StatusItem> = Vec::with_capacity(StatusItem::LEFT.len());
+        for item in self.order.iter().filter_map(|id| StatusItem::from_id(id)) {
+            if StatusItem::LEFT.contains(&item) && !items.contains(&item) {
+                items.push(item);
+            }
+        }
+        for item in StatusItem::LEFT {
+            if !items.contains(&item) {
+                items.push(item);
+            }
+        }
+        items
+    }
+
+    pub fn move_left_item(&mut self, item: StatusItem, step: isize) {
+        let mut items = self.left_ordered();
+        let Some(from) = items.iter().position(|i| *i == item) else {
+            return;
+        };
+        let Some(to) = from.checked_add_signed(step).filter(|to| *to < items.len()) else {
+            return;
+        };
+        let moved = items.remove(from);
+        items.insert(to, moved);
+        self.order = items.iter().map(|i| i.id().to_string()).collect();
+    }
+}
+
 /// Personalizacja motywu nakładana na motyw wbudowany.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -1795,6 +1900,7 @@ impl Default for AppConfig {
             cluster_spots: ClusterSpotSettings::default(),
             bandplan: None,
             theme_custom: ThemeCustomization::default(),
+            status_bar: StatusBarConfig::default(),
         }
     }
 }
@@ -2181,6 +2287,39 @@ mod tests {
         assert_eq!(compact.accent_rgb, None);
         let old: AppConfig = serde_json::from_str("{}").unwrap();
         assert_eq!(old.theme_custom, ThemeCustomization::default());
+    }
+
+    #[test]
+    fn status_bar_settings_keep_order_and_skip_unknown_ids() {
+        let mut bar = StatusBarConfig::default();
+        assert_eq!(bar.left_ordered(), StatusItem::LEFT.to_vec());
+        assert!(
+            StatusItem::LEFT
+                .into_iter()
+                .chain(StatusItem::RIGHT)
+                .all(|i| bar.is_visible(i))
+        );
+        bar.set_visible(StatusItem::Utc, false);
+        bar.set_visible(StatusItem::Utc, false);
+        assert_eq!(bar.hidden, ["utc"]);
+        bar.set_visible(StatusItem::Utc, true);
+        assert_eq!(bar.hidden, Vec::<String>::new());
+
+        bar.move_left_item(StatusItem::Profile, -4);
+        assert_eq!(bar.left_ordered()[0], StatusItem::Profile);
+        bar.move_left_item(StatusItem::Profile, -1);
+        assert_eq!(bar.left_ordered()[0], StatusItem::Profile);
+
+        let stored: StatusBarConfig = serde_json::from_str(
+            r#"{"hidden":["future"],"order":["journal","cat","journal","nope"]}"#,
+        )
+        .unwrap();
+        // Prawej strony nie da się przenieść na lewą; nieznane identyfikatory znikają.
+        assert_eq!(stored.left_ordered()[0], StatusItem::Journal);
+        assert_eq!(stored.left_ordered().len(), StatusItem::LEFT.len());
+        assert!(stored.is_visible(StatusItem::Cat));
+        let old: AppConfig = serde_json::from_str("{}").unwrap();
+        assert_eq!(old.status_bar, StatusBarConfig::default());
     }
 
     #[test]

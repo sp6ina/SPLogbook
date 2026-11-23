@@ -5931,3 +5931,73 @@ fn theme_customizer_opens_renders_and_saves() {
     assert!(draft.own);
     assert_eq!(draft.rgb, [255, 200, 0], "okno pokazuje zapisany akcent");
 }
+
+// ======================================================================================
+// Pasek stanu (S13d): widoczność i kolejność elementów
+// ======================================================================================
+
+#[test]
+fn status_bar_hides_and_reorders_items_but_keeps_tx_and_frequency() {
+    use crate::core::station::StatusItem;
+    let mut app = qso_form_test_app();
+    app.cat.connected = true;
+    app.gui.chrome.status_message = Some("Komunikat".to_string());
+    let texts = render_status_bar_texts(&mut app, 1500.0);
+    let x_of = |texts: &[(String, egui::Rect)], needle: &str| {
+        texts
+            .iter()
+            .find(|(t, _)| t.contains(needle))
+            .map(|(_, r)| r.min.x)
+    };
+    let rst = x_of(&texts, "RST").expect("raport RST");
+    let journal = x_of(&texts, "QSO)").expect("dziennik");
+    assert!(rst < journal, "domyślnie RST przed dziennikiem");
+
+    app.config
+        .status_bar
+        .move_left_item(StatusItem::Journal, -3);
+    app.config.status_bar.set_visible(StatusItem::Cat, false);
+    let texts = render_status_bar_texts(&mut app, 1500.0);
+    assert!(x_of(&texts, "QSO)").unwrap() < x_of(&texts, "RST").unwrap());
+    assert!(!texts.iter().any(|(t, _)| t.contains("CAT")), "CAT ukryty");
+
+    for item in StatusItem::LEFT.into_iter().chain(StatusItem::RIGHT) {
+        app.config.status_bar.set_visible(item, false);
+    }
+    // Stan TX wyłącznie z telemetrii (jedyna dozwolona ścieżka zapisu flagi).
+    app.update_cat_state_from_telemetry(crate::cat::hamlib::RigState::default(), true);
+    let texts = render_status_bar_texts(&mut app, 1500.0);
+    for needle in ["TX ON", "MHz"] {
+        assert!(
+            texts.iter().any(|(t, _)| t.contains(needle)),
+            "{needle} zawsze widoczny"
+        );
+    }
+    for gone in ["RST", "CLUSTER", "UTC", "Komunikat"] {
+        assert!(
+            !texts.iter().any(|(t, _)| t.contains(gone)),
+            "{gone} ukryty"
+        );
+    }
+}
+
+#[test]
+fn status_bar_settings_window_renders_and_saves() {
+    use crate::core::station::StatusItem;
+    let mut app = qso_form_test_app();
+    app.gui.windows.show_status_bar_settings = true;
+    let ctx = egui::Context::default();
+    for _ in 0..2 {
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.render_status_bar_settings(ui.ctx());
+        });
+        output.textures_delta.clear();
+    }
+    assert!(app.gui.windows.show_status_bar_settings);
+    app.config.status_bar.set_visible(StatusItem::Solar, false);
+    assert!(
+        !app.snapshot_config()
+            .status_bar
+            .is_visible(StatusItem::Solar)
+    );
+}

@@ -14,7 +14,24 @@ const TOAST_TEXT_MAX_WIDTH: f32 = 380.0;
 const STATUS_BAR_VERSION_MIN_WIDTH: f32 = 1600.0;
 /// Minimalna szerokość, od której komunikat statusu jest w ogóle pokazywany (skracany wielokropkiem).
 const STATUS_MESSAGE_MIN_WIDTH: f32 = 80.0;
+use crate::core::station::{StatusBarConfig, StatusItem};
 use eframe::egui;
+
+/// Nazwa elementu paska stanu w oknie personalizacji.
+fn status_item_label(item: StatusItem, lang: crate::core::i18n::Language) -> &'static str {
+    let k = match item {
+        StatusItem::Message => key::STATUSBAR_ITEM_MESSAGE,
+        StatusItem::Rst => key::STATUSBAR_ITEM_RST,
+        StatusItem::Solar => key::STATUSBAR_ITEM_SOLAR,
+        StatusItem::Journal => key::STATUSBAR_ITEM_JOURNAL,
+        StatusItem::Profile => key::STATUSBAR_ITEM_PROFILE,
+        StatusItem::Cat => key::STATUSBAR_ITEM_CAT,
+        StatusItem::Cluster => key::STATUSBAR_ITEM_CLUSTER,
+        StatusItem::Utc => key::STATUSBAR_ITEM_UTC,
+        StatusItem::Version => key::STATUSBAR_ITEM_VERSION,
+    };
+    tr(k, lang)
+}
 
 impl SpLogApp {
     pub fn render_chrome_bars(&mut self, ui: &mut egui::Ui) {
@@ -69,6 +86,90 @@ impl SpLogApp {
         });
     }
 
+    /// Okno personalizacji paska stanu: widoczność elementów i kolejność lewej strony.
+    pub fn render_status_bar_settings(&mut self, ctx: &egui::Context) {
+        if !self.gui.windows.show_status_bar_settings {
+            return;
+        }
+        let lang = self.gui.appearance.language;
+        let mut open = true;
+        let mut changed = false;
+        egui::Window::new(tr(key::STATUSBAR_CUSTOMIZE_TITLE, lang))
+            .id(egui::Id::new("status_bar_settings"))
+            .open(&mut open)
+            .resizable(false)
+            .collapsible(false)
+            .default_width(360.0)
+            .show(ctx, |ui| {
+                let palette = ui.palette();
+                ui.label(
+                    egui::RichText::new(tr(key::STATUSBAR_CUSTOMIZE_HINT, lang))
+                        .size(TEXT_CAPTION)
+                        .color(palette.text_muted),
+                );
+                ui.separator();
+                ui.strong(tr(key::STATUSBAR_LEFT_SIDE, lang));
+                let left = self.config.status_bar.left_ordered();
+                let last = left.len().saturating_sub(1);
+                let mut moved = None;
+                egui::Grid::new("status_bar_left_grid")
+                    .num_columns(3)
+                    .spacing([8.0, 4.0])
+                    .show(ui, |ui| {
+                        for (index, item) in left.iter().copied().enumerate() {
+                            let mut visible = self.config.status_bar.is_visible(item);
+                            if ui
+                                .checkbox(&mut visible, status_item_label(item, lang))
+                                .changed()
+                            {
+                                self.config.status_bar.set_visible(item, visible);
+                                changed = true;
+                            }
+                            if ui
+                                .add_enabled(index > 0, egui::Button::new("▲").small())
+                                .on_hover_text(tr(key::TOOLBAR_MOVE_LEFT, lang))
+                                .clicked()
+                            {
+                                moved = Some((item, -1));
+                            }
+                            if ui
+                                .add_enabled(index < last, egui::Button::new("▼").small())
+                                .on_hover_text(tr(key::TOOLBAR_MOVE_RIGHT, lang))
+                                .clicked()
+                            {
+                                moved = Some((item, 1));
+                            }
+                            ui.end_row();
+                        }
+                    });
+                if let Some((item, step)) = moved {
+                    self.config.status_bar.move_left_item(item, step);
+                    changed = true;
+                }
+                ui.separator();
+                ui.strong(tr(key::STATUSBAR_RIGHT_SIDE, lang));
+                for item in StatusItem::RIGHT {
+                    let mut visible = self.config.status_bar.is_visible(item);
+                    if ui
+                        .checkbox(&mut visible, status_item_label(item, lang))
+                        .changed()
+                    {
+                        self.config.status_bar.set_visible(item, visible);
+                        changed = true;
+                    }
+                }
+                ui.separator();
+                if ui.button(tr(key::TOOLBAR_RESTORE_DEFAULTS, lang)).clicked() {
+                    self.config.status_bar = StatusBarConfig::default();
+                    changed = true;
+                }
+            });
+        if changed {
+            self.save_station_config();
+        }
+        self.gui.windows.show_status_bar_settings = open;
+    }
+
     /// Dolny pasek statusu. Lewa i prawa strona nigdy na siebie nie nachodzą:
     ///
     /// * **prawa (krytyczna, zawsze w całości):** TX/RX, CAT, Klaster, UTC (oraz napis
@@ -79,10 +180,12 @@ impl SpLogApp {
     ///
     /// Stan TX jest wyłącznie odczytem telemetrii (`cat.ptt_active`), tak jak w panelu VFO.
     pub fn render_status_bar(&mut self, ui: &mut egui::Ui) {
-        egui::Panel::bottom("bottom_status_bar").show(ui, |ui| {
+        let panel = egui::Panel::bottom("bottom_status_bar").show(ui, |ui| {
             let lang = self.gui.appearance.language;
             let palette = ui.palette();
-            let show_version = ui.ctx().content_rect().width() > STATUS_BAR_VERSION_MIN_WIDTH;
+            let bar = self.config.status_bar.clone();
+            let show_version = bar.is_visible(StatusItem::Version)
+                && ui.ctx().content_rect().width() > STATUS_BAR_VERSION_MIN_WIDTH;
             ui.horizontal(|ui| {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if show_version {
@@ -97,56 +200,44 @@ impl SpLogApp {
                         ui.separator();
                     }
 
-                    let utc_str = format!(
-                        "⏱ {}: {}",
-                        tr(key::STATUSBAR_UTC, lang),
-                        jiff::Timestamp::now().strftime("%H:%M:%S")
-                    );
-                    ui.label(
-                        egui::RichText::new(utc_str)
-                            .size(TEXT_CAPTION)
-                            .monospace()
-                            .color(palette.accent),
-                    );
-                    ui.separator();
-
-                    if self.cat.connected {
-                        ui.label(
-                            egui::RichText::new("● CAT")
-                                .size(TEXT_CAPTION)
-                                .strong()
-                                .color(palette.success),
+                    if bar.is_visible(StatusItem::Utc) {
+                        let utc_str = format!(
+                            "⏱ {}: {}",
+                            tr(key::STATUSBAR_UTC, lang),
+                            jiff::Timestamp::now().strftime("%H:%M:%S")
                         );
-                    } else {
                         ui.label(
-                            egui::RichText::new("○ CAT")
+                            egui::RichText::new(utc_str)
                                 .size(TEXT_CAPTION)
-                                .color(palette.text_muted),
+                                .monospace()
+                                .color(palette.accent),
                         );
+                        ui.separator();
                     }
-                    ui.separator();
 
-                    if self.cluster.connected {
-                        ui.label(
-                            egui::RichText::new("● CLUSTER")
-                                .size(TEXT_CAPTION)
-                                .strong()
-                                .color(palette.success),
-                        );
-                    } else if self.cluster.connecting {
-                        ui.label(
-                            egui::RichText::new("● CLUSTER")
-                                .size(TEXT_CAPTION)
-                                .color(palette.warning),
-                        );
-                    } else {
-                        ui.label(
-                            egui::RichText::new("○ CLUSTER")
-                                .size(TEXT_CAPTION)
-                                .color(palette.text_muted),
-                        );
+                    if bar.is_visible(StatusItem::Cat) {
+                        let label = if self.cat.connected {
+                            egui::RichText::new("● CAT").strong().color(palette.success)
+                        } else {
+                            egui::RichText::new("○ CAT").color(palette.text_muted)
+                        };
+                        ui.label(label.size(TEXT_CAPTION));
+                        ui.separator();
                     }
-                    ui.separator();
+
+                    if bar.is_visible(StatusItem::Cluster) {
+                        let label = if self.cluster.connected {
+                            egui::RichText::new("● CLUSTER")
+                                .strong()
+                                .color(palette.success)
+                        } else if self.cluster.connecting {
+                            egui::RichText::new("● CLUSTER").color(palette.warning)
+                        } else {
+                            egui::RichText::new("○ CLUSTER").color(palette.text_muted)
+                        };
+                        ui.label(label.size(TEXT_CAPTION));
+                        ui.separator();
+                    }
 
                     // Globalny wskaźnik nadawania: tekst + kolor (nie tylko kolorem).
                     let (tx_label, tx_color) = if self.cat.ptt_active {
@@ -169,6 +260,13 @@ impl SpLogApp {
                     });
                 });
             });
+        });
+        let lang = self.gui.appearance.language;
+        panel.response.context_menu(|ui| {
+            if ui.button(tr(key::STATUSBAR_CUSTOMIZE_MENU, lang)).clicked() {
+                self.gui.windows.show_status_bar_settings = true;
+                ui.close();
+            }
         });
     }
 
@@ -224,15 +322,17 @@ impl SpLogApp {
 
         // Dobór wg priorytetu: częstotliwość (zawsze) → komunikat (skracany) →
         // dziennik → SFI → RST → profil. Wyświetlanie zachowuje naturalną kolejność.
+        let bar = self.config.status_bar.clone();
         let mut budget = ui.available_width() - measure(ui, &op_txt, true) - sep_w;
         let msg_cap = (budget * 0.4).max(0.0);
-        let msg_width = if msg_cap >= STATUS_MESSAGE_MIN_WIDTH {
-            let w = measure(ui, &status_txt, false).min(msg_cap);
-            budget -= w + sep_w;
-            Some(w)
-        } else {
-            None
-        };
+        let msg_width =
+            if bar.is_visible(StatusItem::Message) && msg_cap >= STATUS_MESSAGE_MIN_WIDTH {
+                let w = measure(ui, &status_txt, false).min(msg_cap);
+                budget -= w + sep_w;
+                Some(w)
+            } else {
+                None
+            };
         let mut fits = |text: &str| -> bool {
             let need = measure(ui, text, false) + sep_w;
             if need <= budget {
@@ -242,10 +342,10 @@ impl SpLogApp {
                 false
             }
         };
-        let show_journal = fits(&journal_txt);
-        let show_prop = fits(&prop_txt);
-        let show_rst = fits(&rst_txt);
-        let show_profile = fits(&profile_txt);
+        let show_journal = bar.is_visible(StatusItem::Journal) && fits(&journal_txt);
+        let show_prop = bar.is_visible(StatusItem::Solar) && fits(&prop_txt);
+        let show_rst = bar.is_visible(StatusItem::Rst) && fits(&rst_txt);
+        let show_profile = bar.is_visible(StatusItem::Profile) && fits(&profile_txt);
 
         ui.label(
             egui::RichText::new(op_txt)
@@ -253,52 +353,61 @@ impl SpLogApp {
                 .monospace()
                 .color(palette.accent),
         );
-        if let Some(width) = msg_width {
-            ui.separator();
-            ui.scope(|ui| {
-                ui.set_max_width(width);
-                ui.add(
-                    egui::Label::new(
-                        egui::RichText::new(status_txt)
+        // Kolejność wyświetlania wybiera użytkownik; brak miejsca usuwa elementy
+        // według stałego priorytetu ustalonego wyżej.
+        for item in bar.left_ordered() {
+            match item {
+                StatusItem::Message => {
+                    if let Some(width) = msg_width {
+                        ui.separator();
+                        ui.scope(|ui| {
+                            ui.set_max_width(width);
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(status_txt.as_str())
+                                        .size(TEXT_CAPTION)
+                                        .color(palette.text_muted),
+                                )
+                                .truncate(),
+                            );
+                        });
+                    }
+                }
+                StatusItem::Rst if show_rst => {
+                    ui.separator();
+                    ui.label(
+                        egui::RichText::new(rst_txt.as_str())
+                            .size(TEXT_CAPTION)
+                            .monospace()
+                            .color(palette.text_primary),
+                    );
+                }
+                StatusItem::Solar if show_prop => {
+                    ui.separator();
+                    ui.label(
+                        egui::RichText::new(prop_txt.as_str())
                             .size(TEXT_CAPTION)
                             .color(palette.text_muted),
-                    )
-                    .truncate(),
-                );
-            });
-        }
-        if show_rst {
-            ui.separator();
-            ui.label(
-                egui::RichText::new(rst_txt)
-                    .size(TEXT_CAPTION)
-                    .monospace()
-                    .color(palette.text_primary),
-            );
-        }
-        if show_prop {
-            ui.separator();
-            ui.label(
-                egui::RichText::new(prop_txt)
-                    .size(TEXT_CAPTION)
-                    .color(palette.text_muted),
-            );
-        }
-        if show_journal {
-            ui.separator();
-            ui.label(
-                egui::RichText::new(journal_txt)
-                    .size(TEXT_CAPTION)
-                    .color(palette.text_primary),
-            );
-        }
-        if show_profile {
-            ui.separator();
-            ui.label(
-                egui::RichText::new(profile_txt)
-                    .size(TEXT_CAPTION)
-                    .color(palette.text_muted),
-            );
+                    );
+                }
+                StatusItem::Journal if show_journal => {
+                    ui.separator();
+                    ui.label(
+                        egui::RichText::new(journal_txt.as_str())
+                            .size(TEXT_CAPTION)
+                            .color(palette.text_primary),
+                    );
+                }
+                StatusItem::Profile if show_profile => {
+                    ui.separator();
+                    ui.label(
+                        egui::RichText::new(profile_txt.as_str())
+                            .size(TEXT_CAPTION)
+                            .color(palette.text_muted),
+                    );
+                }
+                _ => {}
+            }
         }
     }
 

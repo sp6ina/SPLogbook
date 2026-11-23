@@ -76,6 +76,14 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
         backup_settings_menu(app, ui);
 
         if ui
+            .button(icons::SETTINGS.label(tr(key::STATUSBAR_CUSTOMIZE_MENU, lang)))
+            .clicked()
+        {
+            app.gui.windows.show_status_bar_settings = true;
+            ui.close();
+        }
+
+        if ui
             .button(icons::WIZARD.label(tr(key::WIZARD_SETUP_STATION, lang)))
             .clicked()
         {
