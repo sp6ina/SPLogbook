@@ -938,9 +938,28 @@ fn release_workflow_rejects_incomplete_artifact_set() {
         workflow.contains(r#"[ -s "release-staging/${MSI_PKG}" ]"#),
         "Workflow musi sprawdzać, czy artefakt Windows MSI jest niepusty"
     );
+    for check in [
+        r#"[ -s "release-staging/${APPIMAGE_PKG}" ]"#,
+        r#"[ -s "release-staging/${DEB_PKG}" ]"#,
+        r#"[ -s "release-staging/${RPM_PKG}" ]"#,
+        r#"[ -s "release-staging/${FLATPAK_PKG}" ]"#,
+    ] {
+        assert!(
+            workflow.contains(check),
+            "Workflow musi sprawdzać, czy pakiet Linux jest niepusty: {check}"
+        );
+    }
     assert!(
-        workflow.contains(r#"[ "$COUNT" -eq 4 ]"#),
-        "Workflow musi egzekwować dokładną liczbę 4 artefaktów wydania (tar.gz, zip, inno-exe, msi)"
+        workflow.contains(r#"[ "$COUNT" -eq 8 ]"#),
+        "Workflow musi egzekwować dokładną liczbę 8 artefaktów wydania (tar.gz, zip, inno-exe, msi, AppImage, deb, rpm, flatpak)"
+    );
+    assert!(
+        workflow.contains(r#"[ "${STAGED_NAMES}" = "${EXPECTED_NAMES}" ]"#),
+        "Workflow musi porównywać nazwy w staging z dokładną listą artefaktów wydania"
+    );
+    assert!(
+        workflow.contains(r#"[ "$(wc -l < SHA256SUMS.txt)" -eq 8 ]"#),
+        "SHA256SUMS.txt musi obejmować dokładnie 8 artefaktów"
     );
 }
 
@@ -1266,7 +1285,9 @@ fn release_manifest_lists_every_expected_artifact_once() {
 
     let workflow = fs::read_to_string(".github/workflows/build-and-release.yml")
         .expect("Nie można odczytać workflow");
-    for pkg_type in ["tar.gz", "zip", "inno-exe", "msi"] {
+    for pkg_type in [
+        "tar.gz", "zip", "inno-exe", "msi", "appimage", "deb", "rpm", "flatpak",
+    ] {
         assert!(
             workflow.contains(&format!(r#""package_type": "{pkg_type}""#)),
             "Manifest w workflow musi zawierać package_type '{pkg_type}'"
@@ -6209,11 +6230,24 @@ fn m3_f_f03_fail_closed_verification_guard() {
         ),
         "Create GitHub Release musi wymagać tagu v* i braku dry-run"
     );
-    assert!(
-        publish.contains(
-            "needs: [build-linux, build-windows, verify-linux-matrix, verify-linux-negative, build-rpm, verify-rpm, verify-rpm-negative-fixtures]"
-        ),
-        "Publish Release Assets musi zależeć od wszystkich jobów weryfikacyjnych"
+    // ADR-72: publikacja czeka na każdy job budujący i weryfikujący tego workflow.
+    let mut needs: Vec<&str> = publish_header
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("needs: ["))
+        .and_then(|list| list.strip_suffix(']'))
+        .expect("publish-release musi mieć listę needs")
+        .split(", ")
+        .collect();
+    let mut other_jobs: Vec<&str> = job_names
+        .iter()
+        .map(String::as_str)
+        .filter(|name| *name != "publish-release")
+        .collect();
+    needs.sort_unstable();
+    other_jobs.sort_unstable();
+    assert_eq!(
+        needs, other_jobs,
+        "Publish Release Assets musi zależeć od wszystkich jobów budujących i weryfikujących"
     );
 
     // 10. Publiczna dokumentacja domyka F-03 i opisuje fail-closed; M3-G jest dostarczone.
@@ -6507,14 +6541,46 @@ fn m3_g_appimage_integration_guard() {
         "workflow nie może dodawać artefaktów do repozytorium"
     );
 
-    // 10. publish-release pozostaje bez AppImage i bez zmian tag-gatingu.
+    // 10. AppImage trafia do wydania dopiero po wszystkich weryfikacjach (ADR-72).
     let publish = workflow
         .split("publish-release:")
         .nth(1)
         .expect("job publish-release musi istnieć");
+    let needs: Vec<&str> = publish
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("needs: ["))
+        .and_then(|list| list.strip_suffix(']'))
+        .expect("publish-release musi mieć listę needs")
+        .split(", ")
+        .collect();
+    for job in [
+        "build-linux",
+        "verify-linux-matrix",
+        "verify-appimage-negative-fixtures",
+        "verify-appimage-fuse",
+    ] {
+        assert!(
+            needs.contains(&job),
+            "publish-release musi czekać na `{job}`, zanim opublikuje AppImage (ADR-72)"
+        );
+    }
     assert!(
-        !publish.contains("AppImage"),
-        "publish-release nie może publikować AppImage w M3-G"
+        publish.contains(r#"APPIMAGE_PKG="SPLogbook-Linux-x86_64.AppImage""#),
+        "publish-release musi nazywać AppImage jednoznacznie"
+    );
+    assert!(
+        publish.contains(
+            r#"stage_verified_package SPLogbook-Linux-x86_64-appimage "${APPIMAGE_PKG}""#
+        ),
+        "AppImage trafia do wydania wyłącznie przez stage_verified_package (suma kontrolna z joba budującego)"
+    );
+    assert!(
+        publish.contains(r#""package_type": "appimage""#),
+        "AppImage musi mieć wpis w podpisanym manifeście"
+    );
+    assert!(
+        publish.contains("release-staging/SPLogbook-Linux-x86_64.AppImage"),
+        "AppImage musi być na liście plików wydania"
     );
     assert!(
         publish.contains("if: startsWith(github.ref, 'refs/tags/v')"),
@@ -6915,16 +6981,37 @@ fn m3_h_deb_integration_guard() {
         .nth(1)
         .expect("job publish-release musi istnieć");
     assert!(
-        !publish.contains("SPLogbook-Linux-amd64"),
-        "publish-release nie może publikować DEB"
-    );
-    assert!(
         publish.contains("if: startsWith(github.ref, 'refs/tags/v')"),
         "publish-release musi pozostać warunkowany tagiem v*"
     );
+    let needs: Vec<&str> = publish
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("needs: ["))
+        .and_then(|list| list.strip_suffix(']'))
+        .expect("publish-release musi mieć listę needs")
+        .split(", ")
+        .collect();
+    for job in ["build-deb", "verify-deb", "verify-deb-negative-fixtures"] {
+        assert!(
+            needs.contains(&job),
+            "publish-release musi czekać na `{job}`, zanim opublikuje DEB (ADR-72)"
+        );
+    }
     assert!(
-        publish.contains("DEB must never be published"),
-        "publish-release musi zawierać trwałą asercję braku DEB"
+        publish.contains(r#"DEB_PKG="SPLogbook-Linux-amd64-${VERSION}.deb""#),
+        "publish-release musi nazywać DEB jednoznacznie"
+    );
+    assert!(
+        publish.contains(r#"stage_verified_package SPLogbook-Linux-amd64-deb "${DEB_PKG}""#),
+        "DEB trafia do wydania wyłącznie przez stage_verified_package (suma kontrolna z joba budującego)"
+    );
+    assert!(
+        publish.contains(r#""package_type": "deb""#),
+        "DEB musi mieć wpis w podpisanym manifeście"
+    );
+    assert!(
+        publish.contains("release-staging/SPLogbook-Linux-amd64-${{ env.RELEASE_VERSION }}.deb"),
+        "DEB musi być na liście plików wydania"
     );
 
     // 12. DEB nie jest commitowany.
@@ -7162,14 +7249,35 @@ fn m3_i_rpm_integration_guard() {
         .split("publish-release:")
         .nth(1)
         .expect("job publish-release musi istnieć");
-    assert!(
-        !publish.contains("SPLogbook-Linux-x86_64-rpm"),
-        "publish-release nie może publikować RPM"
-    );
     assert!(publish.contains("if: startsWith(github.ref, 'refs/tags/v')"));
+    let needs: Vec<&str> = publish
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("needs: ["))
+        .and_then(|list| list.strip_suffix(']'))
+        .expect("publish-release musi mieć listę needs")
+        .split(", ")
+        .collect();
+    for job in ["build-rpm", "verify-rpm", "verify-rpm-negative-fixtures"] {
+        assert!(
+            needs.contains(&job),
+            "publish-release musi czekać na `{job}`, zanim opublikuje RPM (ADR-72)"
+        );
+    }
     assert!(
-        publish.contains("RPM must never be published"),
-        "publish-release musi zawierać trwałą asercję braku RPM"
+        publish.contains(r#"RPM_PKG="SPLogbook-Linux-x86_64-${VERSION}.rpm""#),
+        "publish-release musi nazywać RPM jednoznacznie"
+    );
+    assert!(
+        publish.contains(r#"stage_verified_package SPLogbook-Linux-x86_64-rpm "${RPM_PKG}""#),
+        "RPM trafia do wydania wyłącznie przez stage_verified_package (suma kontrolna z joba budującego)"
+    );
+    assert!(
+        publish.contains(r#""package_type": "rpm""#),
+        "RPM musi mieć wpis w podpisanym manifeście"
+    );
+    assert!(
+        publish.contains("release-staging/SPLogbook-Linux-x86_64-${{ env.RELEASE_VERSION }}.rpm"),
+        "RPM musi być na liście plików wydania"
     );
 
     // 10. RPM nie jest commitowany, README opisuje kontrakt.
@@ -7188,7 +7296,9 @@ fn m3_i_rpm_integration_guard() {
         "systemmanaged",
         "user data",
         "negative fixtures",
-        "ci artifact only",
+        "adr-72",
+        "publish release assets",
+        "sha256sums.txt",
         "rpmlint",
     ] {
         assert!(
@@ -11782,4 +11892,197 @@ fn linux_in_app_update_is_limited_to_the_portable_installation_guard() {
         window.contains("&& delivery == UpdateDelivery::InApp"),
         "przycisk instalacji musi być dostępny wyłącznie dla aktualizacji w programie"
     );
+}
+
+/// ADR-72: szablon manifestu z workflow wydania, wypełniony przykładowymi wartościami
+/// i podpisany, jest akceptowany przez aktualizator, a wybór paczki dla każdego typu
+/// instalacji pozostaje taki sam jak przed dodaniem pakietów Linux (logika wyboru jest
+/// identyczna jak w v1.3.0, więc wydane klienty nadal wybierają tar.gz/zip/inno-exe/msi).
+#[test]
+fn release_workflow_manifest_template_is_accepted_by_the_updater() {
+    use splogbook::cloud::updater::{
+        InstallationType, ReleaseArchitecture, ReleaseAsset, ReleasePlatform,
+    };
+    use splogbook::core::build_info::UpdateChannelPreference;
+
+    let workflow = fs::read_to_string(".github/workflows/build-and-release.yml")
+        .expect("workflow")
+        .replace("\r\n", "\n");
+    let version = "9.8.7";
+    let files = [
+        (
+            "INNO_EXE",
+            r#"INNO_EXE="SPLogbook-Windows-x64-Setup-${VERSION}.exe""#,
+            format!("SPLogbook-Windows-x64-Setup-{version}.exe"),
+        ),
+        (
+            "MSI_PKG",
+            r#"MSI_PKG="SPLogbook-Windows-x64-MSI-${VERSION}.msi""#,
+            format!("SPLogbook-Windows-x64-MSI-{version}.msi"),
+        ),
+        (
+            "APPIMAGE_PKG",
+            r#"APPIMAGE_PKG="SPLogbook-Linux-x86_64.AppImage""#,
+            "SPLogbook-Linux-x86_64.AppImage".to_string(),
+        ),
+        (
+            "DEB_PKG",
+            r#"DEB_PKG="SPLogbook-Linux-amd64-${VERSION}.deb""#,
+            format!("SPLogbook-Linux-amd64-{version}.deb"),
+        ),
+        (
+            "RPM_PKG",
+            r#"RPM_PKG="SPLogbook-Linux-x86_64-${VERSION}.rpm""#,
+            format!("SPLogbook-Linux-x86_64-{version}.rpm"),
+        ),
+        (
+            "FLATPAK_PKG",
+            r#"FLATPAK_PKG="SPLogbook-Linux-x86_64-${VERSION}.flatpak""#,
+            format!("SPLogbook-Linux-x86_64-{version}.flatpak"),
+        ),
+    ];
+    let sign_step = workflow
+        .split("- name: Create, sign and verify Release Manifest")
+        .nth(1)
+        .expect("krok podpisu manifestu");
+    for (_, assignment, _) in &files {
+        assert!(
+            sign_step.contains(assignment),
+            "krok manifestu musi definiować {assignment}"
+        );
+    }
+    let template = sign_step
+        .split("cat > release-manifest.json <<EOF\n")
+        .nth(1)
+        .and_then(|rest| rest.split("\n          EOF\n").next())
+        .expect("szablon manifestu w workflow");
+
+    // Podstawienie zmiennych powłoki; nieznana zmienna przerywa test.
+    let mut manifest = String::new();
+    let mut rest = template;
+    while let Some(pos) = rest.find('$') {
+        manifest.push_str(&rest[..pos]);
+        let tail = &rest[pos + 1..];
+        let end = tail
+            .find(|c: char| !(c.is_ascii_uppercase() || c == '_'))
+            .unwrap_or(tail.len());
+        let name = &tail[..end];
+        let value = if name == "VERSION" {
+            version.to_string()
+        } else if name == "COMMIT_SHA" {
+            "0123456789abcdef0123456789abcdef01234567".to_string()
+        } else if let Some(suffix) = name.strip_prefix("SIZE_") {
+            (1_000_000 + suffix.len() * 1_000 + suffix.as_bytes()[0] as usize).to_string()
+        } else if name.starts_with("SHA_") {
+            sha256_hex(name.as_bytes())
+        } else if let Some((_, _, file)) = files.iter().find(|(var, _, _)| *var == name) {
+            file.clone()
+        } else {
+            panic!("nieznana zmienna w szablonie manifestu: ${name}");
+        };
+        manifest.push_str(&value);
+        rest = &tail[end..];
+    }
+    manifest.push_str(rest);
+
+    let parsed: serde_json::Value = serde_json::from_str(&manifest).expect("manifest to JSON");
+    let assets = parsed["assets"].as_array().expect("assets");
+    assert_eq!(
+        assets.len(),
+        8,
+        "manifest musi opisywać dokładnie 8 artefaktów"
+    );
+    let mut types: Vec<&str> = assets
+        .iter()
+        .map(|a| a["package_type"].as_str().unwrap())
+        .collect();
+    types.sort_unstable();
+    assert_eq!(
+        types,
+        [
+            "appimage", "deb", "flatpak", "inno-exe", "msi", "rpm", "tar.gz", "zip"
+        ]
+    );
+    for asset in assets.iter().filter(|a| {
+        ["appimage", "deb", "rpm", "flatpak"].contains(&a["package_type"].as_str().unwrap())
+    }) {
+        assert_eq!(asset["platform"], "linux");
+        assert_eq!(asset["arch"], "x86_64");
+    }
+
+    let secret: [u8; 32] = rand::random();
+    let signing_key = SigningKey::from_bytes(&secret);
+    let key = TrustedKey {
+        key_id: "splogbook-release-2026-02",
+        public_key: signing_key.verifying_key().to_bytes(),
+        active: true,
+        min_version: Some("1.2.0"),
+        max_version: None,
+    };
+    let signature = STANDARD.encode(signing_key.sign(manifest.as_bytes()).to_bytes());
+    let verified = VerifiedReleaseManifest::verify_with_keys_and_channel(
+        manifest.as_bytes(),
+        &signature,
+        &[key],
+        &[],
+        &[],
+        "1.3.0",
+        UpdateChannelPreference::StableOnly,
+    )
+    .expect("aktualizator musi zaakceptować manifest z workflow");
+
+    let release_assets: Vec<ReleaseAsset> = assets
+        .iter()
+        .map(|a| {
+            let name = a["filename"].as_str().unwrap().to_string();
+            ReleaseAsset {
+                browser_download_url: format!("https://example.invalid/{name}"),
+                digest: Some(format!("sha256:{}", a["sha256"].as_str().unwrap())),
+                size: a["size"].as_u64().unwrap(),
+                name,
+            }
+        })
+        .collect();
+    let windows = [
+        (
+            InstallationType::WindowsPortableZip,
+            "SPLogbook-Windows-x64.zip".to_string(),
+        ),
+        (InstallationType::WindowsInnoSetup, files[0].2.clone()),
+        (InstallationType::WindowsMsi, files[1].2.clone()),
+    ];
+    for (inst, expected) in windows {
+        let selected = verified
+            .select_asset_for_installation_type(
+                ReleasePlatform::Windows,
+                ReleaseArchitecture::X86_64,
+                inst,
+                &release_assets,
+            )
+            .unwrap_or_else(|e| panic!("{inst:?}: {e}"));
+        assert_eq!(selected.filename(), expected, "{inst:?}");
+    }
+    // Instalacje Linux sprawdzają aktualizację względem archiwum przenośnego; pakiety
+    // systemowe instalują nowe wydanie własnym mechanizmem (bramka w install_update).
+    for inst in [
+        InstallationType::LinuxPortableTarGz,
+        InstallationType::LinuxAppImage,
+        InstallationType::LinuxDeb,
+        InstallationType::LinuxRpm,
+        InstallationType::LinuxFlatpak,
+    ] {
+        let selected = verified
+            .select_asset_for_installation_type(
+                ReleasePlatform::Linux,
+                ReleaseArchitecture::X86_64,
+                inst,
+                &release_assets,
+            )
+            .unwrap_or_else(|e| panic!("{inst:?}: {e}"));
+        assert_eq!(
+            selected.filename(),
+            "SPLogbook-Linux-x86_64.tar.gz",
+            "{inst:?}"
+        );
+    }
 }

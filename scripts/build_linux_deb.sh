@@ -13,7 +13,7 @@
 #   * dpkg-deb --root-owner-group with explicit xz compression is used;
 #   * SOURCE_DATE_EPOCH and fixed file mtimes make the output reproducible;
 #   * the package is built twice and both SHA-256 digests MUST match;
-#   * the DEB is never installed on the build host and never published.
+#   * the DEB is never installed on the build host; only publish-release puts it into a release (ADR-72).
 #
 # Usage:
 #   EXPECTED_BUILD_COMMIT=<40-hex> SOURCE_DATE_EPOCH=<epoch> \

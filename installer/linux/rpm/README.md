@@ -9,8 +9,16 @@ from the already verified portable payload. M3-I deliberately does **not**
 create a source RPM, a COPR repository, a DNF/Zypper repository or a package
 signature.
 
-The RPM is a **CI artifact only**. It is never added to a public GitHub release
-and no tag or release is created by this gate. It is intentionally **unsigned**,
+From v1.4.0 the RPM is attached to the GitHub release as
+`SPLogbook-Linux-x86_64-<version>.rpm` (`ADR-72`). `Publish Release Assets` stages
+it only after `Build RPM`, every `Verify RPM` profile and `Verify RPM (negative
+fixtures)` have passed and after its SHA-256 matches the sidecar written by the
+build job; the release lists it in `SHA256SUMS.txt` and in the signed release
+manifest. Before installing, compare the file with `SHA256SUMS.txt`. The
+application does not update an RPM installation itself; the update window asks
+the operator to install the new package with the system package manager.
+
+It is intentionally **unsigned**,
 like the M3-H DEB: the verifier proves integrity with the SHA-256 sidecar and
 the per-file manifest, and installs it with `rpm --nosignature`. No signature
 is claimed or required in M3-I.

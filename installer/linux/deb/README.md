@@ -9,8 +9,21 @@ already verified portable payload; M3-H deliberately does **not** create a
 Debian source package (`debian/rules`, `debian/changelog`, `.dsc`, `.changes`,
 `orig.tar`). No APT repository and no package signature are produced in M3-H.
 
-The DEB is a **CI artifact only**. It is never added to a public GitHub release
-and no tag or release is created by this gate.
+From v1.4.0 the DEB is attached to the GitHub release as
+`SPLogbook-Linux-amd64-<version>.deb` (`ADR-72`). `Publish Release Assets` stages
+it only after `Build DEB`, `Verify DEB` and `Verify DEB (negative fixtures)` have
+passed and after its SHA-256 matches the sidecar written by the build job; the
+release lists it in `SHA256SUMS.txt` and in the signed release manifest. The
+package itself stays unsigned (`ADR-53`) and no APT repository exists.
+
+Install or upgrade it with APT, which resolves the dependencies:
+
+```sh
+sudo apt install ./SPLogbook-Linux-amd64-<version>.deb
+```
+
+The application does not update a DEB installation itself; the update window
+asks the operator to install the new package the same way.
 
 ## 2. Supported system
 

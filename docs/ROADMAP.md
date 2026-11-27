@@ -156,7 +156,7 @@ Rawhide, backports, release candidates) never set the minimum.
 
 | Item | Status | Note |
 |---|---|---|
-| Flathub submission of the Flatpak | **NOT_STARTED** | deliberately out of scope; the package is a local/CI artifact only and is installed from a bundle |
+| Flathub submission of the Flatpak | **NOT_STARTED** | deliberately out of scope; the bundle is attached to the GitHub release (`ADR-72`) and installed from that file |
 | Publishing of Windows Inno Setup and MSI installers | **CLOSED** (finding `F-05` = CLOSED 2026-11-19) | `build-and-release.yml` builds, verifies E2E (`SPLOG_RUN_INNO_E2E=1`, `SPLOG_RUN_MSI_E2E=1`), stages and publishes `SPLogbook-Windows-x64.zip`, `SPLogbook-Windows-x64-Setup-<version>.exe` (`inno-exe`) and `SPLogbook-Windows-x64-MSI-<version>.msi` (`msi`); `F-12`, `F-13`, `F-22` = **CLOSED** |
 | MSI prerelease versioning for `1.3.0-alpha.2`+ | **OPEN** (`ADR-12`) | Windows Installer rejects the prerelease version mapping with error 1638 |
 | Hardware-in-the-loop validation (NATIVE-7B) | **NOT_STARTED** | 10 tests remain `#[ignore = "hardware-in-the-loop"]`; the software blockers `F-14` and `F-15` are closed, but hardware validation is still NOT_EXECUTED and NATIVE-7B = NOT_STARTED requires separate explicit authorisation and a future approved independent evidence provider |

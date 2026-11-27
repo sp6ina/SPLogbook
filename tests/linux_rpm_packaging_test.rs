@@ -406,7 +406,7 @@ fn negative_fixtures_cover_all_required_mutations() {
 }
 
 #[test]
-fn workflow_builds_verifies_and_never_publishes_rpm() {
+fn workflow_builds_verifies_and_publishes_rpm_only_after_verification() {
     let workflow = read(WORKFLOW);
     assert!(workflow.contains("build-rpm:"));
     assert!(workflow.contains("verify-rpm:"));
@@ -426,12 +426,36 @@ fn workflow_builds_verifies_and_never_publishes_rpm() {
         .split("publish-release:")
         .nth(1)
         .expect("publish-release job");
-    assert!(
-        !publish.contains("SPLogbook-Linux-x86_64-rpm"),
-        "release must not publish the RPM artifact"
-    );
     assert!(publish.contains("startsWith(github.ref, 'refs/tags/v')"));
-    assert!(publish.contains("RPM must never be published"));
+    let needs: Vec<&str> = publish
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("needs: ["))
+        .and_then(|list| list.strip_suffix(']'))
+        .expect("publish-release musi mieć listę needs")
+        .split(", ")
+        .collect();
+    for job in ["build-rpm", "verify-rpm", "verify-rpm-negative-fixtures"] {
+        assert!(
+            needs.contains(&job),
+            "publish-release musi czekać na `{job}`, zanim opublikuje RPM (ADR-72)"
+        );
+    }
+    assert!(
+        publish.contains(r#"RPM_PKG="SPLogbook-Linux-x86_64-${VERSION}.rpm""#),
+        "publish-release musi nazywać RPM jednoznacznie"
+    );
+    assert!(
+        publish.contains(r#"stage_verified_package SPLogbook-Linux-x86_64-rpm "${RPM_PKG}""#),
+        "RPM trafia do wydania wyłącznie przez stage_verified_package (suma kontrolna z joba budującego)"
+    );
+    assert!(
+        publish.contains(r#""package_type": "rpm""#),
+        "RPM musi mieć wpis w podpisanym manifeście"
+    );
+    assert!(
+        publish.contains("release-staging/SPLogbook-Linux-x86_64-${{ env.RELEASE_VERSION }}.rpm"),
+        "RPM musi być na liście plików wydania"
+    );
 }
 
 #[test]
@@ -477,7 +501,9 @@ fn readme_documents_the_rpm_contract() {
         "systemmanaged",
         "user data",
         "negative fixtures",
-        "ci artifact only",
+        "adr-72",
+        "publish release assets",
+        "sha256sums.txt",
         "rpmlint",
     ] {
         assert!(lower.contains(required), "README must document {required}");

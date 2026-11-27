@@ -8,7 +8,7 @@ This directory contains the reviewed sources of the sandboxed Flatpak package
 
 | Item | Value |
 |---|---|
-| Status | implemented, verified in CI, **not published** |
+| Status | implemented, verified in CI, attached to GitHub releases from v1.4.0 (`ADR-72`) |
 | Application ID | `io.github.sp6ina.SPLogbook` |
 | Runtime | `org.freedesktop.Platform` branch **26.08** |
 | SDK | `org.freedesktop.Sdk` branch **26.08** |
@@ -21,13 +21,14 @@ The Flatpak is an **additional** delivery format. It does not replace the
 portable `tar.gz`, the AppImage, the DEB or the RPM, and it changes none of
 their contracts.
 
-The bundle is a **local and CI artifact only**:
+Distribution (`ADR-72`, supersedes the CI-only rule of `ADR-63`):
 
-- it is **not** submitted to Flathub and no Flathub repository exists;
-- it is **not** attached to a GitHub release and no tag or release is created
-  by M3-J;
-- `Publish Release Assets` carries a permanent assertion that no `.flatpak`
-  file may be staged into `release-staging`.
+- from v1.4.0 the versioned bundle `SPLogbook-Linux-x86_64-<version>.flatpak`
+  is attached to the GitHub release; `Publish Release Assets` stages it only
+  after every Flatpak job has passed and after its SHA-256 matches the sidecar
+  written by `Build Flatpak`, and lists it in `SHA256SUMS.txt` and in the signed
+  release manifest;
+- it is **not** submitted to Flathub and no Flathub repository exists.
 
 ## 2. Why `org.freedesktop.Platform` and not `org.gnome.Platform`
 
@@ -273,8 +274,12 @@ A Flatpak is updated by Flatpak, never by the application:
   (`supports_self_apply = false`, `requires_delegation = true`);
 - no code path writes into `/app`, and the verifier asserts that `/app` is
   read-only;
-- the update instruction for users is `flatpak update io.github.sp6ina.SPLogbook`
-  or the desktop software centre.
+- a bundle carries no remote, so `flatpak update` has nothing to fetch; a new
+  release is installed by installing its bundle
+  (`flatpak --user install --reinstall ./SPLogbook-Linux-x86_64-<version>.flatpak`,
+  the same command the lifecycle job runs), which replaces the installed commit
+  and keeps the user data. The update window says
+  so instead of offering an in-app installation.
 
 ## 9. Lifecycle verified in CI
 

@@ -592,7 +592,7 @@ fn appimage_builder_uses_the_pinned_toolchain_without_update_information() {
 }
 
 #[test]
-fn workflow_builds_once_verifies_in_four_profiles_and_keeps_publication_disabled() {
+fn workflow_builds_once_verifies_in_four_profiles_and_publishes_after_verification() {
     let workflow = read(".github/workflows/build-and-release.yml");
 
     assert_eq!(
@@ -628,15 +628,41 @@ fn workflow_builds_once_verifies_in_four_profiles_and_keeps_publication_disabled
         .split("publish-release:")
         .nth(1)
         .expect("publish-release must exist");
+    let needs: Vec<&str> = publish
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("needs: ["))
+        .and_then(|list| list.strip_suffix(']'))
+        .expect("publish-release musi mieć listę needs")
+        .split(", ")
+        .collect();
+    for job in [
+        "build-linux",
+        "verify-linux-matrix",
+        "verify-appimage-negative-fixtures",
+        "verify-appimage-fuse",
+    ] {
+        assert!(
+            needs.contains(&job),
+            "publish-release musi czekać na `{job}`, zanim opublikuje AppImage (ADR-72)"
+        );
+    }
     assert!(
-        !publish.contains("AppImage"),
-        "publish-release must never publish the AppImage in M3-G"
+        publish.contains(r#"APPIMAGE_PKG="SPLogbook-Linux-x86_64.AppImage""#),
+        "publish-release musi nazywać AppImage jednoznacznie"
     );
     assert!(
         publish.contains(
-            "needs: [build-linux, build-windows, verify-linux-matrix, verify-linux-negative, build-rpm, verify-rpm, verify-rpm-negative-fixtures]"
+            r#"stage_verified_package SPLogbook-Linux-x86_64-appimage "${APPIMAGE_PKG}""#
         ),
-        "publish-release must remain unchanged"
+        "AppImage trafia do wydania wyłącznie przez stage_verified_package (suma kontrolna z joba budującego)"
+    );
+    assert!(
+        publish.contains(r#""package_type": "appimage""#),
+        "AppImage musi mieć wpis w podpisanym manifeście"
+    );
+    assert!(
+        publish.contains("release-staging/SPLogbook-Linux-x86_64.AppImage"),
+        "AppImage musi być na liście plików wydania"
     );
 }
 

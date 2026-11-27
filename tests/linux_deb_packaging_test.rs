@@ -408,7 +408,7 @@ fn negative_fixtures_cover_all_required_mutations() {
 }
 
 #[test]
-fn workflow_builds_verifies_and_uploads_the_deb_as_a_ci_artifact() {
+fn workflow_builds_verifies_and_publishes_the_deb_only_after_verification() {
     let workflow = read(WORKFLOW);
     assert!(workflow.contains("build-deb:"));
     assert!(workflow.contains("verify-deb:"));
@@ -425,11 +425,36 @@ fn workflow_builds_verifies_and_uploads_the_deb_as_a_ci_artifact() {
         .split("publish-release:")
         .nth(1)
         .expect("publish-release job");
-    assert!(
-        !publish.contains("SPLogbook-Linux-amd64"),
-        "release must not publish the DEB"
-    );
     assert!(publish.contains("startsWith(github.ref, 'refs/tags/v')"));
+    let needs: Vec<&str> = publish
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("needs: ["))
+        .and_then(|list| list.strip_suffix(']'))
+        .expect("publish-release musi mieć listę needs")
+        .split(", ")
+        .collect();
+    for job in ["build-deb", "verify-deb", "verify-deb-negative-fixtures"] {
+        assert!(
+            needs.contains(&job),
+            "publish-release musi czekać na `{job}`, zanim opublikuje DEB (ADR-72)"
+        );
+    }
+    assert!(
+        publish.contains(r#"DEB_PKG="SPLogbook-Linux-amd64-${VERSION}.deb""#),
+        "publish-release musi nazywać DEB jednoznacznie"
+    );
+    assert!(
+        publish.contains(r#"stage_verified_package SPLogbook-Linux-amd64-deb "${DEB_PKG}""#),
+        "DEB trafia do wydania wyłącznie przez stage_verified_package (suma kontrolna z joba budującego)"
+    );
+    assert!(
+        publish.contains(r#""package_type": "deb""#),
+        "DEB musi mieć wpis w podpisanym manifeście"
+    );
+    assert!(
+        publish.contains("release-staging/SPLogbook-Linux-amd64-${{ env.RELEASE_VERSION }}.deb"),
+        "DEB musi być na liście plików wydania"
+    );
 }
 
 #[test]
@@ -477,7 +502,9 @@ fn readme_documents_the_deb_contract() {
         "systemmanaged",
         "user data",
         "negative fixtures",
-        "ci artifact only",
+        "adr-72",
+        "publish release assets",
+        "sha256sums.txt",
     ] {
         assert!(lower.contains(required), "README must document {required}");
     }

@@ -148,7 +148,7 @@ All ten decisions are **Implemented** and verified by `tests/linux_deb_packaging
 | `ADR-51` | `Depends` generated from the ELF closure, then reviewed (17 packages); bundled Hamlib is not a dependency |
 | `ADR-52` | Minimal maintainer scripts; no `preinst`/`prerm`; user data preserved across the whole lifecycle |
 | `ADR-53` | No package signing; integrity via the release manifest and SHA-256 |
-| `ADR-54` | Artifact is a CI artifact only; publishing requires a separate release step |
+| `ADR-54` | Artifact is a CI artifact only; publishing requires a separate release step. **Superseded by `ADR-72`** (published from v1.4.0) |
 
 ### 2.7 Flatpak package contract
 
@@ -165,7 +165,7 @@ All decisions are **Implemented** and verified by `tests/linux_flatpak_packaging
 | `ADR-60` | The Rust build is offline and locked: 662 crates pinned by the `Cargo.lock` SHA-256 checksums in `cargo-sources.json`, a vendored-source replacement, `CARGO_NET_OFFLINE=1`, `cargo build --locked --offline`, one `--download-only` network phase and a real build with `--disable-download`, a bwrap sandbox with no network namespace, vendored Cargo sources and `CARGO_NET_OFFLINE=1`. `--sandbox` is not passed because flatpak-builder 1.4.x rejects a `dir` source located above the manifest directory in a sandboxed build; the manifest declares no `build-args`, so nothing can escape through them. |
 | `ADR-61` | The Flatpak links and bundles no Hamlib. The only Hamlib integration is the `rigctld` TCP protocol, so the DEB/RPM private-library exception has no Flatpak counterpart; the sandbox already guarantees that no host library is reachable. Verified by the absence of `libhamlib*` in the bundle and in `ldd`. |
 | `ADR-62` | A Flatpak is updated by Flatpak only. The bundle ships no `splogbook-updater`, the application classifies itself as `LinuxFlatpak` from the `/.flatpak-info` marker with `supports_self_apply = false` and `requires_delegation = true`, and `/app` is read-only inside the sandbox. |
-| `ADR-63` | The bundle is a local/CI artifact only. No Flathub submission, no Flathub repository, no GitHub release, no tag, and a permanent assertion that no `.flatpak` may be staged into `release-staging`. |
+| `ADR-63` | **Superseded by `ADR-72`** for the GitHub release (the bundle is published from v1.4.0; still no Flathub submission). Original decision: the bundle is a local/CI artifact only. No Flathub submission, no Flathub repository, no GitHub release, no tag, and a permanent assertion that no `.flatpak` may be staged into `release-staging`. |
 | `ADR-64` | Two independent clean builds must produce an identical `/app` payload (paths, modes, sizes, per-file SHA-256). Bit-identical bundles or OSTree commits are reported as evidence and never claimed when they differ. |
 
 ### 2.8 Dependency and security decisions
@@ -179,6 +179,7 @@ All decisions are **Implemented** and verified by `tests/linux_flatpak_packaging
 | `ADR-69` | `quinn-proto 0.11.19` / `quinn-udp 0.5.16` to remove `RUSTSEC-2026-0523`, `-0524`, `-0538` | Implemented |
 | `ADR-70` | `rusqlite 0.41.1` / `libsqlite3-sys 0.39.1` to remove `RUSTSEC-2026-0459` | Implemented |
 | `ADR-71` | `Publish Release Assets` runs only for a pushed `v*` tag: `if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'`. Every `workflow_dispatch` (any branch, any `dry_run`) skips it and never reads the signing secret; build and verification jobs keep no job-level `if:` and still run on dispatch. Supersedes the dispatch dry-run signing path of `docs/security/RELEASE_SECURITY.md` §9. Guard: `m3_f_f03_fail_closed_verification_guard` (release gating) in `tests/security_guard.rs` | Implemented |
+| `ADR-72` | From v1.4.0 a GitHub release publishes the AppImage, DEB, RPM and Flatpak bundle next to the portable `tar.gz` and the Windows ZIP/EXE/MSI (owner decision 2026-11-27; supersedes the CI-only rule of `ADR-54`, `ADR-63` and M3-I). `Publish Release Assets` needs every build and verification job of the workflow; each Linux package is taken from the artifact its verification jobs downloaded, must be found exactly once and must match the SHA-256 written by its build job. The staging holds exactly eight assets, `SHA256SUMS.txt` lists all eight and the signed release manifest carries one entry per asset (`appimage`, `deb`, `rpm`, `flatpak`). Released updaters keep selecting `tar.gz`/`zip`/`inno-exe`/`msi`; package installs are not updated in the application (DEB/RPM by the package manager, Flatpak by Flatpak, AppImage by replacing the file). No package signature, no APT/DNF repository and no Flathub submission. Guards: `release_workflow_manifest_template_is_accepted_by_the_updater`, `linux_in_app_update_is_limited_to_the_portable_installation_guard` and the package guards in `tests/security_guard.rs` and `tests/linux_*_packaging_test.rs` | Implemented |
 
 ### 2.9 P0-F14 safety decisions
 

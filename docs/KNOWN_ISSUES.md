@@ -615,7 +615,7 @@ Recorded decision identifiers and where each one is implemented are listed in
 
 | Area | State |
 |---|---|
-| Flathub submission of the Flatpak | not submitted; the package is a local/CI artifact installed from a bundle |
+| Flathub submission of the Flatpak | not submitted; the bundle is attached to the GitHub release (`ADR-72`) and installed from that file |
 | Hardware-in-the-loop validation (NATIVE-7B) | not executed; 10 `#[ignore]` tests; F-14 software remediation is closed but hardware validation remains NOT_EXECUTED and requires a separate owner authorisation |
 | Package signing for DEB/RPM | not implemented; integrity comes from the release manifest and SHA-256 |
 | Package signing for the Flatpak | not applicable to a local bundle; integrity comes from the bundle SHA-256 sidecar and the per-file payload manifest |

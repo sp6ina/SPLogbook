@@ -14,7 +14,7 @@
 #   * SOURCE_DATE_EPOCH, a fixed build host and clamped mtimes make the output
 #     reproducible;
 #   * the package is built twice and the two RPMs are compared byte-for-byte;
-#   * the RPM is never installed on the build host and never published.
+#   * the RPM is never installed on the build host; only publish-release puts it into a release (ADR-72).
 #
 # Usage:
 #   EXPECTED_BUILD_COMMIT=<40-hex> SOURCE_DATE_EPOCH=<epoch> \

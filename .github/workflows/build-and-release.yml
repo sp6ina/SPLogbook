@@ -217,7 +217,8 @@ jobs:
   # Linux DEB package: binary DEB. Built once in the pinned Ubuntu 26.04 image
   # from the already verified portable payload. The dpkg package is
   # refreshed from the official repository of that same image. The DEB is
-  # a CI artifact only and is never published in a GitHub release.
+  # published in a release only by publish-release, after every DEB
+  # verification job has passed (ADR-72).
   # --------------------------------------------------------------------
   build-deb:
     name: Build DEB (Ubuntu 26.04 amd64)
@@ -288,8 +289,8 @@ jobs:
 
   # --------------------------------------------------------------------
   # Linux RPM package: binary RPM. Built once in the pinned Fedora 45 image from
-  # the already verified portable payload. The RPM is a CI artifact only
-  # and is never published in a GitHub release.
+  # the already verified portable payload. The RPM is published in a release
+  # only by publish-release, after every RPM verification job has passed (ADR-72).
   # --------------------------------------------------------------------
   build-rpm:
     name: Build RPM (Fedora 45 x86_64)
@@ -1215,8 +1216,9 @@ jobs:
   # the 662 SHA-256 pinned crates of Cargo.lock, inside a privileged container
   # (bubblewrap needs user namespaces). Sources are downloaded once with
   # --download-only; the real build runs with --disable-download and
-  # cargo --locked --offline. The bundle is a CI artifact only: it is never
-  # uploaded to a GitHub release and never submitted to Flathub.
+  # cargo --locked --offline. The bundle is attached to a release only by
+  # publish-release, after every Flatpak verification job has passed (ADR-72);
+  # it is never submitted to Flathub.
   # --------------------------------------------------------------------
   resolve-rust-toolchain:
     name: Resolve Rust toolchain pin
@@ -1742,7 +1744,8 @@ jobs:
 
   publish-release:
     name: Publish Release Assets
-    needs: [build-linux, build-windows, verify-linux-matrix, verify-linux-negative, build-rpm, verify-rpm, verify-rpm-negative-fixtures]
+    # ADR-72: every build and verification job of every published package must pass first.
+    needs: [build-linux, build-windows, verify-linux-matrix, verify-linux-negative, verify-appimage-negative-fixtures, verify-appimage-fuse, build-deb, verify-deb, verify-deb-negative-fixtures, build-rpm, verify-rpm, verify-rpm-negative-fixtures, resolve-rust-toolchain, build-flatpak, verify-flatpak, verify-flatpak-permissions, verify-flatpak-lifecycle, verify-flatpak-determinism, verify-flatpak-negative-fixtures]
     # Release publishing policy (ADR-71): only a pushed v* tag publishes. Every workflow_dispatch
     # (any branch, any dry_run value) skips this job, so the signing secret is never read.
     if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
@@ -1800,40 +1803,49 @@ jobs:
 
           INNO_EXE="SPLogbook-Windows-x64-Setup-${VERSION}.exe"
           MSI_PKG="SPLogbook-Windows-x64-MSI-${VERSION}.msi"
+          APPIMAGE_PKG="SPLogbook-Linux-x86_64.AppImage"
+          DEB_PKG="SPLogbook-Linux-amd64-${VERSION}.deb"
+          RPM_PKG="SPLogbook-Linux-x86_64-${VERSION}.rpm"
+          FLATPAK_PKG="SPLogbook-Linux-x86_64-${VERSION}.flatpak"
 
           cp SPLogbook-Linux-x86_64/SPLogbook-Linux-x86_64.tar.gz release-staging/
           cp SPLogbook-Windows-x64/SPLogbook-Windows-x64.zip release-staging/
           cp "SPLogbook-Windows-x64/dist/${INNO_EXE}" release-staging/
           cp "SPLogbook-Windows-x64/dist/${MSI_PKG}" release-staging/
 
+          # Linux packages (ADR-72): each package is taken from the artifact that its
+          # verification jobs downloaded, must be present exactly once and must match the
+          # checksum written by its build job before it is staged.
+          stage_verified_package() {
+            local artifact="$1" file="$2" count path
+            count=$(find "${artifact}" -type f -name "${file}" | wc -l)
+            [ "${count}" -eq 1 ] || { echo "::error::Expected exactly one ${file} in ${artifact}, found ${count}"; exit 1; }
+            path=$(find "${artifact}" -type f -name "${file}")
+            [ -s "${path}.sha256" ] || { echo "::error::Missing checksum file for ${file}"; exit 1; }
+            ( cd "$(dirname "${path}")" && sha256sum -c "${file}.sha256" ) || { echo "::error::Checksum mismatch for ${file}"; exit 1; }
+            cp "${path}" release-staging/
+          }
+          stage_verified_package SPLogbook-Linux-x86_64-appimage "${APPIMAGE_PKG}"
+          stage_verified_package SPLogbook-Linux-amd64-deb "${DEB_PKG}"
+          stage_verified_package SPLogbook-Linux-x86_64-rpm "${RPM_PKG}"
+          stage_verified_package SPLogbook-Linux-x86_64-flatpak "${FLATPAK_PKG}"
+
           [ -s release-staging/SPLogbook-Linux-x86_64.tar.gz ] || { echo "::error::Missing or empty Linux artifact"; exit 1; }
           [ -s release-staging/SPLogbook-Windows-x64.zip ] || { echo "::error::Missing or empty Windows ZIP artifact"; exit 1; }
           [ -s "release-staging/${INNO_EXE}" ] || { echo "::error::Missing or empty Windows Inno Setup artifact"; exit 1; }
           [ -s "release-staging/${MSI_PKG}" ] || { echo "::error::Missing or empty Windows MSI artifact"; exit 1; }
+          [ -s "release-staging/${APPIMAGE_PKG}" ] || { echo "::error::Missing or empty AppImage artifact"; exit 1; }
+          [ -s "release-staging/${DEB_PKG}" ] || { echo "::error::Missing or empty DEB artifact"; exit 1; }
+          [ -s "release-staging/${RPM_PKG}" ] || { echo "::error::Missing or empty RPM artifact"; exit 1; }
+          [ -s "release-staging/${FLATPAK_PKG}" ] || { echo "::error::Missing or empty Flatpak artifact"; exit 1; }
 
           COUNT=$(find release-staging -maxdepth 1 -type f | wc -l)
-          [ "$COUNT" -eq 4 ] || { echo "::error::Unexpected artifact count in staging: $COUNT"; exit 1; }
+          [ "$COUNT" -eq 8 ] || { echo "::error::Unexpected artifact count in staging: $COUNT"; exit 1; }
 
-          # DEB packaging policy (ADR-54): the DEB is a CI artifact only. It must never be staged
-          # for a public release, even if a future download step drops it here.
-          if find release-staging -maxdepth 1 -name '*.deb' | grep -q .; then
-            echo "::error::DEB must never be published in a GitHub release (M3-H)"
-            exit 1
-          fi
-
-          # RPM packaging policy: the RPM is a CI artifact only. It must never be staged
-          # for a public release, even if a future download step drops it here.
-          if find release-staging -maxdepth 1 -name '*.rpm' | grep -q .; then
-            echo "::error::RPM must never be published in a GitHub release (M3-I)"
-            exit 1
-          fi
-
-          # Flatpak packaging policy (ADR-63): the Flatpak bundle is a CI artifact only. It must never be
-          # staged for a public release.
-          if find release-staging -maxdepth 1 -name '*.flatpak' | grep -q .; then
-            echo "::error::Flatpak bundle must never be published in a GitHub release (M3-J)"
-            exit 1
-          fi
+          # Exactly the eight release assets: no checksum side files, evidence or other packages.
+          EXPECTED_NAMES=$(printf '%s\n' SPLogbook-Linux-x86_64.tar.gz SPLogbook-Windows-x64.zip "${INNO_EXE}" "${MSI_PKG}" "${APPIMAGE_PKG}" "${DEB_PKG}" "${RPM_PKG}" "${FLATPAK_PKG}" | LC_ALL=C sort)
+          STAGED_NAMES=$(find release-staging -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort)
+          [ "${STAGED_NAMES}" = "${EXPECTED_NAMES}" ] || { echo "::error::Unexpected artifact names in staging"; exit 1; }
 
       - name: Generate SHA256SUMS.txt
         run: |
@@ -1841,8 +1853,13 @@ jobs:
           cd release-staging
           INNO_EXE="SPLogbook-Windows-x64-Setup-${RELEASE_VERSION}.exe"
           MSI_PKG="SPLogbook-Windows-x64-MSI-${RELEASE_VERSION}.msi"
-          sha256sum SPLogbook-Linux-x86_64.tar.gz SPLogbook-Windows-x64.zip "${INNO_EXE}" "${MSI_PKG}" > SHA256SUMS.txt
+          DEB_PKG="SPLogbook-Linux-amd64-${RELEASE_VERSION}.deb"
+          RPM_PKG="SPLogbook-Linux-x86_64-${RELEASE_VERSION}.rpm"
+          FLATPAK_PKG="SPLogbook-Linux-x86_64-${RELEASE_VERSION}.flatpak"
+          sha256sum SPLogbook-Linux-x86_64.tar.gz SPLogbook-Windows-x64.zip "${INNO_EXE}" "${MSI_PKG}" \
+            SPLogbook-Linux-x86_64.AppImage "${DEB_PKG}" "${RPM_PKG}" "${FLATPAK_PKG}" > SHA256SUMS.txt
           cat SHA256SUMS.txt
+          [ "$(wc -l < SHA256SUMS.txt)" -eq 8 ] || { echo "::error::SHA256SUMS.txt must list exactly 8 assets"; exit 1; }
           sha256sum -c SHA256SUMS.txt
 
       - name: Create, sign and verify Release Manifest
@@ -1896,6 +1913,10 @@ jobs:
           VERSION="${RELEASE_VERSION}"
           INNO_EXE="SPLogbook-Windows-x64-Setup-${VERSION}.exe"
           MSI_PKG="SPLogbook-Windows-x64-MSI-${VERSION}.msi"
+          APPIMAGE_PKG="SPLogbook-Linux-x86_64.AppImage"
+          DEB_PKG="SPLogbook-Linux-amd64-${VERSION}.deb"
+          RPM_PKG="SPLogbook-Linux-x86_64-${VERSION}.rpm"
+          FLATPAK_PKG="SPLogbook-Linux-x86_64-${VERSION}.flatpak"
 
           SHA_LINUX=$(sha256sum SPLogbook-Linux-x86_64.tar.gz | awk '{print $1}')
           SIZE_LINUX=$(stat -c%s SPLogbook-Linux-x86_64.tar.gz)
@@ -1905,6 +1926,14 @@ jobs:
           SIZE_WIN_INNO=$(stat -c%s "${INNO_EXE}")
           SHA_WIN_MSI=$(sha256sum "${MSI_PKG}" | awk '{print $1}')
           SIZE_WIN_MSI=$(stat -c%s "${MSI_PKG}")
+          SHA_APPIMAGE=$(sha256sum "${APPIMAGE_PKG}" | awk '{print $1}')
+          SIZE_APPIMAGE=$(stat -c%s "${APPIMAGE_PKG}")
+          SHA_DEB=$(sha256sum "${DEB_PKG}" | awk '{print $1}')
+          SIZE_DEB=$(stat -c%s "${DEB_PKG}")
+          SHA_RPM=$(sha256sum "${RPM_PKG}" | awk '{print $1}')
+          SIZE_RPM=$(stat -c%s "${RPM_PKG}")
+          SHA_FLATPAK=$(sha256sum "${FLATPAK_PKG}" | awk '{print $1}')
+          SIZE_FLATPAK=$(stat -c%s "${FLATPAK_PKG}")
 
           COMMIT_SHA=$(git rev-parse HEAD)
           [ ${#COMMIT_SHA} -eq 40 ] || { echo "::error::Invalid commit SHA length: ${#COMMIT_SHA}"; exit 1; }
@@ -1950,6 +1979,38 @@ jobs:
                 "filename": "$MSI_PKG",
                 "size": $SIZE_WIN_MSI,
                 "sha256": "$SHA_WIN_MSI"
+              },
+              {
+                "platform": "linux",
+                "arch": "x86_64",
+                "package_type": "appimage",
+                "filename": "$APPIMAGE_PKG",
+                "size": $SIZE_APPIMAGE,
+                "sha256": "$SHA_APPIMAGE"
+              },
+              {
+                "platform": "linux",
+                "arch": "x86_64",
+                "package_type": "deb",
+                "filename": "$DEB_PKG",
+                "size": $SIZE_DEB,
+                "sha256": "$SHA_DEB"
+              },
+              {
+                "platform": "linux",
+                "arch": "x86_64",
+                "package_type": "rpm",
+                "filename": "$RPM_PKG",
+                "size": $SIZE_RPM,
+                "sha256": "$SHA_RPM"
+              },
+              {
+                "platform": "linux",
+                "arch": "x86_64",
+                "package_type": "flatpak",
+                "filename": "$FLATPAK_PKG",
+                "size": $SIZE_FLATPAK,
+                "sha256": "$SHA_FLATPAK"
               }
             ]
           }
@@ -1989,6 +2050,10 @@ jobs:
             release-staging/SPLogbook-Windows-x64.zip
             release-staging/SPLogbook-Windows-x64-Setup-${{ env.RELEASE_VERSION }}.exe
             release-staging/SPLogbook-Windows-x64-MSI-${{ env.RELEASE_VERSION }}.msi
+            release-staging/SPLogbook-Linux-x86_64.AppImage
+            release-staging/SPLogbook-Linux-amd64-${{ env.RELEASE_VERSION }}.deb
+            release-staging/SPLogbook-Linux-x86_64-${{ env.RELEASE_VERSION }}.rpm
+            release-staging/SPLogbook-Linux-x86_64-${{ env.RELEASE_VERSION }}.flatpak
             release-staging/SHA256SUMS.txt
             release-staging/release-manifest.json
             release-staging/release-manifest.json.sig

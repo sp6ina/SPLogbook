@@ -261,11 +261,11 @@ Konfiguracja potoku wydawniczego znajduje się w `.github/workflows/build-and-re
      ```
    - **Brak możliwości publikacji niepodpisanego wydania.**
 3. **Kompletność zestawu artefaktów (`F-05 = CLOSED`):**
-   - Weryfikacja obecności wszystkich 4 artefaktów wydania: `SPLogbook-Linux-x86_64.tar.gz`, `SPLogbook-Windows-x64.zip`, `SPLogbook-Windows-x64-Setup-${VERSION}.exe` (`inno-exe`) oraz `SPLogbook-Windows-x64-MSI-${VERSION}.msi` (`msi`).
-   - Weryfikacja niepustego rozmiaru (`[ -s <plik> ]`) oraz dokładnej liczby 4 plików w `release-staging/`.
-   - Weryfikacja braku duplikatów i nieoczekiwanych plików w stagingu (w tym zakaz publikacji DEB, RPM i Flatpak).
+   - Weryfikacja obecności wszystkich 8 artefaktów wydania: `SPLogbook-Linux-x86_64.tar.gz`, `SPLogbook-Windows-x64.zip`, `SPLogbook-Windows-x64-Setup-${VERSION}.exe` (`inno-exe`), `SPLogbook-Windows-x64-MSI-${VERSION}.msi` (`msi`), `SPLogbook-Linux-x86_64.AppImage` (`appimage`), `SPLogbook-Linux-amd64-${VERSION}.deb` (`deb`), `SPLogbook-Linux-x86_64-${VERSION}.rpm` (`rpm`) oraz `SPLogbook-Linux-x86_64-${VERSION}.flatpak` (`flatpak`) (`ADR-72`, od v1.4.0).
+   - Pakiet Linux trafia do stagingu wyłącznie z artefaktu sprawdzonego przez jego joby weryfikacyjne: musi wystąpić dokładnie raz i zgadzać się z sumą SHA-256 zapisaną przez job budujący (`stage_verified_package`). Job publikacji zależy od każdego joba budującego i weryfikującego.
+   - Weryfikacja niepustego rozmiaru (`[ -s <plik> ]`), dokładnej liczby 8 plików w `release-staging/` oraz zgodności nazw z listą oczekiwanych artefaktów (brak duplikatów, plików pobocznych i dowodów).
 4. **Sumy kontrolne `SHA256SUMS.txt`:**
-   - Generowanie ustandaryzowanego pliku `SHA256SUMS.txt` dla wszystkich archiwów wydania.
+   - Generowanie ustandaryzowanego pliku `SHA256SUMS.txt` dla wszystkich 8 artefaktów wydania (krok kończy się błędem przy innej liczbie wpisów).
    - Automatyczna weryfikacja integralności (`sha256sum -c SHA256SUMS.txt`) przed publikacją.
 5. **Generowanie i podpisywanie manifestu:**
    - Manifest `release-manifest.json` jest generowany w sposób deterministyczny na podstawie metadanych git (`GITHUB_REF`, `git rev-parse HEAD`) oraz obliczonych skrótów SHA-256 i rozmiarów.

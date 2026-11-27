@@ -25,7 +25,7 @@
 #   wildcard D-Bus name. Native CAT over /dev/ttyUSB* and /dev/ttyACM* is not
 #   available inside the sandbox (ADR-57); the
 #   documented user-side opt-in is in README.md section 6.
-# * This package is a local/CI artifact only. It is never submitted to Flathub
+# * The bundle is attached to GitHub releases (ADR-72). It is never submitted to Flathub
 #   and never attached to a GitHub release.
 
 app-id: io.github.sp6ina.SPLogbook

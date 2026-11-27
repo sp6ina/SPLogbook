@@ -1042,7 +1042,7 @@ fn updater_recognizes_the_flatpak_sandbox_signal() {
 // ============================================================================
 
 #[test]
-fn flatpak_ci_jobs_exist_and_never_publish() {
+fn flatpak_ci_jobs_exist_and_publish_only_after_verification() {
     let workflow = read_repo_file(".github/workflows/build-and-release.yml").replace("\r\n", "\n");
     for job in [
         "build-flatpak",
@@ -1056,21 +1056,54 @@ fn flatpak_ci_jobs_exist_and_never_publish() {
             "workflow musi zawierać job {job}"
         );
     }
-    // Job publikacji nie może przyjmować ani stage'ować Flatpaka: wolno mu
-    // wyłącznie zawierać trwałą asercję wykluczającą bundle.
+    // ADR-72: job publikacji przyjmuje wyłącznie wersjonowany bundle, po wszystkich
+    // weryfikacjach Flatpaka i po sprawdzeniu sumy kontrolnej z joba budującego.
     let publish_start = workflow
         .find("  publish-release:")
         .expect("workflow musi mieć job publish-release");
-    let publish_section = &workflow[publish_start..];
+    let publish = &workflow[publish_start..];
     assert!(
-        !publish_section.contains("cp dist/SPLogbook-Linux-x86_64.flatpak")
-            && !publish_section.contains("release-staging/SPLogbook-Linux-x86_64.flatpak")
-            && !publish_section.contains("release-staging/SPLogbook-Linux-x86_64-1.3.0.flatpak"),
-        "job publikacji nie może kopiować ani publikować bundle'a Flatpak"
+        !publish.contains("release-staging/SPLogbook-Linux-x86_64.flatpak"),
+        "wydanie publikuje wyłącznie wersjonowany bundle Flatpak"
+    );
+    let needs: Vec<&str> = publish
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("needs: ["))
+        .and_then(|list| list.strip_suffix(']'))
+        .expect("publish-release musi mieć listę needs")
+        .split(", ")
+        .collect();
+    for job in [
+        "resolve-rust-toolchain",
+        "build-flatpak",
+        "verify-flatpak",
+        "verify-flatpak-permissions",
+        "verify-flatpak-lifecycle",
+        "verify-flatpak-determinism",
+        "verify-flatpak-negative-fixtures",
+    ] {
+        assert!(
+            needs.contains(&job),
+            "publish-release musi czekać na `{job}`, zanim opublikuje Flatpak (ADR-72)"
+        );
+    }
+    assert!(
+        publish.contains(r#"FLATPAK_PKG="SPLogbook-Linux-x86_64-${VERSION}.flatpak""#),
+        "publish-release musi nazywać Flatpak jednoznacznie"
     );
     assert!(
-        publish_section.contains("find release-staging -maxdepth 1 -name '*.flatpak'"),
-        "job publikacji musi zawierać trwałą asercję wykluczającą .flatpak z release-staging"
+        publish
+            .contains(r#"stage_verified_package SPLogbook-Linux-x86_64-flatpak "${FLATPAK_PKG}""#),
+        "Flatpak trafia do wydania wyłącznie przez stage_verified_package (suma kontrolna z joba budującego)"
+    );
+    assert!(
+        publish.contains(r#""package_type": "flatpak""#),
+        "Flatpak musi mieć wpis w podpisanym manifeście"
+    );
+    assert!(
+        publish
+            .contains("release-staging/SPLogbook-Linux-x86_64-${{ env.RELEASE_VERSION }}.flatpak"),
+        "Flatpak musi być na liście plików wydania"
     );
     // Trwała asercja: brak .flatpak w release-staging.
     assert!(
