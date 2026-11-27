@@ -22,8 +22,8 @@
 set -eu
 
 GLIBC_POLICY_MAX="2.43"
-EXPECTED_VERSION="${EXPECTED_APP_VERSION:-1.3.0}"
-EXPECTED_DEBIAN_VERSION="${EXPECTED_DEBIAN_VERSION:-1.3.0-1}"
+EXPECTED_VERSION="${EXPECTED_APP_VERSION:-1.4.0}"
+EXPECTED_DEBIAN_VERSION="${EXPECTED_DEBIAN_VERSION:-1.4.0-1}"
 EXPECTED_COMMIT="${EXPECTED_BUILD_COMMIT:-}"
 EXPECTED_ICON_SHA256="${EXPECTED_ICON_SHA256:-}"
 EXPECTED_DESKTOP_SHA256="${EXPECTED_DESKTOP_SHA256:-}"
@@ -176,21 +176,21 @@ dpkg --validate-version "${EXPECTED_DEBIAN_VERSION}" \
     || fail "dpkg rejects the expected Debian version"
 case "${EXPECTED_DEBIAN_VERSION}" in
     *"~"*)
-        # Prerelease (for example 1.3.0~alpha.1-1): sorts before the stable version.
+        # Prerelease (for example 1.4.0~alpha.1-1): sorts before the stable version.
         STABLE_DEBIAN_VERSION="${EXPECTED_DEBIAN_VERSION%%~*}-${EXPECTED_DEBIAN_VERSION##*-}"
         dpkg --compare-versions "${EXPECTED_DEBIAN_VERSION}" lt "${STABLE_DEBIAN_VERSION}" \
             || fail "prerelease must sort before ${STABLE_DEBIAN_VERSION}"
-        dpkg --compare-versions "${EXPECTED_DEBIAN_VERSION}" gt "1.3.0~alpha.0-1" \
-            || fail "prerelease must sort after 1.3.0~alpha.0-1"
+        dpkg --compare-versions "${EXPECTED_DEBIAN_VERSION}" gt "1.4.0~alpha.0-1" \
+            || fail "prerelease must sort after 1.4.0~alpha.0-1"
         ;;
     *)
-        # Stable version (for example 1.3.0-1): every prerelease of the same base sorts
+        # Stable version (for example 1.4.0-1): every prerelease of the same base sorts
         # strictly before it (upgrade from alpha works) and the next revision sorts after.
         STABLE_BASE="${EXPECTED_DEBIAN_VERSION%-*}"
         dpkg --compare-versions "${STABLE_BASE}~alpha.1-1" lt "${EXPECTED_DEBIAN_VERSION}" \
             || fail "${STABLE_BASE}~alpha.1-1 must sort before ${EXPECTED_DEBIAN_VERSION}"
-        dpkg --compare-versions "1.3.0~alpha.0-1" lt "${EXPECTED_DEBIAN_VERSION}" \
-            || fail "1.3.0~alpha.0-1 must sort before ${EXPECTED_DEBIAN_VERSION}"
+        dpkg --compare-versions "1.4.0~alpha.0-1" lt "${EXPECTED_DEBIAN_VERSION}" \
+            || fail "1.4.0~alpha.0-1 must sort before ${EXPECTED_DEBIAN_VERSION}"
         dpkg --compare-versions "${EXPECTED_DEBIAN_VERSION}" lt "${STABLE_BASE}-2" \
             || fail "${EXPECTED_DEBIAN_VERSION} must sort before ${STABLE_BASE}-2"
         ;;
@@ -580,8 +580,8 @@ assert_user_home_unchanged() {
 PREV_ROOT="${WORK}/previous-root"
 PREV_DEB="${WORK}/previous.deb"
 dpkg-deb -R "${DEB}" "${PREV_ROOT}" || fail "cannot extract the previous-version fixture"
-sed -i 's/^Version: .*/Version: 1.3.0~alpha.0-1/' "${PREV_ROOT}/DEBIAN/control"
-sed -i 's/"debian_version": "[^"]*"/"debian_version": "1.3.0~alpha.0-1"/' \
+sed -i 's/^Version: .*/Version: 1.4.0~alpha.0-1/' "${PREV_ROOT}/DEBIAN/control"
+sed -i 's/"debian_version": "[^"]*"/"debian_version": "1.4.0~alpha.0-1"/' \
     "${PREV_ROOT}/opt/SPLogbook/.splogbook-deb-marker"
 dpkg-deb --root-owner-group -Zxz --build "${PREV_ROOT}" "${PREV_DEB}" >/dev/null \
     || fail "cannot build the previous-version fixture"
@@ -594,7 +594,7 @@ install_previous_fixture() {
             || fail "dpkg -i failed for the previous fixture"
     fi
     INSTALLED_VERSION="$(dpkg-query -W -f='${Version}' splogbook)"
-    [ "${INSTALLED_VERSION}" = "1.3.0~alpha.0-1" ] \
+    [ "${INSTALLED_VERSION}" = "1.4.0~alpha.0-1" ] \
         || fail "previous fixture version is ${INSTALLED_VERSION}"
 }
 
@@ -625,7 +625,7 @@ assert_user_home_unchanged "upgrade"
 echo "=== 13.3 DOWNGRADE AND RE-UPGRADE ==="
 dpkg -i "${PREV_DEB}" > "${WORK}/dpkg-downgrade.log" 2>&1 \
     || fail "downgrade install failed"
-[ "$(dpkg-query -W -f='${Version}' splogbook)" = "1.3.0~alpha.0-1" ] \
+[ "$(dpkg-query -W -f='${Version}' splogbook)" = "1.4.0~alpha.0-1" ] \
     || fail "downgrade did not install the previous version"
 dpkg -i "${DEB}" > "${WORK}/dpkg-reupgrade.log" 2>&1 \
     || fail "re-upgrade install failed"

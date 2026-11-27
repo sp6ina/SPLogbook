@@ -46,7 +46,7 @@ kernel evidence.
 | Field | Value |
 |---|---|
 | `Name` | `splogbook` |
-| `Version` | `1.3.0` |
+| `Version` | `1.4.0` |
 | `Release` | `1` (no `%{?dist}`, no epoch) |
 | `Architecture` | `x86_64` |
 | `Vendor` | `SPLogbook` |
@@ -56,9 +56,9 @@ kernel evidence.
 | `Group` | `Applications/Communications` |
 | `Summary` | `Amateur radio logging and station automation workstation` |
 
-Version translation: the stable SemVer `1.3.0` becomes RPM `1.3.0-1`. A prerelease
-SemVer such as `1.3.0` becomes `1.3.0-0.1.alpha.1`; the `0.*` release sorts a
-prerelease **before** `1.3.0-1`; the builder proves the ordering with `rpmdev-vercmp`.
+Version translation: the stable SemVer `1.4.0` becomes RPM `1.4.0-1`. A prerelease
+SemVer such as `1.4.0-alpha.1` becomes `1.4.0-0.1.alpha.1`; the `0.*` release sorts a
+prerelease **before** `1.4.0-1`; the builder proves the ordering with `rpmdev-vercmp`.
 
 ## 4. Filesystem layout
 
@@ -167,8 +167,8 @@ package-owned files.
   "marker_version": "1.0",
   "installation_type": "LinuxRpm",
   "management_mode": "SystemManaged",
-  "package_version": "1.3.0",
-  "rpm_version": "1.3.0",
+  "package_version": "1.4.0",
+  "rpm_version": "1.4.0",
   "rpm_release": "1",
   "build_commit": "<40 hex>",
   "resolved_minimum_kernel": "7.0",
@@ -191,7 +191,7 @@ EXPECTED_BUILD_COMMIT="$(git rev-parse HEAD)" \
 SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" \
 BUILD_IMAGE="fedora:45@sha256:..." \
 BUILD_IMAGE_DIGEST="sha256:..." \
-  bash scripts/build_linux_rpm.sh dist dist/SPLogbook-Linux-x86_64-1.3.0.tar.gz
+  bash scripts/build_linux_rpm.sh dist dist/SPLogbook-Linux-x86_64-1.4.0.tar.gz
 ```
 
 The builder rebuilds the package twice and fails unless both builds have the
@@ -208,7 +208,7 @@ EXPECTED_BUILD_COMMIT="$(git rev-parse HEAD)" \
 EXPECTED_SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" \
 EXPECTED_ICON_SHA256="$(sha256sum assets/icon.png | awk '{print $1}')" \
 EXPECTED_DESKTOP_SHA256="$(sha256sum installer/linux/rpm/splogbook.desktop | awk '{print $1}')" \
-  sh scripts/verify_linux_rpm.sh dist/SPLogbook-Linux-x86_64-1.3.0.rpm
+  sh scripts/verify_linux_rpm.sh dist/SPLogbook-Linux-x86_64-1.4.0.rpm
 ```
 
 The verifier checks the checksum sidecar, manifest, package type, metadata,
@@ -238,7 +238,7 @@ suppression requires an explicit ADR revision.
 ```sh
 EXPECTED_BUILD_COMMIT="$(git rev-parse HEAD)" \
   sh scripts/verify_linux_rpm_negative_fixture.sh \
-    scripts/verify_linux_rpm.sh dist/SPLogbook-Linux-x86_64-1.3.0.rpm
+    scripts/verify_linux_rpm.sh dist/SPLogbook-Linux-x86_64-1.4.0.rpm
 ```
 
 The harness mutates disposable copies of the real RPM and requires every

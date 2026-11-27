@@ -22,8 +22,8 @@
 set -eu
 
 GLIBC_POLICY_MAX="2.43"
-EXPECTED_VERSION="${EXPECTED_APP_VERSION:-1.3.0}"
-EXPECTED_RPM_VERSION="${EXPECTED_RPM_VERSION:-1.3.0}"
+EXPECTED_VERSION="${EXPECTED_APP_VERSION:-1.4.0}"
+EXPECTED_RPM_VERSION="${EXPECTED_RPM_VERSION:-1.4.0}"
 EXPECTED_RPM_RELEASE="${EXPECTED_RPM_RELEASE:-1}"
 EXPECTED_COMMIT="${EXPECTED_BUILD_COMMIT:-}"
 EXPECTED_EPOCH="${EXPECTED_SOURCE_DATE_EPOCH:-}"
@@ -680,14 +680,14 @@ assert_user_home_unchanged() {
 PREV_ROOT="${WORK}/previous-root"
 PREV_RPM="${WORK}/previous.rpm"
 cp -a "${ROOT}/." "${PREV_ROOT}"
-sed -i 's/"package_version": "[^"]*"/"package_version": "1.3.0-alpha.0"/' \
+sed -i 's/"package_version": "[^"]*"/"package_version": "1.4.0-alpha.0"/' \
     "${PREV_ROOT}/opt/SPLogbook/.splogbook-rpm-marker"
-sed -i 's/"rpm_version": "[^"]*"/"rpm_version": "1.3.0"/' \
+sed -i 's/"rpm_version": "[^"]*"/"rpm_version": "1.4.0"/' \
     "${PREV_ROOT}/opt/SPLogbook/.splogbook-rpm-marker"
 sed -i 's/"rpm_release": "[^"]*"/"rpm_release": "0.1.alpha.0"/' \
     "${PREV_ROOT}/opt/SPLogbook/.splogbook-rpm-marker"
 sh scripts/build_linux_rpm_fixture.sh "${PREV_ROOT}" "${PREV_RPM}" \
-    splogbook 1.3.0 0.1.alpha.0 x86_64 \
+    splogbook 1.4.0 0.1.alpha.0 x86_64 \
     || fail "cannot build the previous-version fixture"
 
 installed_version() {
@@ -816,7 +816,7 @@ if ! rpm -i --nosignature "${PREV_RPM}" > "${WORK}/rpm-prev-install.log" 2>&1; t
     cat "${WORK}/rpm-prev-install.log" >&2
     fail "rpm -i failed for the previous fixture"
 fi
-[ "$(installed_version)" = "1.3.0-0.1.alpha.0" ] \
+[ "$(installed_version)" = "1.4.0-0.1.alpha.0" ] \
     || fail "previous fixture version is $(installed_version)"
 [ -x /usr/bin/splogbook ] || fail "launcher is missing after the previous install"
 assert_user_home_unchanged "previous fixture install"
@@ -830,7 +830,7 @@ if ! rpm -U --nosignature --oldpackage "${PREV_RPM}" > "${WORK}/rpm-downgrade.lo
     cat "${WORK}/rpm-downgrade.log" >&2
     fail "downgrade install failed"
 fi
-[ "$(installed_version)" = "1.3.0-0.1.alpha.0" ] \
+[ "$(installed_version)" = "1.4.0-0.1.alpha.0" ] \
     || fail "downgrade did not install the previous version"
 upgrade_current
 assert_user_home_unchanged "downgrade and re-upgrade"

@@ -104,12 +104,12 @@ if (-not $pkg) {
     throw "BLOKER: Nie odnaleziono pakietu splogbook w cargo metadata"
 }
 
-$expectedVersion = "1.3.0"
+$expectedVersion = "1.4.0"
 if ($pkg.version -ne $expectedVersion) {
     throw "BLOKER: Niezgodna wersja pakietu w Cargo.toml. Oczekiwano '$expectedVersion', wykryto: '$($pkg.version)'"
 }
 $displayVersion = $pkg.version
-$msiProductVersion = "1.3.0" # Format major.minor.build dla Windows Installer
+$msiProductVersion = "1.4.0" # Format major.minor.build dla Windows Installer
 Write-Host "[OK] Wersja SemVer: $displayVersion, Wersja MSI ProductVersion: $msiProductVersion"
 
 # 4. Pobranie commita Git

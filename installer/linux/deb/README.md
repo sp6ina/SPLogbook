@@ -38,16 +38,16 @@ use their own package formats; `dpkg -i` is not tested there.
 | Field | Value |
 |---|---|
 | `Package` | `splogbook` |
-| `Version` | `1.3.0-1` (no epoch) |
+| `Version` | `1.4.0-1` (no epoch) |
 | `Architecture` | `amd64` |
 | `Section` / `Priority` | `hamradio` / `optional` |
 | `Maintainer` | `Mariusz Woźniak (SP6INA) <contact@splogbook.org>` |
 | `Homepage` | `https://github.com/sp6ina/SPLogbook` |
 | `Standards-Version` | 4.7.4 (latest Debian Policy Manual) |
 
-Version translation: the stable SemVer `1.3.0` becomes `1.3.0-1` (the `-1` is the
-package revision). A prerelease SemVer such as `1.3.0` is translated to
-`1.3.0~alpha.1-1`; the tilde sorts a prerelease **before** the stable version. The builder and the verifier prove the ordering
+Version translation: the stable SemVer `1.4.0` becomes `1.4.0-1` (the `-1` is the
+package revision). A prerelease SemVer such as `1.4.0-alpha.1` is translated to
+`1.4.0~alpha.1-1`; the tilde sorts a prerelease **before** the stable version. The builder and the verifier prove the ordering
 with `dpkg --validate-version` and `dpkg --compare-versions`.
 
 ## 4. Filesystem layout
@@ -150,8 +150,8 @@ ADIF/Cabrillo exports, backups, device configuration or secrets.
   "marker_version": "1.0",
   "installation_type": "LinuxDeb",
   "management_mode": "SystemManaged",
-  "package_version": "1.3.0",
-  "debian_version": "1.3.0-1",
+  "package_version": "1.4.0",
+  "debian_version": "1.4.0-1",
   "build_commit": "<40 hex>",
   "resolved_minimum_kernel": "7.0",
   "maximum_glibc": "2.43",
@@ -172,7 +172,7 @@ EXPECTED_BUILD_COMMIT="$(git rev-parse HEAD)" \
 SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" \
 BUILD_IMAGE="ubuntu:26.04@sha256:..." \
 BUILD_IMAGE_DIGEST="sha256:..." \
-  bash scripts/build_linux_deb.sh dist dist/SPLogbook-Linux-x86_64-1.3.0.tar.gz
+  bash scripts/build_linux_deb.sh dist dist/SPLogbook-Linux-x86_64-1.4.0.tar.gz
 ```
 
 The builder rebuilds the package twice and fails unless both builds have the
@@ -187,7 +187,7 @@ Static + native verification:
 EXPECTED_BUILD_COMMIT="$(git rev-parse HEAD)" \
 EXPECTED_ICON_SHA256="$(sha256sum assets/icon.png | awk '{print $1}')" \
 EXPECTED_DESKTOP_SHA256="$(sha256sum installer/linux/deb/splogbook.desktop | awk '{print $1}')" \
-  sh scripts/verify_linux_deb.sh dist/SPLogbook-Linux-amd64-1.3.0.deb
+  sh scripts/verify_linux_deb.sh dist/SPLogbook-Linux-amd64-1.4.0.deb
 ```
 
 The verifier checks the checksum sidecar, package type, control fields,
@@ -213,7 +213,7 @@ fixture harness and is never evidence of installation.
 ```sh
 EXPECTED_BUILD_COMMIT="$(git rev-parse HEAD)" \
   sh scripts/verify_linux_deb_negative_fixture.sh \
-    scripts/verify_linux_deb.sh dist/SPLogbook-Linux-amd64-1.3.0.deb
+    scripts/verify_linux_deb.sh dist/SPLogbook-Linux-amd64-1.4.0.deb
 ```
 
 The harness mutates disposable copies of the real DEB and requires every

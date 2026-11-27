@@ -1,7 +1,7 @@
 # Macierz Walidacji Sprzętowej i Protokołowej (CAT / Native / HIL / Akcesoria)
 
 **Zakres:** trwała wiedza protokołowa i wymagania sprzętowe dla 8 backendów CAT.
-**Projekt:** SPLogbook (wydanie `1.3.0`)
+**Projekt:** SPLogbook (wydanie `1.4.0`)
 **Gałąź referencyjna:** `main`
 **Cel dokumentu:** Rozgraniczenie elementów podsystemu radiowego pomiędzy:
 1. elementy zweryfikowane testami automatycznymi w repozytorium,

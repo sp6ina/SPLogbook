@@ -41,8 +41,8 @@ echo "[OK] Rustc: ${RUSTC_VERSION}"
 
 # 4. Weryfikacja tożsamości wersji BuildIdentity
 PRODUCT_VERSION="$(cargo metadata --no-deps --format-version 1 | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4)"
-if [[ "${PRODUCT_VERSION}" != "1.3.0" ]]; then
-    echo "BLOKER: Niezgodna wersja w Cargo.toml: ${PRODUCT_VERSION} (oczekiwano 1.3.0)" >&2
+if [[ "${PRODUCT_VERSION}" != "1.4.0" ]]; then
+    echo "BLOKER: Niezgodna wersja w Cargo.toml: ${PRODUCT_VERSION} (oczekiwano 1.4.0)" >&2
     exit 1
 fi
 echo "[OK] BuildIdentity version: ${PRODUCT_VERSION}"
@@ -159,7 +159,7 @@ fi
 
 cat << 'EOF' > "${ARCHIVE_PAYLOAD_DIR}/README.txt"
 SPLogbook Linux Portable (tar.gz)
-Wersja: 1.3.0
+Wersja: 1.4.0
 Architektura: x86_64
 Format: Unprivileged Portable
 

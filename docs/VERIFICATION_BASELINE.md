@@ -4,7 +4,7 @@ Single source of truth for verified test counters and dependency-audit state. Co
 only here; every other document links to this file. Never update a counter without a real
 measurement, and always record the measurement date.
 
-**Data pomiaru:** 2026-11-20 (ostatni pomiar: po przebudowie UI/UX, mapy świata i waterfalla na gałęzi `feat/ui-ux-polish`)
+**Data pomiaru:** 2026-11-27 (ostatni pomiar: przygotowanie wydania 1.4.0 na gałęzi `release/1.4.0`, `cargo test --workspace --all-targets -j 1 --no-fail-fast` bez filtra)
 **Środowisko:** Windows 10/11 x86_64, `rustc 1.99.0`, `cargo 1.99.0`, `-j 1`
 **HEAD pomiaru:** commit zawierający ten plik (`git log -1 --format=%H`)
 
@@ -26,29 +26,28 @@ cargo test --workspace --all-targets -j 1 -- --skip powershell_real_execution_fu
 
 | Metric | Value |
 |---|---|
-| TOTAL REGISTERED TESTS: | 3716 |
-| TOTAL EXECUTED TESTS: | 3705 |
-| TOTAL PASSED TESTS: | 3705 |
+| TOTAL REGISTERED TESTS: | 3949 |
+| TOTAL EXECUTED TESTS: | 3939 |
+| TOTAL PASSED TESTS: | 3939 |
 | TOTAL FAILED TESTS: | 0 |
 | TOTAL IGNORED TESTS: | 10 |
 | HIL IGNORED TESTS: | 10 |
-| TOTAL FILTERED TESTS: | 1 |
+| TOTAL FILTERED TESTS: | 0 |
 | Doc-tests | 0 |
-| Test binaries | 37 |
+| Test binaries | 38 |
 
-The single filtered test is `windows_helper_test::powershell_real_execution_full_cycle_success`.
-It can block on a Windows security prompt in an interactive sandbox, so it is filtered in the
-local baseline. It is **not** filtered in CI, where it passes; this is a host limitation, not
-a product defect.
+The host-limited test `windows_helper_test::powershell_real_execution_full_cycle_success` can
+block on a Windows security prompt in an interactive sandbox, so the canonical command filters
+it on such hosts. The 1.4.0 measurement ran it unfiltered and it passed; CI never filters it.
 
 ## 3. Per-suite counters
 
 | Suite | Value |
 |---|---|
-| `security_guard` (incl. `chrono_replacement_*`, `f20r4_*`, `p1_f21_*`, F-18/eQSL/F-06 rules) | 214 / 214 |
+| `security_guard` (incl. `chrono_replacement_*`, `f20r4_*`, `p1_f21_*`, F-18/eQSL/F-06 rules, ADR-72 release guards) | 216 / 216 |
 | `p1_f20_upload_selection` | 29 / 29 |
 | `p1_f20r_recovery` / `p1_f20r_sent_dates` / `p1_f20r_credential_safety` | 31 / 31, 21 / 21, 13 / 13 |
-| library unit tests (`--lib`) | 2386 / 2386 |
+| library unit tests (`--lib`) | 2610 / 2610 |
 | `p1_f21_cabrillo_export` | 4 / 4 |
 | `p1_f19_award_references` | 51 / 51 |
 | `p1_f16_logbook_pagination` | 55 / 55 |

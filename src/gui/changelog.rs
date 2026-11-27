@@ -19,6 +19,18 @@ pub struct ChangeLogEntry {
 /// dzięki czemu jest w 100% zlokalizowana w każdym języku.
 pub const CHANGELOG: &[ChangeLogEntry] = &[
     ChangeLogEntry {
+        version: "1.4.0",
+        date: "2026-11-27",
+        items: &[
+            key::CHANGELOG_V1_4_0,
+            key::CHANGELOG_V1_4_1,
+            key::CHANGELOG_V1_4_2,
+            key::CHANGELOG_V1_4_3,
+            key::CHANGELOG_V1_4_4,
+            key::CHANGELOG_V1_4_5,
+        ],
+    },
+    ChangeLogEntry {
         version: "1.1",
         date: "2026",
         items: &[
@@ -214,6 +226,14 @@ pub fn render_update_check_window(app: &mut SpLogApp, ctx: &egui::Context) {
 mod tests {
     use super::*;
     use crate::core::i18n::Language;
+
+    #[test]
+    fn newest_changelog_entry_is_the_package_version() {
+        assert_eq!(CHANGELOG[0].version, env!("CARGO_PKG_VERSION"));
+        for &item in CHANGELOG[0].items {
+            assert!(!tr(item, Language::En).is_empty(), "{item:?}");
+        }
+    }
 
     #[test]
     fn only_in_app_updates_go_without_a_hint() {

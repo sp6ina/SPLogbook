@@ -6,10 +6,85 @@ it is not a development log.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning:
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Current state: **public stable `1.3.0`** (2026-11-20, tag `v1.3.0`); the previous stable
-release is `1.2.0`.
+Current state: **public stable `1.4.0`** (2026-11-27, tag `v1.4.0`); the previous stable
+releases are `1.3.0` and `1.2.0`.
 
 ---
+
+## [1.4.0] - 2026-11-27
+
+Stable release. Published by CI only when the tag `v1.4.0` is pushed: the portable Linux
+`tar.gz`, the AppImage, the DEB (Ubuntu 26.04 LTS), the RPM (Fedora 45, openSUSE
+Tumbleweed), the Flatpak bundle, the Windows `zip`, the Inno Setup installer and the MSI,
+together with `SHA256SUMS.txt` and the signed release manifest. Every package is published
+only after all of its CI verification jobs have passed (`ADR-72`).
+
+### Added
+
+- **Flexible workspace** — six modules (contest, WSJT-X decodes, CW macros, statistics,
+  awards, equipment) can be docked like any other tile; up to 12 named workspace pages,
+  each with its own layout, switched with Ctrl+PgUp/Ctrl+PgDn; a layout lock; layout
+  profiles export and import safely together with pages, modules and the toolbar.
+- **Band plan editor** — per-band segments with live validation, a multi-band preview,
+  JSON import/export and reset to IARU Region 1. The plan drives the band map, the mode of
+  cluster spots, filters and the SDR panorama.
+- **Menus and personalization** — nine menus organized around operating; a customizable
+  toolbar (order, visibility, icons-only mode); theme personalization (accent colour with a
+  WCAG contrast check, interface density); a customizable status bar (TX/RX and frequency
+  always visible).
+- **WSJT-X / JTDX, both ways** — configurable UDP port and multicast group (shared with
+  other programs), a decodes window with worked-before assessment, Reply to a CQ, and
+  callsign highlighting in WSJT-X.
+- **Real CW keying** — K1EL WinKeyer (WK2/WK3), DTR/RTS keying with optional PTT, and
+  `send_morse` through rigctld; F1–F8 user macros; Enter Sends Message (Run and S&P) in the
+  contest window.
+- **Contest sessions** — score, multipliers, rate, dupes and Cabrillo cover only the QSOs of
+  the session; sent exchange per contest; Cabrillo 3.0 categories and header fields per the
+  WWROF specification; IARU HF scoring by ITU zones and HQ stations.
+- **Cluster spots** — mode from the comment words or the band plan, split from `UP`/`QSX`
+  comments, refreshed re-spots, new-mode and worked badges, optional rotator turn, and spots
+  on the SDR panorama over TCI and the FlexRadio SmartSDR API.
+- **Plugins** — new hooks (contest QSO, WSJT-X decode, spot badge), read-only functions
+  (worked before, DXCC lookup, band plan, language, UTC time, per-plugin memory), page
+  switching, per-call time and query limits, and four new bundled plugins.
+- **Backups** — periodic database backups (default every 30 minutes, only after a change),
+  restore from a backup inside the program, and a checked backup after an unexpected
+  shutdown.
+- **Reference data on first run** — a warning bar and a wizard step to download or import
+  the country files.
+
+### Changed
+
+- **Complete translations** — the interface, messages, dialogs, domain error headlines,
+  bundled plugins and the manual are translated into all seven languages (pl, en, de, fr,
+  es, it, ru). The technical detail of domain errors and the PDF export content stay as
+  they are.
+- **ADIF** — every ADIF field is kept on import and written back on export; likely
+  duplicates (same call, band and mode within 2 minutes and 1 kHz) are skipped on import.
+- **Performance with large logs** (200 000 QSOs) — saving a QSO with the table refresh
+  1655 → 43 ms, program start 3723 → 1402 ms, typing a callsign 91 → 0.3 ms.
+- **Propagation** — forecasts use the station's own locator and, when known, the path to
+  the other station's locator.
+- **Updates of package installs** — DEB, RPM, Flatpak and AppImage installations show how
+  to update them instead of offering an in-app installation that their read-only program
+  directory cannot accept.
+
+### Fixed
+
+- The contest rate meter showed zero for QSOs entered in the QSO form.
+- The cluster reported SSB spots with "UP" in the comment as CW.
+- Invented placeholder values were shown as solar data before any measurement.
+- WSJT-X QSOs without reports were stored with an invented "-10" report.
+- "Open data directory" on Linux opened the configuration folder instead of the database
+  folder.
+
+### Security
+
+- `url` 2.5.9 (RUSTSEC-2026-0592).
+- Layout profiles (`.spws`) are size-limited and validated on import.
+- Plugin hooks have a 50 ms time budget, a query limit and a bounded per-plugin memory.
+- Updates of the RPM/DEB/Flatpak/AppImage installs never unpack an archive into their
+  read-only program directory.
 
 ## [1.3.0] - 2026-11-20
 

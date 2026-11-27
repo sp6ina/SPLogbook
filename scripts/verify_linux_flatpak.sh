@@ -21,7 +21,7 @@
 #
 # Usage
 #   EXPECTED_BUILD_COMMIT=<40-hex> bash scripts/verify_linux_flatpak.sh \
-#     dist/SPLogbook-Linux-x86_64-1.3.0.flatpak
+#     dist/SPLogbook-Linux-x86_64-1.4.0.flatpak
 
 set -euo pipefail
 
@@ -35,7 +35,7 @@ export GIT_CONFIG_COUNT=1
 export GIT_CONFIG_KEY_0="safe.directory"
 export GIT_CONFIG_VALUE_0="${REPO_ROOT}"
 
-BUNDLE="${1:-${REPO_ROOT}/dist/SPLogbook-Linux-x86_64-1.3.0.flatpak}"
+BUNDLE="${1:-${REPO_ROOT}/dist/SPLogbook-Linux-x86_64-1.4.0.flatpak}"
 INSPECTION_ONLY="${SPLOG_FLATPAK_INSPECTION_ONLY:-0}"
 STAGE="${SPLOG_FLATPAK_STAGE:-all}"
 case "${STAGE}" in

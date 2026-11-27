@@ -6,13 +6,13 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-1.3.0-brightgreen.svg" alt="Version 1.3.0">
+  <img src="https://img.shields.io/badge/Version-1.4.0-brightgreen.svg" alt="Version 1.4.0">
   <img src="https://img.shields.io/badge/Language-Rust_2024-orange.svg" alt="Rust 2024">
   <img src="https://img.shields.io/badge/GUI-egui_%2F_eframe-blueviolet.svg" alt="egui / eframe">
   <img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License GPLv3">
   <img src="https://img.shields.io/badge/Platform-Windows_%7C_GNU%2FLinux-blue.svg" alt="Platform">
   <a href="https://github.com/sp6ina/SPLogbook/actions"><img src="https://github.com/sp6ina/SPLogbook/actions/workflows/build-and-release.yml/badge.svg" alt="Build and Release"></a>
-  <img src="https://img.shields.io/badge/Tests-3705%2F3705_Passed-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-3939%2F3939_Passed-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/i18n-7_Languages-cyan.svg" alt="7 languages">
 </p>
 
@@ -26,17 +26,17 @@ online QSL services in one dockable workspace.
 - **Licence:** GNU General Public License v3.0 or later
 - **Website:** [splogbook.org](https://splogbook.org)
 - **Languages:** English, Polish, German, Spanish, French, Italian, Russian
-- **Current stable release:** `1.3.0` (2026-11-20). See [`CHANGELOG.md`](CHANGELOG.md).
+- **Current stable release:** `1.4.0` (2026-11-27). See [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 
 ## Contents
 
-1. [What is new in 1.3.0](#what-is-new-in-130)
+1. [What is new in 1.4.0](#what-is-new-in-140)
 2. [Operating features](#operating-features)
 3. [Keyboard shortcuts](#keyboard-shortcuts)
 4. [Download and install](#download-and-install)
-5. [Upgrading from v1.2.0](#upgrading-from-v120)
+5. [Upgrading](#upgrading)
 6. [Data, configuration and credentials](#data-configuration-and-credentials)
 7. [Local REST API](#local-rest-api)
 8. [Building from source and running the tests](#building-from-source-and-running-the-tests)
@@ -47,54 +47,43 @@ online QSL services in one dockable workspace.
 
 ---
 
-## What is new in 1.3.0
+## What is new in 1.4.0
 
-The full list is in [`CHANGELOG.md`](CHANGELOG.md). The main user-visible changes:
+The full list, including the 1.3.0 changes, is in [`CHANGELOG.md`](CHANGELOG.md). The main
+user-visible changes:
 
-### Interface and ergonomics
+### Workspace and interface
 
-- Shared design tokens (spacing, radii, type scale, monospace callsigns and frequencies)
-  used by every panel.
-- Three themes, **Operator Dark** (default), **Daylight** and **High Contrast**
-  (colour-blind safe), with a palette checked against WCAG contrast ratios. `Ctrl+T`
-  cycles through them.
-- A typed notification queue: info, success, warning and error toasts with severity icons,
-  time-to-live, de-duplication and dismiss.
-- A status bar with a clear **TX/RX** indicator, plus CAT, cluster and UTC status.
-- Keyboard workflow in the QSO form: `Enter` saves, `Esc` clears, a stable `Tab` order,
-  and a contest mode with its own save and wipe keys. Clicking a spot focuses the QSO form.
-- Every panel can be undocked into its own window, for example on a second monitor, and
-  docked back, using consistent vector icons.
+- Six modules (contest, WSJT-X decodes, CW macros, statistics, awards, equipment) dock like
+  any other tile.
+- Up to 12 named workspace pages, each with its own layout, switched with
+  `Ctrl+PgUp` / `Ctrl+PgDn`, and a layout lock.
+- Nine menus organized around operating, a customizable toolbar, theme personalization
+  (accent colour with a contrast check, interface density) and a customizable status bar.
+  The TX/RX indicator and the frequency are always visible.
+- A band plan editor with a multi-band preview; the plan drives the band map and the mode
+  of cluster spots.
 
-### World map
+### Operating
 
-- Land outlines from **Natural Earth 110m Land** (public domain), embedded at build time.
-- A smooth day/night shadow with a twilight band (grayline), and sun and moon markers.
-- An optional Maidenhead field grid.
-- A great-circle short path to the DX station, split correctly at the antimeridian.
-- Pan and zoom stay within the map. The map keeps a 2:1 aspect ratio with letterboxing in
-  docked tiles and in floating windows.
+- **WSJT-X / JTDX both ways:** configurable UDP port and multicast group, a decodes window
+  with worked-before marks, Reply to a CQ and callsign highlighting in WSJT-X.
+- **CW:** real keying through a K1EL WinKeyer, DTR/RTS lines or rigctld `send_morse`, with
+  F1–F8 macros and Enter Sends Message in the contest window.
+- **Contests:** sessions with their own score, multipliers, dupes and Cabrillo 3.0 export.
+- **Cluster spots:** mode and split read from the comment, refreshed re-spots, new-mode and
+  worked badges, optional rotator turn, and spots on the SDR panorama (TCI, SmartSDR).
+- **Plugins:** new hooks and read-only functions, per-call limits and four new bundled
+  plugins.
 
-### Audio (AF) waterfall
+### Data, translations and packages
 
-- Built on `cpal` (audio capture) and `rustfft` (FFT sizes 512 to 4096).
-- A spectrum plot above the waterfall, sharing one Hz axis, with a dB grid.
-- Peak Hold, five colour palettes and Auto-Level.
-- A crosshair that reads out AF frequency, level and the resulting RF frequency derived
-  from the VFO and the mode, plus passband and target-tone markers.
-- **Click-to-QSY:** clicking a signal retunes the VFO through the existing CAT path. Without
-  CAT, the click only moves the marker.
-
-### Reference data and packaging
-
-- Country files, DXCC entity attributes, regional rules and club memberships are loaded from
-  the user data directory and managed from the application, with atomic installs and
-  rollback. This data is not bundled with the application.
-- Time handling moved from `chrono` to `jiff`. LoTW and eQSL received dates are never
-  invented.
-- Windows Inno Setup and MSI installers are built, verified and published by the release
-  pipeline. DEB, RPM, AppImage and Flatpak packaging scripts are verified in CI (see
-  [Download and install](#download-and-install)).
+- Every ADIF field survives import and export; likely duplicates are skipped on import.
+- Periodic database backups, restore from a backup inside the program and a checked backup
+  after an unexpected shutdown.
+- The interface, messages and manual are translated into all seven languages.
+- The AppImage, DEB, RPM and Flatpak are now release assets, published only after their CI
+  verification (see [Download and install](#download-and-install)).
 
 ---
 
@@ -168,17 +157,21 @@ Each GitHub release is produced by CI from its version tag. The
 
 | File | Platform | Description |
 |---|---|---|
-| `SPLogbook-Windows-x64-Setup-1.3.0.exe` | Windows x64 | Inno Setup per-user installer (no administrator rights) |
-| `SPLogbook-Windows-x64-MSI-1.3.0.msi` | Windows x64 | WiX MSI per-machine installer |
+| `SPLogbook-Windows-x64-Setup-1.4.0.exe` | Windows x64 | Inno Setup per-user installer (no administrator rights) |
+| `SPLogbook-Windows-x64-MSI-1.4.0.msi` | Windows x64 | WiX MSI per-machine installer |
 | `SPLogbook-Windows-x64.zip` | Windows x64 | Portable archive |
 | `SPLogbook-Linux-x86_64.tar.gz` | Linux x86_64 | Portable archive |
-| `SHA256SUMS.txt` | all | SHA-256 checksums of the four packages |
+| `SPLogbook-Linux-x86_64.AppImage` | Linux x86_64 | AppImage (needs FUSE) |
+| `SPLogbook-Linux-amd64-1.4.0.deb` | Ubuntu 26.04 LTS | DEB package |
+| `SPLogbook-Linux-x86_64-1.4.0.rpm` | Fedora 45, openSUSE Tumbleweed | RPM package |
+| `SPLogbook-Linux-x86_64-1.4.0.flatpak` | Linux x86_64 | Flatpak bundle (`io.github.sp6ina.SPLogbook`) |
+| `SHA256SUMS.txt` | all | SHA-256 checksums of the eight packages |
 | `release-manifest.json` | all | Release manifest: version, commit, size and SHA-256 of each package |
 | `release-manifest.json.sig` | all | Ed25519 signature of the manifest |
 
-DEB, RPM, AppImage and Flatpak packages are **not** release assets. Their packaging
-scripts are verified in CI; you can build them from source (see
-[Linux distribution packages](#linux-distribution-packages)).
+Every package is published only after all of its CI verification jobs have passed, and
+only from the files those jobs verified. The DEB, RPM, AppImage and Flatpak are not signed
+themselves; their integrity comes from `SHA256SUMS.txt` and the signed manifest.
 
 ### Verifying a download
 
@@ -189,7 +182,7 @@ sha256sum -c --ignore-missing SHA256SUMS.txt
 ```
 
 ```powershell
-Get-FileHash .\SPLogbook-Windows-x64-Setup-1.3.0.exe -Algorithm SHA256
+Get-FileHash .\SPLogbook-Windows-x64-Setup-1.4.0.exe -Algorithm SHA256
 ```
 
 On Windows, compare the printed hash with the matching line in `SHA256SUMS.txt`.
@@ -216,10 +209,10 @@ Requirements: Windows 10 or Windows 11, 64-bit.
 
 Install **one** of the following:
 
-- **Inno Setup installer (recommended):** run `SPLogbook-Windows-x64-Setup-1.3.0.exe`. It
+- **Inno Setup installer (recommended):** run `SPLogbook-Windows-x64-Setup-1.4.0.exe`. It
   installs per user into `%LOCALAPPDATA%\Programs\SPLogbook` without administrator rights.
   Updating or uninstalling keeps your data.
-- **MSI:** `SPLogbook-Windows-x64-MSI-1.3.0.msi` installs per machine into
+- **MSI:** `SPLogbook-Windows-x64-MSI-1.4.0.msi` installs per machine into
   `C:\Program Files\SPLogbook` and needs elevation. It refuses to install when the per-user
   Inno Setup installation is present.
 - **Portable ZIP:** extract `SPLogbook-Windows-x64.zip` into a folder and run
@@ -261,9 +254,27 @@ Ubuntu, Fedora and openSUSE; `uucp` on Arch Linux), then log in again. Details:
 
 ### Linux distribution packages
 
-These packages are built from the portable archive by the scripts in `scripts/` and are
-verified in CI on the pinned distribution images. They are not attached to GitHub releases.
-Build commands are in [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
+These packages are built from the portable archive by the scripts in `scripts/`, verified
+in CI on the pinned distribution images and attached to each GitHub release. Build commands
+are in [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
+
+Install or upgrade (check the file against `SHA256SUMS.txt` first):
+
+```bash
+# Ubuntu 26.04 LTS
+sudo apt install ./SPLogbook-Linux-amd64-1.4.0.deb
+# Fedora 45
+sudo dnf install ./SPLogbook-Linux-x86_64-1.4.0.rpm
+# openSUSE Tumbleweed (the package is not signed)
+sudo zypper install --allow-unsigned-rpm ./SPLogbook-Linux-x86_64-1.4.0.rpm
+# AppImage
+chmod +x SPLogbook-Linux-x86_64.AppImage && ./SPLogbook-Linux-x86_64.AppImage
+# Flatpak (the runtime comes from Flathub; --reinstall upgrades an existing installation)
+flatpak --user install --reinstall ./SPLogbook-Linux-x86_64-1.4.0.flatpak
+```
+
+The application updates itself only in the portable archive and the Windows installs. In
+the other formats the update window explains how to install the new release.
 
 | Format | Script | Notes |
 |---|---|---|
@@ -276,12 +287,22 @@ Installing, upgrading or removing any of these packages does not touch user data
 
 ---
 
-## Upgrading from v1.2.0
+## Upgrading
 
-`v1.2.0` is no longer supported, and 1.3.0 contains no compatibility code for its data:
+### From v1.3.0
 
-- Nothing is migrated automatically. A clean 1.3.0 profile starts with an empty logbook.
-- To carry your log over, export it to ADIF in v1.2.0 and import the file in 1.3.0
+- The configuration from 1.3.0 loads unchanged; new settings start with their defaults.
+- On the first start the database schema is migrated automatically. A verified backup of
+  the database is written to `backups/pre-migration/` before the migration; if the backup fails, the
+  migration does not start.
+
+### From v1.2.0
+
+`v1.2.0` is no longer supported, and 1.3.0 and later contain no compatibility code for its
+data:
+
+- Nothing is migrated automatically. A clean profile starts with an empty logbook.
+- To carry your log over, export it to ADIF in v1.2.0 and import the file in 1.4.0
   (`Ctrl+I`).
 - Reference data (country files, DXCC attributes, regional rules, club memberships) is not
   bundled any more. Download or import it from the application; it is stored under
@@ -382,12 +403,12 @@ The `--skip` filter applies only to local interactive Windows hosts, where that 
 block on a security prompt; CI runs it unfiltered. Last measured baseline (counters are kept
 in [`docs/VERIFICATION_BASELINE.md`](docs/VERIFICATION_BASELINE.md)):
 
-- **Total Registered Tests**: 3716
-- **Total Executed Tests**: 3705
-- **Total Passed Tests**: 3705
+- **Total Registered Tests**: 3949
+- **Total Executed Tests**: 3939
+- **Total Passed Tests**: 3939
 - **Total Failed Tests**: 0
 - **Total Ignored Tests**: 10 (all hardware-in-the-loop)
-- **Total Filtered Tests**: 1 (local host only)
+- **Total Filtered Tests**: 0 (the 1.4.0 measurement ran the host-limited test as well)
 
 Static checks used before every change:
 

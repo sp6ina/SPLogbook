@@ -3930,11 +3930,11 @@ fn m3_c_stability_20_iterations_result_consumption_and_rollback_measurement() {
 fn m3_dev_version_identity_and_constants_guard() {
     use splogbook::core::build_info::{BuildIdentity, DistributionStatus, UpdateChannel};
 
-    assert_eq!(env!("CARGO_PKG_VERSION"), "1.3.0");
+    assert_eq!(env!("CARGO_PKG_VERSION"), "1.4.0");
 
     let id = BuildIdentity::current();
     assert_eq!(id.package_name, "splogbook");
-    assert_eq!(id.package_version, "1.3.0");
+    assert_eq!(id.package_version, "1.4.0");
     assert_eq!(id.channel, UpdateChannel::Stable);
     assert_eq!(id.distribution_status, DistributionStatus::PublishedStable);
     assert!(
@@ -3946,13 +3946,13 @@ fn m3_dev_version_identity_and_constants_guard() {
         "commit short hash must be present"
     );
     assert_eq!(id.semver.major, 1);
-    assert_eq!(id.semver.minor, 3);
+    assert_eq!(id.semver.minor, 4);
     assert_eq!(id.semver.patch, 0);
     assert_eq!(id.semver.pre.as_str(), "");
     assert_eq!(id.channel.as_str(), "stable");
     assert!(!id.is_prerelease());
     assert!(id.is_stable());
-    assert!(id.format_diagnostic().contains("1.3.0"));
+    assert!(id.format_diagnostic().contains("1.4.0"));
 }
 
 #[test]
@@ -4068,8 +4068,8 @@ fn m3_git_repository_tag_v1_2_0_is_intact_and_no_automated_publishing_scripts_ex
         );
     }
 
-    // 2. Stable release tags: v1.2.0 stays pinned and immutable; v1.3.0 is optional until
-    //    publication and, when present, is the only tag of the 1.3.0 line.
+    // 2. Stable release tags: v1.2.0 and v1.3.0 stay pinned and immutable; v1.4.0 is
+    //    optional until publication and, when present, is the only tag of the 1.4.0 line.
     assert_stable_release_tags_are_pinned(repo_root);
 
     // 3. Verify no workflow automatically pushes tags or publishes releases on push, and
@@ -4116,10 +4116,14 @@ fn m3_git_repository_tag_v1_2_0_is_intact_and_no_automated_publishing_scripts_ex
 const PINNED_V1_2_0_TAG_OBJECT: &str = "3ea8d51aab436805107a1cf422e0b35cc301458f";
 const PINNED_V1_2_0_COMMIT: &str = "6f7d3aaa3b6a54e87b481c142a5b690bcf8b5592";
 
+/// Previous stable release (published 2026-11-20): annotated tag object and peeled commit.
+const PINNED_V1_3_0_TAG_OBJECT: &str = "94d7b70d5766515aa21bffae25d90285ec5329f8";
+const PINNED_V1_3_0_COMMIT: &str = "cf7392d81c5f804816dd6617aa0b830035482bdb";
+
 /// Current stable release line. Its tag is created on the final release commit, which
 /// cannot contain the hash of its own future tag, so the tag is not pinned here; the pin
 /// is added in the first commit after the release is published.
-const CURRENT_RELEASE_TAG: &str = "v1.3.0";
+const CURRENT_RELEASE_TAG: &str = "v1.4.0";
 
 fn git_stdout(repo_root: &std::path::Path, args: &[&str]) -> String {
     let output = Command::new("git")
@@ -4150,9 +4154,33 @@ fn assert_stable_release_tags_are_pinned(repo_root: &std::path::Path) {
         "Tag v1.2.0 object SHA must be {PINNED_V1_2_0_TAG_OBJECT}"
     );
 
-    // v1.3.0: absent before tagging (push to main); once tagged it must be the only tag
-    // of the 1.3.0 line and resolve to a commit of this repository.
-    let line_tags = git_stdout(repo_root, &["tag", "-l", "*1.3.0*"]);
+    // v1.3.0: published stable release, pinned like v1.2.0.
+    let peeled = git_stdout(repo_root, &["rev-parse", "v1.3.0^{commit}"]);
+    assert_eq!(
+        peeled, PINNED_V1_3_0_COMMIT,
+        "Tag v1.3.0 must stay immutable and point to commit {PINNED_V1_3_0_COMMIT}"
+    );
+    let kind = git_stdout(repo_root, &["cat-file", "-t", "refs/tags/v1.3.0"]);
+    assert_eq!(kind, "tag", "Tag v1.3.0 must remain an annotated tag");
+    let object = git_stdout(repo_root, &["rev-parse", "refs/tags/v1.3.0"]);
+    assert_eq!(
+        object, PINNED_V1_3_0_TAG_OBJECT,
+        "Tag v1.3.0 object SHA must be {PINNED_V1_3_0_TAG_OBJECT}"
+    );
+    let previous_line = git_stdout(repo_root, &["tag", "-l", "*1.3.0*"]);
+    assert_eq!(
+        previous_line
+            .lines()
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .collect::<Vec<_>>(),
+        vec!["v1.3.0"],
+        "The only tag of the 1.3.0 line must be the stable v1.3.0"
+    );
+
+    // v1.4.0: absent before tagging; once tagged it must be the only tag
+    // of the 1.4.0 line and resolve to a commit of this repository.
+    let line_tags = git_stdout(repo_root, &["tag", "-l", "*1.4.0*"]);
     let line_tags: Vec<&str> = line_tags
         .lines()
         .map(str::trim)
@@ -4164,7 +4192,7 @@ fn assert_stable_release_tags_are_pinned(repo_root: &std::path::Path) {
     assert_eq!(
         line_tags,
         vec![CURRENT_RELEASE_TAG],
-        "The only tag of the 1.3.0 line may be the stable {CURRENT_RELEASE_TAG}"
+        "The only tag of the 1.4.0 line may be the stable {CURRENT_RELEASE_TAG}"
     );
     let commit = git_stdout(
         repo_root,
@@ -4192,10 +4220,10 @@ fn m3_stability_100_iterations_semver_evaluation_and_build_identity() {
     for _ in 0..100 {
         // BuildIdentity consistency
         assert_eq!(id.package_name, "splogbook");
-        assert_eq!(id.package_version, "1.3.0");
+        assert_eq!(id.package_version, "1.4.0");
         assert_eq!(id.channel, UpdateChannel::Stable);
         assert_eq!(id.distribution_status, DistributionStatus::PublishedStable);
-        assert_eq!(id.semver.to_string(), "1.3.0");
+        assert_eq!(id.semver.to_string(), "1.4.0");
 
         // Transition matrix checks
         assert_eq!(
@@ -4484,13 +4512,13 @@ fn m3_d_inno_setup_stable_identity_guard() {
     );
 
     assert!(
-        cargo_toml.contains(r#"version = "1.3.0""#),
-        "Cargo.toml musi definiować bieżącą wersję stabilną 1.3.0"
+        cargo_toml.contains(r#"version = "1.4.0""#),
+        "Cargo.toml musi definiować bieżącą wersję stabilną 1.4.0"
     );
 
     assert!(
-        !cargo_toml.contains(r#"version = "1.3.0-"#),
-        "Wersja stabilna 1.3.0 nie może mieć oznaczenia pre-release"
+        !cargo_toml.contains(r#"version = "1.4.0-"#),
+        "Wersja stabilna 1.4.0 nie może mieć oznaczenia pre-release"
     );
 }
 
@@ -7034,7 +7062,7 @@ fn m3_h_deb_integration_guard() {
     );
     assert!(
         workflow.contains("SPLogbook-Linux-x86_64-appimage")
-            && workflow.contains("SPLogbook-Linux-x86_64-1.3.0.tar.gz"),
+            && workflow.contains("SPLogbook-Linux-x86_64-1.4.0.tar.gz"),
         "portable tar.gz i AppImage muszą pozostać w workflow"
     );
 }
@@ -7289,7 +7317,7 @@ fn m3_i_rpm_integration_guard() {
         "fedora linux 45",
         "opensuse tumbleweed",
         "glibc_2.43",
-        "1.3.0-1",
+        "1.4.0-1",
         "/opt/splogbook",
         "libhamlib.so.4",
         "linuxrpm",
@@ -7320,7 +7348,7 @@ fn m3_i_rpm_integration_guard() {
     );
     assert!(
         workflow.contains("SPLogbook-Linux-x86_64-appimage")
-            && workflow.contains("SPLogbook-Linux-x86_64-1.3.0.tar.gz"),
+            && workflow.contains("SPLogbook-Linux-x86_64-1.4.0.tar.gz"),
         "portable tar.gz i AppImage muszą pozostać w workflow"
     );
 

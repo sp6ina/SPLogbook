@@ -11,8 +11,9 @@ release supply-chain specification is
 
 | Version | State | Supported |
 |---|---|---|
-| `1.3.0` | public stable, tag `v1.3.0` (2026-11-20) | yes |
-| `1.2.0` | previous stable, immutable annotated tag `v1.2.0` | security fixes only through the current line |
+| `1.4.0` | public stable, tag `v1.4.0` (2026-11-27) | yes |
+| `1.3.0` | previous stable, tag `v1.3.0` (2026-11-20) | security fixes only through the current line |
+| `1.2.0` | older stable, immutable annotated tag `v1.2.0` | no |
 | `≤ 1.1.0` | historical | no |
 
 Security fixes are delivered through a
@@ -101,7 +102,7 @@ For the current advisory state and the resolved advisory history, see
 
 ## 6. Verifying a download
 
-The current release is `v1.3.0`. The `v1.2.0` release predates the current key
+The current release is `v1.4.0`. The `v1.2.0` release predates the current key
 rotation, so its manifest was signed with the now-revoked `splogbook-release-2026-01` key
 and the built-in updater correctly refuses it. The full audit of every published release
 is recorded in

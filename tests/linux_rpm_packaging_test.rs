@@ -66,9 +66,9 @@ fn rpm_version_translation_is_explicit_and_ordered() {
     let builder = read(BUILDER);
     assert!(builder.contains("RPM_VERSION=\"${BASE_VERSION}\""));
     assert!(builder.contains("RPM_RELEASE=\"0.1.${PRERELEASE}\""));
-    assert!(builder.contains("vercmp_is \"${CURRENT_EVR}\" \"1.3.0-1\" 12"));
-    assert!(builder.contains("vercmp_is \"${CURRENT_EVR}\" \"1.3.0-0.1.alpha.0\" 11"));
-    assert!(builder.contains("vercmp_is \"${CURRENT_EVR}\" \"1.3.0-0.1.alpha.2\" 12"));
+    assert!(builder.contains("vercmp_is \"${CURRENT_EVR}\" \"1.4.0-1\" 12"));
+    assert!(builder.contains("vercmp_is \"${CURRENT_EVR}\" \"1.4.0-0.1.alpha.0\" 11"));
+    assert!(builder.contains("vercmp_is \"${CURRENT_EVR}\" \"1.4.0-0.1.alpha.2\" 12"));
     assert!(builder.contains("an epoch is not allowed"));
     assert!(!builder.contains("%{?dist}"));
 }
@@ -494,7 +494,7 @@ fn readme_documents_the_rpm_contract() {
         "fedora linux 45",
         "opensuse tumbleweed",
         "glibc_2.43",
-        "1.3.0-1",
+        "1.4.0-1",
         "/opt/splogbook",
         "libhamlib.so.4",
         "linuxrpm",
@@ -516,10 +516,10 @@ fn rpm_stable_version_ordering_is_asserted_by_builder_and_verifier() {
     // Stabilna wersja: Release `1`, a prerelease `0.1.alpha.*` sortuje się przed nią.
     assert!(builder.contains("RPM_RELEASE=\"1\""));
     assert!(builder.contains("[0-9]*.[0-9]*.[0-9]*) ;;"));
-    assert!(builder.contains("vercmp_is \"${CURRENT_EVR}\" \"1.3.0-0.1.alpha.2\" 11"));
+    assert!(builder.contains("vercmp_is \"${CURRENT_EVR}\" \"1.4.0-0.1.alpha.2\" 11"));
 
     let verifier = read(VERIFIER);
     assert!(verifier.contains("EXPECTED_RPM_RELEASE:-1}"));
     // Upgrade z poprzedniego wydania (alpha.0) do bieżącego jest ścieżką weryfikowaną.
-    assert!(verifier.contains("1.3.0-0.1.alpha.0"));
+    assert!(verifier.contains("1.4.0-0.1.alpha.0"));
 }

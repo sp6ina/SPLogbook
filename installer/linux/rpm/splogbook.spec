@@ -150,6 +150,9 @@ exit 0
 %license /usr/share/licenses/splogbook/HAMLIB_LGPL-2.1.txt
 
 %changelog
+* Fri Nov 27 2026 Mariusz Woźniak (SP6INA) <contact@splogbook.org> - 1.4.0-1
+- Binary RPM build for the SPLogbook 1.4.0 stable release.
+
 * Fri Nov 20 2026 Mariusz Woźniak (SP6INA) <contact@splogbook.org> - 1.3.0-1
 - Binary RPM build for the SPLogbook 1.3.0 stable release.
 

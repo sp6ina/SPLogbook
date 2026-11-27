@@ -16,7 +16,7 @@ const RUNTIME: &str = "org.freedesktop.Platform";
 const RUNTIME_VERSION: &str = "26.08";
 const SDK: &str = "org.freedesktop.Sdk";
 const COMMAND: &str = "SPLogbook";
-const PACKAGE_VERSION: &str = "1.3.0";
+const PACKAGE_VERSION: &str = "1.4.0";
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -501,12 +501,21 @@ fn flatpak_appstream_metadata_is_real_and_consistent() {
     assert!(text.contains("<category>HamRadio</category>"));
     assert!(text.contains("<category>Utility</category>"));
     assert!(text.contains("<binary>SPLogbook</binary>"));
-    // Wydanie stabilne 1.3.0 (2026-11-20) jest ogłoszone obok poprzedniego 1.2.0.
+    // Wydanie stabilne 1.4.0 jest ogłoszone przed poprzednimi 1.3.0 i 1.2.0.
+    let current =
+        format!("<release version=\"{PACKAGE_VERSION}\" date=\"2026-11-27\" type=\"stable\"");
     assert!(
-        text.contains(&format!(
-            "<release version=\"{PACKAGE_VERSION}\" date=\"2026-11-20\" type=\"stable\""
-        )),
+        text.contains(&current),
         "metainfo musi ogłaszać wydanie {PACKAGE_VERSION}"
+    );
+    let previous = "<release version=\"1.3.0\" date=\"2026-11-20\" type=\"stable\"";
+    assert!(
+        text.contains(previous),
+        "metainfo musi zachować wydanie 1.3.0"
+    );
+    assert!(
+        text.find(&current) < text.find(previous),
+        "najnowsze wydanie musi być pierwsze na liście"
     );
     assert!(
         text.contains("<release version=\"1.2.0\""),

