@@ -60,6 +60,23 @@ impl InstallationType {
         }
     }
 
+    /// Droga aktualizacji. Program instaluje sam wyłącznie archiwum przenośne i instalatory
+    /// Windows; pakiety Linux aktualizuje ich własny mechanizm, bo katalog programu jest
+    /// tylko do odczytu (`/opt`, `/app`, montowany obraz AppImage).
+    pub fn update_delivery(&self) -> UpdateDelivery {
+        match self {
+            Self::WindowsPortableZip
+            | Self::WindowsMsi
+            | Self::WindowsInnoSetup
+            | Self::LinuxPortableTarGz => UpdateDelivery::InApp,
+            Self::LinuxDeb => UpdateDelivery::Deb,
+            Self::LinuxRpm => UpdateDelivery::Rpm,
+            Self::LinuxFlatpak => UpdateDelivery::Flatpak,
+            Self::LinuxAppImage => UpdateDelivery::AppImage,
+            Self::UnknownInstallation => UpdateDelivery::Manual,
+        }
+    }
+
     /// Czy instalacja jest zarządzana samodzielnie przez SPLogbook.
     pub fn is_self_managed(&self) -> bool {
         self.management_mode() == ManagementMode::SelfManaged
@@ -96,6 +113,23 @@ impl std::fmt::Display for InstallationType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
     }
+}
+
+/// Droga, którą instalacja otrzymuje nowe wydanie.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateDelivery {
+    /// Program sam pobiera, weryfikuje i instaluje aktualizację.
+    InApp,
+    /// Pakiet DEB aktualizuje APT.
+    Deb,
+    /// Pakiet RPM aktualizuje systemowy menedżer pakietów.
+    Rpm,
+    /// Pakiet Flatpak aktualizuje Flatpak.
+    Flatpak,
+    /// Plik AppImage zastępuje się nowym plikiem.
+    AppImage,
+    /// Instalacja nierozpoznana: wydanie trzeba zainstalować ręcznie.
+    Manual,
 }
 
 /// Tryb zarządzania cyklem życia i aktualizacją programu.
@@ -697,6 +731,27 @@ mod tests {
         );
         assert!(InstallationType::LinuxRpm.is_system_managed());
         assert!(!InstallationType::LinuxRpm.is_self_managed());
+    }
+
+    #[test]
+    fn only_portable_archives_and_windows_installers_update_in_the_app() {
+        let cases = [
+            (InstallationType::WindowsPortableZip, UpdateDelivery::InApp),
+            (InstallationType::WindowsMsi, UpdateDelivery::InApp),
+            (InstallationType::WindowsInnoSetup, UpdateDelivery::InApp),
+            (InstallationType::LinuxPortableTarGz, UpdateDelivery::InApp),
+            (InstallationType::LinuxDeb, UpdateDelivery::Deb),
+            (InstallationType::LinuxRpm, UpdateDelivery::Rpm),
+            (InstallationType::LinuxFlatpak, UpdateDelivery::Flatpak),
+            (InstallationType::LinuxAppImage, UpdateDelivery::AppImage),
+            (
+                InstallationType::UnknownInstallation,
+                UpdateDelivery::Manual,
+            ),
+        ];
+        for (inst, delivery) in cases {
+            assert_eq!(inst.update_delivery(), delivery, "{inst:?}");
+        }
     }
 
     #[test]

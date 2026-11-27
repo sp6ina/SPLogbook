@@ -118,7 +118,7 @@ pub use helper_protocol::{
 };
 pub use installation::{
     FLATPAK_INFO_PATH, InstallationDetectionContext, InstallationType,
-    LINUX_PORTABLE_MARKER_FILENAME, LinuxPortableMarker, ManagementMode,
+    LINUX_PORTABLE_MARKER_FILENAME, LinuxPortableMarker, ManagementMode, UpdateDelivery,
     WINDOWS_INNO_MARKER_FILENAME, WINDOWS_INNO_SETUP_APP_ID, WINDOWS_MSI_MARKER_FILENAME,
     WINDOWS_MSI_UPGRADE_CODE, WINDOWS_MSI_UPGRADE_CODE_PACKED, WindowsMsiMarker,
     WindowsUserSetupMarker, detect_installation_with_context, is_flatpak_sandbox,
@@ -1084,6 +1084,11 @@ fn detect_current_installation_type() -> Result<InstallationType, UpdaterError> 
 
 fn detect_current_installation_type_best_effort() -> InstallationType {
     detect_current_installation_type().unwrap_or(InstallationType::UnknownInstallation)
+}
+
+/// Droga aktualizacji bieżącej instalacji; sprzeczne lub uszkodzone markery dają `Manual`.
+pub fn current_update_delivery() -> UpdateDelivery {
+    detect_current_installation_type_best_effort().update_delivery()
 }
 
 fn ensure_unique_package_types_in_matches(
@@ -4662,6 +4667,16 @@ pub async fn install_update(asset: &VerifiedReleaseAsset) -> Result<(), UpdaterE
 
     #[cfg(target_os = "linux")]
     {
+        // Pakiety DEB/RPM/Flatpak/AppImage mają katalog programu tylko do odczytu i własny
+        // mechanizm aktualizacji; archiwum rozpakowuje się wyłącznie w instalacji przenośnej.
+        let inst_type =
+            detect_installation_with_context(parent, &InstallationDetectionContext::default())?;
+        if inst_type != InstallationType::LinuxPortableTarGz {
+            return Err(UpdaterError::SafetyGate(format!(
+                "Wykryto niezgodny typ instalacji: {inst_type:?} (wymagany LinuxPortableTarGz)"
+            )));
+        }
+
         if asset.platform() != ReleasePlatform::Linux
             || asset.package_type() != ReleasePackageType::TarGz
             || !asset.filename().to_ascii_lowercase().ends_with(".tar.gz")

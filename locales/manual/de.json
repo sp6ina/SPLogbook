@@ -62,7 +62,7 @@
   {
     "id": "export",
     "title": "13. Cloud-Synchronisation, ADIF und REST-API",
-    "body": "Umfassender Datenaustausch und Synchronisation mit Online-Diensten:\n\n- ADIF 3.1.5 und ADX: Vollständige Kompatibilität für Import und Export von Standard-.adi- und XML-.adx-Dateien.\n- Online-Logbücher: Direkte Synchronisation mit ARRL LoTW (über TQSL), eQSL.cc, Club Log (inkl. OQRS), QRZ.com XML, HamQTH, Cloudlog und HRDLog.net.\n- Zuverlässiger Upload-Scheduler: Robuste Offline-Warteschlange in SQLite mit exponentiellem Backoff zur Einhaltung von API-Abfragelimits.\n- Online-Datenbank-Aktualisierer: Herunterladen und Neuladen von CTY.DAT (DXCC-Präfixe), MASTER.SCP (Super Check Partial) und LoTW-Aktivitätslisten mit einem Klick.\n- Integrierte REST- und WebSocket-API (Port 8080): Lokaler Axum-Server für Abfragen, QSO-Eintragung und Anbindung externer Tools."
+    "body": "Umfassender Datenaustausch und Synchronisation mit Online-Diensten:\n\n- ADIF 3.1.5 und ADX: Vollständige Kompatibilität für Import und Export von Standard-.adi- und XML-.adx-Dateien.\n- Online-Logbücher: Direkte Synchronisation mit ARRL LoTW (über TQSL), eQSL.cc, Club Log (inkl. OQRS), QRZ.com XML, HamQTH, Cloudlog und HRDLog.net.\n- Zuverlässiger Upload-Scheduler: Robuste Offline-Warteschlange in SQLite mit exponentiellem Backoff zur Einhaltung von API-Abfragelimits.\n- Online-Datenbank-Aktualisierer: Herunterladen und Neuladen von MASTER.SCP (Super Check Partial) und der LoTW-Aktivitätsliste mit einem Klick; Länderdateien (DXCC-Präfixe) werden separat installiert.\n- Integrierte REST- und WebSocket-API (Port 8080): Lokaler Axum-Server für Abfragen, QSO-Eintragung und Anbindung externer Tools."
   },
   {
     "id": "plugins",

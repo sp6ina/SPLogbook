@@ -11739,3 +11739,47 @@ fn r1c_r1d_legacy_databases_removed_and_xdg_precedence_guard() {
         "R1C: src/cloud/updater.rs nie może zawierać wariantu FirstInstallSeed"
     );
 }
+
+/// Pakiety DEB/RPM/Flatpak/AppImage mają katalog programu tylko do odczytu i własny mechanizm
+/// aktualizacji: program rozpakowuje archiwum wyłącznie w instalacji przenośnej, a okno
+/// aktualizacji nie oferuje dla nich instalacji w programie.
+#[test]
+fn linux_in_app_update_is_limited_to_the_portable_installation_guard() {
+    let updater = fs::read_to_string("src/cloud/updater.rs").expect("src/cloud/updater.rs");
+    let install = updater
+        .split("pub async fn install_update(")
+        .nth(1)
+        .expect("install_update musi istnieć");
+    let linux = install
+        .split("#[cfg(target_os = \"linux\")]")
+        .nth(1)
+        .expect("install_update musi mieć gałąź Linux");
+    let gate = linux
+        .find("if inst_type != InstallationType::LinuxPortableTarGz {")
+        .expect("gałąź Linux musi wymagać instalacji LinuxPortableTarGz");
+    let download = install
+        .find("UpdateLockGuard::acquire(")
+        .expect("install_update musi zakładać blokadę");
+    assert!(
+        install.find("#[cfg(target_os = \"linux\")]").unwrap() + gate < download,
+        "bramka typu instalacji musi poprzedzać blokadę i pobieranie"
+    );
+
+    let installation = fs::read_to_string("src/cloud/updater/installation.rs")
+        .expect("src/cloud/updater/installation.rs");
+    for line in [
+        "Self::LinuxDeb => UpdateDelivery::Deb,",
+        "Self::LinuxRpm => UpdateDelivery::Rpm,",
+        "Self::LinuxFlatpak => UpdateDelivery::Flatpak,",
+        "Self::LinuxAppImage => UpdateDelivery::AppImage,",
+        "Self::UnknownInstallation => UpdateDelivery::Manual,",
+    ] {
+        assert!(installation.contains(line), "brak mapowania: {line}");
+    }
+
+    let window = fs::read_to_string("src/gui/changelog.rs").expect("src/gui/changelog.rs");
+    assert!(
+        window.contains("&& delivery == UpdateDelivery::InApp"),
+        "przycisk instalacji musi być dostępny wyłącznie dla aktualizacji w programie"
+    );
+}

@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 // Wbudowany dziennik zmian (changelog) i okno sprawdzania aktualizacji.
 
+use crate::cloud::updater::UpdateDelivery;
 use crate::core::i18n::{Key, key, tr};
 use crate::gui::app::SpLogApp;
 use crate::gui::theme::ThemeExt;
@@ -114,11 +115,27 @@ pub fn render_changelog_window(app: &mut SpLogApp, ctx: &egui::Context) {
     app.updates.show_changelog_window = is_open;
 }
 
+/// Wskazówka dla instalacji, których program nie aktualizuje sam.
+fn delivery_hint(delivery: UpdateDelivery) -> Option<Key> {
+    match delivery {
+        UpdateDelivery::InApp => None,
+        UpdateDelivery::Deb => Some(key::UPDATE_VIA_DEB),
+        UpdateDelivery::Rpm => Some(key::UPDATE_VIA_RPM),
+        UpdateDelivery::Flatpak => Some(key::UPDATE_VIA_FLATPAK),
+        UpdateDelivery::AppImage => Some(key::UPDATE_VIA_APPIMAGE),
+        UpdateDelivery::Manual => Some(key::UPDATE_VIA_MANUAL),
+    }
+}
+
 /// Okno „Sprawdź aktualizacje” — porównuje wersję lokalną z najnowszym wydaniem GitHub.
 pub fn render_update_check_window(app: &mut SpLogApp, ctx: &egui::Context) {
     if !app.updates.show_update_window {
         return;
     }
+    let delivery = *app
+        .updates
+        .delivery
+        .get_or_insert_with(crate::cloud::updater::current_update_delivery);
     let mut is_open = app.updates.show_update_window;
     let mut close_requested = false;
     let mut do_install = false;
@@ -154,6 +171,13 @@ pub fn render_update_check_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     });
             }
 
+            if app.updates.update_available.is_some()
+                && let Some(hint) = delivery_hint(delivery)
+            {
+                ui.add_space(6.0);
+                ui.label(egui::RichText::new(tr(hint, lang)).size(13.0));
+            }
+
             if let Some(inst) = &app.updates.update_install_status {
                 ui.add_space(6.0);
                 ui.label(egui::RichText::new(inst).size(13.0));
@@ -165,6 +189,7 @@ pub fn render_update_check_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     app.trigger_update_check();
                 }
                 if app.updates.update_available.is_some()
+                    && delivery == UpdateDelivery::InApp
                     && ui.button(tr(key::UPDATE_INSTALL_RESTART, lang)).clicked()
                 {
                     do_install = true;
@@ -183,4 +208,25 @@ pub fn render_update_check_window(app: &mut SpLogApp, ctx: &egui::Context) {
         app.trigger_update_install();
     }
     app.updates.show_update_window = is_open && !close_requested;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::i18n::Language;
+
+    #[test]
+    fn only_in_app_updates_go_without_a_hint() {
+        assert_eq!(delivery_hint(UpdateDelivery::InApp), None);
+        for delivery in [
+            UpdateDelivery::Deb,
+            UpdateDelivery::Rpm,
+            UpdateDelivery::Flatpak,
+            UpdateDelivery::AppImage,
+            UpdateDelivery::Manual,
+        ] {
+            let hint = delivery_hint(delivery).expect("package installs need a hint");
+            assert!(!tr(hint, Language::En).is_empty(), "{delivery:?}");
+        }
+    }
 }

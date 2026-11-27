@@ -12,6 +12,8 @@ pub struct UpdateState {
     pub update_install_status: Option<String>,
     pub update_install_rx: Option<std::sync::mpsc::Receiver<String>>,
     pub pending_restart: bool,
+    /// Droga aktualizacji tej instalacji, wykrywana przy pierwszym otwarciu okna.
+    pub delivery: Option<crate::cloud::updater::UpdateDelivery>,
 }
 
 #[cfg(test)]
@@ -29,5 +31,6 @@ mod tests {
         assert!(state.update_install_status.is_none());
         assert!(state.update_install_rx.is_none());
         assert!(!state.pending_restart);
+        assert!(state.delivery.is_none());
     }
 }

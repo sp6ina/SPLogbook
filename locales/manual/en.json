@@ -60,7 +60,7 @@
     "title": "12. QSL Designer & Avery PDF Labels"
   },
   {
-    "body": "Comprehensive data exchange and cloud logbook synchronization:\n\n- ADIF 3.1.5 & ADX: Full import/export compatibility with standard .adi and XML .adx files.\n- Online Logbooks: Direct two-way or upload synchronization with ARRL LoTW (via TQSL), eQSL.cc, Club Log, QRZ.com Logbook, HamQTH, Cloudlog, and HRDLog.net.\n- Resilient Upload Scheduler: Persistent queue with automatic retry and exponential backoff.\n- Online Database Updater: One-click download and live reload of CTY.DAT (DXCC prefixes), MASTER.SCP (Super Check Partial), and LoTW user activity lists.\n- Built-in REST & WebSocket API (port 8080): Local Axum server for third-party integrations.",
+    "body": "Comprehensive data exchange and cloud logbook synchronization:\n\n- ADIF 3.1.5 & ADX: Full import/export compatibility with standard .adi and XML .adx files.\n- Online Logbooks: Direct two-way or upload synchronization with ARRL LoTW (via TQSL), eQSL.cc, Club Log, QRZ.com Logbook, HamQTH, Cloudlog, and HRDLog.net.\n- Resilient Upload Scheduler: Persistent queue with automatic retry and exponential backoff.\n- Online Database Updater: One-click download and live reload of MASTER.SCP (Super Check Partial) and the LoTW user activity list; country files (DXCC prefixes) are installed separately.\n- Built-in REST & WebSocket API (port 8080): Local Axum server for third-party integrations.",
     "id": "export",
     "title": "13. Cloud Sync, ADIF & REST API"
   },
