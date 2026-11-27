@@ -25,7 +25,8 @@ W SPLogbook baza danych SQLite pracuje domyślnie w trybie `PRAGMA journal_mode 
 - Funkcja `prune_old_backups` filtruje pliki ściśle według prefiksu nazwy bazowej:  
   `{stem}_backup_*.db`  
   dzięki czemu nie dotyka kopii innych profili dzienników ani żadnych obcych plików w katalogu kopii zapasowych (`DATA-006`).
-- Domyślnie zachowywanych jest 10 ostatnich prawidłowych kopii zapasowych bazy danych oraz 10 ostatnich kopii ADIF.
+- Domyślnie zachowywanych jest 10 ostatnich prawidłowych kopii zapasowych bazy danych oraz 10 ostatnich kopii ADIF
+  (ustawienie „Liczba zachowywanych kopii”, zakres 1–500, wspólne dla kopii bazy i ADIF).
 
 ### 1.4. Kopia przedmigracyjna (STAGE-V140-S1, fail-closed)
 - Wersja schematu ma **jedno źródło prawdy**: tablicę `MIGRATIONS` w `src/core/database/migrations.rs`.
@@ -48,6 +49,30 @@ W SPLogbook baza danych SQLite pracuje domyślnie w trybie `PRAGMA journal_mode 
   `s1_failed_migration_10_keeps_schema_9_rows_and_a_valid_pre_migration_backup`,
   `s1_pre_migration_backup_failure_blocks_the_migration`, `s1_migrations_table_is_contiguous_and_defines_latest_version`.
 
+### 1.5. Kiedy powstają kopie
+Ustawienia: menu **Ustawienia → Kopie zapasowe** (`AppConfig.backup`, `BackupSettings`). Wszystkie kopie trafiają
+do katalogu `backups/` obok pliku bazy (`backup_dir_for`).
+
+| Kopia | Kiedy | Domyślnie | Retencja |
+|---|---|---|---|
+| Okresowa | co `interval_minutes` minut, w osobnym wątku i na własnym połączeniu SQLite; pomijana, gdy baza nie zmieniła się od poprzedniej udanej kopii (`DbFingerprint`); `0` wyłącza | 30 min (maks. 24 h) | `keep` |
+| Przy zamknięciu | przy wyjściu z programu (`on_exit`); błędy trafiają do logu | włączona | `keep` |
+| ADIF | razem z kopią ręczną i kopią przy zamknięciu (`with_adif`) | włączona | `keep` |
+| Ręczna | **Dziennik → Kopia zapasowa bazy danych**; każdy błąd jest pokazywany operatorowi | — | `keep` |
+| Po niepoprawnym zamknięciu | przy starcie, gdy został znacznik poprzedniej sesji (patrz 1.6) | zawsze | 5 ostatnich, osobno |
+| Przedmigracyjna | przed migracją schematu (patrz 1.4) | zawsze | bez rotacji |
+| Bezpieczeństwa przed przywróceniem | przed każdym przywróceniem z interfejsu (patrz 3.1) | zawsze | `keep` |
+
+### 1.6. Znacznik sesji i niepoprawne zamknięcie
+- Przy starcie program zakłada znacznik sesji `<baza>.session` (np. `default_log.session`) obok pliku bazy
+  (`SessionMarker`), a przy normalnym zamknięciu go usuwa.
+- Jeżeli znacznik poprzedniej sesji pozostał na dysku (awaria, zanik zasilania, zabicie procesu), program w tle
+  wykonuje `PRAGMA quick_check` i zapisuje kopię `{stem}_unclean_shutdown_%Y%m%d_%H%M%S%.3f.db`
+  (`BackupManager::backup_after_unclean_shutdown`). Te kopie mają własną retencję (5 ostatnich) i nie wypierają
+  zwykłych kopii.
+- Wynik jest pokazywany operatorowi w powiadomieniu; uszkodzona baza nie daje kopii, tylko komunikat o błędzie.
+- Test: `unclean_shutdown_backup_checks_the_database_and_keeps_its_own_retention`.
+
 ---
 
 ## 2. Walidacja integralności bazy i kopii zapasowych
@@ -68,9 +93,9 @@ flowchart TD
     Start["Wywołanie restore_database(backup, target)"] --> Val["1. Walidacja kopii (quick_check)"]
     Val -- "Błąd lub uszkodzenie" --> Reject["Odrzucenie: aktywna baza nienaruszona"]
     Val -- "OK" --> VerCheck{"2. Wersja schematu kopii"}
-    VerCheck -- "Wersja > 7 (nowsza)" --> VerError["Błąd SchemaMismatch: odrzucenie"]
-    VerCheck -- "Wersja <= 7" --> Stage["3. Kopiowanie do stagingu (.staging_restore.tmp)"]
-    Stage --> Migration{"Wersja < 7?"}
+    VerCheck -- "Wersja > SUPPORTED_SCHEMA_VERSION (nowsza)" --> VerError["Błąd SchemaMismatch: odrzucenie"]
+    VerCheck -- "Wersja <= SUPPORTED_SCHEMA_VERSION" --> Stage["3. Kopiowanie do stagingu (.staging_restore.tmp)"]
+    Stage --> Migration{"Wersja < SUPPORTED_SCHEMA_VERSION?"}
     Migration -- "Tak" --> RunMig["Migracja na pliku stagingowym (LogDatabase::open) + wal_checkpoint"]
     Migration -- "Nie" --> SafetyBak["4. Tworzenie kopii bezpieczeństwa (.pre_restore_bak)"]
     RunMig --> SafetyBak
@@ -86,11 +111,21 @@ flowchart TD
 
 ### Kroki procedury:
 1. **Weryfikacja wejściowa:** plik kopii zapasowej jest sprawdzany przed wykonaniem jakiejkolwiek operacji na aktywnej bazie. Jeżeli kopia jest uszkodzona, operacja kończy się błędem `BackupError::Validation`, a aktywna baza pozostaje nietknięta (`test_restore_rejects_corrupted_backup_without_touching_target`).
-2. **Ochrona wersji:** jeżeli kopia pochodzi z nowszej wersji programu (np. schemat 8 przy obsługiwanym schemacie 7), program odrzuca restore z błędem `BackupError::SchemaMismatch` (`test_restore_rejects_newer_schema_version`).
-3. **Izolowany staging i automatyczna migracja:** plik kopii jest kopiowany do `.staging_restore.tmp`. Jeżeli kopia pochodzi ze starszej wersji (np. schemat 1..6), migracje schematu uruchamiane są wyłącznie na pliku stagingowym (`test_restore_older_schema_migrates_to_current`).
+2. **Ochrona wersji:** jeżeli kopia pochodzi z nowszej wersji programu (schemat wyższy niż `SUPPORTED_SCHEMA_VERSION`, obecnie 11), program odrzuca restore z błędem `BackupError::SchemaMismatch` (`test_restore_rejects_newer_schema_version`).
+3. **Izolowany staging i automatyczna migracja:** plik kopii jest kopiowany do `.staging_restore.tmp`. Jeżeli kopia pochodzi ze starszej wersji schematu, migracje schematu uruchamiane są wyłącznie na pliku stagingowym (`test_restore_older_schema_migrates_to_current`).
 4. **Kopia bezpieczeństwa (Rollback Snapshot):** jeżeli aktywna baza istnieje, zostaje skopiowana do pliku `.{active_filename}.pre_restore_bak`.
 5. **Atomowa podmiana:** plik stagingowy zastępuje plik docelowy. Stare pliki `-wal` i `-shm` są bezwzględnie usuwane, zapobiegając próbom replayu starego dziennika WAL na nowej bazie.
 6. **Automatyczny rollback:** w razie niepowodzenia podmiany lub weryfikacji docelowej, baza aktywna jest natychmiast odtwarzana ze snapshotu `.pre_restore_bak`.
+
+### 3.1. Przywracanie z interfejsu
+Menu **Dziennik → Przywróć bazę z kopii…** (`SpLogApp::restore_from_backup_dialog`):
+1. Operator wybiera plik `.db` (okno otwiera się w katalogu `backups/`) i potwierdza ostrzeżenie.
+2. Gdy trwa kopia okresowa, przywracanie jest odmawiane z komunikatem — bez zmian w bazie.
+3. Powstaje kopia bezpieczeństwa bieżącej bazy (zwykła kopia w `backups/`); jej błąd przerywa przywracanie.
+4. Połączenie z bazą jest zamykane (zastępowane bazą w pamięci), `restore_database` wykonuje kroki 1–6 powyżej,
+   po czym baza jest otwierana ponownie — także wtedy, gdy przywracanie się nie powiodło.
+5. Po sukcesie przeładowywany jest aktywny dziennik, dyplomy i SCP; komunikat podaje nazwę przywróconej kopii
+   i kopii bezpieczeństwa. Błąd jest pokazywany operatorowi.
 
 ---
 
@@ -99,15 +134,18 @@ flowchart TD
 W przypadku nagłego wyłączenia zasilania systemu operacyjnego, awarii nośnika lub uszkodzenia procesu:
 
 ### Krok 1: Weryfikacja stanu katalogu danych
-Domyślny katalog danych aplikacji znajduje się w profilu użytkownika:
-- Linux / macOS: `~/.local/share/splogbook/` lub `~/.config/splogbook/`
-- Windows: `%APPDATA%\SPLogbook\` lub katalog wskazywany przez `--data-dir`
+Baza dziennika i jej kopie znajdują się w profilu użytkownika (menu **Pomoc → Otwórz katalog danych programu**
+otwiera ten folder):
+- Linux: `~/.local/share/splogbook/databases/` (`$XDG_DATA_HOME`); konfiguracja stacji osobno w
+  `~/.config/splogbook/databases/station_config.json` (`$XDG_CONFIG_HOME`).
+- Windows: `%APPDATA%\SPLogbook\databases\` (baza i konfiguracja w tym samym katalogu).
 
 Sprawdź obecność plików:
 - `default_log.db` (baza główna)
 - `default_log.db-wal` (dziennik transakcyjny WAL)
 - `default_log.db-shm` (pamięć współdzielona indeksu WAL)
-- `backups/*.db` (katalog automatycznych kopii zapasowych)
+- `default_log.session` (znacznik sesji; obecny po niepoprawnym zamknięciu)
+- `backups/*.db` (katalog automatycznych kopii zapasowych, w tym `*_unclean_shutdown_*.db`)
 
 ### Krok 2: Odzyskiwanie przy nienaruszonej bazie WAL
 Jeżeli program został przerwany w trakcie zapisu, SQLite automatycznie odtworzy stan transakcyjny przy kolejnym otwarciu bazy dzięki nagłówkom WAL.
@@ -115,6 +153,9 @@ Jeżeli program został przerwany w trakcie zapisu, SQLite automatycznie odtworz
 2. Przy otwarciu `LogDatabase::open` sprawdzana jest poprawność schematu i następuje checkpoint WAL.
 
 ### Krok 3: Przywracanie z kopii zapasowej w przypadku uszkodzenia pliku głównego
+Jeżeli program się uruchamia, użyj przywracania z interfejsu (sekcja 3.1) — wykonuje ono wszystkie kroki poniżej
+z walidacją i rollbackiem. Procedura ręczna jest przeznaczona na sytuację, gdy bazy nie da się otworzyć.
+
 Jeżeli `default_log.db` uległ uszkodzeniu fizycznemu (np. błędy I/O, `PRAGMA quick_check` zwraca błędy):
 1. Zakończ działanie programu SPLogbook.
 2. Zlokalizuj najnowszą poprawną kopię zapasową w podkatalogu `backups/`:

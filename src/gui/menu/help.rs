@@ -73,7 +73,9 @@ pub(super) fn render(app: &mut SpLogApp, ui: &mut egui::Ui) {
             .button(icons::FOLDER.label(tr(key::HELP_OPEN_DATA_DIR, lang)))
             .clicked()
         {
-            if let Some(parent) = app.paths.config_file_path.parent() {
+            // Folder bazy dziennika (z katalogiem backups); na Linuksie różny od katalogu
+            // konfiguracji (XDG data vs config).
+            if let Some(parent) = app.paths.active_db_path.parent() {
                 let _ = open::that(parent);
             }
             ui.close();

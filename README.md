@@ -107,7 +107,7 @@ The full list is in [`CHANGELOG.md`](CHANGELOG.md). The main user-visible change
 | **PTT safety** | PTT is never bound to a single key. `Ctrl+Shift+F7` requests PTT ON and `Ctrl+F7` requests PTT OFF. Both are blocked during text editing, IME composition, in modal windows and without window focus; key repeat and key release never create a TX intent. |
 | **Digital modes** | WSJT-X / JTDX UDP bridge (port 2237), JS8Call TCP API (port 2442), FLDigi XML-RPC, N1MM Logger+ UDP broadcast (port 12060). |
 | **DX cluster** | Telnet cluster client with spot de-duplication, ATNO / new-band / new-mode highlighting, audible alerts, a band map and click-to-tune via CAT. |
-| **Propagation and solar** | Built-in VOACAP-lite HF model (MUF, LUF, FOT, reliability and band-opening matrix) fed by NOAA SWPC space weather data; grayline status. |
+| **Propagation and solar** | Built-in VOACAP-lite HF model (MUF, LUF, FOT, reliability and band-opening matrix) fed by space weather data from HamQTH (SFI, SSN, A and K indices, X-ray flux); grayline status. |
 | **Satellites** | SGP4 orbit propagation from TLE data, pass tracking, Doppler correction through CAT and az/el rotator steering. |
 | **Contests** | Contest rules with exchange parsing, live score, rate meter, multiplier matrix and dupe warnings; Cabrillo 3.0 export whose claimed score matches the on-screen score. |
 | **Awards** | DXCC, WAZ, WAS, WAE, IOTA, SOTA, POTA, WWFF, RDA, PGA and SP award tracking in an awards matrix. |

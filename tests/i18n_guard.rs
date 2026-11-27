@@ -1239,3 +1239,49 @@ fn message_rule_flags_words_but_not_placeholders() {
     let ok = "fn a() {\n    app.gui.chrome.push_status_toast(Sev::Info, tr(key::X, lang));\n}\n";
     assert!(message_violations(ok).is_empty());
 }
+
+/// Ścieżki menu cytowane w podręczniku muszą odpowiadać bieżącym etykietom interfejsu
+/// w tym samym języku (po zmianie etykiety podręcznik nie może prowadzić donikąd).
+#[test]
+fn manual_menu_paths_match_interface_labels() {
+    // (sekcja, klucze etykiet tworzące ścieżkę)
+    const PATHS: &[(&str, &[&str])] = &[
+        ("logging", &["menu.settings", "settings.backup_menu"]),
+        ("logging", &["menu.log", "menu.backup"]),
+        ("troubleshooting", &["menu.log", "menu.restore_backup"]),
+        ("troubleshooting", &["menu.help", "help.open_data_dir"]),
+        (
+            "troubleshooting",
+            &["menu.tools", "menu.references", "ref.cf_install"],
+        ),
+    ];
+    for &lang in &LANGUAGES {
+        let labels: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(format!("locales/{lang}.json")).unwrap())
+                .unwrap();
+        let manual: Vec<serde_json::Value> = serde_json::from_str(
+            &fs::read_to_string(format!("locales/manual/{lang}.json")).unwrap(),
+        )
+        .unwrap();
+        for (section, keys) in PATHS {
+            let body = manual
+                .iter()
+                .find(|s| s["id"] == *section)
+                .and_then(|s| s["body"].as_str())
+                .unwrap_or_else(|| panic!("[{lang}] brak sekcji {section}"));
+            let path = keys
+                .iter()
+                .map(|k| {
+                    labels[*k]
+                        .as_str()
+                        .unwrap_or_else(|| panic!("[{lang}] brak klucza {k}"))
+                })
+                .collect::<Vec<_>>()
+                .join(" → ");
+            assert!(
+                body.contains(&path),
+                "[{lang}] podręcznik ({section}) nie zawiera ścieżki menu: {path}"
+            );
+        }
+    }
+}

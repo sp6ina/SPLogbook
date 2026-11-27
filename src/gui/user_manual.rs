@@ -256,7 +256,7 @@ pub fn render_user_manual_window(app: &mut SpLogApp, ctx: &egui::Context) {
                     .button(open_dir_label)
                     .on_hover_text(open_dir_tip)
                     .clicked()
-                    && let Some(parent) = app.paths.config_file_path.parent()
+                    && let Some(parent) = app.paths.active_db_path.parent()
                 {
                     let _ = open::that(parent);
                 }
