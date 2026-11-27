@@ -654,7 +654,10 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
             let text = Msg::new(key::QSO_PROPAGATION_SUMMARY)
                 .arg("rel", prop.reliability_pct)
                 .arg("signal", &prop.signal_s_units)
-                .arg("layer", &prop.layer)
+                .arg(
+                    "layer",
+                    crate::gui::operator_assistant::layer_label(&prop.layer, lang),
+                )
                 .arg("muf", format!("{:.1}", prop.muf_mhz))
                 .text(lang);
             ui.colored_label(prop_color, egui::RichText::new(text).strong())
@@ -663,12 +666,12 @@ pub fn render_qso_entry_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                     prop.reliability_pct,
                     prop.signal_s_units,
                     tr(key::PROP_LAYER, lang),
-                    prop.layer,
+                    crate::gui::operator_assistant::layer_label(&prop.layer, lang),
                     prop.muf_mhz,
                     prop.luf_mhz,
                     prop.fot_mhz,
                     tr(key::ASSISTANT_COL_STATUS, lang),
-                    prop.status.as_str()
+                    crate::gui::operator_assistant::band_status_label(prop.status, lang)
                 ));
         });
     }

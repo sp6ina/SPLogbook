@@ -296,7 +296,11 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 app.duplicates.selected_ids.clear();
             }
             Err(e) => {
-                app.duplicates.status = Some(e.to_string());
+                app.duplicates.status = Some(
+                    Msg::new(key::DUPLICATES_SEARCH_FAILED)
+                        .arg("err", e)
+                        .text(app.gui.appearance.language),
+                );
             }
         }
     }
@@ -342,7 +346,11 @@ pub fn render_find_duplicates_window(app: &mut SpLogApp, ctx: &egui::Context) {
                 app.rebuild_awards_full();
             }
             Err(e) => {
-                app.duplicates.status = Some(e.to_string());
+                app.duplicates.status = Some(
+                    Msg::new(key::DUPLICATES_DELETE_FAILED)
+                        .arg("err", e)
+                        .text(app.gui.appearance.language),
+                );
             }
         }
     }

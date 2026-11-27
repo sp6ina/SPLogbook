@@ -384,7 +384,12 @@ impl SpLogApp {
             .unwrap_or_default();
         for evt in events {
             match evt {
-                ClusterEvent::Connected(msg) => {
+                ClusterEvent::Connected { addr, login } => {
+                    log::info!("DX cluster connected: {addr} (login: {login})");
+                    let msg = Msg::new(key::CLUSTER_CONNECTED_TO)
+                        .arg("addr", &addr)
+                        .arg("login", &login)
+                        .text(self.gui.appearance.language);
                     self.cluster.connected = true;
                     self.cluster.connecting = false;
                     self.cluster.status_text.clone_from(&msg);
@@ -395,10 +400,13 @@ impl SpLogApp {
                         .event_bus
                         .publish(crate::core::events::AppEvent::ClusterStatus { connected: true });
                 }
-                ClusterEvent::Disconnected(msg) => {
+                ClusterEvent::Disconnected(reason) => {
+                    log::warn!("DX cluster disconnected: {reason}");
                     self.cluster.connected = false;
                     self.cluster.connecting = false;
-                    self.cluster.status_text = msg;
+                    self.cluster.status_text = Msg::new(key::CLUSTER_CONNECTION_LOST)
+                        .arg("err", &reason)
+                        .text(self.gui.appearance.language);
                     self.services
                         .event_bus
                         .publish(crate::core::events::AppEvent::ClusterStatus { connected: false });

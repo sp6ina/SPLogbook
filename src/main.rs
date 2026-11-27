@@ -4,6 +4,7 @@
 // Copyright (C) 2026 Mariusz Woźniak (SP6INA)
 
 use splogbook::core::database::LogDatabase;
+use splogbook::core::i18n::{Msg, key, tr};
 use splogbook::core::scp::ScpEngine;
 use splogbook::core::station::AppConfig;
 use splogbook::gui::app::SpLogApp;
@@ -302,17 +303,35 @@ fn main() -> Result<(), eframe::Error> {
     log::info!("user reference tables: {table_status:?}");
     splogbook::core::reference::loader::set_context(reference_context);
 
+    let config_file_path = match app_config_dir.as_ref() {
+        Some(dir) => {
+            let nested = dir
+                .join(splogbook::core::database::DATABASES_SUBDIR)
+                .join("station_config.json");
+            let flat = dir.join("station_config.json");
+            if !nested.exists() && flat.exists() {
+                flat
+            } else {
+                nested
+            }
+        }
+        None => std::path::PathBuf::from(splogbook::core::database::DATABASES_SUBDIR)
+            .join("station_config.json"),
+    };
+
+    // Okna błędów przy starcie mówią językiem zapisanym w konfiguracji.
+    let startup_lang = AppConfig::peek_language(&config_file_path);
+
     let log_db = match LogDatabase::open(&log_db_path) {
         Ok(db) => db,
         Err(e) => {
-            let err_msg = format!(
-                "Nie udało się otworzyć bazy danych dziennika:\n{}\n\nBłąd: {}\n\nJeśli będziesz kontynuować, wszystkie zalogowane łączności zostaną utracone po zamknięciu programu (baza tymczasowa w pamięci)!",
-                log_db_path.display(),
-                e
-            );
+            let err_msg = Msg::new(key::STARTUP_DB_ERROR_BODY)
+                .arg("path", log_db_path.display())
+                .arg("err", &e)
+                .text(startup_lang);
             eprintln!("{err_msg}");
             let should_continue = rfd::MessageDialog::new()
-                .set_title("SPLogbook — krytyczny błąd bazy danych")
+                .set_title(tr(key::STARTUP_DB_ERROR_TITLE, startup_lang))
                 .set_description(&err_msg)
                 .set_level(rfd::MessageLevel::Error)
                 .set_buttons(rfd::MessageButtons::YesNo)
@@ -343,22 +362,6 @@ fn main() -> Result<(), eframe::Error> {
         }
     }
 
-    let config_file_path = match app_config_dir.as_ref() {
-        Some(dir) => {
-            let nested = dir
-                .join(splogbook::core::database::DATABASES_SUBDIR)
-                .join("station_config.json");
-            let flat = dir.join("station_config.json");
-            if !nested.exists() && flat.exists() {
-                flat
-            } else {
-                nested
-            }
-        }
-        None => std::path::PathBuf::from(splogbook::core::database::DATABASES_SUBDIR)
-            .join("station_config.json"),
-    };
-
     if let Err(e) = splogbook::core::database::ensure_parent_dir(&config_file_path) {
         log::warn!(
             "Nie można utworzyć katalogu konfiguracji dla {}: {e}",
@@ -369,14 +372,13 @@ fn main() -> Result<(), eframe::Error> {
     let app_config = match AppConfig::load_from_file(&config_file_path) {
         Ok(config) => config,
         Err(error) => {
-            let message = format!(
-                "Nie można odczytać poświadczeń dla konfiguracji {}:\n{}\n\nCzy chcesz uruchomić program bez zapisanych haseł (np. tryb Portable na nowym komputerze)?\nOryginalny plik nie zostanie nadpisany do czasu ręcznego zapisu ustawień.",
-                config_file_path.display(),
-                error
-            );
+            let message = Msg::new(key::STARTUP_CREDENTIALS_BODY)
+                .arg("path", config_file_path.display())
+                .arg("err", &error)
+                .text(startup_lang);
             log::error!("{message}");
             let should_continue = rfd::MessageDialog::new()
-                .set_title("SPLogbook — problem z magazynem poświadczeń")
+                .set_title(tr(key::STARTUP_CREDENTIALS_TITLE, startup_lang))
                 .set_description(&message)
                 .set_level(rfd::MessageLevel::Warning)
                 .set_buttons(rfd::MessageButtons::YesNo)

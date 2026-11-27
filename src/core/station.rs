@@ -1961,6 +1961,22 @@ impl AppConfig {
         Ok(())
     }
 
+    /// Język interfejsu zapisany w pliku konfiguracji, odczytany bez ładowania całej
+    /// konfiguracji (także uszkodzonej) — dla okien błędów przy starcie programu.
+    /// Brak pliku, pola albo nieczytelny JSON daje język domyślny.
+    pub fn peek_language(path: &std::path::Path) -> crate::core::i18n::Language {
+        std::fs::read_to_string(path)
+            .ok()
+            .and_then(|data| serde_json::from_str::<serde_json::Value>(&data).ok())
+            .and_then(|value| {
+                value
+                    .get("current_language")?
+                    .as_str()
+                    .map(crate::core::i18n::Language::from_code)
+            })
+            .unwrap_or_default()
+    }
+
     pub fn load_without_secrets(path: &std::path::Path) -> Result<Self, std::io::Error> {
         let data = match std::fs::read_to_string(path) {
             Ok(data) => data,
@@ -2403,5 +2419,25 @@ mod tests {
         let reloaded = AppConfig::load_from_file(&config_file).unwrap();
         assert_eq!(reloaded.bandplan, None);
         assert_eq!(reloaded.active_bandplan(), BandPlan::iaru_region1());
+    }
+
+    #[test]
+    fn startup_language_is_read_even_from_a_broken_config() {
+        use crate::core::i18n::Language;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("station_config.json");
+        assert_eq!(AppConfig::peek_language(&path), Language::default());
+
+        // Konfiguracja nie przechodzi walidacji (zły schemat), ale język jest czytelny.
+        std::fs::write(
+            &path,
+            r#"{"schema_version": 99999, "current_language": "de", "secret_store_id": 7}"#,
+        )
+        .unwrap();
+        assert!(AppConfig::load_without_secrets(&path).is_err());
+        assert_eq!(AppConfig::peek_language(&path), Language::De);
+
+        std::fs::write(&path, "{ not json").unwrap();
+        assert_eq!(AppConfig::peek_language(&path), Language::default());
     }
 }

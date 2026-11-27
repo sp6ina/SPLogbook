@@ -7,7 +7,10 @@
 //! niezależnie od GUI.
 
 use crate::core::i18n::{Language, Msg, key, tr};
-use crate::core::propagation::{BandOpeningStatus, PropagationEngine, PropagationForecast};
+use crate::core::propagation::{
+    BandOpeningStatus, ForecastReason, PropagationEngine, PropagationExplanation,
+    PropagationForecast,
+};
 use crate::gui::app::SpLogApp;
 use crate::gui::theme::{Palette, ThemeExt};
 use eframe::egui;
@@ -73,7 +76,11 @@ pub fn recommend(
         .map(|(_, f)| f.clone());
 
     let current_band_status = match &current {
-        Some(f) => format!("{} — {}%", f.status.as_str(), f.reliability_pct),
+        Some(f) => format!(
+            "{} — {}%",
+            band_status_label(f.status, lang),
+            f.reliability_pct
+        ),
         None => tr(key::ASSISTANT_NO_DATA, lang).to_string(),
     };
 
@@ -296,7 +303,7 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
                                 ui.label(
                                     egui::RichText::new(format!(
                                         "{icon} {}",
-                                        forecast.status.as_str()
+                                        band_status_label(forecast.status, lang)
                                     ))
                                     .color(color),
                                 );
@@ -315,7 +322,7 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
                         .strong()
                         .color(palette.success),
                 );
-                for bullet in e.bullet_points() {
+                for bullet in explanation_lines(e, lang) {
                     ui.label(egui::RichText::new(format!("• {bullet}")).small());
                 }
             }
@@ -328,9 +335,92 @@ pub fn render_operator_assistant(app: &mut SpLogApp, ctx: &egui::Context) {
     }
 }
 
+/// Stan otwarcia pasma w języku interfejsu.
+pub(crate) fn band_status_label(status: BandOpeningStatus, lang: Language) -> &'static str {
+    let k = match status {
+        BandOpeningStatus::Open => key::PROP_STATUS_OPEN,
+        BandOpeningStatus::Marginal => key::PROP_STATUS_MARGINAL,
+        BandOpeningStatus::Closed => key::PROP_STATUS_CLOSED,
+    };
+    tr(k, lang)
+}
+
+/// Mechanizm propagacji w języku interfejsu; nazwy warstw (F2, Es) są uniwersalne.
+pub(crate) fn layer_label(layer: &str, lang: Language) -> String {
+    match layer {
+        crate::core::propagation::LAYER_GROUNDWAVE => {
+            tr(key::PROP_LAYER_GROUNDWAVE, lang).to_string()
+        }
+        crate::core::propagation::LAYER_INVALID => tr(key::PROP_LAYER_INVALID, lang).to_string(),
+        other => other.to_string(),
+    }
+}
+
+/// Przyczyny wyniku prognozy jako lista punktów w języku interfejsu.
+fn explanation_lines(e: &PropagationExplanation, lang: Language) -> Vec<String> {
+    let mut out = vec![
+        Msg::new(key::PROP_WHY_SFI)
+            .arg("fof2", format!("{:.1}", e.fof2_mhz))
+            .text(lang),
+    ];
+    out.push(if e.storm_penalty < 1.0 {
+        Msg::new(key::PROP_WHY_STORM)
+            .arg("pct", format!("{:.0}", (1.0 - e.storm_penalty) * 100.0))
+            .text(lang)
+    } else {
+        tr(key::PROP_WHY_CALM, lang).to_string()
+    });
+    let lighting = if e.daylight {
+        key::PROP_WHY_DAY
+    } else {
+        key::PROP_WHY_NIGHT
+    };
+    out.push(tr(lighting, lang).to_string());
+    if e.absorption_db > 0.0 {
+        out.push(
+            Msg::new(key::PROP_WHY_ABSORPTION)
+                .arg("db", format!("{:.0}", e.absorption_db))
+                .text(lang),
+        );
+    }
+    let reason = match e.reason_kind {
+        ForecastReason::InvalidInput => key::PROP_REASON_INVALID,
+        ForecastReason::AboveMuf => key::PROP_REASON_ABOVE_MUF,
+        ForecastReason::BelowLuf => key::PROP_REASON_BELOW_LUF,
+        ForecastReason::InWindow => key::PROP_REASON_IN_WINDOW,
+        ForecastReason::Edge => key::PROP_REASON_EDGE,
+        ForecastReason::Weak => key::PROP_REASON_WEAK,
+    };
+    out.push(tr(reason, lang).to_string());
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn propagation_texts_follow_the_interface_language() {
+        let a = crate::core::geo::Coordinates::new(51.1079, 17.0385);
+        let b = crate::core::geo::Coordinates::new(40.7128, -74.0060);
+        let (_, explanation) = PropagationEngine::explain(a, b, 14.175, 150, 2, 14.0, 100);
+        let en = explanation_lines(&explanation, Language::En);
+        assert!(en[0].starts_with("Solar activity (SFI): foF2"));
+        assert_eq!(en[2], "Path lighting: day (D-layer absorption)");
+        // Polska lista kończy się tym samym opisem przyczyny, który trafia do dziennika.
+        let pl = explanation_lines(&explanation, Language::Pl);
+        assert_eq!(pl.last(), Some(&explanation.reason));
+
+        assert_eq!(
+            band_status_label(BandOpeningStatus::Closed, Language::De),
+            "Geschlossen"
+        );
+        assert_eq!(
+            layer_label(crate::core::propagation::LAYER_GROUNDWAVE, Language::En),
+            "Ground wave"
+        );
+        assert_eq!(layer_label("F2 (1-hop)", Language::Fr), "F2 (1-hop)");
+    }
 
     fn fc(status: BandOpeningStatus, rel: u8) -> PropagationForecast {
         PropagationForecast {

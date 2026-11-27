@@ -277,7 +277,7 @@ const ALLOWED_EXACT_TOKENS: &[&str] = &[
     "S1     S3     S5     S7     S9    +20   +40   +60dB",
     "…",
     "📻 TX",
-    "NOAA / HamQTH",
+    "HamQTH",
     "K-Index",
     "A-Index",
     "✓ C",

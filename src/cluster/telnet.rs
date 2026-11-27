@@ -32,7 +32,11 @@ pub struct DxSpot {
 
 #[derive(Debug, Clone)]
 pub enum ClusterEvent {
-    Connected(String),
+    /// Połączenie nawiązane: adres serwera i znak użyty do logowania.
+    Connected {
+        addr: String,
+        login: String,
+    },
     Disconnected(String),
     Spot(DxSpot),
     RawLine(String),
@@ -209,9 +213,10 @@ impl DxClusterClient {
             };
 
             if event_tx
-                .send(ClusterEvent::Connected(format!(
-                    "Connected to DX Cluster: {addr} (login: {login_call})"
-                )))
+                .send(ClusterEvent::Connected {
+                    addr: addr.clone(),
+                    login: login_call.clone(),
+                })
                 .is_err()
             {
                 break;

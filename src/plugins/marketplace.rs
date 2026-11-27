@@ -98,9 +98,9 @@ pub fn bundled_catalog() -> Vec<PluginCatalogEntry> {
             "🌲",
             "pota_helper.rhai",
             r#"
-// POTA Helper — powiadamia o łącznościach z referencją POTA.
+// POTA Helper: notifies about contacts with a POTA reference.
 fn on_startup() {
-    log("POTA Helper gotowy.");
+    log("POTA Helper ready.");
 }
 
 fn on_qso_logged(call_sign, band, mode, freq, atno) {
@@ -122,9 +122,9 @@ fn on_qso_logged(call_sign, band, mode, freq, atno) {
             "⛰",
             "sota_helper.rhai",
             r#"
-// SOTA Helper — powiadamia o łącznościach z referencją SOTA.
+// SOTA Helper: notifies about contacts with a SOTA reference.
 fn on_startup() {
-    log("SOTA Helper gotowy.");
+    log("SOTA Helper ready.");
 }
 
 fn on_qso_logged(call_sign, band, mode, freq, atno) {
@@ -146,9 +146,9 @@ fn on_qso_logged(call_sign, band, mode, freq, atno) {
             "⚡",
             "cw_macros.rhai",
             r#"
-// CW Macros — automatyczne nadanie potwierdzenia po QSO.
+// CW Macros: sends a confirmation in CW after each QSO.
 fn on_startup() {
-    log("CW Macros gotowe.");
+    log("CW Macros ready.");
 }
 
 fn on_qso_logged(call_sign, band, mode, freq, atno) {
@@ -170,7 +170,7 @@ fn on_qso_logged(call_sign, band, mode, freq, atno) {
             r#"
 // Contest Assistant — automatyczny raport kontestowy z numerem.
 fn on_startup() {
-    log("Contest Assistant gotowy.");
+    log("Contest Assistant ready.");
 }
 
 fn on_qso_logged(call_sign, band, mode, freq, atno) {
@@ -191,9 +191,9 @@ fn on_qso_logged(call_sign, band, mode, freq, atno) {
             "🧭",
             "rotor_assistant.rhai",
             r#"
-// Rotor Assistant — obrót anteny na spot i pomocnicze komendy.
+// Rotor Assistant: turns the antenna towards spots and adds helper commands.
 fn on_startup() {
-    log("Rotor Assistant gotowy.");
+    log("Rotor Assistant ready.");
 }
 
 fn on_dx_spot(spotter, dx_call, freq_khz, band, comment, is_ft8) {
@@ -211,15 +211,29 @@ fn on_dx_spot(spotter, dx_call, freq_khz, band, comment, is_ft8) {
             "🏆",
             "award_tracker.rhai",
             r#"
-// Award Tracker — powiadamia o nowych krajach i podaje statystyki nagród.
+// Award Tracker: notifies about new DXCC entities and logs the award totals.
+fn atno_text() {
+    let texts = #{
+        "pl": "🏆 ATNO! Nowy kraj DXCC: ",
+        "en": "🏆 ATNO! New DXCC entity: ",
+        "de": "🏆 ATNO! Neues DXCC-Gebiet: ",
+        "fr": "🏆 ATNO ! Nouvelle entité DXCC : ",
+        "es": "🏆 ¡ATNO! Nueva entidad DXCC: ",
+        "it": "🏆 ATNO! Nuova entità DXCC: ",
+        "ru": "🏆 ATNO! Новая территория DXCC: "
+    };
+    let lang = language();
+    if lang in texts { texts[lang] } else { texts["en"] }
+}
+
 fn on_startup() {
-    log("Award Tracker gotowy.");
-    log("DXCC worked: " + dxcc_worked() + ", potwierdzone: " + dxcc_confirmed());
+    log("Award Tracker ready.");
+    log("DXCC worked: " + dxcc_worked() + ", confirmed: " + dxcc_confirmed());
 }
 
 fn on_qso_logged(call_sign, band, mode, freq, atno) {
     if atno {
-        notify("🏆 ATNO! Nowy kraj DXCC: " + call_sign);
+        notify(atno_text() + call_sign);
         play_sound("new_dxcc");
     }
     log("DXCC: " + dxcc_worked() + " worked / " + dxcc_confirmed() + " confirmed");
@@ -236,9 +250,9 @@ fn on_qso_logged(call_sign, band, mode, freq, atno) {
             "📡",
             "dx_spot_alerts.rhai",
             r#"
-// DX Spot Alerts — loguje spoty klastra.
+// DX Spot Alerts: logs the cluster spots.
 fn on_startup() {
-    log("DX Spot Alerts gotowe.");
+    log("DX Spot Alerts ready.");
 }
 
 fn on_dx_spot(spotter, dx_call, freq_khz, band, comment, is_ft8) {
@@ -256,13 +270,27 @@ fn on_dx_spot(spotter, dx_call, freq_khz, band, comment, is_ft8) {
             "☀",
             "propagation_watchdog.rhai",
             r#"
-// Propagation Watchdog — reaguje na otwarcia pasm.
+// Propagation Watchdog: notifies about band openings.
+fn opening_text() {
+    let texts = #{
+        "pl": "📡 Otwarcie pasma: ",
+        "en": "📡 Band opening: ",
+        "de": "📡 Bandöffnung: ",
+        "fr": "📡 Ouverture de bande : ",
+        "es": "📡 Apertura de banda: ",
+        "it": "📡 Apertura di banda: ",
+        "ru": "📡 Открытие диапазона: "
+    };
+    let lang = language();
+    if lang in texts { texts[lang] } else { texts["en"] }
+}
+
 fn on_startup() {
-    log("Propagation Watchdog gotowy.");
+    log("Propagation Watchdog ready.");
 }
 
 fn on_band_opened(band) {
-    notify("📡 Otwarcie pasma: " + band);
+    notify(opening_text() + band);
 }
 "#,
         ),
@@ -276,9 +304,9 @@ fn on_band_opened(band) {
             "📊",
             "band_activity_logger.rhai",
             r#"
-// Band Activity Logger — log aktywności klastra.
+// Band Activity Logger: logs the cluster activity per band.
 fn on_startup() {
-    log("Band Activity Logger gotowy.");
+    log("Band Activity Logger ready.");
 }
 
 fn on_dx_spot(spotter, dx_call, freq_khz, band, comment, is_ft8) {
@@ -296,13 +324,27 @@ fn on_dx_spot(spotter, dx_call, freq_khz, band, comment, is_ft8) {
             "📬",
             "qsl_reminder.rhai",
             r#"
-// QSL Reminder — przypomina o potwierdzeniach po każdej łączności.
+// QSL Reminder: reminds about confirmations after each contact.
+fn reminder_text() {
+    let texts = #{
+        "pl": "Pamiętaj o wysłaniu QSL do ",
+        "en": "Remember to send a QSL to ",
+        "de": "Denken Sie an die QSL-Karte für ",
+        "fr": "N’oubliez pas d’envoyer une QSL à ",
+        "es": "Recuerde enviar una QSL a ",
+        "it": "Ricorda di inviare una QSL a ",
+        "ru": "Не забудьте отправить QSL для "
+    };
+    let lang = language();
+    if lang in texts { texts[lang] } else { texts["en"] }
+}
+
 fn on_startup() {
-    log("QSL Reminder gotowy.");
+    log("QSL Reminder ready.");
 }
 
 fn on_qso_logged(call_sign, band, mode, freq, atno) {
-    notify("Pamiętaj o wysłaniu QSL do " + call_sign);
+    notify(reminder_text() + call_sign);
 }
 "#,
         ),
@@ -316,13 +358,27 @@ fn on_qso_logged(call_sign, band, mode, freq, atno) {
             "🎙",
             "voice_keyer_trigger.rhai",
             r#"
-// Voice Keyer Trigger — odtwórz podziękowanie po QSO.
+// Voice Keyer Trigger: announces a thank-you message after each QSO.
+fn thanks_text() {
+    let texts = #{
+        "pl": "Dzięki za łączność, 73!",
+        "en": "Thanks for the QSO, 73!",
+        "de": "Danke für das QSO, 73!",
+        "fr": "Merci pour le QSO, 73 !",
+        "es": "¡Gracias por el QSO, 73!",
+        "it": "Grazie per il QSO, 73!",
+        "ru": "Спасибо за QSO, 73!"
+    };
+    let lang = language();
+    if lang in texts { texts[lang] } else { texts["en"] }
+}
+
 fn on_startup() {
-    log("Voice Keyer Trigger gotowy.");
+    log("Voice Keyer Trigger ready.");
 }
 
 fn on_qso_logged(call_sign, band, mode, freq, atno) {
-    send_voice("Dzięki za łączność, 73!");
+    send_voice(thanks_text());
 }
 "#,
         ),
@@ -336,13 +392,13 @@ fn on_qso_logged(call_sign, band, mode, freq, atno) {
             "💻",
             "ft8_wsjt_bridge.rhai",
             r#"
-// FT8/WSJT-X Bridge — monitor stanu radia.
+// FT8/WSJT-X Bridge: monitors the radio state.
 fn on_startup() {
-    log("FT8/WSJT-X Bridge gotowy.");
+    log("FT8/WSJT-X Bridge ready.");
 }
 
 fn on_rig_state(freq_mhz, mode, connected) {
-    log("Rig: " + mode + " @ " + freq_mhz + " MHz, połączony: " + connected);
+    log("Rig: " + mode + " @ " + freq_mhz + " MHz, connected: " + connected);
 }
 "#,
         ),
@@ -816,6 +872,80 @@ mod tests {
                 e.sha256.as_deref().unwrap()
             ));
         }
+    }
+
+    /// Wczytuje wtyczkę z katalogu wbudowanego do silnika w podanym języku interfejsu.
+    fn load_bundled(id: &str, lang: &str) -> crate::plugins::PluginEngine {
+        let catalog = bundled_catalog();
+        let entry = catalog
+            .iter()
+            .find(|e| e.id == id)
+            .expect("wtyczka w katalogu");
+        let engine = crate::plugins::PluginEngine::new();
+        let dir = std::env::temp_dir().join(format!("splog_lang_{}_{id}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(&entry.file);
+        std::fs::write(&path, entry.source.as_deref().unwrap()).unwrap();
+        let mut engine = engine;
+        engine.load_script(id, &path);
+        assert!(
+            engine.infos()[0].loaded,
+            "{id}: {:?}",
+            engine.infos()[0].error
+        );
+        engine.set_language(lang);
+        std::fs::remove_dir_all(&dir).unwrap();
+        engine
+    }
+
+    #[test]
+    fn bundled_plugins_speak_the_interface_language() {
+        // Polski tekst w skryptach wbudowanych występuje tylko jako tłumaczenie "pl".
+        for entry in bundled_catalog() {
+            for line in entry.source.as_deref().unwrap().lines() {
+                let polish = line.chars().any(|c| "ąćęłńóśźżĄĆĘŁŃÓŚŹŻ".contains(c));
+                assert!(
+                    !polish || line.contains("\"pl\":"),
+                    "{}: tekst tylko po polsku: {line}",
+                    entry.id
+                );
+            }
+        }
+
+        let qso = crate::plugins::QsoHookContext {
+            callsign: "DL1ABC".into(),
+            band: "20m".into(),
+            mode: "SSB".into(),
+            freq_mhz: 14.2,
+            is_atno: true,
+        };
+        let engine = load_bundled("qsl-reminder", "de");
+        engine.run_on_qso_logged(&qso);
+        assert_eq!(
+            engine.drain_notifications(),
+            ["Denken Sie an die QSL-Karte für DL1ABC"]
+        );
+
+        let engine = load_bundled("award-tracker", "en");
+        engine.run_on_qso_logged(&qso);
+        assert_eq!(
+            engine.drain_notifications(),
+            ["🏆 ATNO! New DXCC entity: DL1ABC"]
+        );
+
+        let engine = load_bundled("propagation-watchdog", "fr");
+        engine.run_on_band_opened("15m");
+        assert_eq!(
+            engine.drain_notifications(),
+            ["📡 Ouverture de bande : 15m"]
+        );
+
+        let engine = load_bundled("voice-keyer-trigger", "it");
+        engine.run_on_qso_logged(&qso);
+        assert!(engine.drain_commands().iter().any(|c| matches!(
+            c,
+            crate::plugins::bridge::PluginCommand::SendVoice { text } if text == "Grazie per il QSO, 73!"
+        )));
     }
 
     #[test]

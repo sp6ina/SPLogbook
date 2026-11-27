@@ -152,17 +152,17 @@ impl CsvExportDialog {
                     ui.radio_value(
                         &mut self.delimiter,
                         CsvDelimiter::Comma,
-                        CsvDelimiter::Comma.display_name(),
+                        delimiter_label(CsvDelimiter::Comma, lang),
                     );
                     ui.radio_value(
                         &mut self.delimiter,
                         CsvDelimiter::Semicolon,
-                        CsvDelimiter::Semicolon.display_name(),
+                        delimiter_label(CsvDelimiter::Semicolon, lang),
                     );
                     ui.radio_value(
                         &mut self.delimiter,
                         CsvDelimiter::Tab,
-                        CsvDelimiter::Tab.display_name(),
+                        delimiter_label(CsvDelimiter::Tab, lang),
                     );
                 });
 
@@ -194,7 +194,10 @@ impl CsvExportDialog {
                         ui.horizontal_wrapped(|ui| {
                             for col in CsvColumn::ALL {
                                 let mut selected = self.is_selected(*col);
-                                if ui.checkbox(&mut selected, col.label()).changed() {
+                                if ui
+                                    .checkbox(&mut selected, column_label(*col, lang))
+                                    .changed()
+                                {
                                     self.set_selected(*col, selected);
                                 }
                             }
@@ -233,4 +236,62 @@ impl CsvExportDialog {
             None
         }
     }
+}
+
+/// Nazwa separatora w języku interfejsu.
+fn delimiter_label(delimiter: CsvDelimiter, lang: Language) -> &'static str {
+    match delimiter {
+        CsvDelimiter::Comma => tr(key::CSV_DELIM_COMMA, lang),
+        CsvDelimiter::Semicolon => tr(key::CSV_DELIM_SEMICOLON, lang),
+        CsvDelimiter::Tab => tr(key::CSV_DELIM_TAB, lang),
+    }
+}
+
+/// Nazwa kolumny w języku interfejsu. Nagłówek w pliku pozostaje nazwą pola ADIF.
+fn column_label(column: CsvColumn, lang: Language) -> &'static str {
+    let k = match column {
+        CsvColumn::Date => key::QSO_DATE,
+        CsvColumn::Time => key::QSO_TIME,
+        CsvColumn::Callsign => key::QSO_CALLSIGN,
+        CsvColumn::Band => key::QSO_BAND,
+        CsvColumn::Mode => key::QSO_MODE,
+        CsvColumn::Submode => key::CSV_COL_SUBMODE,
+        CsvColumn::Freq => key::CSV_COL_FREQ_TX,
+        CsvColumn::FreqRx => key::CSV_COL_FREQ_RX,
+        CsvColumn::RstSent => key::QSO_RST_SENT,
+        CsvColumn::RstRcvd => key::QSO_RST_RCVD,
+        CsvColumn::Name => key::QSO_NAME,
+        CsvColumn::Qth => key::QSO_QTH,
+        CsvColumn::Grid => key::QSO_LOCATOR,
+        CsvColumn::State => key::QSO_STATE,
+        CsvColumn::Iota => key::QSO_IOTA,
+        CsvColumn::SotaRef => key::QSO_SOTA,
+        CsvColumn::PotaRef => key::QSO_POTA,
+        CsvColumn::PgaRef => key::QSO_PGA,
+        CsvColumn::Dxcc => key::GEO_DXCC,
+        CsvColumn::Country => key::GEO_COUNTRY,
+        CsvColumn::Continent => key::GEO_CONTINENT,
+        CsvColumn::Cqz => key::GEO_CQ_ZONE,
+        CsvColumn::Ituz => key::GEO_ITU_ZONE,
+        CsvColumn::Comment => key::QSO_COMMENT,
+        CsvColumn::QslVia => key::QSO_QSL_VIA,
+        CsvColumn::QslSent => key::CSV_COL_QSL_SENT,
+        CsvColumn::QslRcvd => key::CSV_COL_QSL_RCVD,
+        CsvColumn::LotwQslRcvd => key::CSV_COL_LOTW_RCVD,
+        CsvColumn::EqslQslRcvd => key::CSV_COL_EQSL_RCVD,
+        CsvColumn::SatName => key::CSV_COL_SAT_NAME,
+        CsvColumn::SatMode => key::CSV_COL_SAT_MODE,
+        CsvColumn::PropMode => key::CSV_COL_PROP_MODE,
+        CsvColumn::Srx => key::CSV_COL_SRX,
+        CsvColumn::Stx => key::CSV_COL_STX,
+        CsvColumn::SrxString => key::CSV_COL_SRX_STRING,
+        CsvColumn::StxString => key::CSV_COL_STX_STRING,
+        CsvColumn::MyGrid => key::CSV_COL_MY_GRID,
+        CsvColumn::MyState => key::CSV_COL_MY_STATE,
+        CsvColumn::MyPotaRef => key::QSO_MY_POTA,
+        CsvColumn::MySotaRef => key::QSO_MY_SOTA,
+        // Nazwa własna programu dyplomowego.
+        CsvColumn::VuccGrids => return column.label(),
+    };
+    tr(k, lang)
 }

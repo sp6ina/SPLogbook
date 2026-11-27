@@ -58,7 +58,14 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
                 );
                 reload_plugins(app);
             }
-            Err(e) => app.marketplace.status = Some(e.to_string()),
+            Err(e) => {
+                app.marketplace.status = Some(
+                    Msg::new(key::MARKET_INSTALL_FAILED)
+                        .arg("id", &id)
+                        .arg("err", e)
+                        .text(app.gui.appearance.language),
+                );
+            }
         }
     }
 
@@ -211,7 +218,14 @@ pub fn render_marketplace(app: &mut SpLogApp, ctx: &egui::Context) {
                         );
                         reload_plugins(app);
                     }
-                    Err(e) => app.marketplace.status = Some(e.to_string()),
+                    Err(e) => {
+                        app.marketplace.status = Some(
+                            Msg::new(key::MARKET_UNINSTALL_FAILED)
+                                .arg("name", &entry.name)
+                                .arg("err", e)
+                                .text(lang),
+                        );
+                    }
                 }
             }
         }

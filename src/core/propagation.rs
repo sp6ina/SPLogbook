@@ -78,39 +78,25 @@ pub struct PropagationExplanation {
     pub day_factor: f64,
     /// Czytelne podsumowanie przyczyn wyniku (np. "Powyżej MUF — sygnał ucieka w kosmos").
     pub reason: String,
+    /// Rodzaj przyczyny; interfejs opisuje ją w swoim języku.
+    pub reason_kind: ForecastReason,
 }
 
-impl PropagationExplanation {
-    /// Podsumowanie przyczyn wyniku jako wieloliniowy tekst (do GUI).
-    pub fn bullet_points(&self) -> Vec<String> {
-        let mut out = Vec::new();
-        out.push(format!(
-            "Aktywność słoneczna SFI: foF2 ≈ {:.1} MHz",
-            self.fof2_mhz
-        ));
-        if self.storm_penalty < 1.0 {
-            out.push(format!(
-                "Burza geomagnetyczna (K): redukcja foF2 o {:.0}%",
-                (1.0 - self.storm_penalty) * 100.0
-            ));
-        } else {
-            out.push("Burza geomagnetyczna (K): spokojnie, brak kary".to_string());
-        }
-        out.push(if self.daylight {
-            "Oświetlenie trasy: dzień (pochłanianie warstwy D)".to_string()
-        } else {
-            "Oświetlenie trasy: noc (brak pochłaniania D)".to_string()
-        });
-        if self.absorption_db > 0.0 {
-            out.push(format!(
-                "Pochłanianie warstwy D: +{:.0} dB tłumienia",
-                self.absorption_db
-            ));
-        }
-        out.push(self.reason.clone());
-        out
-    }
+/// Przyczyna wyniku prognozy.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ForecastReason {
+    InvalidInput,
+    AboveMuf,
+    BelowLuf,
+    InWindow,
+    Edge,
+    Weak,
 }
+
+/// Nazwa mechanizmu dla tras krótszych niż zasięg fali przyziemnej.
+pub const LAYER_GROUNDWAVE: &str = "Przyziemna (Groundwave)";
+/// Nazwa mechanizmu, gdy dane wejściowe są nieprawidłowe.
+pub const LAYER_INVALID: &str = "Brak danych (nieprawidłowe wejście)";
 
 /// Zwraca przybliżoną częstotliwość środkową pasma w MHz
 pub fn band_to_center_mhz(band: &str) -> Option<f64> {
@@ -244,7 +230,7 @@ impl PropagationEngine {
             let forecast = PropagationForecast {
                 reliability_pct: 0,
                 signal_s_units: "< S1".to_string(),
-                layer: "Brak danych (nieprawidłowe wejście)".to_string(),
+                layer: LAYER_INVALID.to_string(),
                 muf_mhz: 0.0,
                 luf_mhz: 0.0,
                 fot_mhz: 0.0,
@@ -262,6 +248,7 @@ impl PropagationEngine {
                 absorption_db: 0.0,
                 day_factor: 0.0,
                 reason: "Nieprawidłowe dane wejściowe".to_string(),
+                reason_kind: ForecastReason::InvalidInput,
             };
             return (forecast, explanation);
         }
@@ -331,7 +318,7 @@ impl PropagationEngine {
 
         // 6. Mechanizm propagacji
         let (layer, path_loss_db) = if distance_km < 80.0 {
-            ("Przyziemna (Groundwave)".to_string(), 75.0)
+            (LAYER_GROUNDWAVE.to_string(), 75.0)
         } else if distance_km < 3500.0 {
             ("F2 (1-hop)".to_string(), 95.0 + distance_km * 0.008)
         } else if distance_km < 7000.0 {
@@ -402,17 +389,27 @@ impl PropagationEngine {
             BandOpeningStatus::Closed
         };
 
-        let reason = if freq_mhz > muf_mhz {
-            "Częstotliwość powyżej MUF — sygnał ucieka w kosmos".to_string()
+        let reason_kind = if freq_mhz > muf_mhz {
+            ForecastReason::AboveMuf
         } else if freq_mhz < luf_mhz {
-            "Częstotliwość poniżej LUF — silne tłumienie w warstwie D".to_string()
+            ForecastReason::BelowLuf
         } else if reliability_pct >= 60 {
-            "W oknie FOT/OWF — pasmo stabilnie otwarte".to_string()
+            ForecastReason::InWindow
         } else if reliability_pct >= 25 {
-            "Na krawędzi okna — łączność możliwa, ale niestabilna".to_string()
+            ForecastReason::Edge
         } else {
-            "Słaba niezawodność — warunki marginalne".to_string()
+            ForecastReason::Weak
         };
+        let reason = match reason_kind {
+            ForecastReason::AboveMuf => "Częstotliwość powyżej MUF — sygnał ucieka w kosmos",
+            ForecastReason::BelowLuf => "Częstotliwość poniżej LUF — silne tłumienie w warstwie D",
+            ForecastReason::InWindow => "W oknie FOT/OWF — pasmo stabilnie otwarte",
+            ForecastReason::Edge => "Na krawędzi okna — łączność możliwa, ale niestabilna",
+            ForecastReason::Weak | ForecastReason::InvalidInput => {
+                "Słaba niezawodność — warunki marginalne"
+            }
+        }
+        .to_string();
 
         let forecast = PropagationForecast {
             reliability_pct,
@@ -436,6 +433,7 @@ impl PropagationEngine {
             absorption_db: (absorption_db * 10.0).round() / 10.0,
             day_factor: (day_factor * 1000.0).round() / 1000.0,
             reason,
+            reason_kind,
         };
 
         (forecast, explanation)
@@ -666,7 +664,7 @@ mod tests {
         assert!(explanation.fof2_mhz > 0.0);
         assert!(explanation.m_factor > 1.0);
         assert_ne!(explanation.reason, "");
-        assert_ne!(explanation.bullet_points(), [] as [String; 0]);
+        assert_ne!(explanation.reason_kind, ForecastReason::InvalidInput);
         // W południe trasa transatlantycka jest oświetlona.
         assert!(explanation.daylight);
     }
@@ -678,6 +676,8 @@ mod tests {
         let (forecast, explanation) = PropagationEngine::explain(a, b, f64::NAN, 150, 2, 14.0, 100);
         assert_eq!(forecast.status, BandOpeningStatus::Closed);
         assert_eq!(explanation.reason, "Nieprawidłowe dane wejściowe");
+        assert_eq!(explanation.reason_kind, ForecastReason::InvalidInput);
+        assert_eq!(forecast.layer, LAYER_INVALID);
     }
 
     #[test]

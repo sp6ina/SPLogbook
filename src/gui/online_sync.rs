@@ -386,7 +386,7 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
                                     let len = app.config.callbook_priority.len();
                                     for (i, src) in app.config.callbook_priority.iter().enumerate() {
                                         ui.horizontal(|ui| {
-                                            ui.label(format!("{}. {}", i + 1, src.label()));
+                                            ui.label(format!("{}. {}", i + 1, callbook_source_label(*src, lang)));
                                             if i > 0 && ui.small_button("▲").clicked() {
                                                 move_up = Some(i);
                                             }
@@ -668,4 +668,17 @@ pub fn render_online_sync_window(app: &mut SpLogApp, ctx: &egui::Context) {
         is_open = false;
     }
     app.online.show_online_sync_window = is_open;
+}
+
+/// Nazwa źródła callbooka w języku interfejsu; nazwy serwisów pozostają własne.
+fn callbook_source_label(
+    source: crate::core::callbook::CallbookSource,
+    lang: crate::core::i18n::Language,
+) -> &'static str {
+    use crate::core::callbook::CallbookSource;
+    match source {
+        CallbookSource::Local => tr(key::CALLBOOK_SOURCE_LOCAL, lang),
+        CallbookSource::Cache => tr(key::CALLBOOK_SOURCE_CACHE, lang),
+        other => other.label(),
+    }
 }

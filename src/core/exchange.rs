@@ -76,17 +76,36 @@ pub struct ParsedExchange {
     pub raw: String,
 }
 
-/// Błąd parsowania wymiany z czytelnym komunikatem dla operatora.
+/// Rodzaj problemu z wymianą; interfejs buduje z niego komunikat w swoim języku.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExchangeIssue {
+    Empty,
+    Missing(ExchangeField),
+    Invalid { token: String, field: ExchangeField },
+    Extra(String),
+}
+
+/// Błąd parsowania wymiany: rodzaj problemu i opis do dziennika.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExchangeError {
+    pub issue: ExchangeIssue,
     pub message: String,
 }
 
 impl ExchangeError {
-    pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-        }
+    fn new(issue: ExchangeIssue) -> Self {
+        let message = match &issue {
+            ExchangeIssue::Empty => "Pusta wymiana — wpisz raport i wymianę".to_string(),
+            ExchangeIssue::Missing(field) => {
+                format!("Brak elementu wymiany: {}", field_label(*field))
+            }
+            ExchangeIssue::Invalid { token, field } => format!(
+                "Nieprawidłowa wartość „{token}” dla pola: {}",
+                field_label(*field)
+            ),
+            ExchangeIssue::Extra(extra) => format!("Nadmiarowe elementy wymiany: {extra}"),
+        };
+        Self { issue, message }
     }
 }
 
@@ -114,7 +133,7 @@ pub fn parse_exchange(
         });
     }
     if raw.is_empty() {
-        return Err(ExchangeError::new("Pusta wymiana — wpisz raport i wymianę"));
+        return Err(ExchangeError::new(ExchangeIssue::Empty));
     }
 
     let tokens = tokenize(&raw, fields);
@@ -129,20 +148,16 @@ pub fn parse_exchange(
             if field_is_optional(field) {
                 continue;
             }
-            return Err(ExchangeError::new(format!(
-                "Brak elementu wymiany: {}",
-                field_label(field)
-            )));
+            return Err(ExchangeError::new(ExchangeIssue::Missing(field)));
         }
         let token = &tokens[ti];
         if match_token(field, token, &mut parsed) {
             ti += 1;
         } else {
-            return Err(ExchangeError::new(format!(
-                "Nieprawidłowa wartość „{}” dla pola: {}",
-                token,
-                field_label(field)
-            )));
+            return Err(ExchangeError::new(ExchangeIssue::Invalid {
+                token: token.clone(),
+                field,
+            }));
         }
     }
 
@@ -151,10 +166,7 @@ pub fn parse_exchange(
             .iter()
             .map(std::string::String::as_str)
             .collect();
-        return Err(ExchangeError::new(format!(
-            "Nadmiarowe elementy wymiany: {}",
-            extra.join(" ")
-        )));
+        return Err(ExchangeError::new(ExchangeIssue::Extra(extra.join(" "))));
     }
 
     Ok(parsed)
@@ -304,60 +316,6 @@ fn exchange_without_rst(raw: &str, rst: Option<&str>) -> String {
         }
     }
     tokens.join(" ")
-}
-
-/// Czytelne podsumowanie sparsowanej wymiany (do podglądu w UI).
-pub fn exchange_summary(parsed: &ParsedExchange) -> String {
-    let mut parts: Vec<String> = Vec::new();
-    if let Some(v) = &parsed.rst {
-        parts.push(format!("RST {v}"));
-    }
-    if let Some(v) = parsed.serial {
-        parts.push(format!("Numer {v:03}"));
-    }
-    if let Some(v) = parsed.zone {
-        parts.push(format!("Strefa {v}"));
-    }
-    if let Some(v) = parsed.ituz {
-        parts.push(format!("ITU {v}"));
-    }
-    if let Some(v) = &parsed.grid {
-        parts.push(format!("Lokator {v}"));
-    }
-    if let Some(v) = &parsed.state {
-        parts.push(format!("Stan {v}"));
-    }
-    if let Some(v) = &parsed.power {
-        parts.push(format!("Moc {v}"));
-    }
-    if let Some(v) = parsed.age {
-        parts.push(format!("Wiek {v}"));
-    }
-    if let Some(v) = parsed.year {
-        parts.push(format!("Rok {v}"));
-    }
-    if let Some(v) = &parsed.iota {
-        parts.push(format!("IOTA {v}"));
-    }
-    if let Some(v) = &parsed.name {
-        parts.push(format!("Imię {v}"));
-    }
-    if let Some(v) = &parsed.qth {
-        parts.push(format!("QTH {v}"));
-    }
-    if let Some(v) = &parsed.time {
-        parts.push(format!("Czas {v}"));
-    }
-    if let Some(v) = &parsed.hq {
-        parts.push(format!("HQ {v}"));
-    }
-    if let Some(v) = &parsed.category {
-        parts.push(format!("Kategoria {v}"));
-    }
-    if let Some(v) = &parsed.district {
-        parts.push(format!("Okręg {v}"));
-    }
-    parts.join(" · ")
 }
 
 /// Buduje tekst nadawanej wymiany (RST + numer) dla danej reguły.
@@ -823,12 +781,20 @@ mod tests {
     fn rejects_missing_serial() {
         let err = parse_exchange(&fields_serial(), "599").unwrap_err();
         assert!(err.message.contains("numer"));
+        assert_eq!(err.issue, ExchangeIssue::Missing(ExchangeField::Serial));
     }
 
     #[test]
     fn rejects_invalid_serial() {
         let err = parse_exchange(&fields_serial(), "599 ABC").unwrap_err();
         assert!(err.message.contains("ABC"));
+        assert_eq!(
+            err.issue,
+            ExchangeIssue::Invalid {
+                token: "ABC".to_string(),
+                field: ExchangeField::Serial
+            }
+        );
     }
 
     #[test]
@@ -841,6 +807,13 @@ mod tests {
     fn rejects_zone_out_of_range() {
         let err = parse_exchange(&[ExchangeField::Rst, ExchangeField::Zone], "599 99").unwrap_err();
         assert!(err.message.contains("strefa CQ"));
+        assert!(matches!(
+            err.issue,
+            ExchangeIssue::Invalid {
+                field: ExchangeField::Zone,
+                ..
+            }
+        ));
     }
 
     #[test]

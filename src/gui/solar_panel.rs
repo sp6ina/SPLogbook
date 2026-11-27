@@ -146,7 +146,7 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
     // Pasek odświeżania danych solarnych
     ui.horizontal(|ui| {
         ui.label(
-            egui::RichText::new("NOAA / HamQTH")
+            egui::RichText::new("HamQTH")
                 .small()
                 .color(palette.text_muted),
         );
@@ -337,7 +337,7 @@ pub fn render_solar_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 "{}: {}% REL, {}\nMUF: {:.1} MHz{reach}",
                 b_name,
                 forecast.reliability_pct,
-                forecast.status.as_str(),
+                crate::gui::operator_assistant::band_status_label(forecast.status, lang),
                 forecast.muf_mhz
             ));
         }

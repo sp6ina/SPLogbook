@@ -6,7 +6,8 @@ use crate::core::contest_stats::{
     MultKind, MultMatrix, RateStats, compute_mult_matrix, compute_rate,
 };
 use crate::core::exchange::{
-    ExchangeField, apply_to_qso, exchange_summary, fields_from_format_string, parse_exchange,
+    ExchangeField, ExchangeIssue, ParsedExchange, apply_to_qso, fields_from_format_string,
+    parse_exchange,
 };
 use crate::core::i18n::{Msg, key, tr};
 use crate::core::ingest::{IngestError, QsoOrigin};
@@ -175,7 +176,7 @@ pub fn render_contest_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
         .as_ref()
         .map(|f| {
             f.iter()
-                .map(|e| e.label().to_string())
+                .map(|e| exchange_field_label(*e, lang).to_string())
                 .collect::<Vec<_>>()
                 .join(" + ")
         })
@@ -570,13 +571,17 @@ pub fn render_contest_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                 match parse_exchange(fields, &app.entry.exchange) {
                     Ok(parsed) => {
                         ui.label(
-                            egui::RichText::new(format!("✓ {}", exchange_summary(&parsed)))
+                            egui::RichText::new(format!("✓ {}", exchange_summary(&parsed, lang)))
                                 .color(palette.success),
                         );
                     }
                     Err(e) => {
                         ui.label(
-                            egui::RichText::new(format!("⚠ {}", e.message)).color(palette.danger),
+                            egui::RichText::new(format!(
+                                "⚠ {}",
+                                exchange_issue_text(&e.issue, lang)
+                            ))
+                            .color(palette.danger),
                         );
                     }
                 }
@@ -736,7 +741,7 @@ pub fn render_contest_body(app: &mut SpLogApp, ui: &mut egui::Ui) {
                         app.gui.chrome.push_status_toast(
                             crate::gui::state::ToastSeverity::Error,
                             Msg::new(key::CONTEST_EXCHANGE_ERROR)
-                                .arg("err", &e.message)
+                                .arg("err", exchange_issue_text(&e.issue, lang))
                                 .text(lang),
                         );
                     }
@@ -1103,4 +1108,141 @@ fn render_mult_matrix(ui: &mut egui::Ui, matrix: &MultMatrix, lang: crate::core:
                 }
             });
     });
+}
+
+/// Nazwa pola wymiany w języku interfejsu.
+fn exchange_field_label(field: ExchangeField, lang: crate::core::i18n::Language) -> &'static str {
+    let k = match field {
+        ExchangeField::Rst => return "RST",
+        ExchangeField::Serial => key::EXCHANGE_FIELD_SERIAL,
+        ExchangeField::Zone => key::EXCHANGE_FIELD_ZONE,
+        ExchangeField::ZoneOrHq => key::EXCHANGE_FIELD_ZONE_OR_HQ,
+        ExchangeField::StateOrPower => key::EXCHANGE_FIELD_STATE_OR_POWER,
+        ExchangeField::ItuZone => key::EXCHANGE_FIELD_ITU_ZONE,
+        ExchangeField::Grid => key::EXCHANGE_FIELD_GRID,
+        ExchangeField::State => key::EXCHANGE_FIELD_STATE,
+        ExchangeField::Power => key::EXCHANGE_FIELD_POWER,
+        ExchangeField::Age => key::EXCHANGE_FIELD_AGE,
+        ExchangeField::Year => key::EXCHANGE_FIELD_YEAR,
+        ExchangeField::Iota => key::EXCHANGE_FIELD_IOTA,
+        ExchangeField::Name => key::EXCHANGE_FIELD_NAME,
+        ExchangeField::Qth => key::EXCHANGE_FIELD_QTH,
+        ExchangeField::Time => key::EXCHANGE_FIELD_TIME,
+        ExchangeField::Hq => key::EXCHANGE_FIELD_HQ,
+        ExchangeField::Category => key::EXCHANGE_FIELD_CATEGORY,
+        ExchangeField::District => key::EXCHANGE_FIELD_DISTRICT,
+    };
+    tr(k, lang)
+}
+
+/// Komunikat o błędnej wymianie w języku interfejsu.
+fn exchange_issue_text(issue: &ExchangeIssue, lang: crate::core::i18n::Language) -> String {
+    match issue {
+        ExchangeIssue::Empty => tr(key::EXCHANGE_ISSUE_EMPTY, lang).to_string(),
+        ExchangeIssue::Missing(field) => Msg::new(key::EXCHANGE_ISSUE_MISSING)
+            .arg("field", exchange_field_label(*field, lang))
+            .text(lang),
+        ExchangeIssue::Invalid { token, field } => Msg::new(key::EXCHANGE_ISSUE_INVALID)
+            .arg("token", token)
+            .arg("field", exchange_field_label(*field, lang))
+            .text(lang),
+        ExchangeIssue::Extra(extra) => Msg::new(key::EXCHANGE_ISSUE_EXTRA)
+            .arg("extra", extra)
+            .text(lang),
+    }
+}
+
+/// Podgląd odebranej wymiany w języku interfejsu.
+fn exchange_summary(parsed: &ParsedExchange, lang: crate::core::i18n::Language) -> String {
+    let part = |k, value: String| Msg::new(k).arg("v", value).text(lang);
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(v) = &parsed.rst {
+        parts.push(format!("RST {v}"));
+    }
+    if let Some(v) = parsed.serial {
+        parts.push(part(key::EXCHANGE_SUM_SERIAL, format!("{v:03}")));
+    }
+    if let Some(v) = parsed.zone {
+        parts.push(part(key::EXCHANGE_SUM_ZONE, v.to_string()));
+    }
+    if let Some(v) = parsed.ituz {
+        parts.push(format!("ITU {v}"));
+    }
+    if let Some(v) = &parsed.grid {
+        parts.push(part(key::EXCHANGE_SUM_GRID, v.clone()));
+    }
+    if let Some(v) = &parsed.state {
+        parts.push(part(key::EXCHANGE_SUM_STATE, v.clone()));
+    }
+    if let Some(v) = &parsed.power {
+        parts.push(part(key::EXCHANGE_SUM_POWER, v.clone()));
+    }
+    if let Some(v) = parsed.age {
+        parts.push(part(key::EXCHANGE_SUM_AGE, v.to_string()));
+    }
+    if let Some(v) = parsed.year {
+        parts.push(part(key::EXCHANGE_SUM_YEAR, v.to_string()));
+    }
+    if let Some(v) = &parsed.iota {
+        parts.push(format!("IOTA {v}"));
+    }
+    if let Some(v) = &parsed.name {
+        parts.push(part(key::EXCHANGE_SUM_NAME, v.clone()));
+    }
+    if let Some(v) = &parsed.qth {
+        parts.push(format!("QTH {v}"));
+    }
+    if let Some(v) = &parsed.time {
+        parts.push(part(key::EXCHANGE_SUM_TIME, v.clone()));
+    }
+    if let Some(v) = &parsed.hq {
+        parts.push(format!("HQ {v}"));
+    }
+    if let Some(v) = &parsed.category {
+        parts.push(part(key::EXCHANGE_SUM_CATEGORY, v.clone()));
+    }
+    if let Some(v) = &parsed.district {
+        parts.push(part(key::EXCHANGE_SUM_DISTRICT, v.clone()));
+    }
+    parts.join(" · ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::i18n::Language;
+
+    #[test]
+    fn exchange_preview_and_errors_follow_the_interface_language() {
+        let fields = [
+            ExchangeField::Rst,
+            ExchangeField::Serial,
+            ExchangeField::Zone,
+        ];
+        let parsed = parse_exchange(&fields, "599 7 15").unwrap();
+        assert_eq!(
+            exchange_summary(&parsed, Language::En),
+            "RST 599 · No. 007 · CQ zone 15"
+        );
+        assert_eq!(
+            exchange_summary(&parsed, Language::Pl),
+            "RST 599 · Numer 007 · Strefa 15"
+        );
+
+        let missing = parse_exchange(&fields, "599 7").unwrap_err();
+        assert_eq!(
+            exchange_issue_text(&missing.issue, Language::En),
+            "Missing exchange element: CQ zone"
+        );
+        let invalid = parse_exchange(&fields, "599 ABC 15").unwrap_err();
+        assert_eq!(
+            exchange_issue_text(&invalid.issue, Language::De),
+            "Ungültiger Wert „ABC“ für: Seriennummer"
+        );
+        // Polski komunikat interfejsu jest taki sam jak opis w dzienniku.
+        assert_eq!(
+            exchange_issue_text(&invalid.issue, Language::Pl),
+            invalid.message
+        );
+    }
 }
